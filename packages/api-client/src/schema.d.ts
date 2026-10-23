@@ -2182,6 +2182,11 @@ export interface operations {
                 "multipart/form-data": {
                     /** Format: binary */
                     image: string;
+                    /**
+                     * Format: uuid
+                     * @description Optional owning store. Unknown store returns 400. Replaced by the token's store once auth lands.
+                     */
+                    store_id?: string;
                     purpose?: components["schemas"]["ImagePurpose"];
                 };
             };

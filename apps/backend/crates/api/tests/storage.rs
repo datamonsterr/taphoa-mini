@@ -41,7 +41,7 @@ async fn real_upload_reference_and_presigned_download() {
         .unwrap();
     assert_eq!(readiness.status(), StatusCode::OK);
     let fixture = include_bytes!("../../../tests/fixtures/sample.png");
-    let mut body = b"--test\r\nContent-Disposition: form-data; name=\"image\"; filename=\"sample.png\"\r\nContent-Type: image/png\r\n\r\n".to_vec();
+    let mut body = b"--test\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nenrollment\r\n--test\r\nContent-Disposition: form-data; name=\"image\"; filename=\"sample.png\"\r\nContent-Type: image/png\r\n\r\n".to_vec();
     body.extend_from_slice(fixture);
     body.extend_from_slice(b"\r\n--test--\r\n");
     let response = app
@@ -59,8 +59,8 @@ async fn real_upload_reference_and_presigned_download() {
         serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
     let id: Uuid = uploaded["id"].as_str().unwrap().parse().unwrap();
     let key = uploaded["object_key"].as_str().unwrap();
-    let row: (i64, String, String, Option<Uuid>) = sqlx::query_as(
-        "SELECT byte_size, object_key, content_type, store_id FROM images WHERE id=$1",
+    let row: (i64, String, String, Option<Uuid>, String) = sqlx::query_as(
+        "SELECT byte_size, object_key, content_type, store_id, purpose FROM images WHERE id=$1",
     )
     .bind(id)
     .fetch_one(&pool)
@@ -68,7 +68,13 @@ async fn real_upload_reference_and_presigned_download() {
     .unwrap();
     assert_eq!(
         row,
-        (fixture.len() as i64, key.into(), "image/png".into(), None)
+        (
+            fixture.len() as i64,
+            key.into(),
+            "image/png".into(),
+            None,
+            "enrollment".into()
+        )
     );
     let response = app
         .clone()
@@ -91,6 +97,7 @@ async fn real_upload_reference_and_presigned_download() {
         .await
         .unwrap();
     assert_eq!(&downloaded[..], fixture);
+    assert_eq!(fetched["purpose"], json!("enrollment"));
 
     // Exercise the API's real FK failure and object compensation.
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM images")

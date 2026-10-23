@@ -19,7 +19,10 @@ pub struct ImageRow {
     pub object_key: String,
     pub content_type: String,
     pub byte_size: i64,
+    pub purpose: String,
 }
+// Mirrors the OpenAPI ImagePurpose enum; the database also allows internal `crop`.
+const PURPOSES: [&str; 4] = ["enrollment", "checkout", "expense_receipt", "other"];
 #[async_trait]
 pub trait ImageRepository: Send + Sync {
     async fn insert(&self, row: &ImageRow, store_id: Option<Uuid>) -> Result<(), sqlx::Error>;
@@ -29,16 +32,18 @@ pub struct PgImageRepository(pub PgPool);
 #[async_trait]
 impl ImageRepository for PgImageRepository {
     async fn insert(&self, row: &ImageRow, store_id: Option<Uuid>) -> Result<(), sqlx::Error> {
-        sqlx::query("INSERT INTO images (id, store_id, object_key, content_type, byte_size) VALUES ($1,$2,$3,$4,$5)")
-            .bind(row.id).bind(store_id).bind(&row.object_key).bind(&row.content_type).bind(row.byte_size)
+        sqlx::query("INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(row.id).bind(store_id).bind(&row.object_key).bind(&row.content_type).bind(row.byte_size).bind(&row.purpose)
             .execute(&self.0).await?;
         Ok(())
     }
     async fn get(&self, id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
-        sqlx::query_as("SELECT id, object_key, content_type, byte_size FROM images WHERE id=$1")
-            .bind(id)
-            .fetch_optional(&self.0)
-            .await
+        sqlx::query_as(
+            "SELECT id, object_key, content_type, byte_size, purpose FROM images WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&self.0)
+        .await
     }
 }
 #[derive(Serialize)]
@@ -47,13 +52,14 @@ pub struct ImageResponse {
     object_key: String,
     content_type: String,
     byte_size: i64,
+    purpose: String,
     url: String,
     url_expires_at: chrono::DateTime<Utc>,
 }
 fn bad_input() -> ApiError {
     ApiError(
         StatusCode::BAD_REQUEST,
-        "expected one image and optional store_id UUID",
+        "expected one image, optional store_id UUID and optional purpose",
     )
 }
 fn storage_error(error: anyhow::Error) -> ApiError {
@@ -102,6 +108,7 @@ async fn response(state: &AppState, row: ImageRow) -> Result<Json<ImageResponse>
         object_key: row.object_key,
         content_type: row.content_type,
         byte_size: row.byte_size,
+        purpose: row.purpose,
         url: signed.url,
         url_expires_at: signed.expires_at,
     }))
@@ -114,6 +121,7 @@ pub(crate) async fn upload(
     let mut multipart = multipart.map_err(|_| bad_input())?;
     let mut image = None;
     let mut store_id = None;
+    let mut purpose = None;
     while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
         match field.name() {
             Some("image") if image.is_none() => {
@@ -147,6 +155,20 @@ pub(crate) async fn upload(
                         .map_err(|_| bad_input())?,
                 );
             }
+            Some("purpose") if purpose.is_none() => {
+                let mut bytes = Vec::new();
+                while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+                    if bytes.len() + chunk.len() > 32 {
+                        return Err(bad_input());
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                let value = std::str::from_utf8(&bytes).map_err(|_| bad_input())?;
+                if !PURPOSES.contains(&value) {
+                    return Err(bad_input());
+                }
+                purpose = Some(value.to_owned());
+            }
             _ => return Err(bad_input()),
         }
     }
@@ -158,6 +180,7 @@ pub(crate) async fn upload(
         object_key: format!("images/{}/{id}.{extension}", Utc::now().format("%Y/%m")),
         content_type: content_type.into(),
         byte_size: bytes.len() as i64,
+        purpose: purpose.unwrap_or_else(|| "other".into()),
     };
     storage
         .put(&row.object_key, content_type, bytes)

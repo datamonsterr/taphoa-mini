@@ -87,6 +87,7 @@ async fn upload_and_get_presign_fresh_urls_and_store_only_metadata() {
             .oneshot(multipart(&[
                 ("image", bytes),
                 ("store_id", store_id.as_bytes()),
+                ("purpose", b"checkout"),
             ]))
             .await
             .unwrap();
@@ -94,7 +95,8 @@ async fn upload_and_get_presign_fresh_urls_and_store_only_metadata() {
         let uploaded = json(response).await;
         assert_eq!(uploaded["content_type"], mime); // Ignore caller's misleading Content-Type.
         assert_eq!(uploaded["byte_size"], bytes.len());
-        assert_eq!(uploaded.as_object().unwrap().len(), 6);
+        assert_eq!(uploaded.as_object().unwrap().len(), 7);
+        assert_eq!(uploaded["purpose"], "checkout");
         let id: Uuid = uploaded["id"].as_str().unwrap().parse().unwrap();
         let key = uploaded["object_key"].as_str().unwrap();
         assert_eq!(
@@ -123,6 +125,7 @@ async fn upload_and_get_presign_fresh_urls_and_store_only_metadata() {
         assert_eq!(response.status(), StatusCode::OK);
         let fetched = json(response).await;
         assert_eq!(fetched["object_key"], key);
+        assert_eq!(fetched["purpose"], "checkout");
         assert_ne!(fetched["url"], uploaded["url"]);
     }
 }
@@ -137,6 +140,10 @@ async fn invalid_multipart_uuid_fields_empty_and_unsupported_images() {
         vec![("image", PNG), ("image", PNG)],
         vec![("image", PNG), ("store_id", b"nope".as_slice())],
         vec![("image", PNG), ("store_id", b"".as_slice())],
+        vec![("image", PNG), ("purpose", b"bogus".as_slice())],
+        vec![("image", PNG), ("purpose", b"crop".as_slice())],
+        vec![("image", PNG), ("purpose", b"".as_slice())],
+        vec![("image", PNG), ("purpose", b"other"), ("purpose", b"other")],
     ] {
         assert_eq!(
             app.clone()
@@ -284,4 +291,14 @@ async fn storage_failures_are_502_and_readiness_names_storage() {
             .unwrap()
             .contains(&serde_json::json!("storage"))
     );
+}
+#[tokio::test]
+async fn purpose_defaults_to_other() {
+    let (state, _, _) = setup();
+    let response = router(state)
+        .oneshot(multipart(&[("image", PNG)]))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(json(response).await["purpose"], "other");
 }

@@ -449,6 +449,10 @@ paths:
               required: [image]
               properties:
                 image: { type: string, format: binary }
+                store_id:
+                  type: string
+                  format: uuid
+                  description: Optional owning store. Unknown store returns 400. Replaced by the token's store once auth lands.
                 purpose: { $ref: '#/components/schemas/ImagePurpose' }
             encoding:
               image:
