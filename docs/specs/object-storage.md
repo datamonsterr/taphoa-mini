@@ -14,7 +14,7 @@ is kept for phase 2 training.
 | Area                | Decision                                                                                                                                                                                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Production storage  | Railway Bucket `images` (S3-compatible, private), region `sin` (closest to Vietnam). Declared in `.railway/railway.ts`.                                                                                                                                |
-| Local / CI storage  | RustFS container (`rustfs/rustfs`, pinned tag) in `docker-compose.yml`. MinIO is not used: its repository is archived.                                                                                                                                 |
+| Local / CI storage  | RustFS container (`rustfs/rustfs:1.0.3`, pinned release tag) in `docker-compose.yml`. MinIO is not used: its repository is archived.                                                                                                                   |
 | Rust client         | `aws-sdk-s3` with `aws-config`; custom endpoint; path-style flag; presigned GET URLs.                                                                                                                                                                  |
 | What Postgres keeps | `images` row: `id`, `store_id` (nullable FK), `object_key`, `content_type`, `byte_size`, `created_at`. The object key is the stable pointer. URLs are not stored, because the bucket is private and presigned URLs expire; the API signs one per read. |
 | Object key format   | `images/{yyyy}/{mm}/{uuid}.{ext}`, where `uuid` is the row id.                                                                                                                                                                                         |
@@ -23,20 +23,33 @@ is kept for phase 2 training.
 
 Names follow Railway's bucket credential variables.
 
-| Variable                | Meaning                                                                 |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `AWS_ENDPOINT_URL`      | S3 endpoint (Railway bucket endpoint, or `http://storage:9000` locally) |
-| `AWS_ACCESS_KEY_ID`     | Access key                                                              |
-| `AWS_SECRET_ACCESS_KEY` | Secret key                                                              |
-| `AWS_S3_BUCKET_NAME`    | Bucket name                                                             |
-| `AWS_DEFAULT_REGION`    | Region string passed to the SDK                                         |
-| `S3_FORCE_PATH_STYLE`   | `true` locally; Railway value follows its `urlStyle` credential field   |
-| `S3_CREATE_BUCKET`      | `true` only for local/CI: create the bucket at startup if missing       |
-| `IMAGE_URL_TTL_SECONDS` | Presigned GET lifetime, default 900                                     |
+| Variable                 | Meaning                                                                                                                                                                    |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_ENDPOINT_URL`       | S3 endpoint (Railway bucket endpoint, or `http://storage:9000` locally)                                                                                                    |
+| `AWS_ACCESS_KEY_ID`      | Access key                                                                                                                                                                 |
+| `AWS_SECRET_ACCESS_KEY`  | Secret key                                                                                                                                                                 |
+| `AWS_S3_BUCKET_NAME`     | Bucket name                                                                                                                                                                |
+| `AWS_DEFAULT_REGION`     | Region string passed to the SDK                                                                                                                                            |
+| `S3_PUBLIC_ENDPOINT_URL` | Optional endpoint used only for presigning; defaults to `AWS_ENDPOINT_URL`. Compose uses `http://localhost:9000` so host clients can download. Must reach the same bucket. |
+| `S3_FORCE_PATH_STYLE`    | `true` locally; Railway value follows its `urlStyle` credential field                                                                                                      |
+| `S3_CREATE_BUCKET`       | `true` only for local/CI: create the bucket at startup if missing                                                                                                          |
+| `IMAGE_URL_TTL_SECONDS`  | Presigned GET lifetime, default 900                                                                                                                                        |
 
 Storage is optional at startup like the SAM model: when the `AWS_*` set is absent, image
 routes return 503 and `/readyz` reports storage as not configured. A partially set
-`AWS_*` group is a startup error.
+`AWS_*` group is a startup error (all five values must be nonempty).
+When storage is absent, readiness is unaffected and JSON includes
+`"storage":"not configured"`. When configured, `HeadBucket` failure returns 503
+with `storage` in `dependencies` and `"storage":"unavailable"`; success reports
+`"storage":"ok"`. `S3_FORCE_PATH_STYLE` and `S3_CREATE_BUCKET` default to false.
+`IMAGE_URL_TTL_SECONDS` must be 1–604800 seconds (S3 maximum).
+
+The image limit counts image bytes, with an additional 64 KiB maximum allowance
+for multipart framing. Empty, duplicate or unexpected fields are bad input. An
+unknown `store_id` returns 400 and deletes the uploaded object. Reference database
+failures return 500 and attempt the same cleanup. URL expiry is an RFC 3339 UTC
+timestamp. MIME type and extension come from the signature, not the filename or
+caller-supplied MIME header.
 
 ## API
 
@@ -60,3 +73,17 @@ Errors: 400 bad multipart / missing field / bad uuid, 413 too large, 415 unsuppo
 
 - Mobile upload UI. Linking images to products or sales. Thumbnails, resizing, lifecycle
   rules, deletion API. Persisting `/v1/segment` input photos (next step).
+
+## Local endpoints
+
+RustFS listens on S3 port 9000. Compose binds `${STORAGE_PORT:-9000}` to
+127.0.0.1 and persists objects in `storage_data`; its healthcheck uses `/health`.
+The backend sends objects to `http://storage:9000` and signs URLs using
+`S3_PUBLIC_ENDPOINT_URL` (default `http://localhost:${STORAGE_PORT:-9000}`).
+If you change the host port in `.env`, update an explicitly set public endpoint too.
+For physical devices, choose a reachable endpoint and an appropriate network
+exposure explicitly. Host integration tests use `AWS_ENDPOINT_URL=http://localhost:9000`.
+
+Verified against [RustFS 1.0.3](https://github.com/rustfs/rustfs/releases/tag/1.0.3)
+and its [Docker installation guide](https://docs.rustfs.com/en/installation/container/docker).
+The client uses the [aws-sdk-s3 presigning API](https://docs.rs/aws-sdk-s3/latest/aws_sdk_s3/operation/get_object/builders/struct.GetObjectFluentBuilder.html#method.presigned).

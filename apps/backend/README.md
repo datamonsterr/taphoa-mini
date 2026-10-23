@@ -15,7 +15,7 @@ set -a; . ./.env; set +a
 cargo run --bin taphoa-api
 ```
 
-Use Postgres 17 with pgvector and Redis 7. `DATABASE_URL` and `REDIS_URL` configure
+Use Postgres with pgvector and Redis 7. `DATABASE_URL` and `REDIS_URL` configure
 connections. The API runs embedded SQLx migrations before serving when Postgres is
 configured; a configured but unreachable service fails startup. If URLs are omitted,
 the process starts with readiness reporting the missing dependencies. `stores` has
@@ -28,17 +28,19 @@ or missing runtime with existing models fails startup. `RUST_LOG` controls traci
 requests and closes the Postgres pool. Configuration is environment-only; the binary
 does not automatically read `.env`.
 
-| Endpoint           | Result                                                                                             |
-| ------------------ | -------------------------------------------------------------------------------------------------- |
-| `GET /healthz`     | 200 `{"status":"ok"}`, without dependency checks                                                   |
-| `GET /readyz`      | 200 after `SELECT 1` and Redis `PING`; otherwise 503 with `dependencies` naming `postgres`/`redis` |
-| `POST /v1/segment` | multipart field `image`; JSON array of `{bbox:[x,y,w,h],score,area}`; 503 without a model          |
+| Endpoint              | Result                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `GET /healthz`        | 200 `{"status":"ok"}`, without dependency checks                                                                        |
+| `GET /readyz`         | 200 after `SELECT 1` and Redis `PING`; otherwise 503 with `dependencies` naming `postgres`/`redis`/configured `storage` |
+| `POST /v1/images`     | multipart `image`, optional `store_id`; stores JPEG/PNG/WebP; 201 with reference metadata and a presigned URL           |
+| `GET /v1/images/{id}` | 200 metadata with a fresh presigned URL; 404 unknown                                                                    |
+| `POST /v1/segment`    | multipart field `image`; JSON array of `{bbox:[x,y,w,h],score,area}`; 503 without a model                               |
 
 ```sh
 curl -F image=@tests/fixtures/sample.png http://localhost:8080/v1/segment
 ```
 
-Uploads are limited to 10 MiB including multipart framing. SAM decodes PNG/JPEG
+Segmentation uploads are limited to 10 MiB including multipart framing. SAM decodes PNG/JPEG
 with dimensions capped at 4096 by 4096 and bounded decoder allocations. Bad images,
 missing/duplicate/unexpected fields return 400; oversized uploads return 413. One
 inference runs at a time on `spawn_blocking`; excess requests return 503. CORS is
@@ -75,9 +77,11 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo check --all-targets
 cargo test
-# Explicitly run the ignored integration test; absent URLs print a skip message.
-DATABASE_URL=postgres://taphoa:taphoa@localhost:5432/taphoa \
-REDIS_URL=redis://localhost:6379 cargo test -p taphoa-api --test readiness -- --ignored --nocapture
+# Explicitly run ignored integration tests; missing configuration prints a skip message.
+# Start local services from root: docker compose up -d --wait postgres redis storage
+# Export DATABASE_URL, REDIS_URL and all five AWS_* variables from .env.example.
+DATABASE_URL=postgres://taphoa:taphoa@localhost:55432/taphoa \
+REDIS_URL=redis://localhost:56379 cargo test -p taphoa-api --test readiness --test storage -- --ignored --nocapture
 # Runs encoder + all 64 decoder prompts when model files exist; prints SKIP otherwise.
 cargo test -p taphoa-recognition --test model -- --nocapture
 BASE_URL=http://localhost:8080 ./scripts/e2e.sh
@@ -85,8 +89,10 @@ BASE_URL=http://localhost:8080 ./scripts/e2e.sh
 
 `package.json` exposes `lint`, `format`, `format:check`, `typecheck`, `test`,
 `test:integration`, `test:e2e`, and `build` for root Turborepo commands. The HTTP smoke
-script expects 200 on all three routes by default; set `EXPECT_SEGMENT_STATUS=503` (legacy `SEGMENT_EXPECTED_STATUS` also works)
-only when intentionally testing a model-free image. Missing readiness fails the smoke.
+script checks health/readiness, segmentation and image upload/metadata/download by default; set `EXPECT_SEGMENT_STATUS=503` (legacy `SEGMENT_EXPECTED_STATUS` also works)
+only when intentionally testing a model-free image. Set `EXPECT_IMAGES=0` only for
+intentional storage-less smoke runs; CI always tests image upload/download. Python 3,
+curl and cmp are required by the smoke script. Missing readiness fails the smoke.
 
 Build **from repository root**, with the Dockerfile-specific ignore file keeping the
 context limited to backend source:
@@ -112,3 +118,36 @@ the repository root.
 The deployment healthcheck proves process health; `/readyz` separately proves dependencies.
 
 Project layout, operator CLI commands and production CI setup: [deployment guide](../../docs/deploy.md).
+
+## Private image storage
+
+See the [object storage contract](../../docs/specs/object-storage.md) for every
+configuration variable and response field. Postgres stores `images` metadata and
+object keys; it stores neither bytes nor URLs. JPEG, PNG and WebP signatures are
+detected from bytes. Images may contain up to 10 MiB, plus a bounded 64 KiB allowance
+for multipart framing. Unknown fields, duplicates, missing/empty images and invalid
+UUIDs return 400; unsupported signatures return 415; oversize returns 413. Upload
+happens before insertion; an insertion failure triggers object deletion. Storage
+failures return 502. GET returns a newly signed URL valid for 900 seconds by default.
+
+Omit all five `AWS_*` values to disable storage (image routes return 503); a partial
+or empty group fails startup. `/readyz` shows `storage: "not configured"` without
+changing readiness when disabled. Configured storage is checked with `HeadBucket`;
+a failure returns 503 naming `storage`. Boolean flags default to false. Enable
+`S3_CREATE_BUCKET` only locally or in CI; production buckets are provisioned separately.
+
+Compose runs RustFS 1.0.3 with a persistent named volume and a loopback-only S3 port
+(default 9000). The backend uses `AWS_ENDPOINT_URL=http://storage:9000` internally.
+`S3_PUBLIC_ENDPOINT_URL=http://localhost:9000` is used only for presigning so the
+host-side e2e download works; it must point to the same bucket. If changing
+`STORAGE_PORT`, update an explicitly configured public endpoint as well.
+
+```sh
+curl -F image=@tests/fixtures/sample.png http://localhost:8080/v1/images
+curl http://localhost:8080/v1/images/<id>
+# Download the returned url before url_expires_at; keep its query string intact.
+```
+
+Production credentials stay in Railway variables; follow the bucket section of the
+[deployment guide](../../docs/deploy.md). No deletion API or automatic storage of
+segmentation input is included.

@@ -1,6 +1,9 @@
 use anyhow::{Context, bail};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
-use taphoa_api::{AppState, router};
+use taphoa_api::{
+    AppState, router,
+    storage::{S3Store, StorageConfig},
+};
 use taphoa_recognition::{SamOptions, SamSegmenter, Segmenter};
 use tracing_subscriber::EnvFilter;
 
@@ -54,12 +57,21 @@ async fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
     let config = Config::from_env()?;
-    let state = AppState::connect(
+    let storage_config = StorageConfig::from_env()?;
+    let mut state = AppState::connect(
         config.database_url.as_deref(),
         config.redis_url.as_deref(),
         config.segmenter()?,
     )
     .await?;
+    if let Some(config) = storage_config {
+        let storage = S3Store::new(&config).await;
+        if config.create_bucket {
+            storage.ensure_bucket().await?;
+        }
+        state.image_url_ttl = config.url_ttl;
+        state.storage = Some(Arc::new(storage));
+    }
     let pool = state.postgres.clone();
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;

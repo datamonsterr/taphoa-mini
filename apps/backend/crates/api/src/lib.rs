@@ -1,3 +1,6 @@
+pub mod images;
+pub mod storage;
+
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Multipart, State, multipart::MultipartError},
@@ -21,6 +24,9 @@ pub struct AppState {
     pub postgres: Option<PgPool>,
     pub redis: Option<ConnectionManager>,
     pub segmenter: Option<Arc<dyn Segmenter>>,
+    pub storage: Option<Arc<dyn storage::ObjectStore>>,
+    pub image_repository: Option<Arc<dyn images::ImageRepository>>,
+    pub image_url_ttl: Duration,
     // Serialize inference and reject excess work before copying/decompressing images.
     pub inference_slots: Arc<Semaphore>,
 }
@@ -30,6 +36,9 @@ impl Default for AppState {
             postgres: None,
             redis: None,
             segmenter: None,
+            storage: None,
+            image_repository: None,
+            image_url_ttl: Duration::from_secs(900),
             inference_slots: Arc::new(Semaphore::new(1)),
         }
     }
@@ -60,7 +69,11 @@ impl AppState {
         } else {
             None
         };
+        let image_repository = postgres.clone().map(|pool| {
+            Arc::new(images::PgImageRepository(pool)) as Arc<dyn images::ImageRepository>
+        });
         Ok(Self {
+            image_repository,
             postgres,
             redis,
             segmenter,
@@ -73,9 +86,21 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .route("/v1/segment", post(segment))
-        .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
-        .layer(RequestBodyLimitLayer::new(MAX_UPLOAD_BYTES))
+        .route(
+            "/v1/segment",
+            post(segment)
+                .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
+                .layer(RequestBodyLimitLayer::new(MAX_UPLOAD_BYTES)),
+        )
+        .route(
+            "/v1/images",
+            post(images::upload)
+                .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(
+                    images::MAX_IMAGE_REQUEST_BYTES,
+                ))
+                .layer(RequestBodyLimitLayer::new(images::MAX_IMAGE_REQUEST_BYTES)),
+        )
+        .route("/v1/images/{id}", get(images::get_image))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -108,7 +133,23 @@ async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
             false
         }
     };
-    let (postgres, redis) = tokio::join!(postgres, redis);
+    let storage = async {
+        match &state.storage {
+            Some(storage) => matches!(
+                tokio::time::timeout(Duration::from_secs(2), storage.head_bucket()).await,
+                Ok(Ok(()))
+            ),
+            None => true,
+        }
+    };
+    let (postgres, redis, storage) = tokio::join!(postgres, redis, storage);
+    let storage_status = if state.storage.is_none() {
+        "not configured"
+    } else if storage {
+        "ok"
+    } else {
+        "unavailable"
+    };
     let mut failed = Vec::new();
     if !postgres {
         failed.push("postgres");
@@ -116,12 +157,18 @@ async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     if !redis {
         failed.push("redis");
     }
+    if !storage {
+        failed.push("storage");
+    }
     if failed.is_empty() {
-        (StatusCode::OK, Json(json!({"status":"ok"})))
+        (
+            StatusCode::OK,
+            Json(json!({"status":"ok", "storage":storage_status})),
+        )
     } else {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"status":"unavailable", "dependencies":failed})),
+            Json(json!({"status":"unavailable", "dependencies":failed, "storage":storage_status})),
         )
     }
 }

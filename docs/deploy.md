@@ -75,6 +75,41 @@ cache mounts. Railway requires mount IDs prefixed `s/<service-id>-` and does not
 allow environment interpolation in those IDs. Ordinary layers work without
 service-specific Dockerfile edits.
 
+## Image bucket credentials
+
+The private Railway Bucket `images` is S3-compatible and uses region `sin`.
+Provisioning remains in `.railway/railway.ts`. Obtain credentials through the CLI
+in a trusted terminal; never paste them into repository files, logs, issues or PRs:
+
+```sh
+railway bucket credentials --bucket images --json
+```
+
+Use the returned endpoint, access key, secret key, bucket name and region as the
+five backend storage variables. `S3_FORCE_PATH_STYLE` follows the credential
+`urlStyle`: true for path style, false for virtual-hosted style. Substitute values
+securely in the terminal (placeholders below are documentation only):
+
+```sh
+railway variable set --service backend \
+  AWS_ENDPOINT_URL="<endpoint>" \
+  AWS_ACCESS_KEY_ID="<access-key>" \
+  AWS_SECRET_ACCESS_KEY="<secret-key>" \
+  AWS_S3_BUCKET_NAME="<bucket-name>" \
+  AWS_DEFAULT_REGION="<region>" \
+  S3_FORCE_PATH_STYLE="<true-or-false-from-urlStyle>" \
+  S3_CREATE_BUCKET=false IMAGE_URL_TTL_SECONDS=900 --skip-deploys
+```
+
+`--skip-deploys` stages variables without launching a deployment. Deploy separately
+using the verified CI flow. Omit `S3_PUBLIC_ENDPOINT_URL` in production unless
+clients need a different endpoint for the same bucket; Compose alone needs it to
+replace the internal service hostname when signing. All five `AWS_*` values must
+be set together and nonempty. Missing storage leaves image routes at 503 while
+readiness reports `storage: "not configured"`; configured bucket access failures
+make readiness fail. After deployment, upload with `POST /v1/images`, fetch
+`GET /v1/images/{id}`, and download the returned URL to verify the same bytes.
+
 ## GitHub production deployment
 
 Configure the GitHub **production** environment and add its secret `RAILWAY_TOKEN`
