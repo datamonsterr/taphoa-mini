@@ -142,22 +142,26 @@ Commits, for example `chore: configure local stack`. Pre-push runs root lint,
 and [commitlint](https://commitlint.js.org/guides/local-setup.html).
 
 GitHub CI runs on pull requests and pushes to `main` (new runs cancel older ones on
-the same ref). Jobs:
+the same ref). `changes` (paths-filter) skips unaffected areas; many small jobs run in
+parallel, each writing a job summary and uploading JUnit/logs artifacts on failure:
 
-- `js`: Node from `.nvmrc`, `pnpm install --frozen-lockfile`, `format:check`, root
-  `lint` and `typecheck` filtered to `@taphoa/mobile` and `@taphoa/api-client`,
-  `lint:api` (Redocly), `api-client check:generated`, JS tests, mobile export.
-- `smoke-mock`: `pnpm test:smoke:mock`, a Prism mock of the OpenAPI contract called
-  through the typed client.
-- `rust`: `cargo fmt --check`, clippy with warnings denied, `cargo test` (includes the
-  contract tests that validate handler responses against `docs/api/openapi.yaml`).
-- `rust-integration`: real Postgres (pgvector), Redis and RustFS service containers.
-- `docker-e2e`: model-free Docker image plus HTTP e2e through Compose.
-- `actionlint`: validates all workflows.
+- Rust: `rust-fmt`, `rust-clippy`, `rust-build` (one `cargo nextest archive`), `rust-test`
+  (2 nextest partitions from the archive; includes the contract tests against
+  `docs/api/openapi.yaml`) and `rust-integration` (the `#[ignore]` tests from the same
+  archive against pgvector Postgres, Redis and RustFS service containers).
+- JavaScript: `js-format`, `js-lint`, `js-typecheck`, `js-test`, `js-build`, with pnpm and
+  Turborepo caches; `api-contract` (Redocly + generated client) and `smoke-mock` (Prism).
+- Docker: `docker-build` (buildx with GHA layer cache, image shared as an artifact) and
+  `docker-e2e` (Compose smoke using that image).
+- `actionlint`, `ci-scripts` (unit tests of `scripts/ci`) and the single required
+  aggregate check `ci-ok`, which also prints a job timing table.
 
-Production deployment follows successful **push-to-main CI** and checks out that tested
-revision. It is skipped with a notice while `RAILWAY_TOKEN` is unset, and runs a
-`/healthz` and `/readyz` smoke test when the repository variable `BACKEND_URL` is set.
+After CI is green on `main`, `deploy.yml` deploys to the Railway `test` environment,
+seeds it, runs the e2e suite and latency probes, then deploys `production` and smokes it.
+`workflow_dispatch` with a `ref` input deploys any branch to `test` only.
+`railway-integration.yml` runs the ignored integration tests against the real Railway
+`test` Postgres/Redis/bucket (manual, nightly, and on backend changes to `main`).
+Railway steps are skipped with a notice while their secrets are unset.
 EAS native builds/Maestro remain in `apps/mobile/.eas/workflows/`.
 See [deployment setup and credentials](docs/deploy.md). Dependabot checks npm, Cargo,
 GitHub Actions, Dockerfiles and Compose images weekly.

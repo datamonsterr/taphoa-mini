@@ -1,0 +1,43 @@
+name: Set up Rust
+description: Repository toolchain, shared Swatinem/rust-cache, optional cargo-nextest, job timer.
+inputs:
+  cache-key:
+    description: Shared rust-cache key. Jobs that build the same artifacts share one key.
+    required: true
+  nextest:
+    description: Install cargo-nextest when 'true'.
+    default: 'false'
+  cache:
+    description: Restore and save the cargo cache when 'true'.
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - name: Start job timer
+      shell: bash
+      run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+    - name: Read repository Rust toolchain
+      id: rust
+      shell: bash
+      run: |
+        python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import tomllib
+        with open('rust-toolchain.toml', 'rb') as f:
+            toolchain = tomllib.load(f)['toolchain']
+        print('channel=' + toolchain['channel'])
+        print('components=' + ','.join(toolchain.get('components', [])))
+        PY
+    # Upstream has no major-version tags; pin the verified master revision.
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+      with:
+        toolchain: ${{ steps.rust.outputs.channel }}
+        components: ${{ steps.rust.outputs.components }}
+    - uses: Swatinem/rust-cache@v2
+      if: inputs.cache == 'true'
+      with:
+        workspaces: apps/backend
+        shared-key: ${{ inputs.cache-key }}
+    - uses: taiki-e/install-action@v2
+      if: inputs.nextest == 'true'
+      with:
+        tool: nextest

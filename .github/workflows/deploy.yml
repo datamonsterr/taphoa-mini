@@ -1,29 +1,136 @@
 name: Deploy backend
 
+# main: CI green -> deploy to Railway `test` -> seed -> e2e + latency -> deploy `production` -> smoke.
+# workflow_dispatch: deploy any ref to `test` and run the e2e suite (validates epic branches
+# before merge); never touches production.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to deploy to the test environment
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
 
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+env:
+  RAILWAY_CLI_VERSION: 5.71.0
 
 jobs:
-  backend:
+  test:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Serialize deploys per environment; never cancel a deploy in flight.
+    concurrency:
+      group: deploy-railway-test
+      cancel-in-progress: false
+    outputs:
+      deployed: ${{ steps.railway.outputs.configured }}
+    steps:
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+          persist-credentials: false
+      - name: Skip superseded main revisions
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$main_sha" = "$CI_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Skipping superseded revision $CI_SHA."
+          fi
+      - name: Check for Railway test credentials and URL
+        id: railway
+        if: steps.revision.outputs.current == 'true'
+        env:
+          RAILWAY_TOKEN_TEST: ${{ secrets.RAILWAY_TOKEN_TEST }}
+          BACKEND_URL_TEST: ${{ vars.BACKEND_URL_TEST }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN_TEST" ] || [ -z "$BACKEND_URL_TEST" ]; then
+            echo "::notice::Secret RAILWAY_TOKEN_TEST or variable BACKEND_URL_TEST is not set; skipping the test deploy (see docs/deploy.md)."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.railway.outputs.configured == 'true'
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install Railway CLI
+        if: steps.railway.outputs.configured == 'true'
+        run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+      - name: Deploy to Railway test
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: railway up --service backend --environment test --ci
+      - name: Wait for healthz and readyz
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          BACKEND_URL_TEST: ${{ vars.BACKEND_URL_TEST }}
+        run: scripts/ci/wait-healthy.sh "$BACKEND_URL_TEST"
+      - uses: ./.github/actions/setup-rust
+        if: steps.railway.outputs.configured == 'true'
+        with:
+          cache-key: test
+      - name: Seed the test database
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: scripts/ci/seed-test.sh
+      - uses: ./.github/actions/setup-js
+        if: steps.railway.outputs.configured == 'true' && hashFiles('packages/e2e/package.json') != ''
+      - name: End-to-end tests and latency probes
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL_TEST }}
+          LATENCY_P95_MS: ${{ vars.LATENCY_P95_MS || '200' }}
+        run: scripts/ci/run-e2e.sh
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CONFIGURED: ${{ steps.railway.outputs.configured }}
+          REF: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+        run: scripts/ci/job-summary.sh "deploy test + e2e" "ref = $REF" "railway configured = ${CONFIGURED:-false}"
+
+  production:
+    needs: test
+    # Only automatic main deploys reach production; a dispatch stops at the test environment.
+    if: >-
+      !cancelled() && needs.test.result == 'success' &&
+      github.event_name == 'workflow_run'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+    concurrency:
+      group: deploy-railway-production
+      cancel-in-progress: false
     steps:
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -56,7 +163,7 @@ jobs:
           package-manager-cache: false
       - name: Install Railway CLI
         if: steps.railway.outputs.configured == 'true'
-        run: npm install --global @railway/cli@5.71.0
+        run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
       - name: Deploy the tested backend revision
         if: steps.railway.outputs.configured == 'true'
         env:
@@ -71,14 +178,10 @@ jobs:
             echo "::notice::Repository variable BACKEND_URL is not set; skipping post-deploy smoke test."
             exit 0
           fi
-          base="${BACKEND_URL%/}"
-          for path in /healthz /readyz; do
-            for attempt in $(seq 1 30); do
-              code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 "$base$path" || true)
-              echo "GET $base$path attempt $attempt: HTTP $code"
-              [ "$code" = "200" ] && continue 2
-              sleep 10
-            done
-            echo "::error::$base$path did not return 200 after 30 attempts"
-            exit 1
-          done
+          scripts/ci/wait-healthy.sh "$BACKEND_URL"
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CONFIGURED: ${{ steps.railway.outputs.configured }}
+        run: scripts/ci/job-summary.sh "deploy production" "railway configured = ${CONFIGURED:-false}"

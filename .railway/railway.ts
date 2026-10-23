@@ -75,7 +75,11 @@ export default defineRailway(() => {
       AWS_SECRET_ACCESS_KEY: preserve(),
       AWS_S3_BUCKET_NAME: preserve(),
       AWS_DEFAULT_REGION: preserve(),
+      // Secret per environment: generated once in the terminal, never committed (docs/deploy.md).
+      JWT_SECRET: preserve(),
       S3_FORCE_PATH_STYLE: 'false',
+      S3_CREATE_BUCKET: 'false',
+      IMAGE_URL_TTL_SECONDS: '900',
     },
   });
 

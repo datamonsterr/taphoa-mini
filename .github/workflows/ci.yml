@@ -12,82 +12,181 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
 jobs:
-  js:
+  # Decide which areas changed; unaffected jobs are skipped and count as success in ci-ok.
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      js: ${{ steps.filter.outputs.js }}
+      api: ${{ steps.filter.outputs.api }}
+      docker: ${{ steps.filter.outputs.docker }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: dorny/paths-filter@v4
+        id: filter
         with:
-          version: 11.5.0
-          standalone: true
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm format:check
-      # Rust is covered by the rust jobs; Turborepo runs only the JS packages here.
-      - run: pnpm lint --filter=@taphoa/mobile --filter=@taphoa/api-client
-      - run: pnpm typecheck --filter=@taphoa/mobile --filter=@taphoa/api-client
-      - run: pnpm lint:api
-      - run: pnpm --filter @taphoa/api-client check:generated
-      - run: pnpm test --filter=@taphoa/mobile --filter=@taphoa/api-client
-      - run: pnpm --filter @taphoa/mobile build
+          filters: |
+            rust:
+              - 'apps/backend/**'
+              - 'rust-toolchain.toml'
+              - 'docs/api/**'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/setup-rust/**'
+              - 'scripts/ci/**'
+            js:
+              - 'apps/mobile/**'
+              - 'packages/**'
+              - 'docs/api/**'
+              - 'scripts/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - '.nvmrc'
+              - '.prettier*'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/setup-js/**'
+            api:
+              - 'docs/api/**'
+              - 'packages/api-client/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+            docker:
+              - 'apps/backend/**'
+              - 'rust-toolchain.toml'
+              - 'docker-compose*.yml'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
+            workflows:
+              - '.github/**'
+              - 'scripts/ci/**'
 
-  smoke-mock:
+  # ---------- Rust ----------
+
+  rust-fmt:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/setup-rust
         with:
-          version: 11.5.0
-          standalone: true
-      # Node 24 (.nvmrc) strips TypeScript types natively; the smoke script imports .ts directly.
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Prism mock of the OpenAPI contract through the typed client
-        run: pnpm test:smoke:mock
-
-  rust:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
+          cache-key: fmt
+          cache: 'false'
+      - run: cargo fmt --check
         working-directory: apps/backend
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "rust-fmt" "cargo fmt --check"
+
+  rust-clippy:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - name: Read repository Rust toolchain
-        id: rust
-        working-directory: .
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import tomllib
-          with open('rust-toolchain.toml', 'rb') as f:
-              toolchain = tomllib.load(f)['toolchain']
-          print('channel=' + toolchain['channel'])
-          print('components=' + ','.join(toolchain.get('components', [])))
-          PY
-      # Upstream has no major-version tags; pin the verified master revision.
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+      - uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ steps.rust.outputs.channel }}
-          components: ${{ steps.rust.outputs.components }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/backend
-      - run: cargo fmt --check
+          cache-key: clippy
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
+        working-directory: apps/backend
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "rust-clippy" "cargo clippy --all-targets -D warnings"
+
+  # Builds every test binary once; unit and integration jobs reuse the archive.
+  rust-build:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: test
+          nextest: 'true'
+      - name: Build nextest archive
+        working-directory: apps/backend
+        run: cargo nextest archive --locked --workspace --archive-file nextest.tar.zst
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nextest-archive
+          path: apps/backend/nextest.tar.zst
+          compression-level: 0
+          retention-days: 3
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          size="n/a"
+          if [ -f apps/backend/nextest.tar.zst ]; then size="$(du -h apps/backend/nextest.tar.zst | cut -f1)"; fi
+          scripts/ci/job-summary.sh "rust-build (nextest archive)" "archive size: $size"
+
+  rust-test:
+    name: rust-test (${{ matrix.partition }}/2)
+    needs: rust-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
+    env:
+      # Running from an archive needs no compiler; skip rustup installing the pinned toolchain.
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - uses: actions/download-artifact@v8
+        with:
+          name: nextest-archive
+          path: apps/backend
+      - name: Unit tests
+        working-directory: apps/backend
+        run: >-
+          cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
+          --profile ci --partition count:${{ matrix.partition }}/2 --no-tests=pass
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 -I scripts/ci/junit_summary.py "rust-test ${{ matrix.partition }}/2" apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          scripts/ci/job-summary.sh "rust-test ${{ matrix.partition }}/2 timing"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: junit-rust-test-${{ matrix.partition }}
+          path: apps/backend/target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
   rust-integration:
+    needs: rust-build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     services:
       postgres:
         image: pgvector/pgvector:0.8.7-pg18-trixie
@@ -119,6 +218,7 @@ jobs:
           --health-cmd "curl --fail --silent http://localhost:9000/health"
           --health-interval 5s --health-timeout 3s --health-retries 30
     env:
+      RUSTUP_TOOLCHAIN: stable
       DATABASE_URL: postgres://taphoa:taphoa@localhost:5432/taphoa
       REDIS_URL: redis://localhost:6379
       AWS_ENDPOINT_URL: http://localhost:9000
@@ -130,59 +230,300 @@ jobs:
       S3_CREATE_BUCKET: 'true'
     steps:
       - uses: actions/checkout@v7
-      - name: Read repository Rust toolchain
-        id: rust
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import tomllib
-          with open('rust-toolchain.toml', 'rb') as f:
-              toolchain = tomllib.load(f)['toolchain']
-          print('channel=' + toolchain['channel'])
-          print('components=' + ','.join(toolchain.get('components', [])))
-          PY
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
         with:
-          toolchain: ${{ steps.rust.outputs.channel }}
-          components: ${{ steps.rust.outputs.components }}
-      - uses: Swatinem/rust-cache@v2
+          tool: nextest
+      - uses: actions/download-artifact@v8
         with:
-          workspaces: apps/backend
-      - name: Test real Postgres, pgvector migrations, Redis and RustFS
+          name: nextest-archive
+          path: apps/backend
+      - name: Integration tests (real Postgres+pgvector, Redis, RustFS)
         working-directory: apps/backend
-        run: cargo test --locked -p taphoa-api --test readiness --test storage -- --ignored --nocapture
+        run: >-
+          cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
+          --profile ci --run-ignored only --no-tests=pass
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 -I scripts/ci/junit_summary.py "rust-integration" apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          scripts/ci/job-summary.sh "rust-integration timing"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: junit-rust-integration
+          path: apps/backend/target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
-  docker-e2e:
+  # ---------- JavaScript ----------
+
+  js-format:
+    needs: changes
+    if: needs.changes.outputs.js == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      SKIP_MODELS: '1'
-      EXPECT_SEGMENT_STATUS: '503'
-      EXPECT_IMAGES: '1'
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm format:check
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "js-format" "prettier --check"
+
+  js-lint:
+    needs: changes
+    if: needs.changes.outputs.js == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      # Rust is covered by the rust jobs; Turborepo runs only the JS packages here.
+      - run: pnpm lint --filter='!@taphoa/backend'
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "js-lint" "turbo run lint (JS packages)"
+
+  js-typecheck:
+    needs: changes
+    if: needs.changes.outputs.js == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm typecheck --filter='!@taphoa/backend'
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "js-typecheck" "turbo run typecheck (JS packages)"
+
+  js-test:
+    needs: changes
+    if: needs.changes.outputs.js == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      # The e2e package needs a deployed backend; it runs in the deploy workflow.
+      - run: pnpm test --filter='!@taphoa/backend' --filter='!@taphoa/e2e'
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "js-test" "turbo run test (JS packages)"
+
+  js-build:
+    needs: changes
+    if: needs.changes.outputs.js == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @taphoa/mobile build
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "js-build" "expo export (mobile)"
+
+  api-contract:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm lint:api
+      - run: pnpm --filter @taphoa/api-client check:generated
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "api-contract" "redocly lint openapi.yaml" "generated client up to date"
+
+  smoke-mock:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      # Node 24 (.nvmrc) strips TypeScript types natively; the smoke script imports .ts directly.
+      - name: Prism mock of the OpenAPI contract through the typed client
+        run: pnpm test:smoke:mock
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "smoke-mock" "Prism mock + typed client"
+
+  # ---------- Docker ----------
+
+  docker-build:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/backend/Dockerfile
           build-args: SKIP_MODELS=1
-          load: true
           tags: taphoa-mini-backend:dev
+          outputs: type=docker,dest=${{ runner.temp }}/image.tar
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-      - run: docker compose up -d --wait --wait-timeout 120 postgres redis storage backend
+      - name: Compress image for reuse
+        run: zstd -T0 -3 --rm "$RUNNER_TEMP/image.tar" -o "$RUNNER_TEMP/image.tar.zst"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-image
+          path: ${{ runner.temp }}/image.tar.zst
+          compression-level: 0
+          retention-days: 3
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          size="n/a"
+          if [ -f "$RUNNER_TEMP/image.tar.zst" ]; then size="$(du -h "$RUNNER_TEMP/image.tar.zst" | cut -f1)"; fi
+          scripts/ci/job-summary.sh "docker-build" "image (zstd) size: $size" "layer cache: gha scope=backend"
+
+  docker-e2e:
+    needs: docker-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECT_SEGMENT_STATUS: '503'
+      EXPECT_IMAGES: '1'
+      BACKEND_IMAGE: taphoa-mini-backend:dev
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-image
+          path: ${{ runner.temp }}
+      - name: Load the image built by docker-build
+        run: zstd -dc "$RUNNER_TEMP/image.tar.zst" | docker load
+      - run: docker compose up -d --wait --wait-timeout 120 --no-build postgres redis storage backend
       - run: apps/backend/scripts/e2e.sh
       - name: Compose logs
         if: failure()
-        run: docker compose logs --no-color
+        run: docker compose logs --no-color > "$RUNNER_TEMP/compose.log"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: docker-e2e-logs
+          path: ${{ runner.temp }}/compose.log
       - name: Clean up
         if: always()
-        run: docker compose down -v --rmi local
+        run: docker compose down -v
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "docker-e2e" "compose smoke = healthz, readyz, segment 503, image roundtrip"
+
+  # ---------- Workflows and CI scripts ----------
 
   actionlint:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - name: Validate all GitHub workflows
-        run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 -color
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "actionlint" "rhysd/actionlint 1.7.12"
+
+  ci-scripts:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Unit tests for scripts/ci
+        run: python3 -I -m unittest discover -s scripts/ci -v
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "ci-scripts" "python3 -m unittest scripts/ci"
+
+  # Single required check for branch protection.
+  ci-ok:
+    if: always()
+    needs:
+      - changes
+      - rust-fmt
+      - rust-clippy
+      - rust-build
+      - rust-test
+      - rust-integration
+      - js-format
+      - js-lint
+      - js-typecheck
+      - js-test
+      - js-build
+      - api-contract
+      - smoke-mock
+      - docker-build
+      - docker-e2e
+      - actionlint
+      - ci-scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require every job to pass or be skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
+      - name: Job timing table
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "### CI job timings"
+            echo
+            echo "| Job | Result | Duration |"
+            echo "| --- | --- | --- |"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --paginate \
+              --jq '.jobs[] | select(.name != "ci-ok" and .completed_at != null) | "| \(.name) | \(.conclusion) | \((.completed_at | fromdate) - (.started_at | fromdate))s |"'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,13 @@
+# cargo-nextest profiles. CI writes JUnit to target/nextest/ci/junit.xml for job summaries.
+[profile.default]
+fail-fast = true
+
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
+status-level = "fail"
+final-status-level = "slow"
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+[profile.ci.junit]
+path = "junit.xml"
