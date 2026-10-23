@@ -1,6 +1,7 @@
 # Deploying the backend
 
-Railway project `taphoa-mini` (environment `production`) hosts three services.
+Railway project `taphoa-mini` has two environments, `production` and `test`, each with
+three services (the `test` environment is a duplicate of production with its own data).
 Mobile native builds and Maestro stay in `apps/mobile/.eas/workflows/`; mobile is
 not a Railway service.
 
@@ -110,6 +111,83 @@ readiness reports `storage: "not configured"`; configured bucket access failures
 make readiness fail. After deployment, upload with `POST /v1/images`, fetch
 `GET /v1/images/{id}`, and download the returned URL to verify the same bytes.
 
+## Railway `test` environment
+
+`test` mirrors production but is isolated: its own Postgres (pgvector), Redis, `images`
+bucket and `backend` service, deployed from any branch to validate it with real
+infrastructure before merge. Backend URL: **https://backend-test-70c2.up.railway.app**.
+
+Created once with:
+
+```sh
+railway environment create test --duplicate production --json
+railway bucket create images --region sin --environment test      # test-only bucket
+railway config plan --environment test                              # review, then:
+railway config apply --environment test                             # applies .railway/railway.ts
+railway tcp-proxy create --port 5432 --service Postgres --environment test
+railway tcp-proxy create --port 6379 --service Redis --environment test
+```
+
+Backend variables were set with the CLI only (values never printed): `JWT_SECRET` is a
+random 48-byte token generated in the terminal and piped through
+`railway variable set --stdin JWT_SECRET`; the five bucket variables come from
+`railway bucket credentials --bucket images --environment test --json` piped into
+`railway variable set --stdin`. `SKIP_MODELS` is unset, so SAM weights stay in the test
+image. The TCP proxies expose Postgres and Redis publicly (credentials still required) so
+CI can seed and run integration tests (`scripts/ci/railway_env.py` builds the URLs).
+
+Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys too: a
+`railway up` whose snapshot has no backend change versus the last deployment ends as
+`SKIPPED`, meaning the running deployment already matches.
+
+## CI pipeline
+
+`.github/workflows/ci.yml` splits work into small parallel jobs (target under 3 minutes
+warm). `changes` (dorny/paths-filter) skips unaffected areas. Rust jobs share
+`Swatinem/rust-cache` keys; `rust-build` produces one `cargo nextest archive` artifact that
+`rust-test` (partitions 1/2 and 2/2) and `rust-integration` (service containers) run
+without recompiling. JS jobs use the pnpm store cache and a Turborepo cache
+(`.github/actions/setup-js`). `docker-build` uses buildx with the GHA cache and shares the
+image as an artifact for `docker-e2e`. Each job appends a summary (JUnit counts through
+`scripts/ci/junit_summary.py`, duration through `scripts/ci/job-summary.sh`) and uploads
+JUnit or compose logs on failure. `ci-ok` aggregates everything (skipped counts as
+success) and prints a job timing table. The Docker image in CI is a thin wrapper (`apps/backend/Dockerfile.ci`) around a release binary built by `backend-binary` in `rust:1-bookworm` with a persistent cargo/target cache, so backend source changes stay under 3 minutes. The full cargo-chef `apps/backend/Dockerfile` that Railway builds is verified separately in `docker-full.yml` (push to main, nightly, Dockerfile changes), outside the required gate. Make `ci-ok` the only required status check.
+`scripts/ci` has its own unit tests (`python3 -m unittest discover -s scripts/ci`).
+
+## Deploy pipeline
+
+`.github/workflows/deploy.yml`:
+
+1. After CI succeeds for a push to `main`: `railway up --service backend --environment test`,
+   wait for `/healthz` and `/readyz`, run `scripts/ci/seed-test.sh` (the `taphoa-seed`
+   binary; skipped with a notice until it exists), then `scripts/ci/run-e2e.sh`
+   (`packages/e2e` against `BACKEND_URL_TEST` plus p95 latency probes; falls back to smoke
+   and latency probes with a notice while the suite is absent).
+2. Only when that passes: deploy `production` and smoke it as described below.
+3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
+   epic branches can be validated before merge.
+
+Deploys are serialized per environment (`deploy-railway-test`,
+`deploy-railway-production`, no cancellation). `.github/workflows/railway-integration.yml`
+runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
+(manual, nightly 20:17 UTC and on backend changes to `main`) via
+`scripts/ci/with-railway-test-services.sh`: a throwaway database `it_<run>` is created and
+dropped per run, Redis logical database 15 is flushed afterwards, and the bucket is shared
+and append-only.
+
+### GitHub configuration for the test environment
+
+| Kind     | Name                 | Value                                                                        |
+| -------- | -------------------- | ---------------------------------------------------------------------------- |
+| Secret   | `RAILWAY_TOKEN_TEST` | Railway **project token** for environment `test` (dashboard > Tokens)        |
+| Variable | `BACKEND_URL_TEST`   | `https://backend-test-70c2.up.railway.app`                                   |
+| Variable | `LATENCY_P95_MS`     | Optional p95 budget in milliseconds for the e2e latency probes (default 200) |
+
+Project tokens cannot be minted with the CLI login, so the secret must be created in the
+Railway dashboard (Project settings > Tokens, environment `test`) and added with
+`gh secret set RAILWAY_TOKEN_TEST`. Until it exists the test deploy, e2e and Railway
+integration steps are skipped with a notice and production deploys behave as before.
+
 ## GitHub production deployment
 
 Configure the GitHub **production** environment and add its secret `RAILWAY_TOKEN`
@@ -120,7 +198,8 @@ environment context in a clean checkout; the service is selected explicitly.
 `.github/workflows/deploy.yml` listens for completed `CI` workflows on `main` and
 requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
-`railway up --service backend --ci`. Production deploys are serialized. Turn off
+`railway up --service backend --ci` in the `production` job, which `needs` the `test`
+job (deploy, seed, e2e). Production deploys are serialized. Turn off
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
 the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.
 

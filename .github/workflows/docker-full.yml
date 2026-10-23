@@ -1,0 +1,48 @@
+name: Docker full build
+
+# Verifies the cargo-chef Dockerfile that Railway builds. Not part of the required CI gate:
+# a cold release compile can exceed the 3 minute CI budget. CI itself wraps a prebuilt binary
+# (apps/backend/Dockerfile.ci).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 19 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'rust-toolchain.toml'
+  pull_request:
+    paths:
+      - 'apps/backend/Dockerfile'
+      - 'apps/backend/scripts/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          build-args: SKIP_MODELS=1
+          tags: taphoa-mini-backend:full
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "docker full build" "apps/backend/Dockerfile (Railway)"

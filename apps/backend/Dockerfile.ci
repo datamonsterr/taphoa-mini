@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+# CI-only image: wraps a taphoa-api binary prebuilt in rust:1-bookworm (same glibc as
+# the runtime base) so the image build takes seconds. Railway uses apps/backend/Dockerfile.
+# Build from the repository root with the binary at ci-bin/taphoa-api:
+#   docker build -f apps/backend/Dockerfile.ci .
+FROM debian:bookworm-slim AS assets
+ARG SKIP_MODELS=1
+ARG TARGETARCH
+ENV ORT_INSTALL_DIR=/opt/onnxruntime MODEL_DIR=/opt/models
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/backend/scripts/ /scripts/
+RUN /scripts/fetch-onnxruntime.sh && mkdir -p /opt/models \
+    && if [ "$SKIP_MODELS" != "1" ]; then /scripts/fetch-models.sh; fi
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libstdc++6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home app
+WORKDIR /app
+COPY --from=assets /opt/onnxruntime/lib/ /opt/onnxruntime/lib/
+COPY --from=assets --chown=app:app /opt/models/ /app/models/
+COPY ci-bin/taphoa-api /usr/local/bin/taphoa-api
+ENV PORT=8080 LOG_FORMAT=json \
+    ORT_DYLIB_PATH=/opt/onnxruntime/lib/libonnxruntime.so.1.23.2 \
+    SAM_ENCODER_PATH=/app/models/mobile_sam_image_encoder.onnx \
+    SAM_DECODER_PATH=/app/models/sam_mask_decoder_multi.onnx \
+    DINO_MODEL_PATH=/app/models/dinov2_small.onnx
+USER app
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \
+    CMD curl --fail --silent http://localhost:$PORT/healthz || exit 1
+CMD ["taphoa-api"]

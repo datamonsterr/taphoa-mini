@@ -1,0 +1,84 @@
+name: Railway integration
+
+# Runs the #[ignore] integration tests against the real Postgres, Redis and bucket of the
+# Railway `test` environment (public TCP proxies), with a throwaway database per run.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 20 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - '.github/workflows/railway-integration.yml'
+      - 'scripts/ci/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-railway-test
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check for Railway test credentials
+        id: railway
+        env:
+          RAILWAY_TOKEN_TEST: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: |
+          if [ -n "$RAILWAY_TOKEN_TEST" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Secret RAILWAY_TOKEN_TEST is not set; skipping Railway integration tests (see docs/deploy.md)."
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.railway.outputs.configured == 'true'
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install Railway CLI and database clients
+        if: steps.railway.outputs.configured == 'true'
+        run: |
+          npm install --global @railway/cli@5.71.0
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client redis-tools
+      - uses: ./.github/actions/setup-rust
+        if: steps.railway.outputs.configured == 'true'
+        with:
+          cache-key: test
+          nextest: 'true'
+      - name: Integration tests on Railway services
+        if: steps.railway.outputs.configured == 'true'
+        working-directory: apps/backend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+          JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
+          RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
+          RATE_LIMIT_JOIN_PER_HOUR: '100000'
+          RATE_LIMIT_RECOVER_PER_10MIN: '100000'
+        run: >-
+          ../../scripts/ci/with-railway-test-services.sh
+          cargo nextest run --locked --workspace --profile ci --run-ignored only --test-threads 1 --no-tests=pass -E 'not test(validation_invite_expiry_and_ip_limits)'
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CONFIGURED: ${{ steps.railway.outputs.configured }}
+        run: |
+          python3 -I scripts/ci/junit_summary.py "Railway integration" apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          scripts/ci/job-summary.sh "Railway integration timing" "railway configured: ${CONFIGURED:-false}"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: junit-railway-integration
+          path: apps/backend/target/nextest/ci/junit.xml
+          if-no-files-found: ignore

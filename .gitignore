@@ -10,4 +10,7 @@ apps/backend/models/
 !.env.example
 *.tsbuildinfo
 .DS_Store
+__pycache__/
+.ci-cache/
+ci-bin/
 apps/backend/target-local/

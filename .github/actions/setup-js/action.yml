@@ -1,0 +1,25 @@
+name: Set up JavaScript workspace
+description: pnpm + Node from .nvmrc with the pnpm store cache, a Turborepo cache and a job timer.
+runs:
+  using: composite
+  steps:
+    - name: Start job timer
+      shell: bash
+      run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+    - uses: pnpm/action-setup@v6
+      with:
+        version: 11.5.0
+        standalone: true
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+    - uses: actions/cache@v6
+      with:
+        path: .turbo/cache
+        key: turbo-${{ github.job }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ github.job }}-
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
