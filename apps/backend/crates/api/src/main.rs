@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
     config::Config,
-    events, router,
+    events, retention, router,
     storage::{S3Store, StorageConfig},
 };
 use tracing_subscriber::EnvFilter;
@@ -32,7 +32,10 @@ async fn main() -> anyhow::Result<()> {
     }
     let pool = state.postgres.clone();
     let (stop, shutdown_rx) = tokio::sync::watch::channel(false);
-    let background = events::spawn_background(&state, shutdown_rx);
+    let mut background = events::spawn_background(&state, shutdown_rx.clone());
+    if let Some(pool) = pool.clone() {
+        background.push(retention::spawn(pool, shutdown_rx));
+    }
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "API listening");

@@ -228,6 +228,7 @@ impl Server {
 async fn create_store(base: &str) -> Value {
     reqwest::Client::new()
         .post(format!("{base}/v1/stores"))
+        .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
         .json(&json!({"store_name":"SSE","display_name":"Lead","device":{"name":"d","platform":"web"}}))
         .send()
         .await
