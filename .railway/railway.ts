@@ -91,7 +91,10 @@ export default defineRailway(() => {
   });
 
   // Private S3-compatible bucket for product and checkout photos (ADR 0002).
-  const images = bucket('images', { region: 'sin' });
+  // Production uses `images-prod` in sjc, next to the sfo backend: the original `sin` bucket
+  // pushed scan p95 above 3 s. IaC has no per-environment buckets, so the `test` environment
+  // keeps its own `images-sjc` bucket outside this file; plan `test` with care.
+  const images = bucket('images-prod', { region: 'sjc' });
 
   return project('taphoa-mini', {
     variables: { managed: true },
