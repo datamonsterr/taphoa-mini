@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# CI-only image: wraps a taphoa-api binary prebuilt in rust:<channel>-bookworm (same glibc as
+# CI-only image: wraps a taphoa-api binary prebuilt in rust:1-bookworm (same glibc as
 # the runtime base) so the image build takes seconds. Railway uses apps/backend/Dockerfile.
 # Build from the repository root with the binary at ci-bin/taphoa-api:
 #   docker build -f apps/backend/Dockerfile.ci .

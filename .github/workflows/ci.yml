@@ -373,7 +373,7 @@ jobs:
 
   # ---------- Docker ----------
 
-  # Release binary built in rust:<channel>-bookworm (runtime glibc) with a persistent
+  # Release binary built in rust:1-bookworm (runtime glibc) with a persistent
   # cargo/target cache; docker-build then only wraps it, so the image build takes seconds.
   # The full cargo-chef Dockerfile used by Railway is verified in docker-full.yml.
   backend-binary:

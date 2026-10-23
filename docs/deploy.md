@@ -151,7 +151,7 @@ without recompiling. JS jobs use the pnpm store cache and a Turborepo cache
 image as an artifact for `docker-e2e`. Each job appends a summary (JUnit counts through
 `scripts/ci/junit_summary.py`, duration through `scripts/ci/job-summary.sh`) and uploads
 JUnit or compose logs on failure. `ci-ok` aggregates everything (skipped counts as
-success) and prints a job timing table. The Docker image in CI is a thin wrapper (`apps/backend/Dockerfile.ci`) around a release binary built by `backend-binary` in `rust:<channel>-bookworm` with a persistent cargo/target cache, so backend source changes stay under 3 minutes. The full cargo-chef `apps/backend/Dockerfile` that Railway builds is verified separately in `docker-full.yml` (push to main, nightly, Dockerfile changes), outside the required gate. Make `ci-ok` the only required status check.
+success) and prints a job timing table. The Docker image in CI is a thin wrapper (`apps/backend/Dockerfile.ci`) around a release binary built by `backend-binary` in `rust:1-bookworm` with a persistent cargo/target cache, so backend source changes stay under 3 minutes. The full cargo-chef `apps/backend/Dockerfile` that Railway builds is verified separately in `docker-full.yml` (push to main, nightly, Dockerfile changes), outside the required gate. Make `ci-ok` the only required status check.
 `scripts/ci` has its own unit tests (`python3 -m unittest discover -s scripts/ci`).
 
 ## Deploy pipeline
