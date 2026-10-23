@@ -396,28 +396,32 @@ async fn create_scan(
         .collect();
     let ordered = pipeline::arrange_display_order(rated);
     // Crop thumbnails reach the bucket once; only object keys are persisted.
-    // Uploaded concurrently: sequential round trips to a remote bucket would cost
-    // roughly 20 x RTT of the 3 s budget.
+    // A bucket round trip costs ~0.85 s on Railway, a third of the 3 s budget, and the phone
+    // only needs the thumbnails after it has rendered the lines. They upload concurrently in
+    // the background while the scan is persisted; a failure is logged and the row's
+    // presigned URL will 404 (thumbnails are cosmetic, labels live in the database).
     let crop_keys: Vec<String> = ordered.iter().map(|_| object_key("jpg")).collect();
-    let upload_started = Instant::now();
-    let uploads = futures_util::future::join_all(
-        ordered
-            .iter()
-            .zip(&crop_keys)
-            .map(|(detection, key)| storage.put(key, "image/jpeg", detection.thumbnail.clone())),
-    )
-    .await;
-    let upload_ms = upload_started.elapsed().as_millis() as u64;
-    if let Some(error) = uploads.into_iter().find_map(Result::err) {
-        // Remove every key: deleting an object that was never written is harmless.
-        delete_quietly(
-            storage.as_ref(),
-            &crop_keys,
-            "failed to delete crop thumbnails after put failure",
-        )
-        .await;
-        return Err(pipeline::storage_failure(error));
-    }
+    let uploads: Vec<(String, Vec<u8>)> = ordered
+        .iter()
+        .zip(&crop_keys)
+        .map(|(detection, key)| (key.clone(), detection.thumbnail.clone()))
+        .collect();
+    let upload_task = {
+        let storage = Arc::clone(&storage);
+        tokio::spawn(async move {
+            let results = futures_util::future::join_all(
+                uploads
+                    .iter()
+                    .map(|(key, bytes)| storage.put(key, "image/jpeg", bytes.clone())),
+            )
+            .await;
+            let failed = results.iter().filter(|result| result.is_err()).count();
+            if failed > 0 {
+                tracing::error!(failed, "crop thumbnail uploads failed");
+            }
+            failed
+        })
+    };
     let detections_persist: Vec<pipeline::PersistDetection> = ordered
         .iter()
         .zip(&crop_keys)
@@ -464,12 +468,18 @@ async fn create_scan(
     {
         Ok(result) => result,
         Err(error) => {
-            delete_quietly(
-                storage.as_ref(),
-                &crop_keys,
-                "failed to delete crop thumbnails after scan insert failure",
-            )
-            .await;
+            // Wait for the in-flight uploads, then remove them: nothing references them.
+            let cleanup_storage = Arc::clone(&storage);
+            let cleanup_keys = crop_keys.clone();
+            tokio::spawn(async move {
+                let _ = upload_task.await;
+                delete_quietly(
+                    cleanup_storage.as_ref(),
+                    &cleanup_keys,
+                    "failed to delete crop thumbnails after scan insert failure",
+                )
+                .await;
+            });
             return Err(pipeline::database_failure(error));
         }
     };
@@ -514,7 +524,6 @@ async fn create_scan(
         search_ms,
         read_ms,
         original_ms,
-        upload_ms,
         persist_ms = persist_started.elapsed().as_millis() as u64,
         total_ms,
         "recognition scan complete"
