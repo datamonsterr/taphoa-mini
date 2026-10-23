@@ -6,34 +6,58 @@ use uuid::Uuid;
 
 /// Sum of `quantity * unit_price`; `None` on overflow.
 pub fn sum_lines(lines: &[(i32, i64)]) -> Option<i64> {
-    let _ = lines;
-    todo!("E4: checked sum of quantity * unit_price")
+    lines.iter().try_fold(0_i64, |total, &(quantity, price)| {
+        total.checked_add(i64::from(quantity).checked_mul(price)?)
+    })
 }
 /// `received - total` when `received >= total`, else `None`.
 pub fn change_given(total: i64, received: i64) -> Option<i64> {
-    let _ = (total, received);
-    todo!("E4")
+    if received >= total {
+        received.checked_sub(total)
+    } else {
+        None
+    }
 }
 /// Ceil of `unit_cost / quantity_in_base` (quantity_in_base >= 1).
 pub fn base_unit_cost(unit_cost: i64, quantity_in_base: i32) -> i64 {
-    let _ = (unit_cost, quantity_in_base);
-    todo!("E4")
+    assert!(quantity_in_base >= 1, "quantity_in_base must be positive");
+    let quantity = i64::from(quantity_in_base);
+    unit_cost.div_euclid(quantity) + i64::from(unit_cost.rem_euclid(quantity) != 0)
 }
 /// Margin percent of the selling price, rounded to 2 decimals; `None` when price is 0.
 pub fn margin_pct(price: i64, cost: i64) -> Option<f64> {
-    let _ = (price, cost);
-    todo!("E4: (price-cost)*100/price")
+    if price == 0 {
+        return None;
+    }
+    let mut numerator = (i128::from(price) - i128::from(cost)) * 10_000;
+    let denominator = i128::from(price).abs();
+    if price < 0 {
+        numerator = -numerator;
+    }
+    let half = denominator / 2;
+    let rounded_bp = (numerator + if numerator >= 0 { half } else { -half }) / denominator;
+    Some(rounded_bp as f64 / 100.0)
 }
 /// True when margin is strictly below the threshold (`threshold_bp` = percent*100, e.g. 12.5% = 1250).
 /// A price of 0 counts as below threshold when cost > 0.
 pub fn margin_below_threshold(price: i64, cost: i64, threshold_bp: i64) -> bool {
-    let _ = (price, cost, threshold_bp);
-    todo!("E4")
+    if price == 0 {
+        return cost > 0;
+    }
+    let margin = (i128::from(price) - i128::from(cost)) * 10_000;
+    let threshold = i128::from(price) * i128::from(threshold_bp);
+    if price > 0 {
+        margin < threshold
+    } else {
+        margin > threshold
+    }
 }
 /// Smallest price >= cost*(1+max(threshold,10%)), rounded up to the next 1000.
 pub fn suggested_price(cost: i64, threshold_bp: i64) -> i64 {
-    let _ = (cost, threshold_bp);
-    todo!("E4: cost 8500 -> 10000")
+    let numerator = i128::from(cost) * (10_000 + i128::from(threshold_bp.max(1000)));
+    let step = 10_000 * 1000;
+    let rounded = numerator.div_euclid(step) + i128::from(numerator.rem_euclid(step) != 0);
+    i64::try_from(rounded * 1000).expect("suggested price exceeds i64 range")
 }
 pub fn expected_cash(
     opening_float: i64,
@@ -41,8 +65,10 @@ pub fn expected_cash(
     cash_refunds: i64,
     cash_expenses: i64,
 ) -> i64 {
-    let _ = (opening_float, cash_sales, cash_refunds, cash_expenses);
-    todo!("E4: open + sales - refunds - expenses")
+    let cash = i128::from(opening_float) + i128::from(cash_sales)
+        - i128::from(cash_refunds)
+        - i128::from(cash_expenses);
+    i64::try_from(cash).expect("expected cash exceeds i64 range")
 }
 /// Lead may void any sale; a seller only their own sale on the same business date.
 pub fn can_void(
@@ -51,13 +77,19 @@ pub fn can_void(
     sale_business_date: NaiveDate,
     today: NaiveDate,
 ) -> bool {
-    let _ = (actor, sale_member, sale_business_date, today);
-    todo!("E4")
+    match actor.role {
+        crate::auth::Role::Lead => true,
+        crate::auth::Role::Seller => actor.member_id == sale_member && sale_business_date == today,
+    }
 }
 /// Short code: first 6 Crockford base32 chars derived from the sale id (UUIDv7 random tail), uppercase.
 pub fn sale_code(id: Uuid) -> String {
-    let _ = id;
-    todo!("E4: 6 chars from alphabet 0123456789ABCDEFGHJKMNPQRSTVWXYZ")
+    const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let tail = id.as_u128() & ((1 << 30) - 1);
+    (0..6)
+        .rev()
+        .map(|position| char::from(ALPHABET[((tail >> (position * 5)) & 31) as usize]))
+        .collect()
 }
 
 #[cfg(test)]
