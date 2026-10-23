@@ -245,17 +245,29 @@ jobs:
         with:
           name: nextest-archive
           path: apps/backend
-      - name: Integration tests (real Postgres+pgvector, Redis, RustFS)
+      # The per-IP limit test needs the default limits and fresh Redis counters, so it runs
+      # first; everything else runs with the raised limits from the job env.
+      - name: Integration tests - default rate limits
+        working-directory: apps/backend
+        run: >-
+          env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR -u RATE_LIMIT_RECOVER_PER_10MIN
+          cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
+          --profile ci --run-ignored only --test-threads 1 --no-tests=pass
+          -E 'test(validation_invite_expiry_and_ip_limits)'
+      - name: Keep first JUnit report
+        run: cp apps/backend/target/nextest/ci/junit.xml apps/backend/target/nextest/ci/junit-limits.xml
+      - name: Integration tests - everything else (real Postgres+pgvector, Redis, RustFS)
         working-directory: apps/backend
         run: >-
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
           --profile ci --run-ignored only --test-threads 1 --no-tests=pass
+          -E 'not test(validation_invite_expiry_and_ip_limits)'
       - name: Summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          python3 -I scripts/ci/junit_summary.py "rust-integration" apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          python3 -I scripts/ci/junit_summary.py "rust-integration" apps/backend/target/nextest/ci/junit-limits.xml apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
           scripts/ci/job-summary.sh "rust-integration timing"
       - uses: actions/upload-artifact@v7
         if: failure()
