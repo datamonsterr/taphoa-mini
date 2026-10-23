@@ -1,0 +1,2 @@
+# CI enforces warnings through `cargo clippy --all-targets -- -D warnings`.
+msrv = "1.94"
