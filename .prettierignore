@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+.turbo/
+.expo/
+dist/
+coverage/
+apps/backend/target/
+apps/backend/models/
+pnpm-lock.yaml

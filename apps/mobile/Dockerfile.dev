@@ -1,0 +1,15 @@
+FROM node:24-bookworm-slim
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN npm install --global corepack@0.34.6 \
+    && corepack enable \
+    && corepack prepare pnpm@11.5.0 --activate
+
+WORKDIR /workspace
+COPY . .
+RUN pnpm install --frozen-lockfile
+
+ENV EXPO_NO_TELEMETRY=1
+EXPOSE 8081
+CMD ["pnpm", "--filter", "@taphoa/mobile", "exec", "expo", "start", "--lan", "--port", "8081"]

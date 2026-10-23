@@ -3,9 +3,7 @@
   "model": "inception/mercury-decide:free",
   "scope": "project",
   "agent": "claude",
-  "agents": [
-    "claude"
-  ],
+  "agents": ["claude"],
   "hookParams": {
     "categories": [
       "frontend/react",

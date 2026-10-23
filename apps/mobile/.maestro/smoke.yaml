@@ -1,0 +1,4 @@
+appId: com.datamonsterr.taphoamini
+---
+- launchApp
+- assertVisible: 'Tạp Hóa Mini'

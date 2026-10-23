@@ -1,0 +1,23 @@
+{
+  "name": "taphoa-mini",
+  "private": true,
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": "11.5.0"
+  },
+  "scripts": {
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check . && turbo run format:check",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration",
+    "test:e2e": "turbo run test:e2e",
+    "build": "turbo run build"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10"
+  }
+}
