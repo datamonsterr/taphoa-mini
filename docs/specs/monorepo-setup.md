@@ -6,27 +6,27 @@ Status: Accepted · Date: 2026-10-23 · Source: [PRD](../PRD.md) §9, §10
 
 Turn the repository into a monorepo with a running skeleton of every part of the
 Tạp Hóa Mini stack: Expo mobile app, Rust recognition/API server, Postgres,
-Redis, Docker, Railway config-as-code, and a CI/CD pipeline with local git hooks.
+Redis, Docker, Railway Infrastructure as Code, and a CI/CD pipeline with local git hooks.
 No product features yet. Every layer must build, test and run.
 
 ## Decisions
 
-| Area                 | Decision                                                                                                                                                                                                        |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| JS package manager   | pnpm workspaces (pnpm 11, Node from `.nvmrc`)                                                                                                                                                                   |
-| Task runner          | Turborepo at the root (`turbo.json`)                                                                                                                                                                            |
-| Mobile               | Expo (latest SDK from `create-expo-app@latest`), TypeScript, Expo Router. EAS project id `aacb6d3c-093a-4da0-ae2c-fbc9ce53a458`                                                                                 |
-| Mobile tests         | `jest-expo` + `@testing-library/react-native` (unit); Maestro flows (e2e) run by an EAS Workflow                                                                                                                |
-| Mobile lint/format   | `expo lint` (ESLint flat config) + Prettier; `tsc --noEmit`                                                                                                                                                     |
-| Backend              | Rust stable (`rust-toolchain.toml`), Cargo workspace in `apps/backend`, axum + tokio                                                                                                                            |
-| Recognition, phase 1 | SAM ONNX encoder/decoder run through the `ort` crate, following https://github.com/AndreyGermanov/sam_onnx_rust. Behind a `Segmenter` trait. YOLO ONNX adapter is a stub implementing the same trait (phase 2). |
-| Model weights        | Never committed. `apps/backend/scripts/fetch-models.sh` downloads them into `apps/backend/models/` (gitignored). The Docker image downloads them at build time.                                                 |
-| Database             | Postgres 17 with pgvector (`pgvector/pgvector:pg17` locally). `sqlx` with migrations in `apps/backend/migrations`.                                                                                              |
-| Cache                | Redis 7. Rust client via `redis` crate (tokio + connection manager) or `deadpool-redis`.                                                                                                                        |
-| Containers           | Multi-stage Dockerfile for backend (cargo-chef caching, slim runtime). Dev Dockerfile for mobile that runs the Expo dev server. Root `docker-compose.yml`.                                                      |
-| Hosting              | Railway. Config-as-code with `railway.json` per deployed service. Railway services: `backend`, Postgres, Redis. Mobile is not hosted on Railway; native builds go through EAS.                                  |
-| CI                   | GitHub Actions. Deploy to Railway from `main` with `RAILWAY_TOKEN`. EAS Workflows for mobile build and Maestro e2e.                                                                                             |
-| Git hooks            | lefthook: `pre-commit` format check on staged files, `commit-msg` Conventional Commits (commitlint), `pre-push` lint + typecheck + unit tests.                                                                  |
+| Area                 | Decision                                                                                                                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JS package manager   | pnpm workspaces (pnpm 11, Node from `.nvmrc`)                                                                                                                                                                                                          |
+| Task runner          | Turborepo at the root (`turbo.json`)                                                                                                                                                                                                                   |
+| Mobile               | Expo (latest SDK from `create-expo-app@latest`), TypeScript, Expo Router. EAS project id `aacb6d3c-093a-4da0-ae2c-fbc9ce53a458`                                                                                                                        |
+| Mobile tests         | `jest-expo` + `@testing-library/react-native` (unit); Maestro flows (e2e) run by an EAS Workflow                                                                                                                                                       |
+| Mobile lint/format   | `expo lint` (ESLint flat config) + Prettier; `tsc --noEmit`                                                                                                                                                                                            |
+| Backend              | Rust stable (`rust-toolchain.toml`), Cargo workspace in `apps/backend`, axum + tokio                                                                                                                                                                   |
+| Recognition, phase 1 | SAM ONNX encoder/decoder run through the `ort` crate, following https://github.com/AndreyGermanov/sam_onnx_rust. Behind a `Segmenter` trait. YOLO ONNX adapter is a stub implementing the same trait (phase 2).                                        |
+| Model weights        | Never committed. `apps/backend/scripts/fetch-models.sh` downloads them into `apps/backend/models/` (gitignored). The Docker image downloads them at build time.                                                                                        |
+| Database             | Postgres 18 with pgvector (`pgvector/pgvector:0.8.7-pg18-trixie` locally, in CI and on Railway). `sqlx` with migrations in `apps/backend/migrations`.                                                                                                  |
+| Cache                | Redis 7. Rust client via `redis` crate (tokio + connection manager) or `deadpool-redis`.                                                                                                                                                               |
+| Containers           | Multi-stage Dockerfile for backend (cargo-chef caching, slim runtime). Dev Dockerfile for mobile that runs the Expo dev server. Root `docker-compose.yml`.                                                                                             |
+| Hosting              | Railway. Infrastructure as Code in `.railway/railway.ts` (`railway config plan/apply`); legacy `railway.json` is deprecated and not used. Railway services: `backend`, Postgres, Redis. Mobile is not hosted on Railway; native builds go through EAS. |
+| CI                   | GitHub Actions. Deploy to Railway from `main` with `RAILWAY_TOKEN`. EAS Workflows for mobile build and Maestro e2e.                                                                                                                                    |
+| Git hooks            | lefthook: `pre-commit` format check on staged files, `commit-msg` Conventional Commits (commitlint), `pre-push` lint + typecheck + unit tests.                                                                                                         |
 
 ## Layout
 
@@ -42,8 +42,7 @@ No product features yet. Every layer must build, test and run.
 │       ├── crates/recognition/  # Segmenter trait, SAM (ort), YOLO stub
 │       ├── migrations/
 │       ├── scripts/fetch-models.sh
-│       ├── Dockerfile
-│       └── railway.json
+│       └── Dockerfile
 ├── docs/ (PRD, specs, adr)
 ├── docker-compose.yml
 ├── lefthook.yml

@@ -105,11 +105,10 @@ in a skipped-model image, mount a populated models directory at `/app/models:ro`
 The image currently targets Linux amd64; the runtime helper fails explicitly for
 unsupported architectures. The healthcheck uses `$PORT` and `/healthz`.
 
-Railway: set the service root to the repository root and config file to
-`apps/backend/railway.json`. It selects the Dockerfile builder, the backend Dockerfile,
-backend watch patterns, `/healthz`, and restart-on-failure with five retries. Configure
-Postgres/Redis service-reference environment variables and use pgvector-capable
-Postgres. Schema reference: [Railway config as code](https://docs.railway.com/config-as-code/reference).
+Railway: build and deploy settings live in the project IaC file `.railway/railway.ts`
+(Dockerfile builder, this Dockerfile, watch patterns, `/healthz`, restart-on-failure with
+five retries, Postgres/Redis references). Deploy with `railway up --service backend` from
+the repository root.
 The deployment healthcheck proves process health; `/readyz` separately proves dependencies.
 
 Project layout, operator CLI commands and production CI setup: [deployment guide](../../docs/deploy.md).

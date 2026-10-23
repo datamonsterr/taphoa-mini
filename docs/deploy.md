@@ -1,98 +1,55 @@
 # Deploying the backend
 
-Railway hosts three services in one project/environment. Mobile native builds and
-Maestro stay in `apps/mobile/.eas/workflows/`; mobile is not a Railway service.
+Railway project `taphoa-mini` (environment `production`) hosts three services.
+Mobile native builds and Maestro stay in `apps/mobile/.eas/workflows/`; mobile is
+not a Railway service.
 
-| Service    | Source and configuration                                                                                    |
-| ---------- | ----------------------------------------------------------------------------------------------------------- |
-| `backend`  | Repository **root** context; config path `/apps/backend/railway.json`; Dockerfile `apps/backend/Dockerfile` |
-| `Postgres` | Postgres 17 with pgvector, persistent volume and `DATABASE_URL`                                             |
-| `Redis`    | Railway Redis database service exposing `REDIS_URL`                                                         |
+| Service    | Source and configuration                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| `backend`  | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile` |
+| `Postgres` | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`             |
+| `Redis`    | Railway Redis database with volume at `/data`                                                 |
 
-Keep the backend Root Directory empty (repository root). In its Railway service
-settings, set **Config File** to `/apps/backend/railway.json`. A path relative to
-`apps/backend` would break the Dockerfile's root-relative COPY instructions.
-The JSON selects Dockerfile builds, backend watch paths, `/healthz`, and five
-restart-on-failure retries. `/readyz` separately checks database/cache connectivity.
+## Infrastructure as Code
 
-## One-time project setup
+The project graph lives in [`.railway/railway.ts`](../.railway/railway.ts) and uses the
+`railway` npm package (root devDependency). It owns services, databases, volumes,
+backend build/deploy settings (Dockerfile builder, watch patterns, `/healthz`
+healthcheck, restart policy) and backend variables. Database secrets stay in Railway
+through `preserve()`; backend references use `Postgres.env.DATABASE_URL` and
+`Redis.env.REDIS_URL`.
 
-These commands are instructions for an operator; writing this guide does not run
-or provision anything remotely. Verified against installed Railway CLI **5.71.0**
-(`--help`, `init --help`, `add --help`, `link --help`, `environment edit --help`,
-`variable set --help`, `up --help`, and `volume add --help`). Install that version
-with `npm install --global @railway/cli@5.71.0`.
+Legacy `railway.json` / `railway.toml` config-as-code is deprecated by Railway (not
+read after 2026-12-01, and new services cannot opt in), so this repository does not use it.
 
-From the repository root, use an interactive account login for provisioning:
+Change infrastructure by editing the file, then:
 
 ```sh
-railway login
-# For an existing project, use link instead of init:
-railway link --project <project-id> --environment production --json
-# OR create a new project in an explicitly chosen workspace:
-railway init --name taphoa-mini --workspace <workspace-id> --json
+railway link --project taphoa-mini --environment production
+railway config plan
+railway config apply   # review the plan first; never add --confirm-destructive casually
+```
 
-# After either path, confirm the target before creating services:
-railway status --json
-railway service list --json
+`railway config plan --detailed-exit-code` exits 2 when Railway has drifted from the file.
+
+## One-time project bootstrap (already done)
+
+```sh
+railway init --name taphoa-mini --workspace <workspace-id> --json
 railway add --service backend --json
 railway add --database postgres --json
 railway add --database redis --json
-```
-
-Run only the creation commands for missing services. The database names used in
-references below must be exactly `Postgres` and `Redis`; confirm them with
-`railway service list --json`.
-
-Before putting data into the new Postgres service, use its **Settings → Source**
-to select `pgvector/pgvector:pg17` (the standard Postgres image alone is insufficient).
-Keep its persistent volume mounted at `/var/lib/postgresql/data`, set
-`PGDATA=/var/lib/postgresql/data/pgdata`, and retain its generated
-`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `DATABASE_URL` variables.
-The equivalent source/PGDATA CLI configuration for this freshly provisioned service is:
-
-```sh
 railway service source connect --service Postgres --environment production \
-  --image pgvector/pgvector:pg17 --json
-railway variable set --service Postgres --environment production \
-  'PGDATA=/var/lib/postgresql/data/pgdata' --json
+  --image pgvector/pgvector:0.8.7-pg18-trixie --json
+railway config pull --variables=managed   # then edited into .railway/railway.ts
 ```
 
-Verify the volume mount in the dashboard before starting the database. For a
-service with no volume, link that service, add the volume, then relink backend:
-
-```sh
-railway link --project <project-id> --environment production --service Postgres --json
-railway volume add --mount-path /var/lib/postgresql/data --json
-railway link --project <project-id> --environment production --service backend --json
-```
-
-Set the service's config path with the CLI (the field is `configFile` on the
-service configuration, not inside `source`):
-
-```sh
-railway environment edit --environment production \
-  --service-config backend configFile /apps/backend/railway.json --json
-```
-
-Configure backend service references (single quotes preserve Railway's reference syntax):
-
-```sh
-railway variable set --service backend --environment production --skip-deploys \
-  'DATABASE_URL=${{Postgres.DATABASE_URL}}' \
-  'REDIS_URL=${{Redis.REDIS_URL}}' \
-  'RUST_LOG=info' --json
-```
-
-These resolve within Railway; do not paste local Compose URLs. The backend runs
-SQLx migrations at startup, including enabling `vector`, so its database user must
-have the required extension privileges. Confirm the Postgres image supports the
-extension before deploying.
+The backend runs SQLx migrations at startup, including `CREATE EXTENSION vector`,
+so the Postgres image must ship pgvector.
 
 ## Deploy and verify
 
-Set the backend Config File path above before the first upload. From the repository
-root, deploy to the linked production backend:
+From the repository root, deploy to the linked production backend:
 
 ```sh
 railway link --project <project-id> --environment production --service backend --json
@@ -130,7 +87,7 @@ requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
 `railway up --service backend --ci`. Production deploys are serialized. Turn off
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
-the CI gate. Keep the Config File and repository-root settings on the service.
+the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.
 
 No GitHub job runs EAS, so **EXPO_TOKEN is not required** in GitHub. Configure EAS
 account authorization/GitHub linkage in Expo when enabling the existing native
@@ -139,8 +96,7 @@ build and Maestro workflows.
 ## References
 
 - [Railway Dockerfiles and cache mounts](https://docs.railway.com/builds/dockerfiles)
-- [Railway config as code](https://docs.railway.com/config-as-code/reference)
-- [Railway JSON schema](https://railway.com/railway.schema.json)
+- [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
 - [Railway CLI up](https://docs.railway.com/cli/up)
 - [GitHub workflow_run trigger](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
 - [Docker GitHub Actions cache](https://docs.docker.com/build/ci/github-actions/cache/)

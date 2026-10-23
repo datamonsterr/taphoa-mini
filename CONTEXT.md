@@ -29,6 +29,6 @@ separate from the current infrastructure skeleton.
 | cargo-chef                    | Docker dependency planning and compilation stages retained as reusable build layers.                           |
 | Compose profile               | Optional group of local services; `mobile` adds the Expo development server.                                   |
 | Railway service / environment | Deployable app or database / isolated project configuration such as production.                                |
-| Config as code                | Railway build and deploy settings tracked in `apps/backend/railway.json`.                                      |
+| Railway IaC                   | Railway project graph (services, databases, volumes, variables) tracked in `.railway/railway.ts`.              |
 | Model-free image              | `SKIP_MODELS=1`: ONNX Runtime is included, SAM weights are absent, segmentation deliberately returns 503.      |
 | Conventional Commits          | Structured Git messages such as `fix: repair readiness check`, enforced by commitlint.                         |
