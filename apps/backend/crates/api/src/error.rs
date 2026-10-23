@@ -69,6 +69,11 @@ impl ApiError {
             "service unavailable",
         )
     }
+    /// Attach a `Retry-After` hint (seconds) to the response.
+    pub fn with_retry_after(mut self, seconds: u64) -> Self {
+        self.retry_after_secs = Some(seconds);
+        self
+    }
     pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,

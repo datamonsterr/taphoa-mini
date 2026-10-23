@@ -1,0 +1,664 @@
+//! Recognition scan endpoints (`POST`/`GET /v1/recognition/scans`) against
+//! real PostgreSQL, Redis and S3. Colour→vector `TestEmbedder`,
+//! `MockSegmenter` and an in-memory vector index keep the recognition side
+//! deterministic; the store, member, product rows and object storage are real.
+
+mod common;
+
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{HeaderMap, Request, StatusCode},
+};
+use common::Contract;
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use std::sync::Arc;
+use taphoa_api::{
+    AppState, router,
+    storage::{S3Store, StorageConfig},
+    vector::{InMemoryVectorIndex, VectorIndex},
+};
+use taphoa_recognition::{EmbedError, Embedder, MockSegmenter, Segment};
+use tokio::sync::Semaphore;
+use tower::ServiceExt;
+use uuid::Uuid;
+
+/// 384-d unit vector: 128 repetitions of each mean red/green/blue value.
+pub struct TestEmbedder;
+impl TestEmbedder {
+    fn colour_vector(&self, r: f32, g: f32, b: f32) -> Vec<f32> {
+        let mut vector = Vec::with_capacity(384);
+        for value in [r, g, b] {
+            vector.extend(std::iter::repeat_n(value, 128));
+        }
+        let norm = vector
+            .iter()
+            .map(|value| f64::from(*value) * f64::from(*value))
+            .sum::<f64>()
+            .sqrt() as f32;
+        vector.iter_mut().for_each(|value| *value /= norm);
+        vector
+    }
+}
+
+impl Embedder for TestEmbedder {
+    fn model(&self) -> &str {
+        "colour@1"
+    }
+    fn dim(&self) -> usize {
+        384
+    }
+    fn embed(&self, image: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        let image = image::ImageReader::new(std::io::Cursor::new(image))
+            .with_guessed_format()
+            .expect("known format guess")
+            .decode()
+            .map_err(|error| EmbedError::InvalidImage(error.to_string()))?;
+        let mut sums = [0u64; 3];
+        let mut count = 0u64;
+        for (_, _, pixel) in image.into_rgba8().enumerate_pixels() {
+            let image::Rgba([r, g, b, _]) = *pixel;
+            sums[0] += u64::from(r);
+            sums[1] += u64::from(g);
+            sums[2] += u64::from(b);
+            count += 1;
+        }
+        Ok(self.colour_vector(
+            sums[0] as f32 / count as f32,
+            sums[1] as f32 / count as f32,
+            sums[2] as f32 / count as f32,
+        ))
+    }
+}
+
+/// Solid colour patches under the mock segments.
+const RED: [u8; 3] = [255, 0, 0];
+const BLUE: [u8; 3] = [0, 0, 255];
+const PURPLE: [u8; 3] = [200, 0, 200];
+const GREY: [u8; 3] = [30, 30, 30];
+const PINK: [u8; 3] = [255, 120, 120];
+
+/// 160×128 PNG with solid patches under the segment boxes:
+/// red 0..64×0..64, purple 70..118×0..48, grey 115..147×0..40.
+fn draw_photo() -> Vec<u8> {
+    let mut image = image::RgbImage::new(160, 128);
+    let patch = |image: &mut image::RgbImage, rect: [u32; 4], colour: [u8; 3]| {
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            if (rect[0]..rect[0] + rect[2]).contains(&x)
+                && (rect[1]..rect[1] + rect[3]).contains(&y)
+            {
+                *pixel = image::Rgb(colour);
+            }
+        }
+    };
+    patch(&mut image, [0, 0, 64, 64], RED);
+    patch(&mut image, [70, 0, 48, 48], PURPLE);
+    patch(&mut image, [115, 0, 32, 40], GREY);
+    encode_png(image)
+}
+
+fn pink_photo() -> Vec<u8> {
+    let mut image = image::RgbImage::new(160, 128);
+    for (_, _, pixel) in image.enumerate_pixels_mut() {
+        *pixel = image::Rgb(PINK);
+    }
+    encode_png(image)
+}
+
+fn encode_png(image: image::RgbImage) -> Vec<u8> {
+    let mut png = Vec::new();
+    image
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    png
+}
+
+fn segment(bbox: [f32; 4], score: f32) -> Segment {
+    Segment {
+        bbox,
+        score,
+        area: bbox[2] as u32 * bbox[3] as u32,
+    }
+}
+
+/// Scan segments: two red crops overlap (the smaller duplicate must drop),
+/// a purple crop tied between the two products and a grey crop below the
+/// floor; equal row heights keep the display order simple.
+fn scan_segments() -> Vec<Segment> {
+    vec![
+        segment([4., 4., 50., 50.], 0.9),
+        segment([14., 14., 40., 40.], 0.8),
+        segment([75., 10., 30., 30.], 0.85),
+        segment([120., 10., 20., 20.], 0.75),
+    ]
+}
+
+fn pink_segments() -> Vec<Segment> {
+    vec![segment([0., 0., 100., 100.], 0.9)]
+}
+
+async fn build_state(
+    segments: Vec<Segment>,
+) -> Option<(Router, AppState, Arc<InMemoryVectorIndex>)> {
+    let (Ok(database), Ok(redis)) = (std::env::var("DATABASE_URL"), std::env::var("REDIS_URL"))
+    else {
+        eprintln!("SKIP recognition integration: set DATABASE_URL and REDIS_URL");
+        return None;
+    };
+    let Some(storage_config) = StorageConfig::from_env().unwrap() else {
+        eprintln!("SKIP recognition integration: set all AWS_* storage variables");
+        return None;
+    };
+    let mut state = AppState::connect(Some(&database), Some(&redis), None)
+        .await
+        .unwrap();
+    let index = Arc::new(InMemoryVectorIndex::default());
+    state.embedder = Some(Arc::new(TestEmbedder));
+    state.vector_index = Some(index.clone() as Arc<dyn VectorIndex>);
+    state.inference_slots = Arc::new(Semaphore::new(1));
+    state.segmenter = Some(Arc::new(MockSegmenter { segments }));
+    let storage = Arc::new(S3Store::new(&storage_config).await);
+    if storage_config.create_bucket {
+        storage.ensure_bucket().await.unwrap();
+    }
+    state.storage = Some(storage);
+    state.image_url_ttl = storage_config.url_ttl;
+    Some((router(state.clone()), state, index))
+}
+
+/// Store + lead member + design device; returns (store, member, token).
+async fn create_store(app: &Router) -> (Uuid, Uuid, String) {
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/stores")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .body(Body::from(
+                    json!({"store_name":"Recognition test","display_name":"Lead","device":{"name":"counter","platform":"web","app_version":"1.0"},"bank_account":{"bank_bin":"970436","account_number":"VN123","account_name":"CO BA"}})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body, _) = read(created).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    (
+        body["store"]["id"].as_str().unwrap().parse().unwrap(),
+        body["member"]["id"].as_str().unwrap().parse().unwrap(),
+        body["access_token"].as_str().unwrap().to_owned(),
+    )
+}
+
+/// Two colour-identified products; a 12-pack unit only on the red one.
+async fn seed_products(
+    pool: &PgPool,
+    store_id: Uuid,
+    member_id: Uuid,
+    index: &InMemoryVectorIndex,
+) -> (Uuid, Uuid) {
+    let embedder = TestEmbedder;
+    let mut products = Vec::new();
+    for (name, price, colour) in [
+        ("Nước mắm Phú Quốc", 25_000i64, RED),
+        ("Dầu ăn Kinh Đô", 45_000, BLUE),
+    ] {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO products (id, store_id, name, price, created_by, request_hash) \
+             VALUES ($1, $2, $3, $4, $5, '\\x00'::bytea)",
+        )
+        .bind(id)
+        .bind(store_id)
+        .bind(name)
+        .bind(price)
+        .bind(member_id)
+        .execute(pool)
+        .await
+        .unwrap();
+        index
+            .upsert(
+                store_id,
+                id,
+                Uuid::new_v4(),
+                embedder.model(),
+                embedder.colour_vector(
+                    f32::from(colour[0]),
+                    f32::from(colour[1]),
+                    f32::from(colour[2]),
+                ),
+            )
+            .await
+            .unwrap();
+        products.push(id);
+    }
+    sqlx::query(
+        "INSERT INTO product_units (id, store_id, product_id, name, quantity_in_base, price) \
+         VALUES ($1, $2, $3, 'lốc', 12, $4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(store_id)
+    .bind(products[0])
+    .bind(276_000i64)
+    .execute(pool)
+    .await
+    .unwrap();
+    (products[0], products[1])
+}
+
+/// Multipart POST to `POST /v1/recognition/scans`; `image` optional to allow
+/// the `image_id` path.
+async fn post_scan(
+    app: &Router,
+    token: &str,
+    image: Option<&[u8]>,
+    extras: &[(&str, &str)],
+) -> (StatusCode, Value, HeaderMap) {
+    let mut body = Vec::new();
+    for (name, value) in extras {
+        body.extend_from_slice(
+            format!("--SCAN\r\ncontent-disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+                .as_bytes(),
+        );
+    }
+    if let Some(bytes) = image {
+        body.extend_from_slice(
+            "--SCAN\r\ncontent-disposition: form-data; name=\"image\"; filename=\"photo.png\"\r\ncontent-type: image/png\r\n\r\n"
+                .as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(b"--SCAN--\r\n");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/recognition/scans")
+                .header("content-type", "multipart/form-data; boundary=SCAN")
+                .header("authorization", format!("Bearer {token}"))
+                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    read(response).await
+}
+
+async fn read(response: axum::response::Response) -> (StatusCode, Value, HeaderMap) {
+    let headers = response.headers().clone();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 32 << 20).await.unwrap();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).expect("JSON body")
+    };
+    (status, body, headers)
+}
+
+async fn get_scan(app: &Router, token: &str, scan_id: &str) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/v1/recognition/scans/{scan_id}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body, _) = read(response).await;
+    (status, body)
+}
+
+fn approx(actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() < 0.02,
+        "{actual} is not close to {expected}"
+    );
+}
+
+/// Scan/time rows on disk: detections in position order, 3 crop thumbnails
+/// with purpose `crop`, embeddings stored (dim 384).
+async fn assert_persisted(pool: &PgPool, store_id: Uuid, scan_id: &str, red: Uuid) -> (Uuid, i64) {
+    let row: (Uuid, Uuid, i64, Value) = sqlx::query_as(
+        "SELECT id, image_id, catalog_version, timings FROM \
+         scans WHERE id = $1 AND store_id = $2",
+    )
+    .bind(scan_id.parse::<Uuid>().unwrap())
+    .bind(store_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let detections: Vec<(i16, String, Vec<f32>, Uuid)> = sqlx::query_as(
+        "SELECT position, match::TEXT, bbox, crop_image_id \
+         FROM detections WHERE scan_id = $1 ORDER BY position",
+    )
+    .bind(row.0)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(detections.len(), 3);
+    assert!(
+        detections
+            .iter()
+            .enumerate()
+            .all(|(index, (position, _, _, _))| *position == index as i16)
+    );
+    let candidates: Vec<Value> = sqlx::query_as::<_, (Value,)>(
+        "SELECT candidates FROM detections WHERE scan_id = $1 ORDER BY position",
+    )
+    .bind(row.0)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|row| row.0)
+    .collect();
+    assert!(
+        candidates
+            .iter()
+            .any(|hit| hit[0]["product_id"] == red.to_string())
+    );
+    let crop_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM images WHERE purpose = 'crop' AND store_id = $1")
+            .bind(store_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(crop_rows, 3);
+    let embedded: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM detections WHERE scan_id = $1 AND embedding IS NOT NULL",
+    )
+    .bind(row.0)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(embedded, 3);
+    (row.1, row.2)
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_orders_classes_candidates_and_persists() {
+    let Some((app, state, index)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let pool = state.postgres.clone().unwrap();
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (red, blue) = seed_products(&pool, store_id, member_id, &index).await;
+
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(headers.get("content-type").unwrap(), "application/json");
+    Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+
+    let scan_id = body["id"].as_str().unwrap().to_owned();
+    let detections = body["detections"].as_array().unwrap();
+    assert_eq!(
+        detections.len(),
+        3,
+        "the overlapping red crop is dropped: {body}"
+    );
+    let classes: Vec<&str> = detections
+        .iter()
+        .map(|detection| detection["match"].as_str().unwrap())
+        .collect();
+    assert_eq!(classes, ["matched", "ambiguous", "unknown"]);
+    let red_candidates = &detections[0]["candidates"].as_array().unwrap();
+    assert_eq!(
+        red_candidates[0]["product_id"],
+        red.to_string(),
+        "candidates are similarity-sorted"
+    );
+    approx(red_candidates[0]["similarity"].as_f64().unwrap(), 1.0);
+    assert_eq!(red_candidates[0]["name"], "Nước mắm Phú Quốc");
+    assert_eq!(red_candidates[0]["price"], 25_000);
+    assert!(red_candidates[0]["default_unit_id"].is_string());
+
+    let purple = &detections[1]["candidates"].as_array().unwrap();
+    assert_eq!(purple.len(), 2);
+    approx(purple[0]["similarity"].as_f64().unwrap(), 0.707);
+    approx(
+        purple[0]["similarity"].as_f64().unwrap(),
+        purple[1]["similarity"].as_f64().unwrap(),
+    );
+    let grey = &detections[2]["candidates"].as_array().unwrap();
+    approx(grey[0]["similarity"].as_f64().unwrap(), 0.577);
+
+    let left_x: Vec<f64> = detections
+        .iter()
+        .map(|detection| detection["bbox"][0].as_f64().unwrap())
+        .collect();
+    assert!(
+        left_x[0] < left_x[1] && left_x[1] < left_x[2],
+        "display order is left-to-right: {left_x:?}"
+    );
+    assert_eq!(body["pipeline"]["segmenter"], "mobilesam-onnx@1");
+    assert_eq!(body["pipeline"]["embedder"], "colour@1");
+    for key in ["segment", "embed", "search", "total"] {
+        assert!(
+            body["timings_ms"][key].is_i64(),
+            "timings_ms.{key} missing: {}",
+            body["timings_ms"]
+        );
+    }
+    assert!(body["image"]["id"].is_string());
+    assert_eq!(body["mode"], "multi");
+    assert_eq!(body["purpose"], "checkout");
+
+    let (image_id, catalog_version) = assert_persisted(&pool, store_id, &scan_id, red).await;
+    assert_eq!(body["image"]["id"], image_id.to_string());
+    assert_eq!(body["pipeline"]["catalog_version"], catalog_version);
+
+    let latest: i64 =
+        sqlx::query_scalar("SELECT COALESCE(max(seq), 0) FROM change_log WHERE store_id = $1")
+            .bind(store_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(catalog_version, latest);
+    let _ = blue;
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn get_scan_and_cross_store_404() {
+    let Some((app, state, index)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let pool = state.postgres.clone().unwrap();
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (red, blue) = seed_products(&pool, store_id, member_id, &index).await;
+    let (_, posted, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    let scan_id = posted["id"].as_str().unwrap().to_owned();
+    let _ = (store_id, red, blue);
+
+    let (status, body) = get_scan(&app, &token, &scan_id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["id"], scan_id);
+    Contract::load().assert_conforms("/v1/recognition/scans/{scanId}", "get", status, &body);
+    assert_eq!(body["detections"][0]["match"], "matched");
+    assert!(body["detections"][0]["crop_url"].is_string());
+
+    let (_, _, other) = create_store(&app).await;
+    let (status, body) = get_scan(&app, &other, &scan_id).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["code"], "not_found");
+
+    let (status, body) = get_scan(&app, &token, &Uuid::new_v4().to_string()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["code"], "not_found");
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn request_validation() {
+    let Some((app, _, _)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+    let photo = draw_photo();
+
+    let (status, body, _) = post_scan(&app, "not-a-token", Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    let (status, body, _) = post_scan(&app, &token, Some(&photo), &[("mode", "pano")]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, body, _) = post_scan(&app, &token, Some(&photo), &[("top_k", "6")]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, body, _) = post_scan(&app, &token, None, &[("mode", "multi")]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, body, _) = post_scan(&app, &token, Some(&[7u8; 8192]), &[]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "validation_failed");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/recognition/scans")
+                .header("content-type", "multipart/form-data; boundary=SCAN")
+                .header("authorization", format!("Bearer {token}"))
+                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .body(Body::from(build_flagged_body("text/plain", &photo)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body, _) = read(response).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+
+    let (status, body, _) = post_scan(&app, &token, Some(&vec![7u8; 11 << 20]), &[]).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+}
+
+fn build_flagged_body(content_type: &str, bytes: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        "--SCAN\r\ncontent-disposition: form-data; name=\"image\"; filename=\"photo.png\"\r\n"
+            .as_bytes(),
+    );
+    body.extend_from_slice(format!("content-type: {content_type}\r\n\r\n").as_bytes());
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(b"\r\n--SCAN--\r\n");
+    body
+}
+
+async fn upload_image(app: &Router, token: &str, bytes: &[u8]) -> (StatusCode, Value) {
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        "--SCAN\r\ncontent-disposition: form-data; name=\"purpose\"\r\n\r\ncheckout\r\n".as_bytes(),
+    );
+    body.extend_from_slice(
+        "--SCAN\r\ncontent-disposition: form-data; name=\"image\"; filename=\"photo.png\"\r\ncontent-type: image/png\r\n\r\n"
+            .as_bytes(),
+    );
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(b"\r\n--SCAN--\r\n");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/images")
+                .header("content-type", "multipart/form-data; boundary=SCAN")
+                .header("authorization", format!("Bearer {token}"))
+                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, result, _) = read(response).await;
+    (status, result)
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn image_id_path_reuses_the_row() {
+    let Some((app, state, index)) = build_state(vec![segment([20., 20., 60., 60.], 0.9)]).await
+    else {
+        return;
+    };
+    let pool = state.postgres.clone().unwrap();
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (red, blue) = seed_products(&pool, store_id, member_id, &index).await;
+    let (status, uploaded) = upload_image(&app, &token, &pink_photo()).await;
+    assert_eq!(status, StatusCode::CREATED, "{uploaded}");
+    let image_id = uploaded["id"].as_str().unwrap().to_owned();
+
+    let (status, body, _) = post_scan(
+        &app,
+        &token,
+        None,
+        &[("image_id", &image_id), ("purpose", "checkout")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+    assert_eq!(body["image"]["id"], image_id, "the uploaded row is reused");
+    assert_eq!(body["detections"][0]["match"], "matched");
+
+    let unknown = Uuid::new_v4().to_string();
+    let (status, body, _) = post_scan(&app, &token, None, &[("image_id", &unknown)]).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let (status, body, _) = post_scan(&app, &token, None, &[("image_id", "zz")]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let _ = (red, blue);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL and REDIS_URL"]
+async fn busy_returns_retry_after() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+    let permit = state.inference_slots.clone().acquire_owned().await.unwrap();
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["code"], "unavailable");
+    assert_eq!(headers.get("retry-after"), Some(&"1".parse().unwrap()));
+    drop(permit);
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn missing_models_are_unavailable() {
+    let Some((_app, mut state, _)) = build_state(scan_segments()).await else {
+        return;
+    };
+    state.segmenter = None;
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["code"], "unavailable");
+    assert!(headers.get("retry-after").is_none());
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn enrollment_duplicate_threshold_lowers_match() {
+    let Some((app, state, index)) = build_state(pink_segments()).await else {
+        return;
+    };
+    let pool = state.postgres.clone().unwrap();
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (red, blue) = seed_products(&pool, store_id, member_id, &index).await;
+    let photo = pink_photo();
+
+    let (_, checkout, _) = post_scan(&app, &token, Some(&photo), &[]).await;
+    assert_eq!(checkout["detections"][0]["match"], "matched", "{checkout}");
+    let (_, enrollment, _) =
+        post_scan(&app, &token, Some(&photo), &[("purpose", "enrollment")]).await;
+    assert_eq!(
+        enrollment["detections"][0]["match"], "ambiguous",
+        "0.83 must be under the 0.88 duplicate threshold: {enrollment}"
+    );
+    let _ = (store_id, red, blue);
+}

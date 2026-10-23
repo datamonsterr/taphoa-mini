@@ -64,9 +64,10 @@ binary downloads, and ships Microsoft's ONNX Runtime 1.23.2 shared library. Loca
 Linux x86-64 setup uses the checksum-verified runtime helper. Other platforms must
 install a compatible runtime >=1.23 and set `ORT_DYLIB_PATH` themselves.
 
-Model downloads come from the [Image Arjun Raj Laboratory SAM vit_b export](https://huggingface.co/rajlab/sam_vit_b),
-revision `c20401a6d978ab52ba87b5e05909be65c79b0686` (Apache-2.0). The fetch script
-checks pinned SHA-256 hashes before an atomic rename, prints checksums, and reuses
+Model downloads: [MobileSAM ONNX](https://huggingface.co/Acly/MobileSAM) and
+[DINOv2-small ONNX](https://huggingface.co/onnx-community/dinov2-small) at the pinned
+revisions in `scripts/fetch-models.sh` (see `docs/specs/recognition-latency.md` for why
+not SAM ViT-B). The fetch script checks pinned SHA-256 hashes before an atomic rename, prints checksums, and reuses
 verified files. Weights, runtime downloads, and Cargo artifacts are gitignored.
 `tests/fixtures/sample.png` is an original generated two-rectangle test image.
 

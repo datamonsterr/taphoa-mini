@@ -18,7 +18,8 @@ COPY apps/backend/migrations/ migrations/
 # Ordinary layers work on Railway without service-specific cache mount IDs.
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY apps/backend/ .
-RUN cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
+# COPY keeps old mtimes, which cargo would treat as fresh against the dependency-skeleton build.
+RUN find crates -name "*.rs" -exec touch {} + && cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
 
 FROM chef AS assets
 ARG SKIP_MODELS=0
@@ -40,8 +41,9 @@ COPY --from=assets /opt/onnxruntime/ThirdPartyNotices.txt /opt/onnxruntime/Third
 COPY --from=assets --chown=app:app /opt/models/ /app/models/
 ENV PORT=8080 LOG_FORMAT=json \
     ORT_DYLIB_PATH=/opt/onnxruntime/lib/libonnxruntime.so.1.23.2 \
-    SAM_ENCODER_PATH=/app/models/sam_vit_b_encoder.onnx \
-    SAM_DECODER_PATH=/app/models/sam_vit_b_decoder.onnx
+    SAM_ENCODER_PATH=/app/models/mobile_sam_image_encoder.onnx \
+    SAM_DECODER_PATH=/app/models/sam_mask_decoder_multi.onnx \
+    DINO_MODEL_PATH=/app/models/dinov2_small.onnx
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \

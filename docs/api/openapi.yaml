@@ -592,11 +592,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalError' }
-        '503':
-          description: '`no model loaded` (weights absent, e.g. `SKIP_MODELS=1`) or `segmenter busy`.'
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   # ---------------------------------------------------------------- Catalog
   /v1/products:

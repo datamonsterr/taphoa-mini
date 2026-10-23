@@ -260,6 +260,42 @@ jobs:
           path: apps/backend/target/nextest/ci/junit.xml
           if-no-files-found: ignore
 
+  # SAM/DINO model tests (release build) with cached ONNX Runtime and weights.
+  model-test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: model
+      - uses: actions/cache@v6
+        id: models
+        with:
+          path: |
+            apps/backend/models
+            apps/backend/onnxruntime
+          key: models-${{ hashFiles('apps/backend/scripts/fetch-models.sh', 'apps/backend/scripts/fetch-onnxruntime.sh') }}
+      - name: Fetch ONNX Runtime and model weights
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          apps/backend/scripts/fetch-onnxruntime.sh
+          apps/backend/scripts/fetch-models.sh
+      - name: Model tests
+        working-directory: apps/backend
+        env:
+          SAM_MAX_MS: '3000'
+        run: |
+          export ORT_DYLIB_PATH="$PWD/onnxruntime/lib/libonnxruntime.so.1.23.2"
+          cargo test --locked -p taphoa-recognition --test model --release -- --test-threads=1 --nocapture
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "model-test" "SAM + DINO ONNX tests, SAM_MAX_MS=3000"
+
   # ---------- JavaScript ----------
 
   js-format:
@@ -527,6 +563,7 @@ jobs:
       - rust-build
       - rust-test
       - rust-integration
+      - model-test
       - js-format
       - js-lint
       - js-typecheck

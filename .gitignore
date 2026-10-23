@@ -13,3 +13,4 @@ apps/backend/models/
 __pycache__/
 .ci-cache/
 ci-bin/
+apps/backend/target-local/
