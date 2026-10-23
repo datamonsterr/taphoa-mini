@@ -28,11 +28,11 @@ or missing runtime with existing models fails startup. `RUST_LOG` controls traci
 requests and closes the Postgres pool. Configuration is environment-only; the binary
 does not automatically read `.env`.
 
-| Endpoint | Result |
-| --- | --- |
-| `GET /healthz` | 200 `{"status":"ok"}`, without dependency checks |
-| `GET /readyz` | 200 after `SELECT 1` and Redis `PING`; otherwise 503 with `dependencies` naming `postgres`/`redis` |
-| `POST /v1/segment` | multipart field `image`; JSON array of `{bbox:[x,y,w,h],score,area}`; 503 without a model |
+| Endpoint           | Result                                                                                             |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| `GET /healthz`     | 200 `{"status":"ok"}`, without dependency checks                                                   |
+| `GET /readyz`      | 200 after `SELECT 1` and Redis `PING`; otherwise 503 with `dependencies` naming `postgres`/`redis` |
+| `POST /v1/segment` | multipart field `image`; JSON array of `{bbox:[x,y,w,h],score,area}`; 503 without a model          |
 
 ```sh
 curl -F image=@tests/fixtures/sample.png http://localhost:8080/v1/segment
@@ -85,7 +85,7 @@ BASE_URL=http://localhost:8080 ./scripts/e2e.sh
 
 `package.json` exposes `lint`, `format`, `format:check`, `typecheck`, `test`,
 `test:integration`, `test:e2e`, and `build` for root Turborepo commands. The HTTP smoke
-script expects 200 on all three routes by default; set `SEGMENT_EXPECTED_STATUS=503`
+script expects 200 on all three routes by default; set `EXPECT_SEGMENT_STATUS=503` (legacy `SEGMENT_EXPECTED_STATUS` also works)
 only when intentionally testing a model-free image. Missing readiness fails the smoke.
 
 Build **from repository root**, with the Dockerfile-specific ignore file keeping the
@@ -99,8 +99,7 @@ docker run --rm -p 8080:8080 taphoa-backend
 curl http://localhost:8080/healthz
 ```
 
-The image uses cargo-chef dependency caching, a release binary, Debian slim, and UID
-10001. To make readiness pass, supply reachable `DATABASE_URL` and `REDIS_URL` to
+The image uses cargo-chef dependency caching, a release binary, Debian slim, and UID 10001. To make readiness pass, supply reachable `DATABASE_URL` and `REDIS_URL` to
 `docker run` (container localhost is separate from host localhost). To test inference
 in a skipped-model image, mount a populated models directory at `/app/models:ro`.
 The image currently targets Linux amd64; the runtime helper fails explicitly for
@@ -112,3 +111,5 @@ backend watch patterns, `/healthz`, and restart-on-failure with five retries. Co
 Postgres/Redis service-reference environment variables and use pgvector-capable
 Postgres. Schema reference: [Railway config as code](https://docs.railway.com/config-as-code/reference).
 The deployment healthcheck proves process health; `/readyz` separately proves dependencies.
+
+Project layout, operator CLI commands and production CI setup: [deployment guide](../../docs/deploy.md).

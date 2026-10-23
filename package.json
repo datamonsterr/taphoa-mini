@@ -8,15 +8,19 @@
   },
   "scripts": {
     "lint": "turbo run lint",
-    "format": "prettier --write .",
-    "format:check": "prettier --check . && turbo run format:check",
+    "format": "prettier --write . && pnpm --filter @taphoa/backend format",
+    "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:integration": "turbo run test:integration",
     "test:e2e": "turbo run test:e2e",
-    "build": "turbo run build"
+    "build": "turbo run build",
+    "prepare": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "lefthook": "^2.2.2",
     "prettier": "^3.9.10",
     "turbo": "^2.11.10"
   }

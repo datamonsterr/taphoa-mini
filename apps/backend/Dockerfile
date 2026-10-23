@@ -15,13 +15,10 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 # SQLx migration embedding also runs when chef builds the dependency skeleton.
 COPY apps/backend/migrations/ migrations/
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo chef cook --release --recipe-path recipe.json
+# Ordinary layers work on Railway without service-specific cache mount IDs.
+RUN cargo chef cook --release --recipe-path recipe.json
 COPY apps/backend/ .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
+RUN cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
 
 FROM chef AS assets
 ARG SKIP_MODELS=0

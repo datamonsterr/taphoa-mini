@@ -19,4 +19,4 @@ check() {
 check /healthz 200
 check /readyz 200
 # The default exercises actual inference. Explicitly expect 503 for SKIP_MODELS images.
-check /v1/segment "${SEGMENT_EXPECTED_STATUS:-200}" --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
+check /v1/segment "${EXPECT_SEGMENT_STATUS:-${SEGMENT_EXPECTED_STATUS:-200}}" --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
