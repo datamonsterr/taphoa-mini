@@ -40,6 +40,23 @@ async fn real_upload_reference_and_presigned_download() {
         .await
         .unwrap();
     assert_eq!(readiness.status(), StatusCode::OK);
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/stores")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"store_name":"Storage test","display_name":"Lead","device":{"name":"test","platform":"android"}}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created: Value =
+        serde_json::from_slice(&to_bytes(created.into_body(), 65536).await.unwrap()).unwrap();
+    let store_id: Uuid = created["store"]["id"].as_str().unwrap().parse().unwrap();
+    let bearer = format!("Bearer {}", created["access_token"].as_str().unwrap());
     let fixture = include_bytes!("../../../tests/fixtures/sample.png");
     let mut body = b"--test\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nenrollment\r\n--test\r\nContent-Disposition: form-data; name=\"image\"; filename=\"sample.png\"\r\nContent-Type: image/png\r\n\r\n".to_vec();
     body.extend_from_slice(fixture);
@@ -49,6 +66,7 @@ async fn real_upload_reference_and_presigned_download() {
         .oneshot(
             Request::post("/v1/images")
                 .header("content-type", "multipart/form-data; boundary=test")
+                .header("authorization", &bearer)
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -72,7 +90,7 @@ async fn real_upload_reference_and_presigned_download() {
             fixture.len() as i64,
             key.into(),
             "image/png".into(),
-            None,
+            Some(store_id),
             "enrollment".into()
         )
     );
@@ -80,6 +98,7 @@ async fn real_upload_reference_and_presigned_download() {
         .clone()
         .oneshot(
             Request::get(format!("/v1/images/{id}"))
+                .header("authorization", &bearer)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -99,25 +118,24 @@ async fn real_upload_reference_and_presigned_download() {
     assert_eq!(&downloaded[..], fixture);
     assert_eq!(fetched["purpose"], json!("enrollment"));
 
-    // Exercise the API's real FK failure and object compensation.
+    // A non-image payload is rejected before any row is written.
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM images")
         .fetch_one(&pool)
         .await
         .unwrap();
-    let invalid_store = Uuid::new_v4();
-    let mut body = format!("--test\r\nContent-Disposition: form-data; name=\"store_id\"\r\n\r\n{invalid_store}\r\n--test\r\nContent-Disposition: form-data; name=\"image\"\r\n\r\n").into_bytes();
-    body.extend_from_slice(fixture);
-    body.extend_from_slice(b"\r\n--test--\r\n");
+    let mut body = b"--test\r\nContent-Disposition: form-data; name=\"image\"\r\n\r\nnot an image\r\n--test--\r\n".to_vec();
+    body.extend_from_slice(b"");
     let response = app
         .oneshot(
             Request::post("/v1/images")
                 .header("content-type", "multipart/form-data; boundary=test")
+                .header("authorization", &bearer)
                 .body(Body::from(body))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     let after: i64 = sqlx::query_scalar("SELECT count(*) FROM images")
         .fetch_one(&pool)
         .await

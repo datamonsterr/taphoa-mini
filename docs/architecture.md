@@ -733,7 +733,7 @@ sequenceDiagram
 | `AWS_*`, `S3_FORCE_PATH_STYLE`, `S3_CREATE_BUCKET`, `IMAGE_URL_TTL_SECONDS` | backend | Spec'd      | Object storage ([spec](specs/object-storage.md)) |
 | `EMBEDDER_MODEL_PATH`                                                       | backend | Proposed    | DINOv2 ONNX weights                              |
 | `MATCH_THRESHOLD`, `MATCH_MARGIN`, `MATCH_FLOOR`, `DUPLICATE_THRESHOLD`     | backend | Proposed    | Recognition tuning (§5.3)                        |
-| `JWT_SECRET`                                                                | backend | Proposed    | ≥ 32 random bytes                                |
+| `JWT_SECRET`                                                                | backend | Implemented | ≥ 32 random bytes                                |
 | `EXPO_PUBLIC_API_URL`                                                       | mobile  | Implemented | Backend base URL                                 |
 
 ## 11. Quality attributes

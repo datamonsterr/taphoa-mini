@@ -220,6 +220,7 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 30
     env:
       RUSTUP_TOOLCHAIN: stable
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
       DATABASE_URL: postgres://taphoa:taphoa@localhost:5432/taphoa
       REDIS_URL: redis://localhost:6379
       AWS_ENDPOINT_URL: http://localhost:9000
@@ -244,7 +245,7 @@ jobs:
         working-directory: apps/backend
         run: >-
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
-          --profile ci --run-ignored only --no-tests=pass
+          --profile ci --run-ignored only --test-threads 1 --no-tests=pass
       - name: Summary
         if: always()
         env:
