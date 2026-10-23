@@ -10,3 +10,4 @@ apps/backend/models/
 !.env.example
 *.tsbuildinfo
 .DS_Store
+apps/backend/target-local/

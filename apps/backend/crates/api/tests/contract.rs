@@ -32,6 +32,14 @@ impl ObjectStore for FakeStore {
         self.0.lock().unwrap().remove(key);
         Ok(())
     }
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        self.0
+            .lock()
+            .unwrap()
+            .get(key)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("object {key} not found"))
+    }
     async fn head_bucket(&self) -> anyhow::Result<()> {
         Ok(())
     }

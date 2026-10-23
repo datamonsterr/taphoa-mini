@@ -1,9 +1,8 @@
-//! recognition module. Owned by a later epic; E1 only provides the empty router.
+//! Recognition scans (E2): `POST /v1/recognition/scans` and
+//! `GET /v1/recognition/scans/{scanId}`; `/v1/segment` lives in `lib.rs`.
+pub mod classify;
+pub mod handlers;
 pub mod pgvector;
+pub(crate) mod service;
 
-use crate::AppState;
-use axum::Router;
-
-pub fn router() -> Router<AppState> {
-    Router::new()
-}
+pub(crate) use handlers::router;

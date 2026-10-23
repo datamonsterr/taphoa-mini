@@ -25,6 +25,46 @@ async fn pool() -> Option<PgPool> {
     Some(pool)
 }
 
+/// Serializes the tests and deletes the stores they created (name 't') afterwards, so rows with
+/// unnormalized test vectors do not leak into suites that assert global invariants.
+struct Tidy {
+    _serial: tokio::sync::OwnedMutexGuard<()>,
+}
+impl Tidy {
+    async fn start(_pool: PgPool) -> Self {
+        static SERIAL: std::sync::OnceLock<std::sync::Arc<tokio::sync::Mutex<()>>> =
+            std::sync::OnceLock::new();
+        let lock = SERIAL.get_or_init(Default::default).clone();
+        Self {
+            _serial: lock.lock_owned().await,
+        }
+    }
+}
+impl Drop for Tidy {
+    fn drop(&mut self) {
+        // The test's runtime is shutting down; clean up from a scratch thread and runtime.
+        let _ = std::thread::spawn(move || {
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                runtime.block_on(async {
+                    // A pool of the blocked test runtime cannot make progress: connect anew.
+                    let Ok(url) = std::env::var("DATABASE_URL") else {
+                        return;
+                    };
+                    if let Ok(fresh) = PgPoolOptions::new().max_connections(1).connect(&url).await {
+                        let _ = sqlx::query("DELETE FROM stores WHERE name = 't'")
+                            .execute(&fresh)
+                            .await;
+                    }
+                });
+            }
+        })
+        .join();
+    }
+}
+
 async fn new_store(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO stores (id, name, recovery_code_hash) VALUES ($1, 't', 'x')")
@@ -143,6 +183,7 @@ fn random_vector(rng: &mut Prng) -> Vec<f32> {
 #[ignore = "real Postgres with pgvector required"]
 async fn best_per_product_limit_and_store_or_model_isolation() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let store = new_store(&pool).await;
     let other = new_store(&pool).await;
@@ -248,6 +289,7 @@ async fn best_per_product_limit_and_store_or_model_isolation() {
 #[ignore = "real Postgres with pgvector required"]
 async fn upsert_same_reference_key_replaces_instead_of_duplicating() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let store = new_store(&pool).await;
     let product = new_product(&pool, store).await;
@@ -289,6 +331,7 @@ async fn upsert_same_reference_key_replaces_instead_of_duplicating() {
 #[ignore = "real Postgres with pgvector required"]
 async fn remove_product_deletes_every_model_and_image_row() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let store = new_store(&pool).await;
     let product = new_product(&pool, store).await;
@@ -335,6 +378,7 @@ async fn remove_product_deletes_every_model_and_image_row() {
 #[ignore = "real Postgres with pgvector required"]
 async fn equal_similarities_tie_break_by_product_id_ascending() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let store = new_store(&pool).await;
     let (a, b) = (
@@ -366,6 +410,7 @@ async fn equal_similarities_tie_break_by_product_id_ascending() {
 #[ignore = "real Postgres with pgvector required"]
 async fn rejects_invalid_embeddings_and_wrong_dimension() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let store = Uuid::new_v4();
     for vector in [
@@ -431,6 +476,7 @@ async fn rejects_invalid_embeddings_and_wrong_dimension() {
 #[ignore = "real Postgres with pgvector required"]
 async fn filtered_search_returns_small_store_neighbors_among_other_store_hotspot() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let memory = InMemoryVectorIndex::default();
     let store = new_store(&pool).await;
@@ -515,6 +561,7 @@ async fn filtered_search_returns_small_store_neighbors_among_other_store_hotspot
 #[ignore = "real Postgres with pgvector required"]
 async fn agrees_with_in_memory_index_on_random_data() {
     let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
     let memory = InMemoryVectorIndex::default();
     let store = new_store(&pool).await;
