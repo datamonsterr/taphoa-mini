@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   assertErrorResponse,
@@ -108,6 +109,7 @@ async function createExpense(
     category: CreateExpenseRequest['category'];
     paid_with: CreateExpenseRequest['paid_with'];
     note?: string;
+    purchase_lines?: CreateExpenseRequest['purchase_lines'];
   },
 ): Promise<{ body: CreateExpenseRequest; expense: Expense }> {
   const body: CreateExpenseRequest = {
@@ -117,6 +119,7 @@ async function createExpense(
     category: fields.category,
     paid_with: fields.paid_with,
     ...(fields.note ? { note: fields.note } : {}),
+    ...(fields.purchase_lines ? { purchase_lines: fields.purchase_lines } : {}),
   };
   const { data, error, response } = await client.raw.POST('/v1/expenses', {
     body,
@@ -192,19 +195,16 @@ async function probeCatalogAvailable(): Promise<boolean> {
   }
 }
 
+const sampleUrl = new URL(
+  '../../../apps/backend/tests/fixtures/sample.png',
+  import.meta.url,
+);
+
 const catalogAvailable = await probeCatalogAvailable();
 
-/** Minimal valid 1x1 PNG for catalog reference images. */
+/** A real decodable image: the production embedder rejects 1x1 placeholders. */
 function onePixelPng(): Blob {
-  const bytes = Uint8Array.from([
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
-    0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-    0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-  ]);
-  return new Blob([bytes], { type: 'image/png' });
+  return new Blob([readFileSync(sampleUrl)], { type: 'image/png' });
 }
 
 describe('Sales & Money Flows (E4)', () => {
@@ -655,6 +655,9 @@ describe('Sales & Money Flows (E4)', () => {
           category: 'nhap_hang',
           paid_with: 'cash_box',
           note: 'Nhap chua thung dau tien',
+          purchase_lines: [
+            { product_id: productId, quantity: 1, unit_cost: 8500 },
+          ],
         });
         expect(expense.purchase_lines!.length).toBe(1);
         const purchaseLine = expense.purchase_lines![0];
