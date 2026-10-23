@@ -1,3 +1,4 @@
+use crate::auth::Actor;
 use crate::{ApiError, AppState, MAX_UPLOAD_BYTES, multipart_error};
 use async_trait::async_trait;
 use axum::{
@@ -25,23 +26,24 @@ pub struct ImageRow {
 const PURPOSES: [&str; 4] = ["enrollment", "checkout", "expense_receipt", "other"];
 #[async_trait]
 pub trait ImageRepository: Send + Sync {
-    async fn insert(&self, row: &ImageRow, store_id: Option<Uuid>) -> Result<(), sqlx::Error>;
-    async fn get(&self, id: Uuid) -> Result<Option<ImageRow>, sqlx::Error>;
+    async fn insert(&self, row: &ImageRow, actor: &Actor) -> Result<(), sqlx::Error>;
+    async fn get(&self, id: Uuid, store_id: Uuid) -> Result<Option<ImageRow>, sqlx::Error>;
 }
 pub struct PgImageRepository(pub PgPool);
 #[async_trait]
 impl ImageRepository for PgImageRepository {
-    async fn insert(&self, row: &ImageRow, store_id: Option<Uuid>) -> Result<(), sqlx::Error> {
-        sqlx::query("INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(row.id).bind(store_id).bind(&row.object_key).bind(&row.content_type).bind(row.byte_size).bind(&row.purpose)
+    async fn insert(&self, row: &ImageRow, actor: &Actor) -> Result<(), sqlx::Error> {
+        sqlx::query("INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+            .bind(row.id).bind(actor.store_id).bind(&row.object_key).bind(&row.content_type).bind(row.byte_size).bind(&row.purpose).bind(actor.member_id)
             .execute(&self.0).await?;
         Ok(())
     }
-    async fn get(&self, id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
+    async fn get(&self, id: Uuid, store_id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
         sqlx::query_as(
-            "SELECT id, object_key, content_type, byte_size, purpose FROM images WHERE id=$1",
+            "SELECT id, object_key, content_type, byte_size, purpose FROM images WHERE id=$1 AND store_id=$2",
         )
         .bind(id)
+        .bind(store_id)
         .fetch_optional(&self.0)
         .await
     }
@@ -127,12 +129,13 @@ async fn response(state: &AppState, row: ImageRow) -> Result<Json<ImageResponse>
 }
 pub(crate) async fn upload(
     State(state): State<AppState>,
+    actor: Actor,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<(StatusCode, Json<ImageResponse>), ApiError> {
     let (storage, repository) = dependencies(&state)?;
     let mut multipart = multipart.map_err(|_| bad_input())?;
     let mut image = None;
-    let mut store_id = None;
+    let mut store_id_seen = false;
     let mut purpose = None;
     while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
         match field.name() {
@@ -153,20 +156,12 @@ pub(crate) async fn upload(
                 }
                 image = Some(bytes);
             }
-            Some("store_id") if store_id.is_none() => {
-                let mut bytes = Vec::new();
-                while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
-                    if bytes.len() + chunk.len() > 36 {
-                        return Err(bad_input());
-                    }
-                    bytes.extend_from_slice(&chunk);
+            Some("store_id") if !store_id_seen => {
+                store_id_seen = true;
+                let bytes = field.bytes().await.map_err(multipart_error)?;
+                if bytes.len() > 1024 {
+                    return Err(bad_input());
                 }
-                store_id = Some(
-                    std::str::from_utf8(&bytes)
-                        .map_err(|_| bad_input())?
-                        .parse::<Uuid>()
-                        .map_err(|_| bad_input())?,
-                );
             }
             Some("purpose") if purpose.is_none() => {
                 let mut bytes = Vec::new();
@@ -199,7 +194,7 @@ pub(crate) async fn upload(
         .put(&row.object_key, content_type, bytes)
         .await
         .map_err(storage_error)?;
-    if let Err(error) = repository.insert(&row, store_id).await {
+    if let Err(error) = repository.insert(&row, &actor).await {
         if let Err(cleanup_error) = storage.delete(&row.object_key).await {
             tracing::error!(key = %row.object_key, %cleanup_error, "failed to delete object after image insert failure");
         }
@@ -219,12 +214,13 @@ pub(crate) async fn upload(
 }
 pub(crate) async fn get_image(
     State(state): State<AppState>,
+    actor: Actor,
     Path(id): Path<String>,
 ) -> Result<Json<ImageResponse>, ApiError> {
     let (_, repository) = dependencies(&state)?;
     let id = id.parse().map_err(|_| bad_input())?;
     let row = repository
-        .get(id)
+        .get(id, actor.store_id)
         .await
         .map_err(database_error)?
         .ok_or(ApiError::new(

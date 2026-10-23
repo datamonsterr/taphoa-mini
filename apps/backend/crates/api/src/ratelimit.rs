@@ -13,6 +13,8 @@ pub struct RateDecision {
 }
 #[async_trait]
 pub trait RateLimiter: Send + Sync {
+    async fn check(&self, key: &str, limit: u32) -> anyhow::Result<RateDecision>;
+    async fn reset(&self, key: &str) -> anyhow::Result<()>;
     async fn hit(
         &self,
         key: &str,
@@ -23,6 +25,29 @@ pub trait RateLimiter: Send + Sync {
 pub struct RedisRateLimiter(pub ConnectionManager);
 #[async_trait]
 impl RateLimiter for RedisRateLimiter {
+    async fn reset(&self, key: &str) -> anyhow::Result<()> {
+        redis::cmd("DEL")
+            .arg(key)
+            .query_async::<i64>(&mut self.0.clone())
+            .await?;
+        Ok(())
+    }
+    async fn check(&self, key: &str, limit: u32) -> anyhow::Result<RateDecision> {
+        let (count, ttl): (u64, i64) = redis::Script::new(
+            "return {tonumber(redis.call('GET',KEYS[1]) or '0'),redis.call('PTTL',KEYS[1])}",
+        )
+        .key(key)
+        .invoke_async(&mut self.0.clone())
+        .await?;
+        Ok(RateDecision {
+            allowed: count <= u64::from(limit),
+            retry_after_secs: if count <= u64::from(limit) {
+                0
+            } else {
+                (ttl.max(1) as u64).div_ceil(1000)
+            },
+        })
+    }
     async fn hit(&self, key: &str, limit: u32, window: Duration) -> anyhow::Result<RateDecision> {
         let millis = window_millis(window)?;
         // Lua makes the increment and expiry inseparable, including under concurrency.
@@ -61,6 +86,34 @@ struct Bucket {
 }
 #[async_trait]
 impl RateLimiter for MemoryRateLimiter {
+    async fn reset(&self, key: &str) -> anyhow::Result<()> {
+        self.buckets
+            .lock()
+            .map_err(|_| anyhow::anyhow!("rate limiter lock poisoned"))?
+            .remove(key);
+        Ok(())
+    }
+    async fn check(&self, key: &str, limit: u32) -> anyhow::Result<RateDecision> {
+        let buckets = self
+            .buckets
+            .lock()
+            .map_err(|_| anyhow::anyhow!("rate limiter lock poisoned"))?;
+        let now = Instant::now();
+        let blocked = buckets
+            .get(key)
+            .filter(|b| b.expires > now && b.count > u64::from(limit));
+        Ok(RateDecision {
+            allowed: blocked.is_none(),
+            retry_after_secs: blocked
+                .map(|b| {
+                    b.expires
+                        .saturating_duration_since(now)
+                        .as_secs()
+                        .saturating_add(1)
+                })
+                .unwrap_or(0),
+        })
+    }
     async fn hit(&self, key: &str, limit: u32, window: Duration) -> anyhow::Result<RateDecision> {
         let millis = window_millis(window)?;
         let window = Duration::from_millis(millis);

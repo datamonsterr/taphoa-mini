@@ -43,29 +43,62 @@ impl ObjectStore for FakeStore {
     }
 }
 #[derive(Default)]
-struct FakeRepository(Mutex<HashMap<Uuid, ImageRow>>);
+struct FakeRepository(Mutex<HashMap<Uuid, (ImageRow, Uuid)>>);
 #[async_trait]
 impl ImageRepository for FakeRepository {
-    async fn insert(&self, row: &ImageRow, _: Option<Uuid>) -> Result<(), sqlx::Error> {
-        self.0.lock().unwrap().insert(row.id, row.clone());
+    async fn insert(
+        &self,
+        row: &ImageRow,
+        actor: &taphoa_api::auth::Actor,
+    ) -> Result<(), sqlx::Error> {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(row.id, (row.clone(), actor.store_id));
         Ok(())
     }
-    async fn get(&self, id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
-        Ok(self.0.lock().unwrap().get(&id).cloned())
+    async fn get(&self, id: Uuid, store_id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|(_, owner)| *owner == store_id)
+            .map(|(row, _)| row.clone()))
     }
 }
 
 mod common;
 use common::Contract;
 
+fn state() -> AppState {
+    AppState {
+        jwt: taphoa_api::auth::JwtKeys::from_secret(&[42; 32]),
+        ..AppState::default()
+    }
+}
+fn bearer() -> String {
+    let (token, _) = state().jwt.issue(&taphoa_api::auth::Actor {
+        member_id: Uuid::nil(),
+        store_id: Uuid::nil(),
+        session_id: Uuid::nil(),
+        role: taphoa_api::auth::Role::Lead,
+        can_enroll: true,
+    });
+    format!("Bearer {token}")
+}
 fn app() -> Router {
     router(AppState {
         storage: Some(Arc::new(FakeStore::default())),
         image_repository: Some(Arc::new(FakeRepository::default())),
-        ..AppState::default()
+        ..state()
     })
 }
 async fn call(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
+    let mut request = request;
+    request
+        .headers_mut()
+        .insert("authorization", bearer().parse().unwrap());
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();

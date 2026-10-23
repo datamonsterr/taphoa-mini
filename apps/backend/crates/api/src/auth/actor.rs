@@ -57,7 +57,15 @@ impl FromRequestParts<AppState> for Actor {
         {
             return Err(ApiError::unauthorized());
         }
-        state.jwt.verify(token)
+        let mut actor = state.jwt.verify(token)?;
+        if let Some(pool) = &state.postgres {
+            let member:Option<(String,bool)>=sqlx::query_as("SELECT m.role,m.can_enroll FROM sessions s JOIN members m ON m.id=s.member_id AND m.store_id=s.store_id WHERE s.id=$1 AND s.store_id=$2 AND s.member_id=$3 AND s.revoked_at IS NULL AND s.expires_at>now() AND m.active")
+                .bind(actor.session_id).bind(actor.store_id).bind(actor.member_id).fetch_optional(pool).await?;
+            let (role, enroll) = member.ok_or_else(ApiError::unauthorized)?;
+            actor.role = role.parse()?;
+            actor.can_enroll = actor.role == Role::Lead || enroll;
+        }
+        Ok(actor)
     }
 }
 #[cfg(test)]

@@ -34,9 +34,12 @@ async fn main() -> anyhow::Result<()> {
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "API listening");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await?;
     if let Some(pool) = pool {
         pool.close().await;
     }

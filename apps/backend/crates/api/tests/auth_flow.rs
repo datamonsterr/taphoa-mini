@@ -83,6 +83,10 @@ async fn full_auth_store_member_invite_lifecycle() {
     let token = access(&lead);
     let sid = lead["store"]["id"].as_str().unwrap();
     let mid = lead["member"]["id"].as_str().unwrap();
+    let store_uuid: Uuid = sid.parse().unwrap();
+    let initial:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM change_log WHERE store_id=$1),(SELECT count(*) FROM outbox_events WHERE store_id=$1 AND type='member.changed' AND payload->'data'->>'change'='joined'),(SELECT count(*) FROM outbox_events WHERE store_id=$1 AND type='store.changed')").bind(store_uuid).fetch_one(state.postgres.as_ref().unwrap()).await.unwrap();
+    assert_eq!(initial, (2, 1, 0));
+
     checked(
         &app,
         "GET",
@@ -260,6 +264,17 @@ async fn full_auth_store_member_invite_lifecycle() {
     )
     .await;
     assert_eq!(switched["member"]["id"], mid);
+    let switched_actor = state.jwt.verify(access(&switched)).unwrap();
+    let seller_actor = state.jwt.verify(access(&seller)).unwrap();
+    assert_ne!(switched_actor.session_id, seller_actor.session_id);
+    let copied: (String, String, Option<String>) =
+        sqlx::query_as("SELECT device_name,platform,app_version FROM sessions WHERE id=$1")
+            .bind(switched_actor.session_id)
+            .fetch_one(state.postgres.as_ref().unwrap())
+            .await
+            .unwrap();
+    assert_eq!(copied, ("counter".into(), "web".into(), Some("1.0".into())));
+
     for n in 0..5 {
         let (status, _) = call(
             &app,
@@ -297,6 +312,16 @@ async fn full_auth_store_member_invite_lifecycle() {
         Some(token),
         json!({"display_name":"Updated","can_enroll":true}),
         StatusCode::OK,
+    )
+    .await;
+    checked(
+        &app,
+        "DELETE",
+        &path,
+        "/v1/members/{memberId}",
+        Some(token),
+        Value::Null,
+        StatusCode::NO_CONTENT,
     )
     .await;
     checked(
@@ -525,4 +550,433 @@ async fn local_postgres_endpoint_latencies() {
         micros.sort_unstable();
         println!("{path} n=200 p50={}us p95={}us", micros[99], micros[189]);
     }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn validation_invite_expiry_and_ip_limits() {
+    let (app, state) = setup().await;
+    for invalid in [
+        json!({"store_name":"","display_name":"A","device":device()}),
+        json!({"store_name":"A","display_name":"","device":device()}),
+        json!({"store_name":"A","display_name":"A","device":{"name":"x","platform":"linux"}}),
+        json!({"store_name":"A","display_name":"A","device":device(),"bank_account":{"bank_bin":"123","account_number":"1","account_name":"x"}}),
+    ] {
+        checked(
+            &app,
+            "POST",
+            "/v1/stores",
+            "/v1/stores",
+            None,
+            invalid,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+    let lead = create(&app).await;
+    let token = access(&lead);
+    for invalid in [
+        json!({"sales_memo_prefix":"123456789"}),
+        json!({"name":null}),
+        json!({"margin_threshold_pct":-1}),
+        json!({"bank_account":{"account_number":"invalid_"}}),
+    ] {
+        checked(
+            &app,
+            "PATCH",
+            "/v1/store",
+            "/v1/store",
+            Some(token),
+            invalid,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+    let partial = checked(
+        &app,
+        "PATCH",
+        "/v1/store",
+        "/v1/store",
+        Some(token),
+        json!({"bank_account":{"account_name":"NEW NAME"}}),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(partial["bank_account"]["bank_bin"], "970436");
+    let invite = checked(
+        &app,
+        "POST",
+        "/v1/invites",
+        "/v1/invites",
+        Some(token),
+        json!({"role":"lead","can_enroll":false,"ttl_seconds":60}),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(invite["can_enroll"], false);
+    let hash = taphoa_api::auth::crypto::token_hash(invite["token"].as_str().unwrap());
+    sqlx::query("UPDATE invites SET expires_at=now()-interval '1 second' WHERE token_hash=$1")
+        .bind(hash)
+        .execute(state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    for token in [invite["token"].as_str().unwrap(), "unknown"] {
+        checked(
+            &app,
+            "POST",
+            "/v1/auth/join",
+            "/v1/auth/join",
+            None,
+            json!({"invite_token":token,"display_name":"A","device":device()}),
+            StatusCode::GONE,
+        )
+        .await;
+    }
+    checked(
+        &app,
+        "POST",
+        "/v1/auth/refresh",
+        "/v1/auth/refresh",
+        None,
+        json!({"refresh_token":"unknown"}),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    let ip = format!("rate-{}", Uuid::new_v4());
+    for n in 0..6 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/auth/recover")
+                    .header("content-type", "application/json")
+                    .header("x-forwarded-for", format!("{ip}, proxy"))
+                    .body(Body::from(
+                        json!({"recovery_code":"wrong","device":device()}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if n < 5 {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+        if n == 5 {
+            assert!(response.headers().contains_key("retry-after"));
+        }
+    }
+    for (path, limit, input) in [
+        (
+            "/v1/stores",
+            10,
+            json!({"store_name":"","display_name":"A","device":device()}),
+        ),
+        (
+            "/v1/auth/join",
+            10,
+            json!({"invite_token":"invalid","display_name":"A","device":device()}),
+        ),
+    ] {
+        let ip = format!("rate-{}", Uuid::new_v4());
+        for n in 0..=limit {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post(path)
+                        .header("content-type", "application/json")
+                        .header("x-forwarded-for", &ip)
+                        .body(Body::from(input.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if n == limit {
+                assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn protected_routes_require_bearer_and_errors_match_contract() {
+    let app = router(AppState::default());
+    for (method, path, template) in [
+        ("GET", "/v1/me", "/v1/me"),
+        ("PUT", "/v1/me/pin", "/v1/me/pin"),
+        ("GET", "/v1/store", "/v1/store"),
+        ("PATCH", "/v1/store", "/v1/store"),
+        ("GET", "/v1/members", "/v1/members"),
+        (
+            "PATCH",
+            "/v1/members/00000000-0000-0000-0000-000000000000",
+            "/v1/members/{memberId}",
+        ),
+        (
+            "DELETE",
+            "/v1/members/00000000-0000-0000-0000-000000000000",
+            "/v1/members/{memberId}",
+        ),
+        ("POST", "/v1/auth/logout", "/v1/auth/logout"),
+        ("POST", "/v1/auth/switch", "/v1/auth/switch"),
+        ("POST", "/v1/invites", "/v1/invites"),
+        ("POST", "/v1/images", "/v1/images"),
+        (
+            "GET",
+            "/v1/images/00000000-0000-0000-0000-000000000000",
+            "/v1/images/{imageId}",
+        ),
+    ] {
+        checked(
+            &app,
+            method,
+            path,
+            template,
+            None,
+            json!({}),
+            StatusCode::UNAUTHORIZED,
+        )
+        .await;
+    }
+}
+
+struct ImageObjects;
+#[async_trait::async_trait]
+impl taphoa_api::storage::ObjectStore for ImageObjects {
+    async fn put(&self, _: &str, _: &str, _: Vec<u8>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn head_bucket(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn presign_get(
+        &self,
+        key: &str,
+        ttl: std::time::Duration,
+    ) -> anyhow::Result<taphoa_api::storage::SignedUrl> {
+        Ok(taphoa_api::storage::SignedUrl {
+            url: format!("https://images.test/{key}"),
+            expires_at: (std::time::SystemTime::now() + ttl).into(),
+        })
+    }
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL; object storage is an in-memory stub"]
+async fn persisted_images_are_owned_by_token_store_and_uploader() {
+    let (_, mut state) = setup().await;
+    state.storage = Some(std::sync::Arc::new(ImageObjects));
+    let app = router(state.clone());
+    let a = create(&app).await;
+    let b = create(&app).await;
+    let mut body=format!("--b\r\nContent-Disposition: form-data; name=\"store_id\"\r\n\r\n{}\r\n--b\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n",b["store"]["id"].as_str().unwrap()).into_bytes();
+    body.extend_from_slice(include_bytes!("../../../tests/fixtures/sample.png"));
+    body.extend_from_slice(b"\r\n--b--\r\n");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/images")
+                .header("authorization", format!("Bearer {}", access(&a)))
+                .header("content-type", "multipart/form-data; boundary=b")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let uploaded: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 1 << 20).await.unwrap()).unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{uploaded}");
+    Contract::load().assert_conforms("/v1/images", "post", status, &uploaded);
+    let image_id: Uuid = uploaded["id"].as_str().unwrap().parse().unwrap();
+    let owner: (Uuid, Uuid) = sqlx::query_as("SELECT store_id,uploaded_by FROM images WHERE id=$1")
+        .bind(image_id)
+        .fetch_one(state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(owner.0.to_string(), a["store"]["id"].as_str().unwrap());
+    assert_eq!(owner.1.to_string(), a["member"]["id"].as_str().unwrap());
+    for (token, expected) in [
+        (access(&a), StatusCode::OK),
+        (access(&b), StatusCode::NOT_FOUND),
+    ] {
+        checked(
+            &app,
+            "GET",
+            &format!("/v1/images/{image_id}"),
+            "/v1/images/{imageId}",
+            Some(token),
+            Value::Null,
+            expected,
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn lead_changes_and_single_use_invites_are_serialized() {
+    let (app, state) = setup().await;
+    let original = create(&app).await;
+    let invite = checked(
+        &app,
+        "POST",
+        "/v1/invites",
+        "/v1/invites",
+        Some(access(&original)),
+        json!({"role":"lead"}),
+        StatusCode::CREATED,
+    )
+    .await;
+    let input = json!({"invite_token":invite["token"],"display_name":"New Lead","device":device()});
+    let (x, y) = tokio::join!(
+        call(&app, "POST", "/v1/auth/join", None, input.clone()),
+        call(&app, "POST", "/v1/auth/join", None, input)
+    );
+    assert!(
+        (x.0 == StatusCode::CREATED && y.0 == StatusCode::GONE)
+            || (y.0 == StatusCode::CREATED && x.0 == StatusCode::GONE)
+    );
+    let joined = if x.0 == StatusCode::CREATED { x.1 } else { y.1 };
+    assert_eq!(joined["member"]["can_enroll"], true);
+    let original_id = original["member"]["id"].as_str().unwrap();
+    let joined_id = joined["member"]["id"].as_str().unwrap();
+    let result = checked(
+        &app,
+        "PATCH",
+        &format!("/v1/members/{joined_id}"),
+        "/v1/members/{memberId}",
+        Some(access(&original)),
+        json!({"can_enroll":false}),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(result["can_enroll"], true);
+    checked(
+        &app,
+        "PATCH",
+        &format!("/v1/members/{original_id}"),
+        "/v1/members/{memberId}",
+        Some(access(&joined)),
+        json!({"role":"seller","can_enroll":false}),
+        StatusCode::OK,
+    )
+    .await;
+    checked(
+        &app,
+        "PATCH",
+        "/v1/store",
+        "/v1/store",
+        Some(access(&original)),
+        json!({"name":"denied after demotion"}),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+    let recovered = checked(
+        &app,
+        "POST",
+        "/v1/auth/recover",
+        "/v1/auth/recover",
+        None,
+        json!({"recovery_code":original["recovery_code"],"device":device()}),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(recovered["member"]["id"], joined_id);
+    checked(
+        &app,
+        "GET",
+        "/v1/me",
+        "/v1/me",
+        Some(access(&original)),
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    // Two concurrent attempts cannot remove every active Lead.
+    checked(
+        &app,
+        "PATCH",
+        &format!("/v1/members/{original_id}"),
+        "/v1/members/{memberId}",
+        Some(access(&joined)),
+        json!({"role":"lead"}),
+        StatusCode::OK,
+    )
+    .await;
+    let input = json!({"role":"seller"});
+    let original_path = format!("/v1/members/{original_id}");
+    let joined_path = format!("/v1/members/{joined_id}");
+    let (x, y) = tokio::join!(
+        call(
+            &app,
+            "PATCH",
+            &original_path,
+            Some(access(&joined)),
+            input.clone()
+        ),
+        call(&app, "PATCH", &joined_path, Some(access(&joined)), input)
+    );
+    assert_eq!(
+        [x.0, y.0].iter().filter(|s| **s == StatusCode::OK).count(),
+        1
+    );
+    assert!(
+        [x.0, y.0]
+            .iter()
+            .any(|s| *s == StatusCode::CONFLICT || *s == StatusCode::FORBIDDEN)
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM members WHERE store_id=$1 AND active AND role='lead'",
+    )
+    .bind(
+        original["store"]["id"]
+            .as_str()
+            .unwrap()
+            .parse::<Uuid>()
+            .unwrap(),
+    )
+    .fetch_one(state.postgres.as_ref().unwrap())
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn recovery_refresh_and_logout_use_consistent_lock_order() {
+    let (app, _) = setup().await;
+    let lead = create(&app).await;
+    let recover = json!({"recovery_code":lead["recovery_code"],"device":device(),"revoke_other_sessions":true});
+    let refresh = json!({"refresh_token":lead["refresh_token"]});
+    let (recovered, refreshed, logged_out) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(
+                call(&app, "POST", "/v1/auth/recover", None, recover),
+                call(&app, "POST", "/v1/auth/refresh", None, refresh),
+                call(
+                    &app,
+                    "POST",
+                    "/v1/auth/logout",
+                    Some(access(&lead)),
+                    Value::Null
+                )
+            )
+        })
+        .await
+        .expect("auth writes must not deadlock");
+    assert_eq!(recovered.0, StatusCode::OK, "{}", recovered.1);
+    assert!(
+        [StatusCode::OK, StatusCode::UNAUTHORIZED].contains(&refreshed.0),
+        "{refreshed:?}"
+    );
+    assert!(
+        [StatusCode::NO_CONTENT, StatusCode::UNAUTHORIZED].contains(&logged_out.0),
+        "{logged_out:?}"
+    );
 }

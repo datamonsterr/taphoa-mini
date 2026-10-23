@@ -29,3 +29,53 @@ async fn password_hashes_are_argon2id_and_verify() {
     assert!(verify_secret("1234".into(), hash.clone()).await.unwrap());
     assert!(!verify_secret("9999".into(), hash).await.unwrap());
 }
+
+#[tokio::test]
+async fn pin_failure_counter_locks_and_success_resets() {
+    use crate::{AppState, ratelimit::RateLimiter};
+    use std::sync::Arc;
+    let limiter = Arc::new(crate::ratelimit::MemoryRateLimiter::default());
+    let state = AppState {
+        rate_limiter: limiter.clone(),
+        ..AppState::default()
+    };
+    let id = uuid::Uuid::new_v4();
+    let hash = hash_secret("1234".into()).await.unwrap();
+    for _ in 0..4 {
+        assert_eq!(
+            super::handlers::verify_pin(&state, id, Some("9999".into()), hash.clone())
+                .await
+                .unwrap_err()
+                .code,
+            "invalid_pin"
+        );
+    }
+    super::handlers::verify_pin(&state, id, Some("1234".into()), hash.clone())
+        .await
+        .unwrap();
+    for _ in 0..4 {
+        assert_eq!(
+            super::handlers::verify_pin(&state, id, None, hash.clone())
+                .await
+                .unwrap_err()
+                .code,
+            "invalid_pin"
+        );
+    }
+    let error = super::handlers::verify_pin(&state, id, None, hash.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(error.status, axum::http::StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        super::handlers::verify_pin(&state, id, Some("1234".into()), hash.clone())
+            .await
+            .unwrap_err()
+            .status,
+        axum::http::StatusCode::TOO_MANY_REQUESTS
+    );
+    limiter.reset(&format!("pin_fail:{id}:lock")).await.unwrap();
+    limiter.reset(&format!("pin_fail:{id}")).await.unwrap();
+    super::handlers::verify_pin(&state, id, Some("1234".into()), hash)
+        .await
+        .unwrap();
+}
