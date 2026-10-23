@@ -1,4 +1,5 @@
 import {
+  bucket,
   defineRailway,
   image,
   preserve,
@@ -67,11 +68,22 @@ export default defineRailway(() => {
       REDIS_URL: Redis.env.REDIS_URL,
       RUST_LOG: 'info',
       LOG_FORMAT: 'json',
+      // Bucket credentials are not referencable from IaC; set once with
+      // `railway bucket credentials` + `railway variable set` (docs/deploy.md).
+      AWS_ENDPOINT_URL: preserve(),
+      AWS_ACCESS_KEY_ID: preserve(),
+      AWS_SECRET_ACCESS_KEY: preserve(),
+      AWS_S3_BUCKET_NAME: preserve(),
+      AWS_DEFAULT_REGION: preserve(),
+      S3_FORCE_PATH_STYLE: 'false',
     },
   });
 
+  // Private S3-compatible bucket for product and checkout photos (ADR 0002).
+  const images = bucket('images', { region: 'sin' });
+
   return project('taphoa-mini', {
     variables: { managed: true },
-    resources: [Redis, Postgres, backend, redisVolume, postgresVolume],
+    resources: [Redis, Postgres, backend, redisVolume, postgresVolume, images],
   });
 });
