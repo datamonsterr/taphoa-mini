@@ -96,6 +96,7 @@ impl IntoResponse for ApiError {
 }
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
+        eprintln!("TEMPDEBUG {error:?}");
         tracing::error!(%error, "database operation failed");
         Self::internal()
     }

@@ -386,3 +386,323 @@ pub(crate) async fn create(
     )
         .into_response())
 }
+
+fn plan_required_action(plan: &model::PatchPlan) -> Option<crate::auth::Action> {
+    use crate::auth::Action;
+    let price_changed = plan.price.is_some()
+        || plan.cost_price.is_some()
+        || plan.cost_clear
+        || plan.unit_ops.iter().any(|op| {
+            matches!(
+                op,
+                model::UnitOp::Update {
+                    price_changed: Some(_),
+                    ..
+                }
+            )
+        });
+    if price_changed {
+        Some(Action::ChangePrice)
+    } else if plan.archived.is_some() {
+        Some(Action::ArchiveProduct)
+    } else if plan.name.is_some()
+        || plan.base_unit.is_some()
+        || plan.barcode.is_some()
+        || plan.category_id.is_some()
+    {
+        Some(Action::EnrollProduct)
+    } else {
+        None
+    }
+}
+
+async fn price_changed_event(
+    tx: &mut PgConnection,
+    actor: &Actor,
+    product_id: Uuid,
+    unit_id: Option<Uuid>,
+    field: &'static str,
+    old_value: Value,
+    new_value: i64,
+) -> ApiResult<()> {
+    crate::events::emit(
+        tx,
+        crate::events::Event {
+            store_id: actor.store_id,
+            actor: Some((actor.member_id, actor.session_id)),
+            typ: "price.changed",
+            version: 1,
+            data: json!({
+                "product_id": product_id,
+                "unit_id": unit_id,
+                "field": field,
+                "old_value": old_value,
+                "new_value": new_value,
+                "source": "manual",
+            }),
+            change: None,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn history_row(
+    tx: &mut PgConnection,
+    actor: &Actor,
+    product_id: Uuid,
+    unit_id: Option<Uuid>,
+    field: &str,
+    old_value: Option<i64>,
+    new_value: i64,
+) -> ApiResult<()> {
+    sqlx::query(
+        "INSERT INTO price_history (store_id, product_id, unit_id, field, old_value, new_value, \
+         source, changed_by) VALUES ($1,$2,$3,$4,$5,$6,'manual',$7)",
+    )
+    .bind(actor.store_id)
+    .bind(product_id)
+    .bind(unit_id)
+    .bind(field)
+    .bind(old_value)
+    .bind(new_value)
+    .bind(actor.member_id)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+async fn catalog_changed_event(
+    tx: &mut PgConnection,
+    actor: &Actor,
+    product_id: Uuid,
+) -> ApiResult<()> {
+    crate::events::emit(
+        tx,
+        crate::events::Event {
+            store_id: actor.store_id,
+            actor: Some((actor.member_id, actor.session_id)),
+            typ: "catalog.changed",
+            version: 1,
+            data: json!({"entity": "product", "ids": [product_id]}),
+            change: Some(("product", product_id, "upsert")),
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn patch_product(
+    State(state): State<AppState>,
+    actor: Actor,
+    Path(id): Path<String>,
+    ValidJson(value): ValidJson<Value>,
+) -> ApiResult<Json<Value>> {
+    use crate::auth::Action;
+    let id = model::path_id(&id)?;
+    let patch: model::ProductPatch =
+        serde_json::from_value(value).map_err(|e| ApiError::validation_failed(e.to_string()))?;
+    model::validate_patch(&patch)?;
+    let mut tx = pool(&state)?.begin().await?;
+    let current = require_product(&mut tx, actor.store_id, id).await?;
+    let existing_units = load_units(&mut tx, id).await?;
+    let plan = model::plan_patch(&current, &existing_units, patch)?;
+    if let Some(action) = plan_required_action(&plan) {
+        actor.require(action)?;
+    }
+
+    if plan.is_empty() {
+        let row = load_product(&mut tx, actor.store_id, id)
+            .await?
+            .ok_or_else(ApiError::not_found)?;
+        let images = images_json(&state, &row.images).await?;
+        return Ok(Json(product_json(&state, &row, images)?));
+    }
+
+    if let Some(category_id) = plan.category_id {
+        if let Some(new_id) = category_id {
+            let found: Option<i64> =
+                sqlx::query_scalar("SELECT 1 FROM categories WHERE id = $1 AND store_id = $2")
+                    .bind(new_id)
+                    .bind(actor.store_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if found.is_none() {
+                return Err(ApiError::not_found());
+            }
+        }
+    }
+
+    let mut updates = sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE products SET ");
+    let mut first = true;
+    let mut set = |query: &mut sqlx::QueryBuilder<sqlx::Postgres>, clause: &str| {
+        if !first {
+            query.push(", ");
+        }
+        first = false;
+        query.push(clause);
+    };
+    if let Some(name) = plan.name.clone() {
+        set(&mut updates, "name = ");
+        updates.push_bind(name);
+    }
+    if let Some(base_unit) = plan.base_unit.clone() {
+        set(&mut updates, "base_unit = ");
+        updates.push_bind(base_unit);
+    }
+    if let Some(barcode) = plan.barcode.clone() {
+        set(&mut updates, "barcode = ");
+        updates.push_bind(barcode);
+    }
+    if let Some(category_id) = plan.category_id {
+        set(&mut updates, "category_id = ");
+        updates.push_bind(category_id);
+    }
+    if let Some((old, new)) = plan.price.clone() {
+        set(&mut updates, "price = ");
+        updates.push_bind(new);
+        history_row(&mut tx, &actor, id, None, "price", Some(old), new).await?;
+        price_changed_event(&mut tx, &actor, id, None, "price", json!(old), new).await?;
+    }
+    if let Some((old, new)) = plan.cost_price.clone() {
+        set(&mut updates, "cost_price = ");
+        updates.push_bind(new);
+        history_row(&mut tx, &actor, id, None, "cost_price", old, new).await?;
+        price_changed_event(
+            &mut tx,
+            &actor,
+            id,
+            None,
+            "cost_price",
+            old.map(Value::from).unwrap_or(Value::Null),
+            new,
+        )
+        .await?;
+    }
+    if plan.cost_clear {
+        set(&mut updates, "cost_price = NULL");
+    }
+    if let Some(archived) = plan.archived {
+        set(&mut updates, "archived = ");
+        updates.push_bind(archived);
+    }
+    if !first {
+        updates.push(", version = version + 1, updated_at = now() WHERE id = ");
+    } else {
+        updates.push("version = version + 1, updated_at = now() WHERE id = ");
+    }
+    updates.push_bind(id);
+    updates.push(" AND store_id = ");
+    updates.push_bind(actor.store_id);
+    updates.build().execute(&mut *tx).await?;
+
+    for op in &plan.unit_ops {
+        match op {
+            model::UnitOp::Insert(unit) => {
+                sqlx::query(
+                    "INSERT INTO product_units (id, store_id, product_id, name, \
+                     quantity_in_base, price, barcode) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                )
+                .bind(unit.id)
+                .bind(actor.store_id)
+                .bind(id)
+                .bind(&unit.name)
+                .bind(unit.quantity_in_base)
+                .bind(unit.price)
+                .bind(unit.barcode.clone())
+                .execute(&mut *tx)
+                .await
+                .map_err(unique_violation)?;
+            }
+            model::UnitOp::Update {
+                unit,
+                price_changed,
+            } => {
+                sqlx::query(
+                    "UPDATE product_units SET name = $3, quantity_in_base = $4, price = $5, \
+                     barcode = $6 WHERE id = $1 AND product_id = $2 AND store_id = $7",
+                )
+                .bind(unit.id)
+                .bind(id)
+                .bind(&unit.name)
+                .bind(unit.quantity_in_base)
+                .bind(unit.price)
+                .bind(unit.barcode.clone())
+                .bind(actor.store_id)
+                .execute(&mut *tx)
+                .await?;
+                if let Some((old, new)) = price_changed {
+                    history_row(
+                        &mut tx,
+                        &actor,
+                        id,
+                        Some(unit.id),
+                        "unit_price",
+                        Some(*old),
+                        *new,
+                    )
+                    .await?;
+                    price_changed_event(
+                        &mut tx,
+                        &actor,
+                        id,
+                        Some(unit.id),
+                        "unit_price",
+                        json!(old),
+                        *new,
+                    )
+                    .await?;
+                }
+            }
+            model::UnitOp::Delete(unit_id) => {
+                sqlx::query(
+                    "DELETE FROM product_units WHERE id = $1 AND product_id = $2 AND store_id = $3",
+                )
+                .bind(unit_id)
+                .bind(id)
+                .bind(actor.store_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
+    catalog_changed_event(&mut tx, &actor, id).await?;
+    let row = load_product(&mut tx, actor.store_id, id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let images = images_json(&state, &row.images).await?;
+    let body = product_json(&state, &row, images)?;
+    tx.commit().await?;
+    Ok(Json(body))
+}
+
+pub(crate) async fn archive_product(
+    State(state): State<AppState>,
+    actor: Actor,
+    Path(id): Path<String>,
+) -> ApiResult<axum::http::StatusCode> {
+    use crate::auth::Action;
+    actor.require(Action::ArchiveProduct)?;
+    let id = model::path_id(&id)?;
+    let mut tx = pool(&state)?.begin().await?;
+    let current = sqlx::query_as::<_, model::ProductRow>(model::PRODUCT_SELECT_LOCK)
+        .bind(id)
+        .bind(actor.store_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    if !current.archived {
+        sqlx::query(
+            "UPDATE products SET archived = true, version = version + 1, updated_at = now() \
+             WHERE id = $1 AND store_id = $2",
+        )
+        .bind(id)
+        .bind(actor.store_id)
+        .execute(&mut *tx)
+        .await?;
+        catalog_changed_event(&mut tx, &actor, id).await?;
+        tx.commit().await?;
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
