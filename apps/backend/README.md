@@ -64,9 +64,10 @@ binary downloads, and ships Microsoft's ONNX Runtime 1.23.2 shared library. Loca
 Linux x86-64 setup uses the checksum-verified runtime helper. Other platforms must
 install a compatible runtime >=1.23 and set `ORT_DYLIB_PATH` themselves.
 
-Model downloads come from the [Image Arjun Raj Laboratory SAM vit_b export](https://huggingface.co/rajlab/sam_vit_b),
-revision `c20401a6d978ab52ba87b5e05909be65c79b0686` (Apache-2.0). The fetch script
-checks pinned SHA-256 hashes before an atomic rename, prints checksums, and reuses
+Model downloads: [MobileSAM ONNX](https://huggingface.co/Acly/MobileSAM) and
+[DINOv2-small ONNX](https://huggingface.co/onnx-community/dinov2-small) at the pinned
+revisions in `scripts/fetch-models.sh` (see `docs/specs/recognition-latency.md` for why
+not SAM ViT-B). The fetch script checks pinned SHA-256 hashes before an atomic rename, prints checksums, and reuses
 verified files. Weights, runtime downloads, and Cargo artifacts are gitignored.
 `tests/fixtures/sample.png` is an original generated two-rectangle test image.
 
@@ -151,3 +152,53 @@ curl http://localhost:8080/v1/images/<id>
 Production credentials stay in Railway variables; follow the bucket section of the
 [deployment guide](../../docs/deploy.md). No deletion API or automatic storage of
 segmentation input is included.
+
+## Seed data
+
+**Local development only.** The seeder uses predictable credentials and fake images
+and embeddings. Never run it against production or use these credentials outside a
+local development database. Credentials appear on stdout only; do not redirect the
+output to a file or collect it in shared logs.
+
+From `apps/backend`, point `DATABASE_URL` at your local Postgres with pgvector:
+
+```sh
+DATABASE_URL=postgres://postgres:pw@localhost:11432/w_seed pnpm seed
+# Equivalent: DATABASE_URL=... cargo run --bin taphoa-seed
+```
+
+The command runs migrations, then creates **Tạp hóa Cô Ba** and **Cửa hàng Minh Khai**.
+Each store has one Lead and three sellers, device sessions, a pending invite and a
+used invite, eight categories, 30 branded products with pack/case units, image
+metadata, normalized fake 384-dimensional embeddings, and price history. It also
+creates 30 days of 15–40 sales per store/day ending on the first run's current
+`Asia/Ho_Chi_Minh` business date, recognition scans/detections, manual-price and
+price-mismatch reviews, voids, expenses/purchases/receipts, margin alerts, past-day
+cash reconciliations, sync changes, and mostly published outbox event envelopes.
+Cô Ba has sample bank details; Minh Khai has no bank profile. Both include
+recorded cash and transfer sales. Image object keys are dummy
+metadata: there are no corresponding storage objects.
+
+The CLI prints store/member IDs, the original deterministic recovery codes, PIN
+hints, and a ready pending invite token. Use the printed recovery code to sign in
+as the Lead through `POST /v1/auth/recover`:
+
+```sh
+curl -X POST http://localhost:8080/v1/auth/recover \
+  -H 'Content-Type: application/json' \
+  -d '{"recovery_code":"REPLACE-WITH-PRINTED-CODE","device":{"name":"Local browser","platform":"web","app_version":"1.0.0"}}'
+```
+
+Recovery rotates the code: save the new code returned by the endpoint. The printed
+code is normalized to uppercase with hyphens/spaces removed for authentication;
+only its Argon2id hash and SHA-256 lookup digest are stored. PINs use Argon2id;
+invite tokens use SHA-256. The printed seller PIN is `2468`.
+
+IDs, codes, tokens, product vectors, and the PRNG are deterministic. Each store is
+seeded in one transaction, protected by a transaction-scoped advisory lock. If its
+fixed fixture store ID already exists, the entire store is skipped: **same-day and
+later reruns preserve every table's row counts and manual edits**, without adding
+new dates or resetting credentials. The output still shows the original hints;
+a consumed/expired invite or rotated recovery code is not made valid again. A
+failure rolls back that store completely, and a rerun can finish the other store.
+Use a fresh disposable database to regenerate a new 30-day window.

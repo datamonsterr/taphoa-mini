@@ -1,6 +1,9 @@
 //! Class-agnostic segmentation. Call synchronous adapters from `spawn_blocking`.
+pub mod crop;
+pub mod embed;
 mod sam;
-pub use sam::{SamOptions, SamSegmenter};
+pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
+pub use sam::{SamOptions, SamSegmenter, SegmentTimings};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -42,6 +45,23 @@ impl Segmenter for MockSegmenter {
     fn segment(&self, _image: &[u8]) -> Result<Vec<Segment>, SegmentError> {
         Ok(self.segments.clone())
     }
+}
+
+/// ONNX Runtime allows one environment per process; SAM and the embedder share it.
+pub(crate) fn ort_environment() -> Result<ort::environment::Environment, String> {
+    static ENVIRONMENT: std::sync::OnceLock<Result<ort::environment::Environment, String>> =
+        std::sync::OnceLock::new();
+    ENVIRONMENT
+        .get_or_init(|| {
+            // Explicit loading reports a missing runtime as an error before any tensor call.
+            let library =
+                std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "libonnxruntime.so".into());
+            ort::init_from(library)
+                .map_err(|e| e.to_string())?
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .clone()
 }
 
 pub fn bbox_iou(a: [f32; 4], b: [f32; 4]) -> f32 {

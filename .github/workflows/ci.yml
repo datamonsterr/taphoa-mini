@@ -292,20 +292,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - name: Detect the recognition model test
-        id: present
-        run: |
-          if [ -f apps/backend/crates/recognition/tests/model.rs ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::recognition model test not present; skipping model-test."
-          fi
       - uses: ./.github/actions/setup-rust
-        if: steps.present.outputs.run == 'true'
         with:
           cache-key: model
       - uses: actions/cache@v6
-        if: steps.present.outputs.run == 'true'
         id: models
         with:
           path: |
@@ -313,12 +303,11 @@ jobs:
             apps/backend/onnxruntime
           key: models-${{ hashFiles('apps/backend/scripts/fetch-models.sh', 'apps/backend/scripts/fetch-onnxruntime.sh') }}
       - name: Fetch ONNX Runtime and model weights
-        if: steps.present.outputs.run == 'true' && steps.models.outputs.cache-hit != 'true'
+        if: steps.models.outputs.cache-hit != 'true'
         run: |
           apps/backend/scripts/fetch-onnxruntime.sh
           apps/backend/scripts/fetch-models.sh
       - name: Model tests
-        if: steps.present.outputs.run == 'true'
         working-directory: apps/backend
         env:
           SAM_MAX_MS: '3000'

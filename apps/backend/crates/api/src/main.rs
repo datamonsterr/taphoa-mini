@@ -1,48 +1,14 @@
-use anyhow::{Context, bail};
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
-    AppState, router,
+    AppState,
+    config::Config,
+    events,
+    recognition::classify::RecognitionConfig,
+    retention, router,
     storage::{S3Store, StorageConfig},
+    vector::VectorIndex,
 };
-use taphoa_recognition::{SamOptions, SamSegmenter, Segmenter};
 use tracing_subscriber::EnvFilter;
-
-struct Config {
-    port: u16,
-    database_url: Option<String>,
-    redis_url: Option<String>,
-    encoder: Option<PathBuf>,
-    decoder: Option<PathBuf>,
-}
-impl Config {
-    fn from_env() -> anyhow::Result<Self> {
-        Ok(Self {
-            port: std::env::var("PORT")
-                .unwrap_or_else(|_| "8080".into())
-                .parse()
-                .context("PORT must be a u16")?,
-            database_url: std::env::var("DATABASE_URL").ok(),
-            redis_url: std::env::var("REDIS_URL").ok(),
-            encoder: std::env::var_os("SAM_ENCODER_PATH").map(PathBuf::from),
-            decoder: std::env::var_os("SAM_DECODER_PATH").map(PathBuf::from),
-        })
-    }
-    fn segmenter(&self) -> anyhow::Result<Option<Arc<dyn Segmenter>>> {
-        match (&self.encoder, &self.decoder) {
-            (None, None) => Ok(None),
-            (Some(encoder), Some(decoder)) if !encoder.exists() && !decoder.exists() => {
-                tracing::warn!("SAM weights absent; segmentation is unavailable");
-                Ok(None)
-            }
-            (Some(encoder), Some(decoder)) => Ok(Some(Arc::new(SamSegmenter::load(
-                encoder,
-                decoder,
-                SamOptions::default(),
-            )?))),
-            _ => bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -58,12 +24,13 @@ async fn main() -> anyhow::Result<()> {
     }
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
-    let mut state = AppState::connect(
-        config.database_url.as_deref(),
-        config.redis_url.as_deref(),
-        config.segmenter()?,
-    )
-    .await?;
+    let mut state = AppState::connect_with_config(&config, config.segmenter()?).await?;
+    state.embedder = config.embedder()?;
+    state.recognition = RecognitionConfig::from_env()?;
+    state.vector_index = state.postgres.clone().map(|pool| {
+        Arc::new(taphoa_api::recognition::pgvector::PgVectorIndex::new(pool))
+            as Arc<dyn VectorIndex>
+    });
     if let Some(config) = storage_config {
         let storage = S3Store::new(&config).await;
         if config.create_bucket {
@@ -72,13 +39,31 @@ async fn main() -> anyhow::Result<()> {
         state.image_url_ttl = config.url_ttl;
         state.storage = Some(Arc::new(storage));
     }
+    // Real adapters arrive with the recognition epic; EMBEDDER=mock is for local/e2e only.
+    if std::env::var("EMBEDDER").as_deref() == Ok("mock") {
+        state.embedder = Some(Arc::new(taphoa_recognition::MockEmbedder));
+    }
     let pool = state.postgres.clone();
+    let (stop, shutdown_rx) = tokio::sync::watch::channel(false);
+    let mut background = events::spawn_background(&state, shutdown_rx.clone());
+    if let Some(pool) = pool.clone() {
+        background.push(retention::spawn(pool, shutdown_rx));
+    }
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "API listening");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown().await;
+        let _ = stop.send(true);
+    })
+    .await?;
+    for task in background {
+        task.await?;
+    }
     if let Some(pool) = pool {
         pool.close().await;
     }

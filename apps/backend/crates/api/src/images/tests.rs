@@ -22,24 +22,41 @@ struct FakeRepository {
 }
 #[async_trait]
 impl ImageRepository for FakeRepository {
-    async fn insert(&self, row: &ImageRow, store_id: Option<Uuid>) -> Result<(), sqlx::Error> {
+    async fn insert(&self, row: &ImageRow, actor: &Actor) -> Result<(), sqlx::Error> {
         if self.fail_insert.load(Ordering::Relaxed) {
             return Err(sqlx::Error::Protocol("injected insert failure".into()));
         }
         self.rows
             .lock()
             .unwrap()
-            .insert(row.id, (row.clone(), store_id));
+            .insert(row.id, (row.clone(), Some(actor.store_id)));
         Ok(())
     }
-    async fn get(&self, id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
+    async fn get(&self, id: Uuid, store_id: Uuid) -> Result<Option<ImageRow>, sqlx::Error> {
         Ok(self
             .rows
             .lock()
             .unwrap()
             .get(&id)
+            .filter(|(_, owner)| *owner == Some(store_id))
             .map(|(row, _)| row.clone()))
     }
+}
+fn test_state() -> AppState {
+    AppState {
+        jwt: crate::auth::JwtKeys::from_secret(&[42; 32]),
+        ..AppState::default()
+    }
+}
+fn test_bearer() -> String {
+    let (token, _) = test_state().jwt.issue(&Actor {
+        member_id: Uuid::nil(),
+        store_id: Uuid::nil(),
+        session_id: Uuid::nil(),
+        role: crate::auth::Role::Lead,
+        can_enroll: true,
+    });
+    format!("Bearer {token}")
 }
 fn setup() -> (AppState, Arc<FakeStore>, Arc<FakeRepository>) {
     let objects = Arc::new(FakeStore::default());
@@ -48,7 +65,7 @@ fn setup() -> (AppState, Arc<FakeStore>, Arc<FakeRepository>) {
         AppState {
             storage: Some(objects.clone()),
             image_repository: Some(rows.clone()),
-            ..AppState::default()
+            ..test_state()
         },
         objects,
         rows,
@@ -63,6 +80,7 @@ fn multipart(fields: &[(&str, &[u8])]) -> Request<Body> {
     }
     body.extend_from_slice(b"--test--\r\n");
     Request::post("/v1/images")
+        .header("authorization", test_bearer())
         .header("content-type", "multipart/form-data; boundary=test")
         .body(Body::from(body))
         .unwrap()
@@ -104,10 +122,7 @@ async fn upload_and_get_presign_fresh_urls_and_store_only_metadata() {
             format!("images/{}/{id}.{ext}", Utc::now().format("%Y/%m"))
         );
         assert_eq!(objects.objects.lock().unwrap()[key], bytes);
-        assert_eq!(
-            rows.rows.lock().unwrap()[&id].1,
-            Some(store_id.parse().unwrap())
-        );
+        assert_eq!(rows.rows.lock().unwrap()[&id].1, Some(Uuid::nil()));
         let expires: chrono::DateTime<Utc> = uploaded["url_expires_at"]
             .as_str()
             .unwrap()
@@ -117,6 +132,7 @@ async fn upload_and_get_presign_fresh_urls_and_store_only_metadata() {
         let response = app
             .oneshot(
                 Request::get(format!("/v1/images/{id}"))
+                    .header("authorization", test_bearer())
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -138,29 +154,27 @@ async fn invalid_multipart_uuid_fields_empty_and_unsupported_images() {
         vec![("wrong", PNG)],
         vec![("image", b"".as_slice())],
         vec![("image", PNG), ("image", PNG)],
-        vec![("image", PNG), ("store_id", b"nope".as_slice())],
-        vec![("image", PNG), ("store_id", b"".as_slice())],
         vec![("image", PNG), ("purpose", b"bogus".as_slice())],
         vec![("image", PNG), ("purpose", b"crop".as_slice())],
         vec![("image", PNG), ("purpose", b"".as_slice())],
         vec![("image", PNG), ("purpose", b"other"), ("purpose", b"other")],
     ] {
-        assert_eq!(
-            app.clone()
-                .oneshot(multipart(&fields))
-                .await
-                .unwrap()
-                .status(),
-            StatusCode::BAD_REQUEST
-        );
+        let response = app.clone().oneshot(multipart(&fields)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json(response).await["code"], "validation_failed");
     }
     for request in [
-        Request::post("/v1/images").body(Body::empty()).unwrap(),
         Request::post("/v1/images")
+            .header("authorization", test_bearer())
+            .body(Body::empty())
+            .unwrap(),
+        Request::post("/v1/images")
+            .header("authorization", test_bearer())
             .header("content-type", "multipart/form-data; boundary=test")
             .body(Body::from("broken"))
             .unwrap(),
         Request::get("/v1/images/invalid")
+            .header("authorization", test_bearer())
             .body(Body::empty())
             .unwrap(),
     ] {
@@ -221,6 +235,7 @@ async fn unknown_is_404_and_unconfigured_routes_are_503() {
     let (state, _, _) = setup();
     let request = || {
         Request::get(format!("/v1/images/{}", Uuid::new_v4()))
+            .header("authorization", test_bearer())
             .body(Body::empty())
             .unwrap()
     };
@@ -230,7 +245,7 @@ async fn unknown_is_404_and_unconfigured_routes_are_503() {
     );
     for request in [request(), multipart(&[("image", PNG)])] {
         assert_eq!(
-            router(AppState::default())
+            router(test_state())
                 .oneshot(request)
                 .await
                 .unwrap()
@@ -267,7 +282,12 @@ async fn storage_failures_are_502_and_readiness_names_storage() {
     );
     assert!(rows.rows.lock().unwrap().is_empty());
     let response = app
-        .oneshot(Request::get("/readyz").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/readyz")
+                .header("authorization", test_bearer())
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -279,8 +299,13 @@ async fn storage_failures_are_502_and_readiness_names_storage() {
             .unwrap()
             .contains(&serde_json::json!("storage"))
     );
-    let response = router(AppState::default())
-        .oneshot(Request::get("/readyz").body(Body::empty()).unwrap())
+    let response = router(test_state())
+        .oneshot(
+            Request::get("/readyz")
+                .header("authorization", test_bearer())
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     let body = json(response).await;
@@ -301,4 +326,42 @@ async fn purpose_defaults_to_other() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     assert_eq!(json(response).await["purpose"], "other");
+}
+
+#[tokio::test]
+async fn bearer_required_and_other_store_cannot_fetch() {
+    let (state, _, _) = setup();
+    let app = router(state.clone());
+    let mut request = multipart(&[("image", PNG)]);
+    request.headers_mut().remove("authorization");
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let response = app
+        .clone()
+        .oneshot(multipart(&[
+            ("image", PNG),
+            ("store_id", b"untrusted-client-value"),
+        ]))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let uploaded = json(response).await;
+    let actor = Actor {
+        member_id: Uuid::new_v4(),
+        store_id: Uuid::new_v4(),
+        session_id: Uuid::new_v4(),
+        role: crate::auth::Role::Seller,
+        can_enroll: false,
+    };
+    let (token, _) = state.jwt.issue(&actor);
+    let request = Request::get(format!("/v1/images/{}", uploaded["id"].as_str().unwrap()))
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.oneshot(request).await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
 }

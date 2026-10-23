@@ -305,9 +305,10 @@ flowchart TD
   so the query filters `store_id` first; pgvector 0.8 iterative scans keep filtered HNSW
   results complete. Search returns the best similarity per product.
 - **Latency budget (≤ 3 s).** Upload 0.3–0.6 s, SAM encoder on CPU is the main cost,
-  embedding ~20–40 ms per crop, search < 20 ms. If SAM ViT-B misses the budget on Railway
-  CPU, switch to a smaller SAM-family encoder behind the same `Segmenter` trait; that is
-  the reason for the trait.
+  embedding ~20–40 ms per crop, search < 20 ms. SAM ViT-B missed the budget (about 20 s on
+  4 cores), so the deployed segmenter is MobileSAM behind the same `Segmenter` trait; the
+  embedder runs at 112 px input. Measurements and the 4 vCPU requirement are in
+  [recognition-latency](specs/recognition-latency.md).
 - **Concurrency.** One inference slot per instance (implemented). A second request gets
   `503 segmenter busy` with `Retry-After: 1`; the phone retries once and otherwise offers
   grid mode.
@@ -733,7 +734,7 @@ sequenceDiagram
 | `AWS_*`, `S3_FORCE_PATH_STYLE`, `S3_CREATE_BUCKET`, `IMAGE_URL_TTL_SECONDS` | backend | Spec'd      | Object storage ([spec](specs/object-storage.md)) |
 | `EMBEDDER_MODEL_PATH`                                                       | backend | Proposed    | DINOv2 ONNX weights                              |
 | `MATCH_THRESHOLD`, `MATCH_MARGIN`, `MATCH_FLOOR`, `DUPLICATE_THRESHOLD`     | backend | Proposed    | Recognition tuning (§5.3)                        |
-| `JWT_SECRET`                                                                | backend | Proposed    | ≥ 32 random bytes                                |
+| `JWT_SECRET`                                                                | backend | Implemented | ≥ 32 random bytes                                |
 | `EXPO_PUBLIC_API_URL`                                                       | mobile  | Implemented | Backend base URL                                 |
 
 ## 11. Quality attributes

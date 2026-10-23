@@ -450,7 +450,7 @@ CREATE TABLE scans (
     member_id       UUID NOT NULL REFERENCES members,
     mode            TEXT NOT NULL CHECK (mode IN ('single', 'multi')),
     purpose         TEXT NOT NULL CHECK (purpose IN ('checkout', 'enrollment')),
-    segmenter       TEXT NOT NULL,                          -- sam-vit-b-onnx@1
+    segmenter       TEXT NOT NULL,                          -- mobilesam-onnx@1
     embedder        TEXT NOT NULL,
     catalog_version BIGINT NOT NULL,                        -- change_log seq at scan time
     timings         JSONB NOT NULL,                         -- {segment, embed, search, total} ms

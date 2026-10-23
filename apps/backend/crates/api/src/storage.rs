@@ -22,6 +22,10 @@ pub trait ObjectStore: Send + Sync {
     async fn delete(&self, key: &str) -> anyhow::Result<()>;
     async fn head_bucket(&self) -> anyhow::Result<()>;
     async fn presign_get(&self, key: &str, ttl: Duration) -> anyhow::Result<SignedUrl>;
+    /// Read an object (catalog embeds stored photos). Fakes may leave the default.
+    async fn get(&self, _key: &str) -> anyhow::Result<Vec<u8>> {
+        anyhow::bail!("object reads are not supported by this store")
+    }
 }
 
 // Deliberately no Debug: credentials must never appear in configuration logs.
@@ -178,6 +182,16 @@ impl ObjectStore for S3Store {
             .await?;
         Ok(())
     }
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        let object = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await?;
+        Ok(object.body.collect().await?.into_bytes().to_vec())
+    }
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         self.client
             .delete_object()
@@ -243,6 +257,15 @@ pub(crate) mod tests {
             self.objects.lock().unwrap().remove(key);
             self.deleted.lock().unwrap().push(key.into());
             Ok(())
+        }
+        async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+            self.head_bucket().await?;
+            self.objects
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("object {key} not found"))
         }
         async fn head_bucket(&self) -> anyhow::Result<()> {
             if self.fail.load(Ordering::Relaxed) {

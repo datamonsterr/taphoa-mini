@@ -2,6 +2,7 @@
   "name": "@taphoa/backend",
   "private": true,
   "scripts": {
+    "seed": "cargo run --bin taphoa-seed",
     "lint": "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
     "format": "cargo fmt",
     "format:check": "cargo fmt --check",
