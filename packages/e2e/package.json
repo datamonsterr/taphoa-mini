@@ -6,7 +6,6 @@
   "scripts": {
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/run-test.mjs",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
