@@ -185,9 +185,14 @@ jobs:
           if-no-files-found: ignore
 
   rust-integration:
+    name: rust-integration (${{ matrix.partition }}/2)
     needs: rust-build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
     services:
       postgres:
         image: pgvector/pgvector:0.8.7-pg18-trixie
@@ -248,6 +253,7 @@ jobs:
       # The per-IP limit test needs the default limits and fresh Redis counters, so it runs
       # first; everything else runs with the raised limits from the job env.
       - name: Integration tests - default rate limits
+        if: matrix.partition == 1
         working-directory: apps/backend
         run: >-
           env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR -u RATE_LIMIT_RECOVER_PER_10MIN
@@ -255,24 +261,26 @@ jobs:
           --profile ci --run-ignored only --test-threads 1 --no-tests=pass
           -E 'test(validation_invite_expiry_and_ip_limits)'
       - name: Keep first JUnit report
+        if: matrix.partition == 1
         run: cp apps/backend/target/nextest/ci/junit.xml apps/backend/target/nextest/ci/junit-limits.xml
       - name: Integration tests - everything else (real Postgres+pgvector, Redis, RustFS)
         working-directory: apps/backend
         run: >-
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
           --profile ci --run-ignored only --test-threads 1 --no-tests=pass
+          --partition count:${{ matrix.partition }}/2
           -E 'not test(validation_invite_expiry_and_ip_limits)'
       - name: Summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          python3 -I scripts/ci/junit_summary.py "rust-integration" apps/backend/target/nextest/ci/junit-limits.xml apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          python3 -I scripts/ci/junit_summary.py "rust-integration ${{ matrix.partition }}/2" apps/backend/target/nextest/ci/junit-limits.xml apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
           scripts/ci/job-summary.sh "rust-integration timing"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: junit-rust-integration
+          name: junit-rust-integration-${{ matrix.partition }}
           path: apps/backend/target/nextest/ci/junit.xml
           if-no-files-found: ignore
 
