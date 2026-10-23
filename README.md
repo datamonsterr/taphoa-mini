@@ -93,10 +93,35 @@ docker compose down -v
 | `pnpm test:e2e`         | Backend HTTP smoke plus mobile Maestro (device/APK required)   |
 | `pnpm build`            | Android JS/assets export and backend release binary            |
 | `pnpm prepare`          | Reinstall lefthook hooks                                       |
+| `pnpm api:generate`     | Regenerate `packages/api-client/src/schema.d.ts` from OpenAPI  |
+| `pnpm lint:api`         | Redocly lint of `docs/api/openapi.yaml`                        |
+| `pnpm lint:api:async`   | Validate `docs/api/asyncapi.yaml` (fetches AsyncAPI CLI)       |
+| `pnpm mock:api`         | Prism mock server of the OpenAPI contract on port 4010         |
+| `pnpm test:smoke:mock`  | Start Prism, call it through `@taphoa/api-client`, stop it     |
 
 Turborepo runs app tasks; integration/e2e are uncached. Use `pnpm --filter @taphoa/backend`
 or `pnpm --filter @taphoa/mobile` to target one app. Backend integration tests print a
 skip when URLs are missing; a skip is **not** evidence of a passing real-service test.
+
+## Contract-first workflow
+
+`docs/api/openapi.yaml` is the source of truth. Change it first, then:
+
+1. `pnpm lint:api` validates the contract (Redocly).
+2. `pnpm api:generate` regenerates `packages/api-client/src/schema.d.ts`
+   (openapi-typescript). Commit the result;
+   `pnpm --filter @taphoa/api-client check:generated` fails on drift.
+3. Use the typed client (`createApiClient` from `@taphoa/api-client`, built on
+   openapi-fetch) in the mobile app; add a wrapper for each new operation.
+4. `pnpm mock:api` serves the contract on `http://localhost:4010` so the app can be
+   developed before the backend exists (`EXPO_PUBLIC_API_URL=http://localhost:4010`).
+   `pnpm test:smoke:mock` runs the same flow headless.
+
+The AsyncAPI document is validated with `pnpm lint:api:async`, which runs the AsyncAPI
+CLI through `pnpm dlx` (about 1.5 minutes cold) instead of adding it as a dependency.
+
+New mobile features follow `apps/mobile/src/features/checkout`: pure logic in a plain
+module, a thin React hook on top, tests beside them.
 
 ## Test levels
 

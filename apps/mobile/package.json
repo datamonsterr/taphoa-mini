@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@taphoa/api-client": "workspace:*",
     "expo": "~58.0.17",
     "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.14",

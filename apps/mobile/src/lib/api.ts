@@ -1,23 +1,21 @@
+import { createApiClient } from '@taphoa/api-client';
+
 export type HealthResponse = { status: 'ok' };
 
-export async function getHealth(): Promise<HealthResponse> {
+export function getApiClient() {
   const baseUrl = process.env.EXPO_PUBLIC_API_URL;
   if (!baseUrl) {
     throw new Error('EXPO_PUBLIC_API_URL is not configured');
   }
+  return createApiClient({ baseUrl });
+}
 
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/healthz`);
+export async function getHealth(): Promise<HealthResponse> {
+  const { data, response } = await getApiClient().getHealth();
   if (!response.ok) {
     throw new Error(`Health request failed: ${response.status}`);
   }
-
-  const data: unknown = await response.json();
-  if (
-    typeof data !== 'object' ||
-    data === null ||
-    !('status' in data) ||
-    data.status !== 'ok'
-  ) {
+  if (data?.status !== 'ok') {
     throw new Error('Invalid health response');
   }
   return { status: data.status };

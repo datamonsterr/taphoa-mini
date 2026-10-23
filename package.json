@@ -15,11 +15,18 @@
     "test:integration": "turbo run test:integration",
     "test:e2e": "turbo run test:e2e",
     "build": "turbo run build",
-    "prepare": "node scripts/install-hooks.mjs"
+    "prepare": "node scripts/install-hooks.mjs",
+    "api:generate": "pnpm --filter @taphoa/api-client generate",
+    "lint:api": "redocly lint docs/api/openapi.yaml",
+    "lint:api:async": "pnpm dlx @asyncapi/cli@6.2.1 validate docs/api/asyncapi.yaml",
+    "mock:api": "prism mock docs/api/openapi.yaml -p 4010",
+    "test:smoke:mock": "node scripts/smoke-mock.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@redocly/cli": "^2.67.1",
+    "@stoplight/prism-cli": "^5.16.0",
     "lefthook": "^2.2.2",
     "prettier": "^3.9.10",
     "railway": "^3.16.0",

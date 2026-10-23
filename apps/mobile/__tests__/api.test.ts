@@ -2,11 +2,17 @@ import { getHealth } from '../src/lib/api';
 
 const originalFetch = global.fetch;
 const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
-const fetchMock = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>();
+const fetchMock = jest.fn<Promise<Response>, [Request]>();
+
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
 
 beforeEach(() => {
   process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test/';
-  global.fetch = fetchMock;
+  global.fetch = fetchMock as unknown as typeof fetch;
   fetchMock.mockReset();
 });
 
@@ -20,27 +26,23 @@ afterEach(() => {
 });
 
 test('fetches /healthz and parses the health response', async () => {
-  fetchMock.mockResolvedValue({
-    ok: true,
-    json: async () => ({ status: 'ok' }),
-  } as Response);
+  fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
 
   await expect(getHealth()).resolves.toEqual({ status: 'ok' });
-  expect(fetchMock).toHaveBeenCalledWith('https://api.example.test/healthz');
+  expect(fetchMock.mock.calls[0]![0].url).toBe(
+    'https://api.example.test/healthz',
+  );
 });
 
 test('rejects an unsuccessful HTTP response', async () => {
-  fetchMock.mockResolvedValue({ ok: false, status: 503 } as Response);
+  fetchMock.mockResolvedValue(jsonResponse({}, 503));
   await expect(getHealth()).rejects.toThrow('Health request failed: 503');
 });
 
 test.each([null, {}, { status: 'down' }])(
   'rejects malformed health data: %p',
   async (data) => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => data,
-    } as Response);
+    fetchMock.mockResolvedValue(jsonResponse(data));
     await expect(getHealth()).rejects.toThrow('Invalid health response');
   },
 );
