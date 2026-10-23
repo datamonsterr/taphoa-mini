@@ -66,6 +66,7 @@ export default defineRailway(() => {
     env: {
       DATABASE_URL: Postgres.env.DATABASE_URL,
       REDIS_URL: Redis.env.REDIS_URL,
+      JWT_SECRET: preserve(),
       RUST_LOG: 'info',
       LOG_FORMAT: 'json',
       // Bucket credentials are not referencable from IaC; set once with

@@ -23,7 +23,12 @@
     "test:e2e": {
       "cache": false,
       "outputs": [],
-      "env": ["BASE_URL", "EXPECT_SEGMENT_STATUS", "SEGMENT_EXPECTED_STATUS"]
+      "env": [
+        "BASE_URL",
+        "EXPECT_SEGMENT_STATUS",
+        "SEGMENT_EXPECTED_STATUS",
+        "BACKEND_URL"
+      ]
     },
     "build": {
       "dependsOn": ["^build"],
