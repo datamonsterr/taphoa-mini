@@ -221,6 +221,10 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: stable
       JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
+      # Many suites create stores from one IP; raise the per-IP auth limits for the run.
+      RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
+      RATE_LIMIT_JOIN_PER_HOUR: '100000'
+      RATE_LIMIT_RECOVER_PER_10MIN: '100000'
       DATABASE_URL: postgres://taphoa:taphoa@localhost:5432/taphoa
       REDIS_URL: redis://localhost:6379
       AWS_ENDPOINT_URL: http://localhost:9000
