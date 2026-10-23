@@ -11,3 +11,5 @@ apps/backend/models/
 *.tsbuildinfo
 .DS_Store
 __pycache__/
+.ci-cache/
+ci-bin/

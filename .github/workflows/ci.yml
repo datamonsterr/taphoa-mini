@@ -373,7 +373,10 @@ jobs:
 
   # ---------- Docker ----------
 
-  docker-build:
+  # Release binary built in rust:<channel>-bookworm (runtime glibc) with a persistent
+  # cargo/target cache; docker-build then only wraps it, so the image build takes seconds.
+  # The full cargo-chef Dockerfile used by Railway is verified in docker-full.yml.
+  backend-binary:
     needs: changes
     if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
@@ -382,16 +385,47 @@ jobs:
       - uses: actions/checkout@v7
       - name: Start job timer
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: .ci-cache
+          key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
+      - run: scripts/ci/build-backend-binary.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-binary
+          path: ci-bin/taphoa-api
+          retention-days: 3
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "backend-binary" "release build in rust-bookworm container"
+
+  docker-build:
+    needs: backend-binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-binary
+          path: ci-bin
+      - run: chmod +x ci-bin/taphoa-api
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: apps/backend/Dockerfile
+          file: apps/backend/Dockerfile.ci
           build-args: SKIP_MODELS=1
           tags: taphoa-mini-backend:dev
           outputs: type=docker,dest=${{ runner.temp }}/image.tar
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+          cache-from: type=gha,scope=backend-ci
+          cache-to: type=gha,mode=max,scope=backend-ci
       - name: Compress image for reuse
         run: zstd -T0 -3 --rm "$RUNNER_TEMP/image.tar" -o "$RUNNER_TEMP/image.tar.zst"
       - uses: actions/upload-artifact@v7
@@ -407,7 +441,7 @@ jobs:
         run: |
           size="n/a"
           if [ -f "$RUNNER_TEMP/image.tar.zst" ]; then size="$(du -h "$RUNNER_TEMP/image.tar.zst" | cut -f1)"; fi
-          scripts/ci/job-summary.sh "docker-build" "image (zstd) size: $size" "layer cache: gha scope=backend"
+          scripts/ci/job-summary.sh "docker-build" "image (zstd) size: $size" "layer cache: gha scope=backend-ci"
 
   docker-e2e:
     needs: docker-build
@@ -499,6 +533,7 @@ jobs:
       - js-build
       - api-contract
       - smoke-mock
+      - backend-binary
       - docker-build
       - docker-e2e
       - actionlint

@@ -1,0 +1,5 @@
+**
+!apps/backend/scripts/
+!apps/backend/scripts/**
+!ci-bin/
+!ci-bin/**
