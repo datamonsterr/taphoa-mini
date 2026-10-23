@@ -255,6 +255,7 @@ async fn create_scan(
         .map(Arc::clone)
         .ok_or_else(|| unavailable("postgres not configured"))?;
     let request = parse_request(multipart).await?;
+    let read_ms = wall.elapsed().as_millis() as u64;
     match request.purpose {
         pipeline::ScanPurpose::Enrollment => actor.require(Action::EnrollProduct)?,
         pipeline::ScanPurpose::Checkout => actor.require(Action::Sell)?,
@@ -438,6 +439,7 @@ async fn create_scan(
         search_ms,
         wall.elapsed().as_secs_f64() * 1000.0,
     );
+    let persist_started = Instant::now();
     let (scan_id, created_at, catalog_version) = match pipeline::persist_scan(
         &pool,
         &actor,
@@ -502,6 +504,8 @@ async fn create_scan(
         segment_ms,
         embed_ms,
         search_ms,
+        read_ms,
+        persist_ms = persist_started.elapsed().as_millis() as u64,
         total_ms,
         "recognition scan complete"
     );
