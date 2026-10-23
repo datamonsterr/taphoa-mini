@@ -22,6 +22,10 @@ pub trait ObjectStore: Send + Sync {
     async fn delete(&self, key: &str) -> anyhow::Result<()>;
     async fn head_bucket(&self) -> anyhow::Result<()>;
     async fn presign_get(&self, key: &str, ttl: Duration) -> anyhow::Result<SignedUrl>;
+    /// Read an object (catalog embeds stored photos). Fakes may leave the default.
+    async fn get(&self, _key: &str) -> anyhow::Result<Vec<u8>> {
+        anyhow::bail!("object reads are not supported by this store")
+    }
 }
 
 // Deliberately no Debug: credentials must never appear in configuration logs.
@@ -186,6 +190,16 @@ impl ObjectStore for S3Store {
             .send()
             .await?;
         Ok(())
+    }
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        let object = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await?;
+        Ok(object.body.collect().await?.into_bytes().to_vec())
     }
     async fn head_bucket(&self) -> anyhow::Result<()> {
         self.client

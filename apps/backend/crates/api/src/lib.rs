@@ -29,7 +29,7 @@ use redis::aio::ConnectionManager;
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{sync::Arc, time::Duration};
-use taphoa_recognition::{Segment, SegmentError, Segmenter};
+use taphoa_recognition::{Embedder, Segment, SegmentError, Segmenter};
 use tokio::sync::Semaphore;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
 
@@ -49,6 +49,10 @@ pub struct AppState {
     pub redis: Option<ConnectionManager>,
     pub hub: events::Hub,
     pub segmenter: Option<Arc<dyn Segmenter>>,
+    /// Catalog enrollment embeds reference photos. None -> 503 on enroll.
+    pub embedder: Option<Arc<dyn Embedder>>,
+    /// Duplicate-check search port. None -> catalog queries product_embeddings in SQL.
+    pub vector_index: Option<Arc<dyn vector::VectorIndex>>,
     pub storage: Option<Arc<dyn storage::ObjectStore>>,
     pub image_repository: Option<Arc<dyn images::ImageRepository>>,
     pub image_url_ttl: Duration,
@@ -67,6 +71,8 @@ impl Default for AppState {
             redis: None,
             hub: events::Hub::new(),
             segmenter: None,
+            embedder: None,
+            vector_index: None,
             storage: None,
             image_repository: None,
             image_url_ttl: Duration::from_secs(900),
