@@ -10,6 +10,7 @@ pub mod pagination;
 pub mod ratelimit;
 pub mod recognition;
 pub mod reports;
+pub mod retention;
 pub mod sales;
 pub mod seed;
 pub mod storage;
