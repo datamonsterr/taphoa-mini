@@ -229,8 +229,19 @@ async fn create(
                 .bind(actor.store_id).bind(product).bind(line.unit_id).bind(input.sold_at).fetch_optional(&mut *tx).await?;
             mismatch = line.unit_price != historical.unwrap_or(current);
         }
+        // Recommendation IDs are historical snapshots without a catalog foreign key.
+        // Offline confirmations can outlive the suggested catalog entry.
         if let Some(product) = line.suggested_product_id {
-            product_exists(&mut tx, actor.store_id, product).await?;
+            let foreign: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM products WHERE id=$1 AND store_id<>$2)",
+            )
+            .bind(product)
+            .bind(actor.store_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if foreign {
+                return Err(ApiError::not_found());
+            }
         }
         if let Some(detection) = line.detection_id {
             let exists: bool = sqlx::query_scalar(
