@@ -52,7 +52,7 @@ impl Config {
             (Some(encoder), Some(decoder)) => Ok(Some(Arc::new(SamSegmenter::load(
                 encoder,
                 decoder,
-                SamOptions::default(),
+                SamOptions::from_env(),
             )?))),
             _ => bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
         }
