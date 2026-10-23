@@ -194,6 +194,7 @@ struct Server {
 async fn start() -> (Server, AppState) {
     let config = Config::from_lookup(|key| match key {
         "JWT_SECRET" => Some("stream-test-secret-at-least-32-bytes".into()),
+        "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("100000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
@@ -409,4 +410,80 @@ async fn background_tasks_stop_promptly_on_shutdown_with_open_streams() {
     timeout(Duration::from_secs(8), server.stop())
         .await
         .expect("graceful shutdown closes SSE streams");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn replay_pages_through_a_backlog_larger_than_one_page() {
+    let (server, state) = start().await;
+    let lead = create_store(&server.base).await;
+    let token = lead["access_token"].as_str().unwrap();
+    let store: Uuid = lead["store"]["id"].as_str().unwrap().parse().unwrap();
+    let pool = state.postgres.as_ref().unwrap();
+    // 2300 already-published events: more than two replay pages.
+    let (first,): (i64,) = sqlx::query_as(
+        "WITH ins AS (INSERT INTO outbox_events (store_id,type,payload,published_at) \
+         SELECT $1,'store.changed','{}'::jsonb,now() FROM generate_series(1,2300) RETURNING id) \
+         SELECT min(id) FROM ins",
+    )
+    .bind(store)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE outbox_events SET payload=jsonb_build_object('id','evt_'||lpad(id::text,15,'0'),'type',type,'version',1,\
+         'store_id',store_id,'occurred_at','2026-10-23T09:14:02.511+07:00','actor',NULL,'data',jsonb_build_object('fields',jsonb_build_array('x'))) \
+         WHERE store_id=$1 AND id>=$2",
+    )
+    .bind(store)
+    .bind(first)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let mut resumed = open(&server.base, token, Some(&format!("evt_{:015}", first - 1))).await;
+    let mut buf = String::new();
+    let mut previous = first - 1;
+    let mut count = 0;
+    while count < 2300 {
+        let (id, _, _) = event(&mut resumed, &mut buf).await;
+        let n: i64 = id.trim_start_matches("evt_").parse().unwrap();
+        assert_eq!(n, previous + 1, "no gaps or repeats across page boundaries");
+        previous = n;
+        count += 1;
+    }
+    cleanup(pool, store).await;
+    server.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn stream_ends_after_its_own_session_is_revoked() {
+    let (server, _) = start().await;
+    let lead = create_store(&server.base).await;
+    let token = lead["access_token"].as_str().unwrap();
+    let mut mine = open(&server.base, token, None).await;
+    let mut buf = String::new();
+
+    let logout = reqwest::Client::new()
+        .post(format!("{}/v1/auth/logout", server.base))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+    assert!(logout.status().is_success());
+    let (_, name, data) = event(&mut mine, &mut buf).await;
+    assert_eq!(name, "session.revoked");
+    assert_eq!(data["data"]["reason"], "logout");
+    // Only heartbeats may still be buffered; the stream must then reach EOF.
+    loop {
+        let chunk = timeout(Duration::from_secs(5), mine.chunk())
+            .await
+            .expect("stream ends after the revocation event")
+            .unwrap();
+        if chunk.is_none() {
+            break;
+        }
+    }
+    server.stop().await;
 }

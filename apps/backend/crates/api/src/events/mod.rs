@@ -71,18 +71,16 @@ async fn stream_events(
         .and_then(|value| value.to_str().ok())
         .and_then(parse_event_id);
     let mut replay = VecDeque::new();
+    let mut replay_open = false;
     if let Some(last_id) = last_id {
         let pool = state.postgres.as_ref().ok_or_else(ApiError::unavailable)?;
-        let query = sqlx::query_as::<_, (i64, String, Value)>(
-            "SELECT id, type, payload FROM outbox_events WHERE store_id=$1 AND id > $2 ORDER BY id LIMIT 1000"
-        ).bind(actor.store_id).bind(last_id).fetch_all(pool);
         tokio::select! {
             biased;
             () = stopped(&mut shutdown) => {},
-            rows = query => {
-                replay.extend(rows?.into_iter().map(|(id, event_type, payload)| {
-                    std::sync::Arc::new(HubMessage { id, event_type, payload: payload.to_string() })
-                }));
+            page = replay_page(pool, actor.store_id, last_id) => {
+                let page = page?;
+                replay_open = page.len() == REPLAY_PAGE;
+                replay.extend(page);
             }
         }
     } else if let Some(pool) = &state.postgres {
@@ -99,34 +97,79 @@ async fn stream_events(
             id = watermark => last_id = Some(id?),
         }
     }
+    let pool = state.postgres.clone();
+    let (store_id, session_id) = (actor.store_id, actor.session_id);
     let stream = stream::unfold(
-        (subscription, replay, last_id.unwrap_or(0), shutdown),
-        |(mut subscription, mut replay, mut last_id, mut shutdown)| async move {
-            loop {
-                let message = tokio::select! {
-                    biased;
-                    () = stopped(&mut shutdown) => return None,
-                    message = async {
-                        if let Some(message) = replay.pop_front() {
-                            Ok(message)
-                        } else {
-                            subscription.recv().await
-                        }
-                    } => match message {
-                        Ok(message) => message,
-                        // A slow client reconnects using its last successfully received id.
-                        Err(_) => return None,
-                    }
-                };
-                if message.id <= last_id {
-                    continue;
+        (
+            subscription,
+            replay,
+            replay_open,
+            last_id.unwrap_or(0),
+            false,
+            shutdown,
+        ),
+        move |(
+            mut subscription,
+            mut replay,
+            mut replay_open,
+            mut last_id,
+            closing,
+            mut shutdown,
+        )| {
+            let pool = pool.clone();
+            async move {
+                if closing {
+                    return None;
                 }
-                last_id = message.id;
-                let event = SseEvent::default()
-                    .id(format!("evt_{last_id:015}"))
-                    .event(&message.event_type)
-                    .data(&message.payload);
-                return Some((Ok(event), (subscription, replay, last_id, shutdown)));
+                loop {
+                    // Page through the backlog lazily so a long offline gap is never dropped.
+                    if replay.is_empty() && replay_open {
+                        let pool = pool.as_ref()?;
+                        match replay_page(pool, store_id, last_id).await {
+                            Ok(page) => {
+                                replay_open = page.len() == REPLAY_PAGE;
+                                replay.extend(page);
+                            }
+                            Err(_) => return None,
+                        }
+                    }
+                    let message = tokio::select! {
+                        biased;
+                        () = stopped(&mut shutdown) => return None,
+                        message = async {
+                            if let Some(message) = replay.pop_front() {
+                                Ok(message)
+                            } else {
+                                subscription.recv().await
+                            }
+                        } => match message {
+                            Ok(message) => message,
+                            // A slow client reconnects using its last successfully received id.
+                            Err(_) => return None,
+                        }
+                    };
+                    if message.id <= last_id {
+                        continue;
+                    }
+                    last_id = message.id;
+                    // Deliver the revocation, then end the stream for the revoked session.
+                    let closing = ends_session(&message, session_id);
+                    let event = SseEvent::default()
+                        .id(format!("evt_{last_id:015}"))
+                        .event(&message.event_type)
+                        .data(&message.payload);
+                    return Some((
+                        Ok(event),
+                        (
+                            subscription,
+                            replay,
+                            replay_open,
+                            last_id,
+                            closing,
+                            shutdown,
+                        ),
+                    ));
+                }
             }
         },
     );
@@ -136,6 +179,46 @@ async fn stream_events(
             .interval(state.hub.heartbeat())
             .text("ping"),
     ))
+}
+
+const REPLAY_PAGE: usize = 1000;
+
+async fn replay_page(
+    pool: &sqlx::PgPool,
+    store_id: Uuid,
+    after: i64,
+) -> Result<Vec<std::sync::Arc<HubMessage>>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (i64, String, Value)>(
+        "SELECT id, type, payload FROM outbox_events WHERE store_id=$1 AND id > $2 ORDER BY id LIMIT $3",
+    )
+    .bind(store_id)
+    .bind(after)
+    .bind(REPLAY_PAGE as i64)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, event_type, payload)| {
+            std::sync::Arc::new(HubMessage {
+                id,
+                event_type,
+                payload: payload.to_string(),
+            })
+        })
+        .collect())
+}
+
+/// True when `message` revokes the session that owns this stream.
+fn ends_session(message: &HubMessage, session_id: Uuid) -> bool {
+    message.event_type == "session.revoked"
+        && serde_json::from_str::<Value>(&message.payload)
+            .ok()
+            .and_then(|envelope| {
+                envelope["data"]["session_id"]
+                    .as_str()
+                    .and_then(|id| id.parse::<Uuid>().ok())
+            })
+            == Some(session_id)
 }
 
 fn parse_event_id(value: &str) -> Option<i64> {
@@ -171,7 +254,18 @@ impl Backoff {
 
 /// Call with `&mut *tx` from a caller-owned transaction. Does not commit.
 /// PostgreSQL delivers the notification only when that transaction commits.
+///
+/// Ordering rule: `change_log.seq` and `outbox_events.id` are cursors, so within one
+/// store their allocation order must equal commit order, otherwise a reader holding a
+/// later cursor would skip a row that commits afterwards. `emit` therefore takes a
+/// transaction-scoped row lock on the store (`FOR NO KEY UPDATE`, the same lock the
+/// store handlers already take, and compatible with foreign-key checks) before it
+/// allocates any id. Never write `change_log` or `outbox_events` outside `emit`.
 pub async fn emit(tx: &mut sqlx::PgConnection, event: Event) -> Result<EmittedEvent, sqlx::Error> {
+    sqlx::query("SELECT id FROM stores WHERE id=$1 FOR NO KEY UPDATE")
+        .bind(event.store_id)
+        .fetch_optional(&mut *tx)
+        .await?;
     let seq = if let Some((entity, entity_id, op)) = event.change {
         Some(sqlx::query_scalar::<_, i64>("INSERT INTO change_log (store_id, entity, entity_id, op) VALUES ($1,$2,$3,$4) RETURNING seq")
             .bind(event.store_id).bind(entity).bind(entity_id).bind(op).fetch_one(&mut *tx).await?)
