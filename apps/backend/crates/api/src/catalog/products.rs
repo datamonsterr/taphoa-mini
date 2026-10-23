@@ -60,8 +60,9 @@ pub(crate) async fn images_json(state: &AppState, value: &Value) -> ApiResult<Ve
     Ok(images)
 }
 
+/// Cost price is Lead-only (matches the sync change feed): others get `null`.
 pub(crate) fn product_json(
-    _state: &AppState,
+    lead: bool,
     row: &ProductListRow,
     images: Vec<Value>,
 ) -> ApiResult<Value> {
@@ -70,7 +71,7 @@ pub(crate) fn product_json(
         "name": row.product.name,
         "price": row.product.price,
         "base_unit": row.product.base_unit,
-        "cost_price": row.product.cost_price,
+        "cost_price": row.product.cost_price.filter(|_| lead),
         "barcode": row.product.barcode,
         "category_id": row.product.category_id,
         "units": row.units,
@@ -178,7 +179,11 @@ pub(crate) async fn list(
             );
         }
         let images = images_json(&state, &row.images).await?;
-        items.push(product_json(&state, &row, images)?);
+        items.push(product_json(
+            actor.role == crate::auth::Role::Lead,
+            &row,
+            images,
+        )?);
     }
     Ok(Json(json!({"items": items, "next_cursor": next_cursor})))
 }
@@ -194,7 +199,11 @@ pub(crate) async fn get_product(
         .await?
         .ok_or_else(ApiError::not_found)?;
     let images = images_json(&state, &row.images).await?;
-    Ok(Json(product_json(&state, &row, images)?))
+    Ok(Json(product_json(
+        actor.role == crate::auth::Role::Lead,
+        &row,
+        images,
+    )?))
 }
 
 fn unique_violation(error: sqlx::Error) -> ApiError {
@@ -223,13 +232,18 @@ async fn load_units(conn: &mut PgConnection, product_id: Uuid) -> ApiResult<Vec<
     .await?)
 }
 
-async fn aggregate_json(state: &AppState, store_id: Uuid, id: Uuid) -> ApiResult<Value> {
+async fn aggregate_json(
+    state: &AppState,
+    lead: bool,
+    store_id: Uuid,
+    id: Uuid,
+) -> ApiResult<Value> {
     let mut conn = pool(state)?.acquire().await?;
     let row = load_product(&mut conn, store_id, id)
         .await?
         .ok_or_else(ApiError::not_found)?;
     let images = images_json(state, &row.images).await?;
-    product_json(state, &row, images)
+    product_json(lead, &row, images)
 }
 
 pub(crate) async fn create(
@@ -260,7 +274,15 @@ pub(crate) async fn create(
         crate::idempotency::check(&stored_hash, &hash)?;
         return Ok((
             axum::http::StatusCode::OK,
-            Json(aggregate_json(&state, actor.store_id, request.id).await?),
+            Json(
+                aggregate_json(
+                    &state,
+                    actor.role == crate::auth::Role::Lead,
+                    actor.store_id,
+                    request.id,
+                )
+                .await?,
+            ),
         )
             .into_response());
     }
@@ -382,7 +404,15 @@ pub(crate) async fn create(
     tx.commit().await?;
     Ok((
         axum::http::StatusCode::CREATED,
-        Json(aggregate_json(&state, actor.store_id, request.id).await?),
+        Json(
+            aggregate_json(
+                &state,
+                actor.role == crate::auth::Role::Lead,
+                actor.store_id,
+                request.id,
+            )
+            .await?,
+        ),
     )
         .into_response())
 }
@@ -515,7 +545,11 @@ pub(crate) async fn patch_product(
             .await?
             .ok_or_else(ApiError::not_found)?;
         let images = images_json(&state, &row.images).await?;
-        return Ok(Json(product_json(&state, &row, images)?));
+        return Ok(Json(product_json(
+            actor.role == crate::auth::Role::Lead,
+            &row,
+            images,
+        )?));
     }
 
     if let Some(category_id) = plan.category_id
@@ -671,7 +705,7 @@ pub(crate) async fn patch_product(
         .await?
         .ok_or_else(ApiError::not_found)?;
     let images = images_json(&state, &row.images).await?;
-    let body = product_json(&state, &row, images)?;
+    let body = product_json(actor.role == crate::auth::Role::Lead, &row, images)?;
     tx.commit().await?;
     Ok(Json(body))
 }

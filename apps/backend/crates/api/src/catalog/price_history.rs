@@ -54,29 +54,32 @@ async fn fetch_page(
     product_id: Uuid,
     limit: u32,
     cursor: Option<(DateTime<Utc>, Uuid)>,
+    lead: bool,
 ) -> ApiResult<Vec<ChangeRow>> {
     let rows = match cursor {
         Some((at, id)) => {
             sqlx::query_as::<_, ChangeRow>(
                 "SELECT id, unit_id, field, old_value, new_value, changed_by, changed_at, source \
-                 FROM price_history WHERE product_id = $1 AND (changed_at, id) < ($2::timestamptz, $3::uuid) \
+                 FROM price_history WHERE product_id = $1 AND ($5 OR field <> 'cost_price') AND (changed_at, id) < ($2::timestamptz, $3::uuid) \
                  ORDER BY changed_at DESC, id DESC LIMIT $4",
             )
             .bind(product_id)
             .bind(at)
             .bind(id)
             .bind(i64::from(limit))
+            .bind(lead)
             .fetch_all(conn)
             .await?
         }
         None => {
             sqlx::query_as::<_, ChangeRow>(
                 "SELECT id, unit_id, field, old_value, new_value, changed_by, changed_at, source \
-                 FROM price_history WHERE product_id = $1 \
+                 FROM price_history WHERE product_id = $1 AND ($3 OR field <> 'cost_price') \
                  ORDER BY changed_at DESC, id DESC LIMIT $2",
             )
             .bind(product_id)
             .bind(i64::from(limit))
+            .bind(lead)
             .fetch_all(conn)
             .await?
         }
@@ -108,9 +111,15 @@ pub(crate) async fn list(
         }
         None => None,
     };
-    let rows = fetch_page(&mut conn, product_id, page.limit + 1, cursor)
-        .await?
-        .into_iter();
+    let rows = fetch_page(
+        &mut conn,
+        product_id,
+        page.limit + 1,
+        cursor,
+        actor.role == crate::auth::Role::Lead,
+    )
+    .await?
+    .into_iter();
     let mut items = Vec::with_capacity(rows.len());
     let mut next_cursor = None;
     for (index, row) in rows.enumerate() {

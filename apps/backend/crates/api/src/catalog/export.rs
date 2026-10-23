@@ -593,6 +593,7 @@ async fn price_list(
     actor: Actor,
     Query(query): Query<ExportQuery>,
 ) -> Result<Response, ApiError> {
+    actor.require(crate::auth::permissions::Action::Exports)?;
     let format = Format::parse(&query)?;
     let pool = state.postgres.as_ref().ok_or_else(ApiError::unavailable)?;
     let list = load_price_list(pool, actor.store_id).await?;

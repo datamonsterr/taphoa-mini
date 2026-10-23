@@ -995,7 +995,7 @@ async fn get_patch_archive_price_history_and_isolation() {
         "GET",
         &format!("{path}/price-history"),
         "/v1/products/{productId}/price-history",
-        &w.seller,
+        &w.lead,
         Value::Null,
         StatusCode::OK,
     )
@@ -1276,10 +1276,23 @@ async fn price_list_export_pdf_and_png() {
     .await;
     let get = |q: &str| {
         Request::get(format!("/v1/exports/price-list{q}"))
-            .header("authorization", format!("Bearer {}", w.seller))
+            .header("authorization", format!("Bearer {}", w.lead))
             .body(Body::empty())
             .unwrap()
     };
+    // exports are Lead-only
+    for token in [&w.seller, &w.enroller] {
+        let request = Request::get("/v1/exports/price-list")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, bytes, _) = raw(&w.app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap()["code"],
+            "forbidden"
+        );
+    }
     let (status, bytes, headers) = raw(&w.app, get("")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["content-type"], "application/pdf");
@@ -1320,4 +1333,167 @@ async fn list_is_one_query_and_search_is_index_backed() {
             .await
             .unwrap();
     assert_eq!(indexes, 1, "{plan:?}");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn cost_price_is_lead_only_in_every_response() {
+    let w = world().await;
+    let p = create_product(
+        &w,
+        &w.lead,
+        "Coca",
+        9000,
+        "cost-1",
+        json!({"cost_price": 7000}),
+    )
+    .await;
+    assert_eq!(p["cost_price"], 7000);
+    let path = format!("/v1/products/{}", p["id"].as_str().unwrap());
+    let lead_get = ok(
+        &w.app,
+        "GET",
+        &path,
+        "/v1/products/{productId}",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(lead_get["cost_price"], 7000);
+    for token in [&w.seller, &w.enroller] {
+        let got = ok(
+            &w.app,
+            "GET",
+            &path,
+            "/v1/products/{productId}",
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+        assert!(got["cost_price"].is_null(), "{got}");
+        let list = ok(
+            &w.app,
+            "GET",
+            "/v1/products",
+            "/v1/products",
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+        assert!(list["items"][0]["cost_price"].is_null(), "{list}");
+        let hist = ok(
+            &w.app,
+            "GET",
+            &format!("{path}/price-history"),
+            "/v1/products/{productId}/price-history",
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+        let items = hist["items"].as_array().unwrap();
+        assert!(!items.is_empty());
+        assert!(items.iter().all(|i| i["field"] != "cost_price"), "{hist}");
+        // paging through the cursor branch also hides cost rows
+        let page = ok(
+            &w.app,
+            "GET",
+            &format!("{path}/price-history?limit=1"),
+            "/v1/products/{productId}/price-history",
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+        assert!(
+            page["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|i| i["field"] != "cost_price")
+        );
+    }
+    // enroller edits the name: response still hides cost
+    let edited = ok(
+        &w.app,
+        "PATCH",
+        &path,
+        "/v1/products/{productId}",
+        &w.enroller,
+        json!({"name": "Coca 2"}),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(edited["cost_price"].is_null(), "{edited}");
+    // enroller-created product hides cost in the 201 body
+    let image = upload(&w, &w.enroller, "cost-2").await;
+    let created = ok(&w.app, "POST", "/v1/products", "/v1/products", &w.enroller, json!({"id": Uuid::now_v7(), "price": 1, "cost_price": 5, "image_ids": [image], "force_new": true}), StatusCode::CREATED).await;
+    assert!(created["cost_price"].is_null(), "{created}");
+    let hist = ok(
+        &w.app,
+        "GET",
+        &format!("{path}/price-history"),
+        "/v1/products/{productId}/price-history",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert!(
+        hist["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["field"] == "cost_price")
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn concurrent_duplicate_category_names_never_500() {
+    let w = world().await;
+    for round in 0..5 {
+        let name = format!("Cat {round}");
+        let calls = (0..6).map(|_| {
+            let (app, token, name) = (w.app.clone(), w.lead.clone(), name.clone());
+            tokio::spawn(async move {
+                call(
+                    &app,
+                    "POST",
+                    "/v1/categories",
+                    Some(&token),
+                    json!({"id": Uuid::now_v7(), "name": name}),
+                )
+                .await
+                .0
+            })
+        });
+        let statuses: Vec<_> = futures_join(calls).await;
+        assert_eq!(
+            statuses
+                .iter()
+                .filter(|s| **s == StatusCode::CREATED)
+                .count(),
+            1,
+            "{statuses:?}"
+        );
+        assert!(
+            statuses
+                .iter()
+                .all(|s| *s == StatusCode::CREATED || *s == StatusCode::CONFLICT),
+            "{statuses:?}"
+        );
+    }
+}
+async fn futures_join(
+    handles: impl Iterator<Item = tokio::task::JoinHandle<StatusCode>>,
+) -> Vec<StatusCode> {
+    let mut out = vec![];
+    for h in handles.collect::<Vec<_>>() {
+        out.push(h.await.unwrap());
+    }
+    out
 }

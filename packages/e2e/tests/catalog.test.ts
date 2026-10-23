@@ -172,6 +172,18 @@ describe('Catalog contract specs (E3)', () => {
       });
       expect(del.response.status).toBe(403);
     }
+    // cost price is Lead-only; exports are Lead-only
+    const seen = await plain.raw.GET('/v1/products/{productId}', {
+      params: { path: { productId: created.id } },
+    });
+    expect(seen.data!.cost_price ?? null).toBeNull();
+    const base = process.env.BACKEND_URL!.replace(/\/+$/, '');
+    const denied = await fetch(`${base}/v1/exports/price-list`, {
+      headers: {
+        authorization: `Bearer ${(await joinAsSeller(lead)).session.access_token}`,
+      },
+    });
+    expect(denied.status).toBe(403);
     const cat = await plain.raw.POST('/v1/categories', {
       body: { id: randomUUID(), name: 'Nope' },
     });

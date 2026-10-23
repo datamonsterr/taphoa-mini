@@ -126,7 +126,13 @@ pub(crate) async fn create(
         .bind(actor.store_id)
         .bind(&category.name)
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|error| match &error {
+            sqlx::Error::Database(db) if db.is_unique_violation() => {
+                ApiError::conflict("conflict", "category name already exists")
+            }
+            _ => ApiError::from(error),
+        })?;
     catalog_event(&mut tx, &actor, category.id).await?;
     tx.commit().await?;
     Ok((
