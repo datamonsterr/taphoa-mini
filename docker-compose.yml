@@ -52,6 +52,7 @@ services:
       PORT: '8080'
       DATABASE_URL: postgres://${POSTGRES_USER:-taphoa}:${POSTGRES_PASSWORD:-taphoa}@postgres:5432/${POSTGRES_DB:-taphoa}
       REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-jwt-secret-change-me-0123456789}
       AWS_ENDPOINT_URL: http://storage:9000
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-taphoa-local}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-taphoa-local-secret}
