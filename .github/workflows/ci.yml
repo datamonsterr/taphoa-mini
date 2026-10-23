@@ -17,7 +17,8 @@ env:
   CARGO_INCREMENTAL: '0'
 
 jobs:
-  # Decide which areas changed; unaffected jobs are skipped and count as success in ci-ok.
+  # Decide which areas changed (a change to this file selects every area); unaffected jobs
+  # are skipped and count as success in ci-ok.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
