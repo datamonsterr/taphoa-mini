@@ -61,7 +61,7 @@ pub(crate) async fn images_json(state: &AppState, value: &Value) -> ApiResult<Ve
 }
 
 pub(crate) fn product_json(
-    state: &AppState,
+    _state: &AppState,
     row: &ProductListRow,
     images: Vec<Value>,
 ) -> ApiResult<Value> {
@@ -279,7 +279,7 @@ pub(crate) async fn create(
 
     let mut tx = pool(&state)?.begin().await?;
     if let Some(category_id) = request.category_id {
-        let found: Option<i64> =
+        let found: Option<i32> =
             sqlx::query_scalar("SELECT 1 FROM categories WHERE id = $1 AND store_id = $2")
                 .bind(category_id)
                 .bind(actor.store_id)
@@ -498,7 +498,6 @@ pub(crate) async fn patch_product(
     Path(id): Path<String>,
     ValidJson(value): ValidJson<Value>,
 ) -> ApiResult<Json<Value>> {
-    use crate::auth::Action;
     let id = model::path_id(&id)?;
     let patch: model::ProductPatch =
         serde_json::from_value(value).map_err(|e| ApiError::validation_failed(e.to_string()))?;
@@ -519,17 +518,17 @@ pub(crate) async fn patch_product(
         return Ok(Json(product_json(&state, &row, images)?));
     }
 
-    if let Some(category_id) = plan.category_id {
-        if let Some(new_id) = category_id {
-            let found: Option<i64> =
-                sqlx::query_scalar("SELECT 1 FROM categories WHERE id = $1 AND store_id = $2")
-                    .bind(new_id)
-                    .bind(actor.store_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            if found.is_none() {
-                return Err(ApiError::not_found());
-            }
+    if let Some(category_id) = plan.category_id
+        && let Some(new_id) = category_id
+    {
+        let found: Option<i32> =
+            sqlx::query_scalar("SELECT 1 FROM categories WHERE id = $1 AND store_id = $2")
+                .bind(new_id)
+                .bind(actor.store_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if found.is_none() {
+            return Err(ApiError::not_found());
         }
     }
 
@@ -558,13 +557,13 @@ pub(crate) async fn patch_product(
         set(&mut updates, "category_id = ");
         updates.push_bind(category_id);
     }
-    if let Some((old, new)) = plan.price.clone() {
+    if let Some((old, new)) = plan.price {
         set(&mut updates, "price = ");
         updates.push_bind(new);
         history_row(&mut tx, &actor, id, None, "price", Some(old), new).await?;
         price_changed_event(&mut tx, &actor, id, None, "price", json!(old), new).await?;
     }
-    if let Some((old, new)) = plan.cost_price.clone() {
+    if let Some((old, new)) = plan.cost_price {
         set(&mut updates, "cost_price = ");
         updates.push_bind(new);
         history_row(&mut tx, &actor, id, None, "cost_price", old, new).await?;

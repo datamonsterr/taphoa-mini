@@ -225,10 +225,6 @@ pub const PRODUCT_AGG_SELECT: &str = concat!(
     "FROM products p WHERE p.id = $1 AND p.store_id = $2"
 );
 
-pub const PRODUCT_SELECT: &str = "SELECT p.id, p.name, p.price, p.cost_price, p.base_unit, \
-     p.barcode, p.category_id, p.archived, p.version, p.created_by, p.updated_at FROM products p \
-     WHERE p.id = $1 AND p.store_id = $2";
-
 pub const PRODUCT_SELECT_LOCK: &str = concat!(
     "SELECT p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, ",
     "p.archived, p.version, p.created_by, p.updated_at FROM products p WHERE p.id = $1 AND ",
@@ -279,37 +275,43 @@ pub fn plan_patch(
     patch: ProductPatch,
 ) -> ApiResult<PatchPlan> {
     let mut plan = PatchPlan::default();
-    if let Some(price) = patch.price {
-        if price != current.price {
-            plan.price = Some((current.price, price));
+    if let Some(price) = patch.price
+        && price != current.price
+    {
+        plan.price = Some((current.price, price));
+    }
+    if let Some(cost) = patch.cost_price
+        && cost != current.cost_price
+    {
+        match (cost, current.cost_price) {
+            (Some(new), old) => plan.cost_price = Some((old, new)),
+            (None, Some(_)) => plan.cost_clear = true,
+            (None, None) => {}
         }
     }
-    if let Some(cost) = patch.cost_price {
-        if cost != current.cost_price {
-            match (cost, current.cost_price) {
-                (Some(new), old) => plan.cost_price = Some((old, new)),
-                (None, Some(_)) => plan.cost_clear = true,
-                (None, None) => {}
-            }
-        }
+    if let Some(archived) = patch.archived
+        && archived != current.archived
+    {
+        plan.archived = Some(archived);
     }
-    if let Some(archived) = patch.archived {
-        if archived != current.archived {
-            plan.archived = Some(archived);
-        }
+    if let Some(name) = &patch.name
+        && *name != current.name
+    {
+        plan.name = patch.name.clone();
     }
-    if patch.name.is_some() && patch.name.clone().flatten() != current.name {
-        plan.name = patch.name;
+    if let Some(base_unit) = &patch.base_unit
+        && *base_unit != current.base_unit
+    {
+        plan.base_unit = patch.base_unit.clone();
     }
-    if let Some(base_unit) = &patch.base_unit {
-        if *base_unit != current.base_unit {
-            plan.base_unit = patch.base_unit;
-        }
+    if let Some(barcode) = &patch.barcode
+        && *barcode != current.barcode
+    {
+        plan.barcode = patch.barcode.clone();
     }
-    if patch.barcode.is_some() && patch.barcode.clone().flatten() != current.barcode {
-        plan.barcode = patch.barcode;
-    }
-    if patch.category_id.is_some() && patch.category_id.flatten() != current.category_id {
+    if let Some(category_id) = &patch.category_id
+        && *category_id != current.category_id
+    {
         plan.category_id = patch.category_id;
     }
     if let Some(replacement) = &patch.units {
@@ -382,14 +384,14 @@ mod tests {
         assert!(patch(json!({})).archived.is_none());
         let cleared: ProductPatch = patch(json!({"name": null}));
         assert_eq!(cleared.name, Some(None));
-        let patch = patch(json!({"price": -5}));
-        assert!(validate_patch(&patch).is_err());
-        let patch = patch(json!({"name": "x".repeat(121)}));
-        assert!(validate_patch(&patch).is_err());
-        let patch = patch(
+        let bad = patch(json!({"price": -5}));
+        assert!(validate_patch(&bad).is_err());
+        let long_name = patch(json!({"name": "x".repeat(121)}));
+        assert!(validate_patch(&long_name).is_err());
+        let small_unit = patch(
             json!({"units": [{"id": Uuid::now_v7(), "name": "lốc", "quantity_in_base": 1, "price": 5}]}),
         );
-        assert!(validate_patch(&patch).is_err());
+        assert!(validate_patch(&small_unit).is_err());
     }
 
     fn row(price: i64, cost: Option<i64>) -> ProductRow {
@@ -420,7 +422,7 @@ mod tests {
         .unwrap();
         let plan = plan_patch(&current, &[], patch).unwrap();
         assert_eq!(plan.price, Some((9000, 10000)));
-        assert_eq!(plan.cost_price, Some(Some((7000, 7500))));
+        assert_eq!(plan.cost_price, Some((Some(7000), 7500)));
         assert_eq!(plan.name, Some(Some("Coca 330ml".into())));
         assert_eq!(plan.archived, Some(true));
     }
