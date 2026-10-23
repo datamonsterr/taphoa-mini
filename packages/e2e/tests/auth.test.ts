@@ -390,8 +390,8 @@ describe('Auth & Session Contract Specs (E1)', () => {
 
       await sellerClient.raw.PUT('/v1/me/pin', { body: { pin: '7890' } });
 
-      // 5 consecutive wrong PIN attempts
-      for (let i = 0; i < 5; i++) {
+      // The 5th wrong PIN trips the lock; the first four are plain 401s.
+      for (let i = 0; i < 4; i++) {
         const res = await leadClient.raw.POST('/v1/auth/switch', {
           body: {
             member_id: sellerSession.member.id,
@@ -402,7 +402,12 @@ describe('Auth & Session Contract Specs (E1)', () => {
         assertErrorResponse(res.error);
       }
 
-      // 6th attempt with the CORRECT PIN must be rate-limited (429)
+      const fifth = await leadClient.raw.POST('/v1/auth/switch', {
+        body: { member_id: sellerSession.member.id, pin: '0000' },
+      });
+      expect(fifth.response.status).toBe(429);
+
+      // Even the CORRECT PIN is now rate-limited (429)
       const lockedRes = await leadClient.raw.POST('/v1/auth/switch', {
         body: {
           member_id: sellerSession.member.id,
