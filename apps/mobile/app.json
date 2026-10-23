@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Tạp Hóa Mini",
-    "slug": "taphoa-mini",
+    "slug": "taphoamini",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -43,6 +43,7 @@
       "eas": {
         "projectId": "aacb6d3c-093a-4da0-ae2c-fbc9ce53a458"
       }
-    }
+    },
+    "owner": "datamonsters-team"
   }
 }
