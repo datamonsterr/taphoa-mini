@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: true
+  commands:
+    prettier:
+      glob: '*.{js,jsx,cjs,mjs,ts,tsx,json,md,mdx,yml,yaml}'
+      run: pnpm exec prettier --check {staged_files}
+    rustfmt:
+      glob: 'apps/backend/**'
+      run: cd apps/backend && cargo fmt --check
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit "{1}"
+pre-push:
+  commands:
+    quality:
+      run: pnpm lint && pnpm typecheck && pnpm test

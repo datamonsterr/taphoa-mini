@@ -1,0 +1,61 @@
+name: taphoa-mini
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taphoa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taphoa}
+      POSTGRES_DB: ${POSTGRES_DB:-taphoa}
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-55432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-56379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  backend:
+    image: ${BACKEND_IMAGE:-taphoa-mini-backend:dev}
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      args:
+        SKIP_MODELS: ${SKIP_MODELS:-1}
+    environment:
+      PORT: '8080'
+      DATABASE_URL: postgres://${POSTGRES_USER:-taphoa}:${POSTGRES_PASSWORD:-taphoa}@postgres:5432/${POSTGRES_DB:-taphoa}
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: ${RUST_LOG:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '${BACKEND_PORT:-8080}:8080'
+  mobile:
+    profiles: [mobile]
+    build:
+      context: .
+      dockerfile: apps/mobile/Dockerfile.dev
+    environment:
+      EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:8080}
+      REACT_NATIVE_PACKAGER_HOSTNAME: ${REACT_NATIVE_PACKAGER_HOSTNAME:-localhost}
+    ports:
+      - '8081:8081'
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:

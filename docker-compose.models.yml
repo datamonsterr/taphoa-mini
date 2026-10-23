@@ -1,0 +1,10 @@
+# Opt in after running apps/backend/scripts/fetch-models.sh.
+services:
+  backend:
+    volumes:
+      - type: bind
+        source: ./apps/backend/models
+        target: /app/models
+        read_only: true
+        bind:
+          create_host_path: false
