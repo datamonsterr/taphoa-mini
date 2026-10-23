@@ -16,7 +16,12 @@ fn model(var: &str, file: &str) -> Option<PathBuf> {
 fn sam() -> Option<SamSegmenter> {
     let encoder = model("SAM_ENCODER_PATH", "mobile_sam_image_encoder.onnx")?;
     let decoder = model("SAM_DECODER_PATH", "sam_mask_decoder_multi.onnx")?;
-    Some(SamSegmenter::load(&encoder, &decoder, SamOptions::default()).expect("load SAM"))
+    // The budget assumes the 4 vCPU deployment target; SAM_THREADS overrides.
+    let mut options = SamOptions::from_env();
+    if std::env::var_os("SAM_THREADS").is_none() {
+        options.threads = 4;
+    }
+    Some(SamSegmenter::load(&encoder, &decoder, options).expect("load SAM"))
 }
 
 #[test]
