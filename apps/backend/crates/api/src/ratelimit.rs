@@ -1,10 +1,80 @@
 use async_trait::async_trait;
+use axum::http::HeaderMap;
 use redis::aio::ConnectionManager;
 use std::{
     collections::HashMap,
+    net::IpAddr,
     sync::Mutex,
     time::{Duration, Instant},
 };
+
+/// Auth rate limits; `Default` is the contract (docs/api/openapi.yaml, architecture 8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimits {
+    pub store_create_per_hour: u32,
+    pub join_per_hour: u32,
+    pub recover_per_10min: u32,
+    /// Wrong PINs before the member is locked for 5 minutes.
+    pub pin_attempts: u32,
+}
+impl Default for RateLimits {
+    fn default() -> Self {
+        Self {
+            store_create_per_hour: 10,
+            join_per_hour: 10,
+            recover_per_10min: 5,
+            pin_attempts: 5,
+        }
+    }
+}
+
+/// Where the rate-limit client address comes from. Anything a client can set
+/// freely is never trusted: the default is the socket peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClientIpSource {
+    #[default]
+    Peer,
+    /// `X-Real-IP` as set by the trusted edge; falls back to the peer.
+    XRealIp,
+    /// The `hops`-th entry from the RIGHT of `X-Forwarded-For` (1 = appended by the
+    /// closest trusted proxy); falls back to the peer when absent or unparseable.
+    ForwardedFor { hops: usize },
+}
+impl ClientIpSource {
+    pub fn parse(source: &str, hops: usize) -> anyhow::Result<Self> {
+        match source.trim().to_ascii_lowercase().as_str() {
+            "peer" => Ok(Self::Peer),
+            "x-real-ip" => Ok(Self::XRealIp),
+            "x-forwarded-for" if hops >= 1 => Ok(Self::ForwardedFor { hops }),
+            "x-forwarded-for" => anyhow::bail!("TRUSTED_PROXY_HOPS must be at least 1"),
+            _ => anyhow::bail!("CLIENT_IP_SOURCE must be peer, x-real-ip or x-forwarded-for"),
+        }
+    }
+    pub fn resolve(&self, headers: &HeaderMap, peer: Option<IpAddr>) -> String {
+        let from_header = match self {
+            Self::Peer => None,
+            Self::XRealIp => headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse::<IpAddr>().ok()),
+            Self::ForwardedFor { hops } => {
+                let entries: Vec<&str> = headers
+                    .get_all("x-forwarded-for")
+                    .iter()
+                    .filter_map(|v| v.to_str().ok())
+                    .flat_map(|v| v.split(','))
+                    .collect();
+                entries
+                    .len()
+                    .checked_sub(*hops)
+                    .and_then(|i| entries[i].trim().parse::<IpAddr>().ok())
+            }
+        };
+        from_header
+            .or(peer)
+            .map_or_else(|| "unknown".into(), |ip| ip.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateDecision {
@@ -217,5 +287,77 @@ mod tests {
                 .unwrap()
                 .allowed
         );
+    }
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use super::*;
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (k, v) in pairs {
+            map.append(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                v.parse().unwrap(),
+            );
+        }
+        map
+    }
+    const PEER: Option<IpAddr> = Some(IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 9)));
+    #[test]
+    fn peer_mode_ignores_every_header() {
+        let spoofed = headers(&[("x-forwarded-for", "1.1.1.1"), ("x-real-ip", "2.2.2.2")]);
+        assert_eq!(ClientIpSource::Peer.resolve(&spoofed, PEER), "10.0.0.9");
+        assert_eq!(ClientIpSource::Peer.resolve(&spoofed, None), "unknown");
+    }
+    #[test]
+    fn forwarded_for_uses_the_proxy_appended_entry_not_the_spoofed_one() {
+        let source = ClientIpSource::ForwardedFor { hops: 1 };
+        let spoofed = headers(&[("x-forwarded-for", "6.6.6.6, 203.0.113.7")]);
+        assert_eq!(source.resolve(&spoofed, PEER), "203.0.113.7");
+        let other = headers(&[("x-forwarded-for", "7.7.7.7, 203.0.113.7")]);
+        assert_eq!(source.resolve(&other, PEER), "203.0.113.7");
+        let two_hops = ClientIpSource::ForwardedFor { hops: 2 };
+        let chain = headers(&[("x-forwarded-for", "6.6.6.6, 198.51.100.4, 203.0.113.7")]);
+        assert_eq!(two_hops.resolve(&chain, PEER), "198.51.100.4");
+        // Separate header lines are one list; a spoofed first line cannot shadow the last.
+        let lines = headers(&[
+            ("x-forwarded-for", "6.6.6.6"),
+            ("x-forwarded-for", "203.0.113.7"),
+        ]);
+        assert_eq!(source.resolve(&lines, PEER), "203.0.113.7");
+    }
+    #[test]
+    fn missing_short_or_garbage_values_fall_back_to_peer() {
+        let source = ClientIpSource::ForwardedFor { hops: 2 };
+        assert_eq!(
+            source.resolve(&headers(&[("x-forwarded-for", "203.0.113.7")]), PEER),
+            "10.0.0.9"
+        );
+        assert_eq!(
+            source.resolve(&headers(&[("x-forwarded-for", "junk, more")]), PEER),
+            "10.0.0.9"
+        );
+        assert_eq!(
+            ClientIpSource::XRealIp.resolve(&headers(&[("x-real-ip", "nope")]), PEER),
+            "10.0.0.9"
+        );
+        assert_eq!(
+            ClientIpSource::XRealIp.resolve(&headers(&[("x-real-ip", "203.0.113.7")]), PEER),
+            "203.0.113.7"
+        );
+    }
+    #[test]
+    fn parse_validates() {
+        assert_eq!(
+            ClientIpSource::parse("peer", 1).unwrap(),
+            ClientIpSource::Peer
+        );
+        assert_eq!(
+            ClientIpSource::parse("X-Forwarded-For", 2).unwrap(),
+            ClientIpSource::ForwardedFor { hops: 2 }
+        );
+        assert!(ClientIpSource::parse("x-forwarded-for", 0).is_err());
+        assert!(ClientIpSource::parse("anything", 1).is_err());
     }
 }

@@ -67,3 +67,10 @@ BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/hea
 | `pnpm --filter @taphoa/e2e test:e2e`  | `vitest run --config vitest.e2e.config.ts` | Runs vitest against `BACKEND_URL` (defaults to `http://localhost:8080`). |
 | `pnpm --filter @taphoa/e2e typecheck` | `tsc --noEmit`                             | Typechecks all source and test files.                                    |
 | `pnpm --filter @taphoa/e2e lint`      | `tsc --noEmit`                             | TypeScript lint check.                                                   |
+
+## Rate limits
+
+Auth endpoints are rate limited per client IP and the IP cannot be spoofed from the client.
+Run the backend under test with high limits, for example
+`RATE_LIMIT_STORE_CREATE_PER_HOUR=100000 RATE_LIMIT_JOIN_PER_HOUR=100000 RATE_LIMIT_RECOVER_PER_10MIN=100000`
+(docker compose already does). The PIN lockout spec still proves the 429 path.

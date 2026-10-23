@@ -146,3 +146,23 @@ build and Maestro workflows.
 - [Railway CLI up](https://docs.railway.com/cli/up)
 - [GitHub workflow_run trigger](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
 - [Docker GitHub Actions cache](https://docs.docker.com/build/ci/github-actions/cache/)
+
+## Client IP and auth rate limits
+
+Per-IP limits on store creation, join and recover never trust a client-set header.
+
+| Variable                           | Default | Meaning                                                                                                |
+| ---------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `CLIENT_IP_SOURCE`                 | `peer`  | `peer` (socket address), `x-real-ip`, or `x-forwarded-for` (entry `TRUSTED_PROXY_HOPS` from the right) |
+| `TRUSTED_PROXY_HOPS`               | `1`     | Only for `x-forwarded-for`                                                                             |
+| `RATE_LIMIT_STORE_CREATE_PER_HOUR` | `10`    | `POST /v1/stores` per client IP                                                                        |
+| `RATE_LIMIT_JOIN_PER_HOUR`         | `10`    | `POST /v1/auth/join` per client IP                                                                     |
+| `RATE_LIMIT_RECOVER_PER_10MIN`     | `5`     | `POST /v1/auth/recover` per client IP                                                                  |
+| `RATE_LIMIT_PIN_ATTEMPTS`          | `5`     | Wrong PINs before a 5 minute member lock                                                               |
+
+Railway's edge sets `X-Real-IP` to the client address and does not set `X-Forwarded-For`
+([specs and limits](https://docs.railway.com/networking/public-networking/specs-and-limits)),
+so the production `backend` service must set `CLIENT_IP_SOURCE=x-real-ip`. With the default
+`peer`, every request appears to come from the Railway proxy and all clients share one bucket.
+This is deliberately not in `.railway/railway.ts`; set it as a service variable. The Railway
+test environment and local compose raise the three `RATE_LIMIT_*` limits (compose defaults to 100000) so e2e suites can create many stores; never raise them in production.

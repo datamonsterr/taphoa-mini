@@ -1,3 +1,4 @@
+use crate::ratelimit::{ClientIpSource, RateLimits};
 use anyhow::{Context, bail};
 use std::{path::PathBuf, sync::Arc};
 use taphoa_recognition::{SamOptions, SamSegmenter, Segmenter};
@@ -12,6 +13,8 @@ pub struct Config {
     pub decoder: Option<PathBuf>,
     pub jwt_secret: String,
     pub db_max_connections: u32,
+    pub rate_limits: RateLimits,
+    pub client_ip: ClientIpSource,
 }
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -29,7 +32,39 @@ impl Config {
         if db_max_connections == 0 {
             bail!("DB_MAX_CONNECTIONS must be a positive integer");
         }
+        let positive = |name: &str, default: u32| -> anyhow::Result<u32> {
+            let value = match get(name) {
+                Some(raw) => raw
+                    .parse()
+                    .with_context(|| format!("{name} must be a positive integer"))?,
+                None => default,
+            };
+            if value == 0 {
+                bail!("{name} must be a positive integer");
+            }
+            Ok(value)
+        };
+        let defaults = RateLimits::default();
+        let rate_limits = RateLimits {
+            store_create_per_hour: positive(
+                "RATE_LIMIT_STORE_CREATE_PER_HOUR",
+                defaults.store_create_per_hour,
+            )?,
+            join_per_hour: positive("RATE_LIMIT_JOIN_PER_HOUR", defaults.join_per_hour)?,
+            recover_per_10min: positive(
+                "RATE_LIMIT_RECOVER_PER_10MIN",
+                defaults.recover_per_10min,
+            )?,
+            pin_attempts: positive("RATE_LIMIT_PIN_ATTEMPTS", defaults.pin_attempts)?,
+        };
+        let hops = positive("TRUSTED_PROXY_HOPS", 1)? as usize;
+        let client_ip = ClientIpSource::parse(
+            &get("CLIENT_IP_SOURCE").unwrap_or_else(|| "peer".into()),
+            hops,
+        )?;
         Ok(Self {
+            rate_limits,
+            client_ip,
             port: get("PORT")
                 .unwrap_or_else(|| "8080".into())
                 .parse()
@@ -80,11 +115,17 @@ mod tests {
             Config::from_lookup(|name| (name == "JWT_SECRET").then(|| "x".repeat(32))).unwrap();
         assert_eq!(defaults.port, 8080);
         assert_eq!(defaults.db_max_connections, 10);
+        assert_eq!(defaults.rate_limits, RateLimits::default());
+        assert_eq!(defaults.client_ip, ClientIpSource::Peer);
         assert!(defaults.segmenter().unwrap().is_none());
         for (key, value) in [
             ("PORT", "65536"),
             ("DB_MAX_CONNECTIONS", "0"),
             ("DB_MAX_CONNECTIONS", "bad"),
+            ("RATE_LIMIT_PIN_ATTEMPTS", "0"),
+            ("RATE_LIMIT_JOIN_PER_HOUR", "x"),
+            ("CLIENT_IP_SOURCE", "spoofable"),
+            ("TRUSTED_PROXY_HOPS", "0"),
         ] {
             assert!(
                 Config::from_lookup(|name| match name {
@@ -103,12 +144,19 @@ mod tests {
                 "JWT_SECRET" => "x".repeat(32),
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
+                "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
+                "CLIENT_IP_SOURCE" => "x-real-ip".into(),
+                "TRUSTED_PROXY_HOPS" => "2".into(),
+                n if n.starts_with("RATE_LIMIT_") => "7".into(),
                 _ => name.into(),
             })
         })
         .unwrap();
         assert_eq!(config.port, 9000);
         assert_eq!(config.db_max_connections, 24);
+        assert_eq!(config.rate_limits.pin_attempts, 3);
+        assert_eq!(config.rate_limits.join_per_hour, 7);
+        assert_eq!(config.client_ip, ClientIpSource::XRealIp);
         assert_eq!(config.database_url.as_deref(), Some("DATABASE_URL"));
         assert_eq!(config.redis_url.as_deref(), Some("REDIS_URL"));
         assert_eq!(config.encoder, Some(PathBuf::from("SAM_ENCODER_PATH")));
