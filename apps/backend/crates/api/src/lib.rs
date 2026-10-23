@@ -1,4 +1,3 @@
-// ci-timing-probe: source change to measure the backend-binary job (reverted next commit)
 pub mod images;
 pub mod storage;
 
