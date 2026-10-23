@@ -57,18 +57,27 @@ pub struct ImageResponse {
     url_expires_at: chrono::DateTime<Utc>,
 }
 fn bad_input() -> ApiError {
-    ApiError(
+    ApiError::new(
         StatusCode::BAD_REQUEST,
+        "validation_failed",
         "expected one image, optional store_id UUID and optional purpose",
     )
 }
 fn storage_error(error: anyhow::Error) -> ApiError {
     tracing::error!(%error, "object storage operation failed");
-    ApiError(StatusCode::BAD_GATEWAY, "storage failure")
+    ApiError::new(
+        StatusCode::BAD_GATEWAY,
+        "storage_failure",
+        "storage failure",
+    )
 }
 fn database_error(error: sqlx::Error) -> ApiError {
     tracing::error!(%error, "image reference query failed");
-    ApiError(StatusCode::INTERNAL_SERVER_ERROR, "image reference failure")
+    ApiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "internal",
+        "image reference failure",
+    )
 }
 fn detect(bytes: &[u8]) -> Result<(&'static str, &'static str), ApiError> {
     if bytes.starts_with(b"\xff\xd8\xff") {
@@ -78,8 +87,9 @@ fn detect(bytes: &[u8]) -> Result<(&'static str, &'static str), ApiError> {
     } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         Ok(("image/webp", "webp"))
     } else {
-        Err(ApiError(
+        Err(ApiError::new(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported_media_type",
             "expected JPEG, PNG or WebP magic bytes",
         ))
     }
@@ -87,12 +97,14 @@ fn detect(bytes: &[u8]) -> Result<(&'static str, &'static str), ApiError> {
 fn dependencies(
     state: &AppState,
 ) -> Result<(&dyn crate::storage::ObjectStore, &dyn ImageRepository), ApiError> {
-    let storage = state.storage.as_deref().ok_or(ApiError(
+    let storage = state.storage.as_deref().ok_or(ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
+        "unavailable",
         "storage not configured",
     ))?;
-    let repository = state.image_repository.as_deref().ok_or(ApiError(
+    let repository = state.image_repository.as_deref().ok_or(ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
+        "unavailable",
         "postgres not configured",
     ))?;
     Ok((storage, repository))
@@ -128,8 +140,9 @@ pub(crate) async fn upload(
                 let mut bytes = Vec::new();
                 while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
                     if bytes.len() + chunk.len() > MAX_UPLOAD_BYTES {
-                        return Err(ApiError(
+                        return Err(ApiError::new(
                             StatusCode::PAYLOAD_TOO_LARGE,
+                            "payload_too_large",
                             "image upload too large",
                         ));
                     }
@@ -194,7 +207,11 @@ pub(crate) async fn upload(
             .as_database_error()
             .is_some_and(|error| error.is_foreign_key_violation())
         {
-            return Err(ApiError(StatusCode::BAD_REQUEST, "unknown store_id"));
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "validation_failed",
+                "unknown store_id",
+            ));
         }
         return Err(database_error(error));
     }
@@ -210,7 +227,11 @@ pub(crate) async fn get_image(
         .get(id)
         .await
         .map_err(database_error)?
-        .ok_or(ApiError(StatusCode::NOT_FOUND, "image not found"))?;
+        .ok_or(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "image not found",
+        ))?;
     response(&state, row).await
 }
 

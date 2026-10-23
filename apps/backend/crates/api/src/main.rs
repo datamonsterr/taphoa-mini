@@ -1,48 +1,11 @@
-use anyhow::{Context, bail};
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
-    AppState, router,
+    AppState,
+    config::Config,
+    router,
     storage::{S3Store, StorageConfig},
 };
-use taphoa_recognition::{SamOptions, SamSegmenter, Segmenter};
 use tracing_subscriber::EnvFilter;
-
-struct Config {
-    port: u16,
-    database_url: Option<String>,
-    redis_url: Option<String>,
-    encoder: Option<PathBuf>,
-    decoder: Option<PathBuf>,
-}
-impl Config {
-    fn from_env() -> anyhow::Result<Self> {
-        Ok(Self {
-            port: std::env::var("PORT")
-                .unwrap_or_else(|_| "8080".into())
-                .parse()
-                .context("PORT must be a u16")?,
-            database_url: std::env::var("DATABASE_URL").ok(),
-            redis_url: std::env::var("REDIS_URL").ok(),
-            encoder: std::env::var_os("SAM_ENCODER_PATH").map(PathBuf::from),
-            decoder: std::env::var_os("SAM_DECODER_PATH").map(PathBuf::from),
-        })
-    }
-    fn segmenter(&self) -> anyhow::Result<Option<Arc<dyn Segmenter>>> {
-        match (&self.encoder, &self.decoder) {
-            (None, None) => Ok(None),
-            (Some(encoder), Some(decoder)) if !encoder.exists() && !decoder.exists() => {
-                tracing::warn!("SAM weights absent; segmentation is unavailable");
-                Ok(None)
-            }
-            (Some(encoder), Some(decoder)) => Ok(Some(Arc::new(SamSegmenter::load(
-                encoder,
-                decoder,
-                SamOptions::default(),
-            )?))),
-            _ => bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -58,12 +21,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
-    let mut state = AppState::connect(
-        config.database_url.as_deref(),
-        config.redis_url.as_deref(),
-        config.segmenter()?,
-    )
-    .await?;
+    let mut state = AppState::connect_with_config(&config, config.segmenter()?).await?;
     if let Some(config) = storage_config {
         let storage = S3Store::new(&config).await;
         if config.create_bucket {

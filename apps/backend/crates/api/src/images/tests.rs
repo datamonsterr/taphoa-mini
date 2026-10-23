@@ -145,14 +145,9 @@ async fn invalid_multipart_uuid_fields_empty_and_unsupported_images() {
         vec![("image", PNG), ("purpose", b"".as_slice())],
         vec![("image", PNG), ("purpose", b"other"), ("purpose", b"other")],
     ] {
-        assert_eq!(
-            app.clone()
-                .oneshot(multipart(&fields))
-                .await
-                .unwrap()
-                .status(),
-            StatusCode::BAD_REQUEST
-        );
+        let response = app.clone().oneshot(multipart(&fields)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json(response).await["code"], "validation_failed");
     }
     for request in [
         Request::post("/v1/images").body(Body::empty()).unwrap(),

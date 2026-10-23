@@ -1,4 +1,6 @@
 //! Class-agnostic segmentation. Call synchronous adapters from `spawn_blocking`.
+pub mod embed;
+pub use embed::{EmbedError, Embedder, MockEmbedder};
 mod sam;
 pub use sam::{SamOptions, SamSegmenter};
 use serde::{Deserialize, Serialize};
