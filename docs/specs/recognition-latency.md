@@ -49,7 +49,8 @@ vary by +-30 % in segmentation time.
   replaces ViT-B behind the same `Segmenter` trait. ViT-B stays unusable on CPU.
 - A decoder call costs ~150 ms of one core (the output-upscaling layers dominate), so the
   default prompt strategy is a coarse round plus only the fine-grid points no accepted mask
-  covers yet. Decoders run on one single-threaded session per core (max 4).
+  covers yet. Decoders run single-threaded, one session per worker
+  (`SAM_DECODERS`, default `min(threads, 8)` so 8-vCPU hosts use all cores).
 - Masks are decoded at 256 px (`SAM_MASK_SIDE`) and boxes are scaled back to the photo.
 - **Embedder input is 112 px** (`EMBED_SIDE`, multiple of 14, max 224) to fit the budget:
   segmentation 1.6 s + embedding 0.4 s + upload and persistence on 4 cores. Accuracy at 112
