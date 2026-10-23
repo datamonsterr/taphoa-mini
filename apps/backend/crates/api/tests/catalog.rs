@@ -68,6 +68,7 @@ async fn setup_with(
     })
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    state.rate_limiter = Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
     state.storage = Some(Arc::new(MemStore::default()));
     state.embedder = embedder.then(|| Arc::new(MockEmbedder) as _);
     state.vector_index = vector_index;

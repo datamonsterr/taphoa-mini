@@ -16,7 +16,8 @@ async fn setup() -> (Router, AppState) {
         _ => std::env::var(key).ok(),
     })
     .unwrap();
-    let state = AppState::connect_with_config(&config, None).await.unwrap();
+    let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    state.rate_limiter = std::sync::Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
     (router(state.clone()), state)
 }
 
