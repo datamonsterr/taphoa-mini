@@ -1,0 +1,9 @@
+# Dockerfile-specific ignore file applies when using the repository root context.
+**
+!apps/
+!apps/backend/
+!apps/backend/**
+apps/backend/target/
+apps/backend/models/
+apps/backend/onnxruntime/
+apps/backend/.env
