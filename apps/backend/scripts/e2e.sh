@@ -24,9 +24,13 @@ check /v1/segment "${EXPECT_SEGMENT_STATUS:-${SEGMENT_EXPECTED_STATUS:-200}}" --
 
 # Storage checks are mandatory by default, including in CI.
 if [[ "${EXPECT_IMAGES:-1}" != "0" ]]; then
-  check /v1/images 201 --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
+  # Images are store-scoped: create a throwaway store and use its access token.
+  check /v1/stores 201 -H 'content-type: application/json' --data '{"store_name":"e2e script","display_name":"Lead","device":{"name":"e2e","platform":"android"}}'
+  token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["access_token"], end="")' "$response")"
+  auth=(-H "authorization: Bearer $token")
+  check /v1/images 201 "${auth[@]}" --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
   image_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"], end="")' "$response")"
-  check "/v1/images/$image_id" 200
+  check "/v1/images/$image_id" 200 "${auth[@]}"
   image_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"], end="")' "$response")"
   curl --fail --silent --show-error --max-time 30 "$image_url" --output "$work_dir/download.png"
   cmp "$backend_dir/tests/fixtures/sample.png" "$work_dir/download.png"

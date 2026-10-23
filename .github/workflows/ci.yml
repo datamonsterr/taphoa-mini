@@ -128,6 +128,7 @@ jobs:
       AWS_DEFAULT_REGION: us-east-1
       S3_FORCE_PATH_STYLE: 'true'
       S3_CREATE_BUCKET: 'true'
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v7
       - name: Read repository Rust toolchain
@@ -147,9 +148,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/backend
-      - name: Test real Postgres, pgvector migrations, Redis and RustFS
+      - name: Test real Postgres (migrations, auth, seed), Redis and RustFS
         working-directory: apps/backend
-        run: cargo test --locked -p taphoa-api --test readiness --test storage -- --ignored --nocapture
+        run: cargo test --locked -p taphoa-api -- --ignored --test-threads=1
 
   docker-e2e:
     runs-on: ubuntu-latest
