@@ -11,6 +11,7 @@ pub mod ratelimit;
 pub mod recognition;
 pub mod reports;
 pub mod sales;
+pub mod seed;
 pub mod storage;
 pub mod store;
 pub mod sync;
