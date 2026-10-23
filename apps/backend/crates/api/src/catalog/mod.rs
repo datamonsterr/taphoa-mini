@@ -1,7 +1,9 @@
-//! catalog module. Owned by a later epic; E1 only provides the empty router.
+//! Catalog module (E3): categories, products, product images, price history, price-list export.
 use crate::AppState;
 use axum::Router;
 
+mod export;
+
 pub fn router() -> Router<AppState> {
-    Router::new()
+    Router::new().merge(export::routes())
 }
