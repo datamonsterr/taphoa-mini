@@ -1778,8 +1778,8 @@ components:
           type: object
           required: [segmenter, embedder]
           properties:
-            segmenter: { type: string, example: sam-vit-b-onnx }
-            embedder: { type: string, example: dinov2-vits14-onnx }
+            segmenter: { type: string, example: mobilesam-onnx@1 }
+            embedder: { type: string, example: dinov2-vits14-onnx@1/112 }
             catalog_version: { type: integer, format: int64 }
         timings_ms:
           type: object
@@ -1811,9 +1811,9 @@ components:
         score: { type: number }
         crop_url:
           {
-            type: string,
+            type: [string, 'null'],
             format: uri,
-            description: Presigned URL of the crop thumbnail.,
+            description: 'Presigned URL of the crop thumbnail, null when none was stored. Thumbnails upload in the background after the response, so the object can answer 404 for about a second; retry.',
           }
         match:
           type: string
@@ -1841,7 +1841,12 @@ components:
         name: { type: [string, 'null'] }
         price: { $ref: '#/components/schemas/Money' }
         default_unit_id: { type: [string, 'null'], format: uuid }
-        thumbnail_url: { type: string, format: uri }
+        thumbnail_url:
+          {
+            type: string,
+            format: uri,
+            description: Omitted when the product has no image yet.,
+          }
     Category:
       type: object
       required: [id, name]
