@@ -43,6 +43,9 @@ subtle = "2.6.1"
 serde_urlencoded = "0.7.1"
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
 base64 = "0.22"
+ab_glyph = "0.2.32"
+image.workspace = true
+printpdf = { version = "0.12.8", default-features = false }
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
