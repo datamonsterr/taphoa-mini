@@ -152,7 +152,7 @@ image as an artifact for `docker-e2e`. Each job appends a summary (JUnit counts 
 `scripts/ci/junit_summary.py`, duration through `scripts/ci/job-summary.sh`) and uploads
 JUnit or compose logs on failure. `ci-ok` aggregates everything (skipped counts as
 success) and prints a job timing table. `docker-build` is under 3 minutes only while
-`apps/backend` sources are unchanged (the release compile layer is cached by content): make `ci-ok` the only required status check.
+`apps/backend` sources are unchanged (the release compile layer is cached by content). Make `ci-ok` the only required status check.
 `scripts/ci` has its own unit tests (`python3 -m unittest discover -s scripts/ci`).
 
 ## Deploy pipeline
