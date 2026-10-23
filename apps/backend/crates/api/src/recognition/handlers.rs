@@ -430,11 +430,13 @@ async fn create_scan(
     let (scan_id, created_at, catalog_version) = match pipeline::persist_scan(
         &pool,
         &actor,
-        original.id,
-        request.mode,
-        request.purpose,
-        embedder.model(),
-        timings_ms.clone(),
+        pipeline::ScanDraft {
+            image_id: original.id,
+            mode: request.mode,
+            purpose: request.purpose,
+            embedder_model: embedder.model().to_owned(),
+            timings_ms: timings_ms.clone(),
+        },
         &detections_persist,
     )
     .await

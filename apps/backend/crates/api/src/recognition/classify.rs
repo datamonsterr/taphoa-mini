@@ -231,7 +231,9 @@ pub fn pick_single(segments: &[Segment], width: u32, height: u32) -> Option<Segm
                     f64::from(segment.bbox[1] + segment.bbox[3] / 2.0),
                 );
                 let distance = ((x - centre_x).powi(2) + (y - centre_y).powi(2)).sqrt();
-                f64::from(segment.area) * (1.0 - distance / half_diagonal)
+                // Mild centrality: pixel area stays the dominant signal, the
+                // image-centre term breaks ties and near-ties.
+                f64::from(segment.area) * (1.0 - 0.25 * distance / half_diagonal)
             };
             weight(a).total_cmp(&weight(b))
         })
@@ -374,17 +376,23 @@ mod tests {
             [180., 25., 60., 60.],
             [10., 110., 60., 60.],
         ];
-        assert_eq!(order_row_major(&boxes), vec![1, 0, 3, 2, 4]);
+        // Rows: top (y≈50) boxes 0,1,3 reading left-to-right 1,0,3; bottom
+        // (y≈140) boxes 2,4 reading left-to-right 4,2.
+        assert_eq!(order_row_major(&boxes), vec![1, 0, 3, 4, 2]);
     }
 
     #[test]
     fn row_tolerance_keeps_staggered_boxes_in_one_row() {
-        // Vertically staggered but within half the smaller box height.
+        // Vertically staggered but within half the smaller box height: one row.
         let boxes: [[f32; 4]; 2] = [[0., 0., 100., 100.], [120., 40., 100., 60.]];
         assert_eq!(order_row_major(&boxes), vec![0, 1]);
-        // Beyond the tolerance: separate rows (bottom row first).
+        // Beyond the tolerance: separate rows, top row first.
         let boxes: [[f32; 4]; 2] = [[0., 0., 100., 100.], [120., 60., 100., 60.]];
-        assert_eq!(order_row_major(&boxes), vec![1, 0]);
+        assert_eq!(order_row_major(&boxes), vec![0, 1]);
+        // Same two boxes again, but the bottom row sits to the left: rows are
+        // still read top-to-bottom, left-to-right.
+        let boxes: [[f32; 4]; 2] = [[120., 0., 100., 60.], [0., 60., 60., 60.]];
+        assert_eq!(order_row_major(&boxes), vec![0, 1]);
     }
 
     fn dedupe_key(
@@ -415,7 +423,7 @@ mod tests {
             ),
             dedupe_key(
                 0.8,
-                [30., 30., 100., 100.],
+                [10., 10., 90., 90.],
                 Some(product),
                 MatchClass::Matched,
             ),
@@ -427,11 +435,8 @@ mod tests {
             ),
             dedupe_key(0.6, [31., 31., 100., 100.], None, MatchClass::Unknown),
         ];
-        let kept = dedupe(keys.clone(), |key| key.clone());
-        assert_eq!(
-            kept,
-            vec![keys[0].clone(), keys[2].clone(), keys[3].clone()]
-        );
+        let kept = dedupe(keys.clone(), |key| *key);
+        assert_eq!(kept, vec![keys[0], keys[2], keys[3]]);
     }
 
     #[test]
@@ -449,7 +454,7 @@ mod tests {
             dedupe_key(0.8, [1., 1., 100., 100.], None, MatchClass::Unknown),
             dedupe_key(0.5, [2., 2., 100., 100.], None, MatchClass::Unknown),
         ];
-        let kept = dedupe(keys.clone(), |key| key.clone());
+        let kept = dedupe(keys.clone(), |key| *key);
         assert_eq!(kept.len(), 3);
     }
 
@@ -462,10 +467,7 @@ mod tests {
             dedupe_key(0.95, [5., 5., 1., 1.], Some(b), MatchClass::Matched),
             dedupe_key(0.75, [9., 9., 1., 1.], Some(a), MatchClass::Matched),
         ];
-        let kept = dedupe(keys.clone(), |key| key.clone());
-        assert_eq!(
-            kept,
-            vec![keys[1].clone(), keys[2].clone(), keys[0].clone()]
-        );
+        let kept = dedupe(keys.clone(), |key| *key);
+        assert_eq!(kept, vec![keys[1], keys[2], keys[0]]);
     }
 }

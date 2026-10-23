@@ -143,10 +143,7 @@ pub(crate) fn block_pipeline(
         .collect();
     let thumbnails = thumbnails?;
     // One embedding call for all crops; ownership moves instead of copying.
-    let (segments, crops): (Vec<Segment>, Vec<RgbImage>) = picks
-        .into_iter()
-        .map(|(segment, crop)| (segment, crop))
-        .unzip();
+    let (segments, crops): (Vec<Segment>, Vec<RgbImage>) = picks.into_iter().unzip();
     let vectors: Vec<Vec<f32>> = embedder
         .embed_crops(&crops)
         .map_err(|error| StageError::Inference(error.to_string()))?;
@@ -252,14 +249,15 @@ pub(crate) async fn product_metadata(
     if product_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(
+    type ProductRow = (
         Uuid,
         Option<String>,
         i64,
         Option<Uuid>,
         Option<Uuid>,
         Option<String>,
-    )> = sqlx::query_as(
+    );
+    let rows: Vec<ProductRow> = sqlx::query_as(
         "SELECT p.id, p.name, p.price, u.unit_id, primary_image.image_id, i.object_key \
          FROM products p \
          LEFT JOIN LATERAL (SELECT pu.id AS unit_id FROM product_units pu \
@@ -411,6 +409,9 @@ struct CandidateJson {
     name: Option<String>,
     price: i64,
     default_unit_id: Option<Uuid>,
+    /// Absent when the product has no primary image; never drifted from
+    /// `CandidateSnapshot` (presigning happens at read time).
+    #[serde(skip_serializing_if = "Option::is_none")]
     thumbnail_url: Option<String>,
 }
 
@@ -434,14 +435,11 @@ pub(crate) async fn render_scan(
     ttl: Duration,
     scan: ScanDisplay,
 ) -> Result<ScanResponse, ApiError> {
-    let signed = |key: String| {
-        let key = key;
-        async move {
-            storage
-                .presign_get(&key, ttl)
-                .await
-                .map_err(storage_failure)
-        }
+    let signed = |key: String| async move {
+        storage
+            .presign_get(&key, ttl)
+            .await
+            .map_err(storage_failure)
     };
     let original_url = signed(scan.original.object_key.clone()).await?;
     let mut answer = Vec::with_capacity(scan.detections.len());
@@ -512,17 +510,29 @@ pub(crate) struct PersistDetection {
     pub candidates: Vec<CandidateSnapshot>,
 }
 
+/// Scan insert payload (identity fields and scan timing snapshot).
+pub(crate) struct ScanDraft {
+    pub image_id: Uuid,
+    pub mode: ScanMode,
+    pub purpose: ScanPurpose,
+    pub embedder_model: String,
+    pub timings_ms: serde_json::Value,
+}
+
 /// Returns `(scan id, created_at, catalog_version)`.
 pub(crate) async fn persist_scan(
     pool: &PgPool,
     actor: &Actor,
-    image_id: Uuid,
-    mode: ScanMode,
-    purpose: ScanPurpose,
-    embedder_model: &str,
-    timings_ms: serde_json::Value,
+    draft: ScanDraft,
     detections: &[PersistDetection],
 ) -> Result<(Uuid, DateTime<Utc>, i64), sqlx::Error> {
+    let ScanDraft {
+        image_id,
+        mode,
+        purpose,
+        embedder_model,
+        timings_ms,
+    } = draft;
     let mut tx = pool.begin().await?;
     let mut crop_ids = Vec::with_capacity(detections.len());
     for detection in detections {
@@ -625,7 +635,7 @@ pub(crate) async fn load_scan(
     scan_id: Uuid,
     store_id: Uuid,
 ) -> Result<Option<ScanRow>, ApiError> {
-    let row: Option<(
+    type ScanRowTuple = (
         Uuid,
         String,
         String,
@@ -634,7 +644,8 @@ pub(crate) async fn load_scan(
         i64,
         serde_json::Value,
         DateTime<Utc>,
-    )> = sqlx::query_as(
+    );
+    let row: Option<ScanRowTuple> = sqlx::query_as(
         "SELECT image_id, mode, purpose, segmenter, embedder, catalog_version, timings, created_at \
              FROM scans WHERE id = $1 AND store_id = $2",
     )
@@ -684,14 +695,15 @@ pub(crate) async fn load_detections(
     pool: &PgPool,
     scan_id: Uuid,
 ) -> Result<Vec<StoredDetection>, ApiError> {
-    let rows: Vec<(
+    type DetectionRow = (
         Uuid,
         Vec<f32>,
         f32,
         Option<String>,
         String,
         serde_json::Value,
-    )> = sqlx::query_as(
+    );
+    let rows: Vec<DetectionRow> = sqlx::query_as(
         "SELECT d.id, d.bbox, d.score, i.object_key, d.match, d.candidates \
          FROM detections d LEFT JOIN images i ON i.id = d.crop_image_id \
          WHERE d.scan_id = $1 ORDER BY d.position",
