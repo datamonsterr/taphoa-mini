@@ -10,7 +10,7 @@ import {
 } from 'railway/iac';
 
 export default defineRailway(() => {
-  const Redis = redis('Redis', { region: 'sfo' });
+  const Redis = redis('Redis', { region: 'sin' });
   Redis.deploy = {
     startCommand:
       '/bin/sh -c "rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH"',
@@ -19,7 +19,7 @@ export default defineRailway(() => {
   const redisVolume = volume('redis-volume', {
     alerts: { usage: { '100': {}, '80': {}, '95': {} } },
     allowOnlineResize: true,
-    region: 'sfo',
+    region: 'sin',
     sizeMB: 5000,
   });
 
@@ -27,12 +27,12 @@ export default defineRailway(() => {
   const postgresVolume = volume('postgres-volume', {
     alerts: { usage: { '100': {}, '80': {}, '95': {} } },
     allowOnlineResize: true,
-    region: 'sfo',
+    region: 'sin',
     sizeMB: 5000,
   });
   const Postgres = service('Postgres', {
     source: image('pgvector/pgvector:0.8.7-pg18-trixie'),
-    replicas: { sfo: 1 },
+    replicas: { sin: 1 },
     deploy: { requiredMountPath: '/var/lib/postgresql/data' },
     networking: { privateNetworkEndpoint: 'postgres' },
     volumeMounts: { '/var/lib/postgresql/data': postgresVolume },
@@ -59,7 +59,7 @@ export default defineRailway(() => {
       dockerfilePath: 'apps/backend/Dockerfile',
       watchPatterns: ['apps/backend/**', 'rust-toolchain.toml'],
     },
-    replicas: { sfo: 1 },
+    replicas: { sin: 1 },
     healthcheck: '/healthz',
     healthcheckTimeout: 300,
     deploy: { restartPolicyType: 'ON_FAILURE', restartPolicyMaxRetries: 5 },
@@ -69,6 +69,8 @@ export default defineRailway(() => {
       JWT_SECRET: preserve(),
       RUST_LOG: 'info',
       LOG_FORMAT: 'json',
+      // Four decoder sessions measured fastest on 8 vCPU (docs/specs/recognition-latency.md).
+      SAM_DECODERS: '4',
       // Bucket credentials are not referencable from IaC; set once with
       // `railway bucket credentials` + `railway variable set` (docs/deploy.md).
       AWS_ENDPOINT_URL: preserve(),
@@ -91,10 +93,11 @@ export default defineRailway(() => {
   });
 
   // Private S3-compatible bucket for product and checkout photos (ADR 0002).
-  // Production uses `images-prod` in sjc, next to the sfo backend: the original `sin` bucket
-  // pushed scan p95 above 3 s. IaC has no per-environment buckets, so the `test` environment
-  // keeps its own `images-sjc` bucket outside this file; plan `test` with care.
-  const images = bucket('images-prod', { region: 'sjc' });
+  // Production runs in Singapore (sin), close to shops in Vietnam; the image bucket sits in the
+  // same region so original-photo uploads stay off the scan's critical path. IaC has no
+  // per-environment buckets, so the `test` environment keeps its own `images-sjc` bucket outside
+  // this file; plan `test` with care.
+  const images = bucket('images-sin', { region: 'sin' });
 
   return project('taphoa-mini', {
     variables: { managed: true },
