@@ -17,8 +17,10 @@ pub struct SamOptions {
     pub min_area: u32,
     pub max_area_ratio: f32,
     pub nms_iou: f32,
-    /// Intra-op threads for the encoder and number of parallel decoder workers; 0 = all cores.
+    /// Intra-op threads for the encoder; 0 = all cores.
     pub threads: usize,
+    /// Number of single-threaded decoder sessions; 0 = `min(threads, 8)`.
+    pub decoders: usize,
     /// Longest side of the masks the decoder produces; boxes are scaled back to the photo.
     pub mask_side: u32,
 }
@@ -31,19 +33,22 @@ impl Default for SamOptions {
             max_area_ratio: 0.95,
             nms_iou: 0.7,
             threads: 0,
+            decoders: 0,
             mask_side: 256,
         }
     }
 }
 
 impl SamOptions {
-    /// Defaults overridden by `SAM_THREADS`, `SAM_POINTS_PER_SIDE`, `SAM_MASK_SIDE`.
+    /// Defaults overridden by `SAM_THREADS`, `SAM_DECODERS`, `SAM_POINTS_PER_SIDE`,
+    /// `SAM_MASK_SIDE`.
     pub fn from_env() -> Self {
         fn var<T: std::str::FromStr>(name: &str) -> Option<T> {
             std::env::var(name).ok()?.parse().ok()
         }
         let mut options = Self::default();
         options.threads = var("SAM_THREADS").unwrap_or(options.threads);
+        options.decoders = var("SAM_DECODERS").unwrap_or(options.decoders);
         options.points_per_side = var("SAM_POINTS_PER_SIDE").unwrap_or(options.points_per_side);
         options.mask_side = var("SAM_MASK_SIDE").unwrap_or(options.mask_side);
         options
@@ -74,6 +79,16 @@ fn thread_count(requested: usize) -> usize {
     }
 }
 
+/// Decoder sessions to run: `decoders` when set, else one per thread capped at 8.
+fn decoder_pool(decoders: usize, threads: usize) -> usize {
+    if decoders > 0 {
+        decoders
+    } else {
+        threads.min(8)
+    }
+    .max(1)
+}
+
 impl SamSegmenter {
     pub fn load(encoder: &Path, decoder: &Path, options: SamOptions) -> Result<Self, SegmentError> {
         if options.points_per_side == 0
@@ -88,6 +103,7 @@ impl SamSegmenter {
         }
         let environment = crate::ort_environment().map_err(inference)?;
         let threads = thread_count(options.threads);
+        let decoder_count = decoder_pool(options.decoders, threads);
         let encoder = Session::builder(&environment)
             .map_err(inference)?
             .with_optimization_level(GraphOptimizationLevel::All)
@@ -102,7 +118,7 @@ impl SamSegmenter {
             .and_then(|input| input.dtype().tensor_shape())
             .is_some_and(|shape| shape.len() == 3);
         let mut decoders = Vec::new();
-        for _ in 0..threads.min(4) {
+        for _ in 0..decoder_count {
             decoders.push(Mutex::new(
                 Session::builder(&environment)
                     .map_err(inference)?
@@ -457,5 +473,12 @@ mod tests {
         assert_eq!(segment.bbox, [1., 0., 2., 2.]);
         assert_eq!(segment.area, 3);
         assert!(mask_segment(&[-1.; 6], 3, 2, 0.9).is_none());
+    }
+    #[test]
+    fn decoder_pool_resolution_caps_auto_at_eight() {
+        assert_eq!(decoder_pool(0, 2), 2);
+        assert_eq!(decoder_pool(0, 8), 8);
+        assert_eq!(decoder_pool(0, 16), 8);
+        assert_eq!(decoder_pool(3, 16), 3);
     }
 }
