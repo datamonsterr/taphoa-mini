@@ -211,6 +211,30 @@ pub const IMAGES_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('im
      pi.image_id) FROM product_images pi JOIN images im ON im.id = pi.image_id WHERE \
      pi.product_id = p.id), '[]'::jsonb) AS images";
 
+pub const PRODUCT_AGG_SELECT: &str = concat!(
+    "SELECT ",
+    "p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, p.archived, ",
+    "p.version, p.created_by, p.updated_at, ",
+    "COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'quantity_in_base', ",
+    "u.quantity_in_base, 'price', u.price, 'barcode', u.barcode) ORDER BY u.id) ",
+    "FROM product_units u WHERE u.product_id = p.id), '[]'::jsonb) AS units, ",
+    "COALESCE((SELECT jsonb_agg(jsonb_build_object('image_id', pi.image_id, 'position', ",
+    "pi.position, 'object_key', im.object_key) ORDER BY pi.position, pi.image_id) ",
+    "FROM product_images pi JOIN images im ON im.id = pi.image_id WHERE pi.product_id = p.id), ",
+    "'[]'::jsonb) AS images ",
+    "FROM products p WHERE p.id = $1 AND p.store_id = $2"
+);
+
+pub const PRODUCT_SELECT: &str = "SELECT p.id, p.name, p.price, p.cost_price, p.base_unit, \
+     p.barcode, p.category_id, p.archived, p.version, p.created_by, p.updated_at FROM products p \
+     WHERE p.id = $1 AND p.store_id = $2";
+
+pub const PRODUCT_SELECT_LOCK: &str = concat!(
+    "SELECT p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, ",
+    "p.archived, p.version, p.created_by, p.updated_at FROM products p WHERE p.id = $1 AND ",
+    "p.store_id = $2 FOR UPDATE"
+);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnitOp {
     Insert(ProductUnitInput),
