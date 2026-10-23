@@ -1,0 +1,183 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-10-23T10:00:00Z" },
+  "title": "Tạp Hóa Mini App",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "01 Camera",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Match.dc.html": {
+      "x": 470,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "02 Match",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Multi.dc.html": {
+      "x": 940,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "03 Multi select",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Unknown.dc.html": {
+      "x": 1410,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "04 Low match",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Enroll.dc.html": {
+      "x": 1880,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "05 Enroll + price",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Cart.dc.html": {
+      "x": 2350,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "06 Cart",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Pay.dc.html": {
+      "x": 2820,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "07 VietQR",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Inventory.dc.html": {
+      "x": 0,
+      "y": 1244,
+      "w": 390,
+      "h": 844,
+      "title": "08 Inventory",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Product.dc.html": {
+      "x": 470,
+      "y": 1244,
+      "w": 390,
+      "h": 844,
+      "title": "09 Product",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Dashboard.dc.html": {
+      "x": 940,
+      "y": 1244,
+      "w": 390,
+      "h": 1080,
+      "title": "10 Dashboard",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Expense.dc.html": {
+      "x": 1410,
+      "y": 1244,
+      "w": 390,
+      "h": 844,
+      "title": "11 Expense",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Account.dc.html": {
+      "x": 1880,
+      "y": 1244,
+      "w": 390,
+      "h": 844,
+      "title": "12 Account",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Close.dc.html": {
+      "x": 2350,
+      "y": 1244,
+      "w": 390,
+      "h": 844,
+      "title": "13 Chốt sổ",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "Flow.dc.html": { "x": 0, "y": 2724, "w": 1720, "h": 980, "title": "Flow" },
+    "Components.dc.html": {
+      "x": 1800,
+      "y": 2724,
+      "w": 1240,
+      "h": 980,
+      "title": "Components"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Match.dc.html",
+    "Multi.dc.html",
+    "Unknown.dc.html",
+    "Enroll.dc.html",
+    "Cart.dc.html",
+    "Pay.dc.html",
+    "Inventory.dc.html",
+    "Product.dc.html",
+    "Dashboard.dc.html",
+    "Expense.dc.html",
+    "Account.dc.html",
+    "Close.dc.html",
+    "Flow.dc.html",
+    "Components.dc.html"
+  ],
+  "notes": {
+    "rowA": {
+      "x": 0,
+      "y": -300,
+      "text": "Scan & sell — swipe up for shop",
+      "kind": "title1",
+      "maxW": 3210
+    },
+    "rowB": {
+      "x": 0,
+      "y": 944,
+      "text": "Shop — inventory, dashboard, account",
+      "kind": "title1",
+      "maxW": 2740
+    },
+    "rowC": {
+      "x": 0,
+      "y": 2424,
+      "text": "Flow & every button",
+      "kind": "title1",
+      "maxW": 3040
+    }
+  },
+  "designSystems": [
+    {
+      "title": "Tạp Hóa Mini",
+      "namespace": "taphoa",
+      "artifact": "https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi",
+      "version": "1792712338-b63d",
+      "copiedAt": "2026-10-23T10:00:00Z"
+    }
+  ]
+}

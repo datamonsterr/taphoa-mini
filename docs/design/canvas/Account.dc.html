@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Account</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; padding: 24px 16px 112px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; align-items: center; gap: 16px">
+    <div style="display: grid; place-items: center; width: 72px; height: 72px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 800 28px/1 var(--font-sans)">L</div>
+    <div style="flex: 1; min-width: 0">
+      <h1 class="heading" style="margin: 0">Tạp hóa Cô Lan</h1>
+      <span class="th-badge th-badge-accent" style="margin-top: 6px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l4 4 5-7 5 7 4-4-2 12H5z"/></svg>Chủ</span>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><circle cx="9" cy="9" r="3.5"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5M16 5.5a3.5 3.5 0 0 1 0 7M18 14c2 .6 3 2.4 3 5"/></svg>
+    <div aria-label="3 thành viên" style="flex: 1; display: flex">
+      <span style="display: grid; place-items: center; width: 44px; height: 44px; border-radius: 9999px; background: #111114; color: #ffffff; font: 700 17px/1 var(--font-sans); box-shadow: 0 0 0 3px #f3f3f5">L</span>
+      <span style="display: grid; place-items: center; width: 44px; height: 44px; margin-left: -10px; border-radius: 9999px; background: #18703c; color: #ffffff; font: 700 17px/1 var(--font-sans); box-shadow: 0 0 0 3px #f3f3f5">N</span>
+      <span style="display: grid; place-items: center; width: 44px; height: 44px; margin-left: -10px; border-radius: 9999px; background: #a34f00; color: #ffffff; font: 700 17px/1 var(--font-sans); box-shadow: 0 0 0 3px #f3f3f5">B</span>
+    </div>
+    <button type="button" class="th-ib th-ib-ink" aria-label="Mời bằng mã QR"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></button>
+  </div>
+
+  <button type="button" aria-label="Tài khoản ngân hàng VietQR" style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 16px; border: 0; border-radius: 28px; background: var(--surface-soft); color: var(--ink); font: 600 18px/24px var(--font-sans); text-align: left; cursor: pointer">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M3 21h18M5 21V10M19 21V10M9 21v-7M15 21v-7M2 10l10-6 10 6z"/></svg>
+    <span class="th-num" style="flex: 1">VCB · 0123 456 789</span>
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M9 6l6 6-6 6"/></svg>
+  </button>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 12px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+    <span class="label" style="flex: 1">Chế độ người lớn tuổi</span>
+    <button type="button" role="switch" aria-checked="{{elderOn}}" aria-label="Chế độ người lớn tuổi" onClick="{{toggleElder}}" style="{{switchStyle}}"><span style="{{knobStyle}}"></span></button>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 8px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M4 20l5-14 5 14M6 15h6M15 20l3.5-9 3.5 9M16.2 17h4.6"/></svg>
+    <span style="flex: 1"></span>
+    <div class="th-step" aria-label="Cỡ chữ">
+      <button type="button" class="th-ib" onClick="{{smaller}}" aria-label="Chữ nhỏ hơn" style="font: 700 16px/1 var(--font-sans)">A</button>
+      <output class="th-num">{{scale}}</output>
+      <button type="button" class="th-ib" onClick="{{bigger}}" aria-label="Chữ to hơn" style="font: 700 24px/1 var(--font-sans)">A</button>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 8px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+    <span style="flex: 1"></span>
+    <div role="radiogroup" aria-label="Ngôn ngữ" style="display: flex; gap: 4px">
+      <button type="button" class="th-chip" role="radio" aria-checked="true" aria-pressed="true">VI</button>
+      <button type="button" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" style="background: var(--surface)">EN</button>
+    </div>
+  </div>
+
+  <div class="th-navwrap" style="position: absolute; left: 16px; bottom: 16px; width: 358px">
+    <a href="Main.dc.html" class="th-ib th-ib-lg th-ib-accent th-ib-float" aria-label="Mở camera"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
+    <nav class="th-nav" aria-label="Chính">
+      <a href="Inventory.dc.html" class="th-ib" aria-label="Kho"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></a>
+      <a href="Dashboard.dc.html" class="th-ib" aria-label="Báo cáo"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V11M13 17V7M18 17v-4"/></svg></a>
+      <a href="Account.dc.html" class="th-ib" aria-current="page" aria-label="Tài khoản"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></a>
+    </nav>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const elder = !!st.elder;
+    const scale = st.scale || 100;
+    return {
+      elderOn: elder ? 'true' : 'false',
+      switchStyle: 'position: relative; width: 72px; height: 44px; padding: 0; border: 0; border-radius: 9999px; cursor: pointer; background: ' + (elder ? '#5a43e8' : '#8a8a92'),
+      knobStyle: 'position: absolute; top: 4px; left: ' + (elder ? '32px' : '4px') + '; width: 36px; height: 36px; border-radius: 9999px; background: #ffffff; transition: left .12s',
+      toggleElder: () => this.setState({ elder: !elder }),
+      scale: scale + '%',
+      smaller: () => this.setState({ scale: Math.max(100, scale - 25) }),
+      bigger: () => this.setState({ scale: Math.min(200, scale + 25) })
+    };
+  }
+}
+</script>
+</body>
+</html>

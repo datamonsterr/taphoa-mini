@@ -1,0 +1,101 @@
+/* Tạp Hóa Mini — generated from tokens.json */
+:root, [data-theme="light"] {
+  --surface: #ffffff; /* Page background of every screen. The default ground for text. */
+  --surface-soft: #f3f3f5; /* Product tiles, cards, input wells and secondary circle buttons. Flat, no border, no shadow. */
+  --surface-pressed: #e7e7eb; /* Pressed state of anything on `surface-soft`; hairline dividers inside lists. */
+  --ink: #111114; /* Primary text on `surface` and `surface-soft` (17:1). Also the fill of primary buttons and the floating nav. */
+  --ink-muted: #5f5f66; /* Secondary text (unit, brand, timestamps) on `surface` (6.3:1) and `surface-soft` (5.7:1). */
+  --line-strong: #8a8a92; /* Borders that must be seen: text field outline, unselected radio ring. 3.4:1 on `surface`, 3.1:1 on `surface-soft`. Never for text. */
+  --on-ink: #ffffff; /* Text and icons on `ink` fills (18.9:1). */
+  --accent: #5a43e8; /* The one brand hue. Add-to-cart circle, selected chip, focus ring, links. 6.2:1 on `surface`; text on it uses `on-accent`. */
+  --on-accent: #ffffff; /* Text and icons on `accent` (6.2:1). */
+  --accent-soft: #eeecfd; /* Tint behind `accent` text: selected chip ground, 'in cart' tile ring. `accent` on it reads 5.3:1. */
+  --success: #18703c; /* Paid / received / matched. Text on `surface` and `success-soft` (5.4:1); fill under `on-ink` (6.1:1). Always paired with a check icon. */
+  --success-soft: #e4f4ea; /* Ground for success badges and the 'Đã nhận' confirmation banner. */
+  --warning: #a34f00; /* Flagged items: manual price, price below cost. Text on `warning-soft` (5.1:1). Always paired with an alert icon. */
+  --warning-soft: #fdf0dc; /* Ground for warning badges and the 'below cost' banner. */
+  --danger: #c62f2f; /* Remove, void, negative cash difference. Text on `danger-soft` (4.7:1); fill under `on-ink` (5.5:1). Always paired with a word, never colour alone. */
+  --danger-soft: #fde8e8; /* Ground for the remove action behind a swiped cart line. */
+  --camera-bg: #0c0c0e; /* Camera and scan screens only. Full-bleed behind the viewfinder. */
+  --camera-ink: #ffffff; /* Text and icons on `camera-bg`. */
+  --camera-muted: #a1a1a8; /* Secondary labels on `camera-bg` ('Lịch sử', hints). 7.6:1. */
+  --camera-ring: #e2a94b; /* Gold ring around the shutter button on `camera-bg` (9.3:1). Only on the camera screen. */
+  --scrim: rgba(12, 12, 14, 0.45); /* Dims the screen behind a bottom sheet. */
+  --shadow-float: 0 10px 30px rgba(17, 17, 20, 0.14); /* Only for things that float over content: bottom nav, total bar, add circle on a tile. */
+  --shadow-sheet: 0 -8px 40px rgba(17, 17, 20, 0.16); /* Bottom sheets. */
+}
+:root {
+  --space-1: 4px; /* Gap between a price and its unit. */
+  --space-2: 8px; /* Gap inside a tile between photo and text. */
+  --space-3: 12px; /* Gap between grid tiles and between stacked buttons. */
+  --space-4: 16px; /* Screen side gutter; card padding. */
+  --space-6: 24px; /* Between sections of a screen. */
+  --space-8: 32px; /* Above the total on the pay screen; around the shutter. */
+  --radius-sm: 14px; /* Cart line thumbnails, keypad wells, small inputs. */
+  --radius-md: 22px; /* Product photo wells inside a tile, the VietQR frame. */
+  --radius-lg: 28px; /* Cards and product tiles, the camera viewfinder. */
+  --radius-xl: 36px; /* Top corners of bottom sheets. */
+  --radius-full: 9999px; /* Every button, chip, stepper and the nav bar. Buttons are circles or pills, never rectangles. */
+  --tap-min: 56px; /* Minimum height and width of anything tappable (PRD: 56dp). Circle icon buttons, chips, stepper keys. */
+  --tap-lg: 64px; /* Primary pill buttons and the floating nav bar height. */
+  --tap-xl: 80px; /* Elder mode buttons; the pay methods on the pay screen. */
+  --shutter: 88px; /* Camera shutter diameter. */
+  --icon: 26px; /* Icon size inside every button. Stroke 2.25px. */
+  --font-sans: "Be Vietnam Pro", system-ui, sans-serif;
+  --text-total: 800 56px/60px var(--font-sans); /* The running total and the pay screen amount. One per screen. */
+  --text-price: 700 32px/38px var(--font-sans); /* Price on a match card and on a product tile in elder mode. PRD minimum for prices. */
+  --text-title: 800 32px/38px var(--font-sans); /* Screen title, top-left, once per screen. */
+  --text-heading: 700 22px/28px var(--font-sans); /* Section heading inside a screen; sheet titles. */
+  --text-body: 400 18px/26px var(--font-sans); /* Default text. PRD minimum: nothing a seller must read is smaller. */
+  --text-label: 600 18px/24px var(--font-sans); /* Button labels, product names on tiles, chip text. */
+  --text-caption: 500 15px/20px var(--font-sans); /* Non-essential meta only (unit, time, who sold). Never a price or an action. */
+}
+.total {
+  font-family: var(--font-sans);
+  font-size: 56px;
+  line-height: 60px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+.price {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.title {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.heading {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.body {
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.label {
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.caption {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: 0;
+}

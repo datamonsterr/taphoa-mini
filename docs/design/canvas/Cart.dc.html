@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Cart</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); font-family: var(--font-sans); color: var(--ink)">
+  <div style="position: absolute; left: 16px; top: 168px; width: 358px; height: 358px; border-radius: 28px; background: #2a2a2e"></div>
+  <div style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: var(--scrim)"></div>
+
+  <div style="position: absolute; left: 0; top: 184px; width: 390px; height: 660px; box-sizing: border-box; padding: 16px 16px 24px; border-radius: 36px 36px 0 0; background: var(--surface); box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; justify-content: center"><span style="display: block; width: 40px; height: 5px; border-radius: 9999px; background: var(--surface-pressed)"></span></div>
+    <div style="display: flex; align-items: center; gap: 12px">
+      <a href="Main.dc.html" class="th-ib" aria-label="Đóng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+      <span style="flex: 1"></span>
+      <span class="th-badge th-badge-accent th-num" aria-label="{{countAria}}" style="height: 40px; padding: 0 16px; font-size: 18px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>{{count}}</span>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="4">
+        <div class="th-line">
+          <div class="th-photo">
+            <sc-if value="{{l.isSting}}" hint-placeholder-val="{{true}}"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 22px; height: 38px"><rect x="15" y="2" width="10" height="8" rx="2" fill="#111114"/><path d="M14 10h12l4 10v44a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V20z" fill="#c62f2f"/><rect x="10" y="32" width="20" height="14" fill="#ffffff" opacity=".85"/></svg></sc-if>
+            <sc-if value="{{l.isNoodle}}" hint-placeholder-val="{{false}}"><svg viewBox="0 0 40 40" aria-hidden="true" style="width: 34px; height: 34px"><rect x="0" y="0" width="40" height="40" rx="6" fill="#e2a94b"/><circle cx="20" cy="22" r="10" fill="#c62f2f"/><rect x="5" y="4" width="30" height="5" rx="2" fill="#ffffff" opacity=".7"/></svg></sc-if>
+            <sc-if value="{{l.isCoca}}" hint-placeholder-val="{{false}}"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 22px; height: 38px"><rect x="8" y="10" width="24" height="52" rx="6" fill="#c62f2f"/><rect x="10" y="6" width="20" height="6" rx="3" fill="#a1a1a8"/><path d="M8 34c8-6 16 6 24 0" stroke="#ffffff" stroke-width="3" fill="none"/></svg></sc-if>
+            <sc-if value="{{l.isBag}}" hint-placeholder-val="{{false}}"><svg viewBox="0 0 60 60" aria-hidden="true" style="width: 40px; height: 40px"><path d="M12 14c6-4 30-4 36 0l4 38a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4z" fill="#f2e6cf"/><path d="M14 8h32l2 8H12z" fill="#d9c8a6"/><circle cx="22" cy="32" r="5" fill="#a34f00"/><circle cx="36" cy="28" r="5" fill="#a34f00"/><circle cx="30" cy="42" r="5" fill="#a34f00"/></svg></sc-if>
+          </div>
+          <div class="th-line-body">
+            <div class="th-line-name">{{l.name}}</div>
+            <div class="th-line-price">{{l.priceText}}</div>
+          </div>
+          <div class="th-step">
+            <button type="button" class="th-ib" onClick="{{l.dec}}" aria-label="{{l.decAria}}">
+              <sc-if value="{{l.isOne}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--danger)"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></sc-if>
+              <sc-if value="{{l.isMany}}" hint-placeholder-val="{{true}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></sc-if>
+            </button>
+            <output>{{l.qty}}</output>
+            <button type="button" class="th-ib" onClick="{{l.inc}}" aria-label="Thêm một"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div class="th-total">
+      <div class="th-total-sum"><b aria-live="polite">{{totalText}}</b></div>
+      <a href="Pay.dc.html" class="th-btn th-btn-ink" aria-label="Hiện mã QR thanh toán" style="padding: 0 22px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></a>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const q = (this.state && this.state.q) || { sting: 2, noodle: 1, coca: 1, bag: 1 };
+    const fmt = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+    const defs = [
+      { id: 'sting', name: 'Sting đỏ', price: 10000 },
+      { id: 'noodle', name: 'Hảo Hảo', price: 4500 },
+      { id: 'coca', name: 'Coca 330ml', price: 10000 },
+      { id: 'bag', name: 'Bánh bi', price: 15000 }
+    ];
+    const set = (id, v) => this.setState({ q: { ...q, [id]: v } });
+    const lines = defs.filter((d) => (q[d.id] || 0) > 0).map((d) => {
+      const qty = q[d.id];
+      return {
+        ...d, qty, priceText: fmt(d.price),
+        isSting: d.id === 'sting', isNoodle: d.id === 'noodle', isCoca: d.id === 'coca', isBag: d.id === 'bag',
+        isOne: qty === 1, isMany: qty > 1,
+        decAria: qty === 1 ? 'Xóa' : 'Bớt một',
+        dec: () => set(d.id, qty - 1),
+        inc: () => set(d.id, qty + 1)
+      };
+    });
+    const count = lines.reduce((s, l) => s + l.qty, 0);
+    const total = lines.reduce((s, l) => s + l.qty * l.price, 0);
+    return { lines, count, countAria: count + ' món', totalText: fmt(total) };
+  }
+}
+</script>
+</body>
+</html>

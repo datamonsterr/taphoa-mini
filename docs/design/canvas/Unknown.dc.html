@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Low match</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+@keyframes th-pulse{0%{box-shadow:0 0 0 0 rgba(253,240,220,.7)}100%{box-shadow:0 0 0 18px rgba(253,240,220,0)}}
+.th-pulse{animation:th-pulse 1.4s ease-out infinite}
+@media (prefers-reduced-motion: reduce){.th-pulse{animation:none;box-shadow:0 0 0 6px rgba(253,240,220,.45)}}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); color: var(--camera-ink); font-family: var(--font-sans)">
+
+  <div style="position: absolute; left: 0; top: 20px; width: 390px; display: flex; justify-content: center">
+    <div style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(255,255,255,.14)">
+      <a href="Main.dc.html" aria-label="Một món" aria-current="page" style="display: grid; place-items: center; width: 56px; height: 48px; border-radius: 9999px; background: var(--camera-ink); color: var(--ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
+      <a href="Multi.dc.html" aria-label="Nhiều món" style="display: grid; place-items: center; width: 56px; height: 48px; border-radius: 9999px; color: var(--camera-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M17 14v6M14 17h6"/></svg></a>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 16px; top: 136px; width: 358px; height: 358px; border-radius: 28px; overflow: hidden; background: #2a2a2e">
+    <div style="position: absolute; left: 0; top: 250px; width: 358px; height: 108px; background: #38383e"></div>
+    <svg viewBox="0 0 60 60" aria-hidden="true" style="position: absolute; left: 104px; top: 104px; width: 150px; height: 150px"><path d="M12 14c6-4 30-4 36 0l4 38a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4z" fill="#f2e6cf" opacity=".9"/><path d="M14 8h32l2 8H12z" fill="#d9c8a6"/><circle cx="22" cy="32" r="5" fill="#a34f00"/><circle cx="36" cy="28" r="5" fill="#a34f00"/><circle cx="30" cy="42" r="5" fill="#a34f00"/></svg>
+    <div aria-hidden="true" style="position: absolute; left: 96px; top: 96px; width: 166px; height: 166px; box-sizing: border-box; border: 3px dashed #fdf0dc; border-radius: 20px"></div>
+    <div style="position: absolute; left: 96px; top: 66px; display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 9999px; background: var(--warning-soft); color: var(--warning); font: 700 14px/18px var(--font-sans)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round"><path d="M12 8v5M12 17h.01"/></svg><span class="th-num">38</span></div>
+    <div style="position: absolute; left: 96px; top: 240px; width: 166px; display: flex; justify-content: center">
+      <a href="Enroll.dc.html" aria-label="Chưa có trong kho, nhập giá" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 16px; border-radius: 9999px; background: var(--warning-soft); color: var(--warning); font: 800 20px/24px var(--font-sans); box-shadow: 0 4px 14px rgba(0,0,0,.35)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/></svg>?</a>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 0; top: 590px; width: 390px; display: flex; align-items: center; justify-content: space-around">
+    <a href="Enroll.dc.html" class="th-ib th-ib-lg th-pulse" aria-label="Thêm vào kho với giá" style="background: var(--warning-soft); color: var(--warning)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></a>
+    <a href="Match.dc.html" class="th-shutter" aria-label="Chụp lại" style="display: block; box-sizing: border-box"><span></span></a>
+    <span class="th-ib th-ib-lg" aria-label="Thêm vào giỏ" aria-disabled="true" style="background: rgba(255,255,255,.14); color: var(--camera-ink); opacity: .4"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+  </div>
+  <svg viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 48px; top: 552px; width: 26px; height: 26px; fill: none; stroke: #fdf0dc; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round"><path d="M12 4v14M6 12l6 6 6-6"/></svg>
+
+  <div style="position: absolute; left: 16px; top: 756px; width: 358px; display: flex; align-items: center; justify-content: space-between">
+    <a href="Cart.dc.html" aria-label="Giỏ hàng: 2 món, 25.000đ" style="display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 16px 0 12px; border-radius: 9999px; background: rgba(255,255,255,.14); color: var(--camera-ink)"><span style="position: relative; display: grid; place-items: center; width: 32px; height: 32px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg><b class="th-num" style="position: absolute; right: -6px; top: -6px; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 9999px; background: var(--accent); color: var(--on-accent); font-size: 12px; line-height: 20px; text-align: center">2</b></span><b class="th-num" style="font-size: 18px">25.000đ</b></a>
+    <a href="Inventory.dc.html" aria-label="Vuốt lên: cửa hàng" style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; height: 56px; justify-content: center; color: var(--camera-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg><span style="display: block; width: 36px; height: 5px; border-radius: 9999px; background: var(--camera-muted)"></span></a>
+    <span style="width: 130px"></span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
