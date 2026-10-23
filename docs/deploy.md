@@ -151,7 +151,8 @@ without recompiling. JS jobs use the pnpm store cache and a Turborepo cache
 image as an artifact for `docker-e2e`. Each job appends a summary (JUnit counts through
 `scripts/ci/junit_summary.py`, duration through `scripts/ci/job-summary.sh`) and uploads
 JUnit or compose logs on failure. `ci-ok` aggregates everything (skipped counts as
-success) and prints a job timing table: make `ci-ok` the only required status check.
+success) and prints a job timing table. `docker-build` is under 3 minutes only while
+`apps/backend` sources are unchanged (the release compile layer is cached by content): make `ci-ok` the only required status check.
 `scripts/ci` has its own unit tests (`python3 -m unittest discover -s scripts/ci`).
 
 ## Deploy pipeline
@@ -198,7 +199,8 @@ environment context in a clean checkout; the service is selected explicitly.
 `.github/workflows/deploy.yml` listens for completed `CI` workflows on `main` and
 requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
-`railway up --service backend --ci`. Production deploys are serialized. Turn off
+`railway up --service backend --ci` in the `production` job, which `needs` the `test`
+job (deploy, seed, e2e). Production deploys are serialized. Turn off
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
 the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.
 
