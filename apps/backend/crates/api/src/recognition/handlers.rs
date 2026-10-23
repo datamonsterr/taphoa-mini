@@ -314,7 +314,13 @@ async fn create_scan(
             config.max_detections,
         )
     });
+    let record = async {
+        let started = Instant::now();
+        let row = record.await;
+        (row, started.elapsed().as_millis() as u64)
+    };
     let (original, inference) = tokio::join!(record, inference);
+    let (original, original_ms) = original;
     let original = original?;
     let work: pipeline::BlockingResult = match inference {
         Ok(Ok(work)) => work,
@@ -393,6 +399,7 @@ async fn create_scan(
     // Uploaded concurrently: sequential round trips to a remote bucket would cost
     // roughly 20 x RTT of the 3 s budget.
     let crop_keys: Vec<String> = ordered.iter().map(|_| object_key("jpg")).collect();
+    let upload_started = Instant::now();
     let uploads = futures_util::future::join_all(
         ordered
             .iter()
@@ -400,6 +407,7 @@ async fn create_scan(
             .map(|(detection, key)| storage.put(key, "image/jpeg", detection.thumbnail.clone())),
     )
     .await;
+    let upload_ms = upload_started.elapsed().as_millis() as u64;
     if let Some(error) = uploads.into_iter().find_map(Result::err) {
         // Remove every key: deleting an object that was never written is harmless.
         delete_quietly(
@@ -505,6 +513,8 @@ async fn create_scan(
         embed_ms,
         search_ms,
         read_ms,
+        original_ms,
+        upload_ms,
         persist_ms = persist_started.elapsed().as_millis() as u64,
         total_ms,
         "recognition scan complete"
