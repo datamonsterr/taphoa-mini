@@ -752,6 +752,9 @@ impl taphoa_api::storage::ObjectStore for ImageObjects {
     async fn delete(&self, _: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn get(&self, _: &str) -> anyhow::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
     async fn head_bucket(&self) -> anyhow::Result<()> {
         Ok(())
     }

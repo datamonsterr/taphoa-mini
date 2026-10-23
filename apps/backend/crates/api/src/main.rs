@@ -2,8 +2,10 @@ use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
     config::Config,
+    recognition::classify::RecognitionConfig,
     router,
     storage::{S3Store, StorageConfig},
+    vector::InMemoryVectorIndex,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -22,6 +24,10 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
     let mut state = AppState::connect_with_config(&config, config.segmenter()?).await?;
+    state.embedder = config.embedder()?;
+    state.recognition = RecognitionConfig::from_env()?;
+    // TODO(e2): swap to PgVectorIndex now that pgvector support is available.
+    state.vector_index = Some(Arc::new(InMemoryVectorIndex::default()));
     if let Some(config) = storage_config {
         let storage = S3Store::new(&config).await;
         if config.create_bucket {

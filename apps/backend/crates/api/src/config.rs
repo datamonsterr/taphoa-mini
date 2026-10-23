@@ -1,6 +1,6 @@
 use anyhow::{Context, bail};
 use std::{path::PathBuf, sync::Arc};
-use taphoa_recognition::{SamOptions, SamSegmenter, Segmenter};
+use taphoa_recognition::{DinoEmbedder, Embedder, SamOptions, SamSegmenter, Segmenter};
 
 // No Debug: contains the signing secret.
 #[derive(Clone)]
@@ -10,6 +10,7 @@ pub struct Config {
     pub redis_url: Option<String>,
     pub encoder: Option<PathBuf>,
     pub decoder: Option<PathBuf>,
+    pub dino_model: Option<PathBuf>,
     pub jwt_secret: String,
     pub db_max_connections: u32,
 }
@@ -38,6 +39,7 @@ impl Config {
             redis_url: get("REDIS_URL"),
             encoder: get("SAM_ENCODER_PATH").map(PathBuf::from),
             decoder: get("SAM_DECODER_PATH").map(PathBuf::from),
+            dino_model: get("DINO_MODEL_PATH").map(PathBuf::from),
             jwt_secret,
             db_max_connections,
         })
@@ -55,6 +57,16 @@ impl Config {
                 SamOptions::from_env(),
             )?))),
             _ => bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
+        }
+    }
+    pub fn embedder(&self) -> anyhow::Result<Option<Arc<dyn Embedder>>> {
+        match &self.dino_model {
+            None => Ok(None),
+            Some(model) if !model.exists() => {
+                tracing::warn!("DINO weights absent; scan recognition is unavailable");
+                Ok(None)
+            }
+            Some(model) => Ok(Some(Arc::new(DinoEmbedder::load(model, 0)?))),
         }
     }
 }

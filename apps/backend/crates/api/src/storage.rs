@@ -20,6 +20,8 @@ pub struct SignedUrl {
 pub trait ObjectStore: Send + Sync {
     async fn put(&self, key: &str, content_type: &str, bytes: Vec<u8>) -> anyhow::Result<()>;
     async fn delete(&self, key: &str) -> anyhow::Result<()>;
+    /// Reads one object by key (scan pipeline needs the stored photo bytes).
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>>;
     async fn head_bucket(&self) -> anyhow::Result<()>;
     async fn presign_get(&self, key: &str, ttl: Duration) -> anyhow::Result<SignedUrl>;
 }
@@ -178,6 +180,16 @@ impl ObjectStore for S3Store {
             .await?;
         Ok(())
     }
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        let object = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await?;
+        Ok(object.body.collect().await?.into_bytes().to_vec())
+    }
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
         self.client
             .delete_object()
@@ -243,6 +255,15 @@ pub(crate) mod tests {
             self.objects.lock().unwrap().remove(key);
             self.deleted.lock().unwrap().push(key.into());
             Ok(())
+        }
+        async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+            self.head_bucket().await?;
+            self.objects
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("object {key} not found"))
         }
         async fn head_bucket(&self) -> anyhow::Result<()> {
             if self.fail.load(Ordering::Relaxed) {
