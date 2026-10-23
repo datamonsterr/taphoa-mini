@@ -1,4 +1,5 @@
 pub mod images;
+pub mod seed;
 pub mod storage;
 
 use axum::{

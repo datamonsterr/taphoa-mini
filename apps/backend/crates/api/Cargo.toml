@@ -9,6 +9,10 @@ license.workspace = true
 name = "taphoa-api"
 path = "src/main.rs"
 
+[[bin]]
+name = "taphoa-seed"
+path = "src/bin/taphoa_seed.rs"
+
 [dependencies]
 anyhow.workspace = true
 async-trait = "0.1"

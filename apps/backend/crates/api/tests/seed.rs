@@ -49,10 +49,12 @@ async fn counts(pool: &sqlx::PgPool) -> Vec<(String, i64)> {
         "change_log",
         "outbox_events",
     ] {
-        let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        // Table names above are an audited fixed whitelist.
+        let n: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(pool)
+                .await
+                .unwrap();
         out.push((table.to_string(), n));
     }
     out
