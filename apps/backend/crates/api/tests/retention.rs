@@ -73,6 +73,11 @@ async fn compacts_old_change_log_rows_and_records_a_floor() {
         .await
         .unwrap();
     assert_eq!(again, floor);
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(&pool)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -112,4 +117,9 @@ async fn deletes_outbox_rows_seven_days_after_publish_only() {
             .unwrap();
     assert_eq!(left, vec![recent, unpublished]);
     assert!(old < recent);
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(&pool)
+        .await
+        .unwrap();
 }

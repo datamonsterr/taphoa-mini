@@ -32,6 +32,14 @@ async fn new_store(pool: &PgPool) -> Uuid {
         .unwrap();
     id
 }
+async fn cleanup(pool: &PgPool, store: Uuid) {
+    // Other suites assert invariants over every outbox row, so leave none behind.
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(pool)
+        .await
+        .unwrap();
+}
 async fn emit_store_changed(pool: &PgPool, store: Uuid, field: &str) -> (i64, Value) {
     let mut tx = pool.begin().await.unwrap();
     let e = emit(
@@ -99,6 +107,7 @@ async fn relay_publishes_committed_events_in_order_and_marks_published() {
         .await
         .expect("relay stops on shutdown")
         .unwrap();
+    cleanup(&pool, store).await;
 }
 
 #[tokio::test]
@@ -137,6 +146,7 @@ async fn relay_keeps_events_when_redis_is_down_then_delivers_at_least_once() {
     eventually(|| async { published(&pool, id).await }).await;
     stop.send(true).unwrap();
     good.await.unwrap();
+    cleanup(&pool, store).await;
 }
 
 #[tokio::test]
@@ -171,6 +181,7 @@ async fn two_relays_never_publish_the_same_row_twice_in_parallel() {
     }
     stop.send(true).unwrap();
     let _ = tokio::join!(a, b);
+    cleanup(&pool, store).await;
 }
 
 // ---------------------------------------------------------------- SSE
