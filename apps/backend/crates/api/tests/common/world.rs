@@ -57,7 +57,7 @@ pub async fn send(
         .method(method)
         .uri(path)
         .header("content-type", content_type)
-        .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()));
+        .header("x-forwarded-for", unique_ip());
     if let Some(token) = token {
         request = request.header("authorization", format!("Bearer {token}"));
     }
@@ -84,6 +84,11 @@ pub async fn send(
         headers,
         raw,
     }
+}
+/// A fresh private IPv4 per request; rate-limit keys derive from a parsed client IP.
+fn unique_ip() -> String {
+    let b = Uuid::new_v4().into_bytes();
+    format!("10.{}.{}.{}", b[0], b[1], b[2])
 }
 fn device() -> Value {
     json!({"name":"counter","platform":"web","app_version":"1.0"})
