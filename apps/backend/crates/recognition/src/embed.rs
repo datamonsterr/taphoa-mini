@@ -80,6 +80,10 @@ impl DinoEmbedder {
             .map_err(inference)?
             .with_intra_threads(threads)
             .map_err(inference)?
+            .with_intra_op_spinning(crate::ort_spinning())
+            .map_err(inference)?
+            .with_inter_op_spinning(crate::ort_spinning())
+            .map_err(inference)?
             .commit_from_file(model)
             .map_err(inference)?;
         let this = Self {

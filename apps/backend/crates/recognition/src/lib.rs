@@ -47,6 +47,16 @@ impl Segmenter for MockSegmenter {
     }
 }
 
+/// Spinning keeps ONNX Runtime worker threads busy instead of parking them, which
+/// is why it defaults to OFF: our container CPU quota throttles busy-waiting.
+pub fn ort_spinning_from(value: Option<&str>) -> bool {
+    matches!(value, Some(v) if v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+pub fn ort_spinning() -> bool {
+    ort_spinning_from(std::env::var("ORT_SPINNING").ok().as_deref())
+}
+
 /// ONNX Runtime allows one environment per process; SAM and the embedder share it.
 pub(crate) fn ort_environment() -> Result<ort::environment::Environment, String> {
     static ENVIRONMENT: std::sync::OnceLock<Result<ort::environment::Environment, String>> =
@@ -142,5 +152,14 @@ mod tests {
             YoloSegmenter.segment(&[]).unwrap_err().to_string(),
             "not implemented (phase 2)"
         );
+    }
+
+    #[test]
+    fn ort_spinning_defaults_off_and_accepts_only_explicit_on() {
+        assert!(!ort_spinning_from(None));
+        assert!(!ort_spinning_from(Some("0")));
+        assert!(!ort_spinning_from(Some("yes")));
+        assert!(ort_spinning_from(Some("1")));
+        assert!(ort_spinning_from(Some("true")));
     }
 }

@@ -104,11 +104,16 @@ impl SamSegmenter {
         let environment = crate::ort_environment().map_err(inference)?;
         let threads = thread_count(options.threads);
         let decoder_count = decoder_pool(options.decoders, threads);
+        let spinning = crate::ort_spinning();
         let encoder = Session::builder(&environment)
             .map_err(inference)?
             .with_optimization_level(GraphOptimizationLevel::All)
             .map_err(inference)?
             .with_intra_threads(threads)
+            .map_err(inference)?
+            .with_intra_op_spinning(spinning)
+            .map_err(inference)?
+            .with_inter_op_spinning(spinning)
             .map_err(inference)?
             .commit_from_file(encoder)
             .map_err(inference)?;
@@ -125,6 +130,10 @@ impl SamSegmenter {
                     .with_optimization_level(GraphOptimizationLevel::All)
                     .map_err(inference)?
                     .with_intra_threads(1)
+                    .map_err(inference)?
+                    .with_intra_op_spinning(spinning)
+                    .map_err(inference)?
+                    .with_inter_op_spinning(spinning)
                     .map_err(inference)?
                     .commit_from_file(decoder)
                     .map_err(inference)?,
