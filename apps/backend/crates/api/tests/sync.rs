@@ -405,10 +405,10 @@ async fn feed_query_uses_the_store_seq_index() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    let plan: Vec<String> = sqlx::query_scalar(&format!(
+    let plan: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "EXPLAIN SELECT seq FROM change_log WHERE store_id='{}' AND seq>0 ORDER BY seq LIMIT 501",
         Uuid::new_v4()
-    ))
+    )))
     .fetch_all(&mut *tx)
     .await
     .unwrap();

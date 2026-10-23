@@ -23,9 +23,9 @@ async fn compacts_old_change_log_rows_and_records_a_floor() {
     let insert = |entity: Uuid, age: &'static str| {
         let pool = pool.clone();
         async move {
-            sqlx::query_scalar::<_, i64>(&format!(
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
                 "INSERT INTO change_log (store_id,entity,entity_id,op,created_at) VALUES ($1,'category',$2,'upsert', now() - interval '{age}') RETURNING seq"
-            ))
+            )))
             .bind(store)
             .bind(entity)
             .fetch_one(&pool)
@@ -90,9 +90,9 @@ async fn deletes_outbox_rows_seven_days_after_publish_only() {
     let insert = |published: &'static str| {
         let pool = pool.clone();
         async move {
-            sqlx::query_scalar::<_, i64>(&format!(
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
                 "INSERT INTO outbox_events (store_id,type,payload,created_at,published_at) VALUES ($1,'store.changed','{{}}', now() - interval '30 days', {published}) RETURNING id"
-            ))
+            )))
             .bind(store)
             .fetch_one(&pool)
             .await
