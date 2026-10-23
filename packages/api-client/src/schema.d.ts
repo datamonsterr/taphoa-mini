@@ -2338,15 +2338,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             413: components["responses"]["PayloadTooLarge"];
             500: components["responses"]["InternalError"];
-            /** @description `no model loaded` (weights absent, e.g. `SKIP_MODELS=1`) or `segmenter busy`. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listProducts: {

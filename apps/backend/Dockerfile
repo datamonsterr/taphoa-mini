@@ -18,7 +18,8 @@ COPY apps/backend/migrations/ migrations/
 # Ordinary layers work on Railway without service-specific cache mount IDs.
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY apps/backend/ .
-RUN cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
+# COPY keeps old mtimes, which cargo would treat as fresh against the dependency-skeleton build.
+RUN find crates -name "*.rs" -exec touch {} + && cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
 
 FROM chef AS assets
 ARG SKIP_MODELS=0
