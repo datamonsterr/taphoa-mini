@@ -41,6 +41,8 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations"
 pub struct AppState {
     pub jwt: auth::JwtKeys,
     pub rate_limiter: Arc<dyn ratelimit::RateLimiter>,
+    pub rate_limits: ratelimit::RateLimits,
+    pub client_ip: ratelimit::ClientIpSource,
     pub config: Option<Arc<config::Config>>,
     pub postgres: Option<PgPool>,
     pub redis: Option<ConnectionManager>,
@@ -56,6 +58,8 @@ impl Default for AppState {
         Self {
             jwt: auth::JwtKeys::from_secret(&rand::random::<[u8; 32]>()),
             rate_limiter: Arc::new(ratelimit::MemoryRateLimiter::default()),
+            rate_limits: ratelimit::RateLimits::default(),
+            client_ip: ratelimit::ClientIpSource::default(),
             config: None,
             postgres: None,
             redis: None,
@@ -87,6 +91,8 @@ impl AppState {
         )
         .await?;
         state.jwt = auth::JwtKeys::from_secret(config.jwt_secret.as_bytes());
+        state.rate_limits = config.rate_limits;
+        state.client_ip = config.client_ip;
         state.config = Some(Arc::new(config.clone()));
         Ok(state)
     }

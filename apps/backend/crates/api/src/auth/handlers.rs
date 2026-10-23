@@ -19,13 +19,9 @@ async fn ip_limit(
     limit: u32,
     seconds: u64,
 ) -> ApiResult<()> {
-    let ip = headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_owned())
-        .or_else(|| peer.map(|Extension(ConnectInfo(addr))| addr.ip().to_string()))
-        .unwrap_or_else(|| "unknown".into());
+    let ip = state
+        .client_ip
+        .resolve(headers, peer.map(|Extension(ConnectInfo(addr))| addr.ip()));
     let decision = state
         .rate_limiter
         .hit(
@@ -54,7 +50,15 @@ pub async fn create_store(
     peer: Peer,
     ValidJson(input): ValidJson<CreateStore>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    ip_limit(&state, &headers, peer, "create", 10, 3600).await?;
+    ip_limit(
+        &state,
+        &headers,
+        peer,
+        "create",
+        state.rate_limits.store_create_per_hour,
+        3600,
+    )
+    .await?;
     length(&input.store_name, 1, 80)?;
     length(&input.display_name, 1, 40)?;
     input.device.validate()?;
@@ -96,7 +100,15 @@ pub async fn join(
     peer: Peer,
     ValidJson(input): ValidJson<Join>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    ip_limit(&state, &headers, peer, "join", 10, 3600).await?;
+    ip_limit(
+        &state,
+        &headers,
+        peer,
+        "join",
+        state.rate_limits.join_per_hour,
+        3600,
+    )
+    .await?;
     length(&input.display_name, 1, 40)?;
     input.device.validate()?;
     let mut tx = pool(&state)?.begin().await?;
@@ -147,7 +159,15 @@ pub async fn recover(
     peer: Peer,
     ValidJson(input): ValidJson<Recover>,
 ) -> ApiResult<Json<Value>> {
-    ip_limit(&state, &headers, peer, "recover", 5, 600).await?;
+    ip_limit(
+        &state,
+        &headers,
+        peer,
+        "recover",
+        state.rate_limits.recover_per_10min,
+        600,
+    )
+    .await?;
     input.device.validate()?;
     let normalized = normalize_recovery(&input.recovery_code);
     let mut tx = pool(&state)?.begin().await?;
@@ -267,7 +287,11 @@ pub async fn verify_pin(
     }
     let failed = state
         .rate_limiter
-        .hit(&key, 4, Duration::from_secs(300))
+        .hit(
+            &key,
+            state.rate_limits.pin_attempts.saturating_sub(1),
+            Duration::from_secs(300),
+        )
         .await
         .map_err(|_| ApiError::unavailable())?;
     if !failed.allowed {

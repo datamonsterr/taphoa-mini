@@ -10,10 +10,27 @@ use serde_json::{Value, json};
 use taphoa_api::{AppState, config::Config, router};
 use tower::ServiceExt;
 use uuid::Uuid;
+fn fake_ip() -> String {
+    let b = Uuid::new_v4().into_bytes();
+    format!("10.{}.{}.{}", b[0], b[1], b[2])
+}
 async fn setup() -> (Router, AppState) {
+    // Tests mint a unique single-entry X-Forwarded-For per request, which the
+    // rightmost-entry mode accepts as the proxy-appended client address.
+    setup_with(&[
+        ("CLIENT_IP_SOURCE", "x-forwarded-for"),
+        ("TRUSTED_PROXY_HOPS", "1"),
+    ])
+    .await
+}
+async fn setup_with(overrides: &[(&str, &str)]) -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
         "JWT_SECRET" => Some("auth-flow-test-secret-at-least-32-bytes".into()),
-        _ => std::env::var(key).ok(),
+        _ => overrides
+            .iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| (*value).to_owned())
+            .or_else(|| std::env::var(key).ok()),
     })
     .unwrap();
     let state = AppState::connect_with_config(&config, None).await.unwrap();
@@ -30,7 +47,7 @@ async fn call(
         .method(method)
         .uri(path)
         .header("content-type", "application/json")
-        .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()));
+        .header("x-forwarded-for", fake_ip());
     if let Some(token) = token {
         request = request.header("authorization", format!("Bearer {token}"));
     }
@@ -642,14 +659,14 @@ async fn validation_invite_expiry_and_ip_limits() {
         StatusCode::UNAUTHORIZED,
     )
     .await;
-    let ip = format!("rate-{}", Uuid::new_v4());
+    let ip = fake_ip();
     for n in 0..6 {
         let response = app
             .clone()
             .oneshot(
                 Request::post("/v1/auth/recover")
                     .header("content-type", "application/json")
-                    .header("x-forwarded-for", format!("{ip}, proxy"))
+                    .header("x-forwarded-for", &ip)
                     .body(Body::from(
                         json!({"recovery_code":"wrong","device":device()}).to_string(),
                     ))
@@ -681,7 +698,7 @@ async fn validation_invite_expiry_and_ip_limits() {
             json!({"invite_token":"invalid","display_name":"A","device":device()}),
         ),
     ] {
-        let ip = format!("rate-{}", Uuid::new_v4());
+        let ip = fake_ip();
         for n in 0..=limit {
             let response = app
                 .clone()
@@ -979,4 +996,45 @@ async fn recovery_refresh_and_logout_use_consistent_lock_order() {
         [StatusCode::NO_CONTENT, StatusCode::UNAUTHORIZED].contains(&logged_out.0),
         "{logged_out:?}"
     );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn spoofed_forwarded_for_cannot_bypass_the_store_create_limit() {
+    // Default CLIENT_IP_SOURCE=peer ignores client-supplied headers entirely.
+    let (app, state) = setup_with(&[("RATE_LIMIT_STORE_CREATE_PER_HOUR", "2")]).await;
+    let mut redis = state.redis.clone().unwrap();
+    // The in-process router has no socket peer, so every request shares this key.
+    let _: () = redis::cmd("DEL")
+        .arg("auth:create:unknown")
+        .query_async(&mut redis)
+        .await
+        .unwrap();
+    for n in 0..3 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/stores")
+                    .header("content-type", "application/json")
+                    .header("x-forwarded-for", fake_ip())
+                    .header("x-real-ip", "203.0.113.9")
+                    .body(Body::from(
+                        json!({"store_name":"","display_name":"A","device":device()}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if n < 2 {
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        } else {
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert!(response.headers().contains_key("retry-after"));
+        }
+    }
+    let _: () = redis::cmd("DEL")
+        .arg("auth:create:unknown")
+        .query_async(&mut redis)
+        .await
+        .unwrap();
 }

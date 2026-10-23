@@ -31,13 +31,11 @@ export function uniqueName(prefix = 'e2e'): string {
  * Creates an ApiClient against BACKEND_URL, optionally authenticated with a bearer token.
  */
 export function newClient(token?: string): ApiClient {
-  // Per-IP rate limits key on X-Forwarded-For; give every client its own
-  // address so independent specs do not exhaust a shared bucket.
-  const ip = `10.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}`;
-  const fetchWithIp: typeof fetch = async (input, init) => {
+  // Per-IP limits are not spoofable; run the backend under test with the
+  // RATE_LIMIT_* variables raised (see README) instead of faking addresses.
+  const bufferedFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     const headers = new Headers(request.headers);
-    headers.set('x-forwarded-for', ip);
     // Buffer the body: streaming it races the server's early 401 (EPIPE).
     const body =
       request.method === 'GET' || request.method === 'HEAD'
@@ -47,7 +45,7 @@ export function newClient(token?: string): ApiClient {
   };
   return createApiClient({
     baseUrl: getBackendUrl(),
-    fetch: fetchWithIp,
+    fetch: bufferedFetch,
     getToken: token ? () => token : undefined,
   });
 }
