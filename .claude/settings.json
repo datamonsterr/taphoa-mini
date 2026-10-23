@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/share/otherskill/bin/otherskill\" 'find' '--agent' 'claude' '--config' \"$CLAUDE_PROJECT_DIR/otherskill.config.json\" '--categories' 'frontend/react,frontend/ui-ux,backend,backend/rust,devops,testing,management,ai-data'",
+            "timeout": 107
+          }
+        ]
+      }
+    ]
+  }
+}
