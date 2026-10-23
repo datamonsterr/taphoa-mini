@@ -68,7 +68,7 @@ class JobSummary(unittest.TestCase):
     def test_writes_status_and_duration(self):
         out = run(
             ["bash", str(HERE / "job-summary.sh"), "fmt", "formatted"],
-            env={"JOB_START": "0", "JOB_STATUS": "success"},
+            env={"JOB_START": "0", "JOB_STATUS": "success", "GITHUB_STEP_SUMMARY": ""},
         )
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("### fmt", out.stdout)

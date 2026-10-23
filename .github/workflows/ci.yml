@@ -314,8 +314,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
-      # The e2e package needs a deployed backend; it runs in the deploy workflow.
-      - run: pnpm test --filter='!@taphoa/backend' --filter='!@taphoa/e2e'
+      # packages/e2e needs a deployed backend: it must expose test:e2e (not test); the deploy workflow runs it.
+      - run: pnpm test --filter='!@taphoa/backend'
       - name: Summary
         if: always()
         env:
