@@ -6,6 +6,10 @@ use taphoa_recognition::{
 };
 
 fn model(var: &str, file: &str) -> Option<PathBuf> {
+    // Without a loadable runtime (ORT_DYLIB_PATH) the model tests skip rather than fail.
+    if !std::env::var_os("ORT_DYLIB_PATH").is_some_and(|p| PathBuf::from(p).is_file()) {
+        return None;
+    }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let path = std::env::var_os(var)
         .map(PathBuf::from)
