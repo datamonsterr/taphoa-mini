@@ -30,7 +30,10 @@ pub struct Reply {
 async fn app() -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
         "JWT_SECRET" => Some("e4-test-secret-at-least-32-bytes-long".into()),
-        // Tests create many stores/members from one peer address.
+        // Each request carries a unique x-forwarded-for so rate-limit counters in the
+        // shared Redis never collide with other suites using the peer address.
+        "CLIENT_IP_SOURCE" => Some("x-forwarded-for".into()),
+        "TRUSTED_PROXY_HOPS" => Some("1".into()),
         "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })
