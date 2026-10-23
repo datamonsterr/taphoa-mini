@@ -16,6 +16,7 @@ path = "src/bin/taphoa_seed.rs"
 [dependencies]
 anyhow.workspace = true
 async-trait = "0.1"
+futures-util = "0.3"
 aws-config = { version = "1.13.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sdk-s3 = { version = "1.155.0", default-features = false, features = ["default-https-client", "rt-tokio", "rustls"] }
 chrono = { version = "0.4", features = ["serde"] }
