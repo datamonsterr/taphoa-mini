@@ -182,15 +182,6 @@ impl ObjectStore for S3Store {
             .await?;
         Ok(())
     }
-    async fn delete(&self, key: &str) -> anyhow::Result<()> {
-        self.client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await?;
-        Ok(())
-    }
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         let object = self
             .client
@@ -200,6 +191,15 @@ impl ObjectStore for S3Store {
             .send()
             .await?;
         Ok(object.body.collect().await?.into_bytes().to_vec())
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await?;
+        Ok(())
     }
     async fn head_bucket(&self) -> anyhow::Result<()> {
         self.client
@@ -257,6 +257,15 @@ pub(crate) mod tests {
             self.objects.lock().unwrap().remove(key);
             self.deleted.lock().unwrap().push(key.into());
             Ok(())
+        }
+        async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+            self.head_bucket().await?;
+            self.objects
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("object {key} not found"))
         }
         async fn head_bucket(&self) -> anyhow::Result<()> {
             if self.fail.load(Ordering::Relaxed) {

@@ -34,6 +34,9 @@ use taphoa_recognition::{Embedder, Segment, SegmentError, Segmenter};
 use tokio::sync::Semaphore;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
 
+use crate::recognition::classify::RecognitionConfig;
+pub use crate::vector::{InMemoryVectorIndex, VectorIndex};
+
 pub use error::{ApiError, ApiResult};
 
 pub const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
@@ -54,6 +57,7 @@ pub struct AppState {
     pub embedder: Option<Arc<dyn Embedder>>,
     /// Duplicate-check search port. None -> catalog queries product_embeddings in SQL.
     pub vector_index: Option<Arc<dyn vector::VectorIndex>>,
+    pub recognition: RecognitionConfig,
     pub storage: Option<Arc<dyn storage::ObjectStore>>,
     pub image_repository: Option<Arc<dyn images::ImageRepository>>,
     pub image_url_ttl: Duration,
@@ -74,6 +78,7 @@ impl Default for AppState {
             segmenter: None,
             embedder: None,
             vector_index: None,
+            recognition: RecognitionConfig::default(),
             storage: None,
             image_repository: None,
             image_url_ttl: Duration::from_secs(900),
@@ -250,11 +255,29 @@ async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     }
 }
 
-fn bad_request() -> ApiError {
+pub(crate) fn bad_request() -> ApiError {
     ApiError::new(
         StatusCode::BAD_REQUEST,
         "validation_failed",
         "expected one multipart image field containing a PNG or JPEG",
+    )
+}
+
+/// The one inference slot is held; the phone retries once after a second.
+pub(crate) fn busy() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "unavailable",
+        "segmenter busy",
+    )
+    .with_retry_after(1)
+}
+
+pub(crate) fn no_model() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "unavailable",
+        "no model loaded",
     )
 }
 
@@ -282,18 +305,11 @@ async fn segment(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<Vec<Segment>>, ApiError> {
-    let segmenter = state.segmenter.ok_or(ApiError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "unavailable",
-        "no model loaded",
-    ))?;
-    let permit = state.inference_slots.try_acquire_owned().map_err(|_| {
-        ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "unavailable",
-            "segmenter busy",
-        )
-    })?;
+    let segmenter = state.segmenter.ok_or_else(no_model)?;
+    let permit = state
+        .inference_slots
+        .try_acquire_owned()
+        .map_err(|_| busy())?;
     let mut image = None;
     while let Some(field) = multipart.next_field().await.map_err(multipart_error)? {
         if field.name() != Some("image") || image.is_some() {

@@ -1124,9 +1124,9 @@ export interface components {
             /** @enum {string} */
             purpose: "checkout" | "enrollment";
             pipeline: {
-                /** @example sam-vit-b-onnx */
+                /** @example mobilesam-onnx@1 */
                 segmenter: string;
-                /** @example dinov2-vits14-onnx */
+                /** @example dinov2-vits14-onnx@1/112 */
                 embedder: string;
                 /** Format: int64 */
                 catalog_version?: number;
@@ -1152,9 +1152,9 @@ export interface components {
             score: number;
             /**
              * Format: uri
-             * @description Presigned URL of the crop thumbnail.
+             * @description Presigned URL of the crop thumbnail, null when none was stored. Thumbnails upload in the background after the response, so the object can answer 404 for about a second; retry.
              */
-            crop_url?: string;
+            crop_url?: string | null;
             /**
              * @description `matched`: top similarity ≥ match threshold and clear margin over the runner-up.
              *     `ambiguous`: above the floor but close to another product (look-alike variants).
@@ -1173,7 +1173,10 @@ export interface components {
             price: components["schemas"]["Money"];
             /** Format: uuid */
             default_unit_id?: string | null;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description Omitted when the product has no image yet.
+             */
             thumbnail_url?: string;
         };
         Category: {
@@ -2338,15 +2341,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             413: components["responses"]["PayloadTooLarge"];
             500: components["responses"]["InternalError"];
-            /** @description `no model loaded` (weights absent, e.g. `SKIP_MODELS=1`) or `segmenter busy`. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listProducts: {
