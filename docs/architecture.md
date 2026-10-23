@@ -143,7 +143,7 @@ flowchart LR
 
     phone[Android phone, Vietnam]
 
-    deploy -- railway up --service backend --ci --> be
+    deploy -->|"railway up --service backend --ci"| be
     repo -- EAS GitHub link --> build
     build --> phone
     phone -- HTTPS public domain --> be
@@ -499,7 +499,7 @@ sequenceDiagram
     LP->>LP: Show QR of join_url
     Son->>SP: Open app, "Tham gia cửa hàng", scan QR
     SP->>API: POST /v1/auth/join {invite_token, display_name, device}
-    API->>PG: Check hash, unused, unexpired; INSERT members, sessions; mark invite used
+    API->>PG: Check hash, unused, unexpired, INSERT members, sessions, mark invite used
     API->>PG: change_log(member), outbox(member.changed)
     API-->>SP: 201 {tokens, member, store}
     PG-->>API: relay picks outbox row
@@ -544,7 +544,7 @@ sequenceDiagram
         API->>PG: TX: products, product_images, product_embeddings,<br/>price_history, change_log, outbox(catalog.changed)
         API-->>Phone: 201 Product
     end
-    Note over API,PG: Relay publishes catalog.changed; other phones pull the change.
+    Note over API,PG: Relay publishes catalog.changed, other phones pull the change.
 ```
 
 ### 9.4 Checkout with multi-item photo and VietQR (F2, S5, S6, S8)
@@ -648,7 +648,7 @@ sequenceDiagram
     API-->>SP: SSE catalog.changed {cursor}
     SP->>API: GET /v1/sync/changes?since=cursor
     API-->>SP: product Coca 330ml price 10.000đ
-    SP->>SP: Update SQLite; grid and recognition show new price
+    SP->>SP: Update SQLite, grid and recognition show new price
 ```
 
 An offline phone gets the change on its next pull. A sale made offline at the old price
@@ -713,14 +713,14 @@ sequenceDiagram
     Phone->>API: GET /v1/... (expired access token)
     API-->>Phone: 401
     Phone->>API: POST /v1/auth/refresh {refresh_token}
-    API->>PG: Find hash, check not rotated or revoked; rotate
+    API->>PG: Find hash, check not rotated or revoked, rotate
     API-->>Phone: 200 new pair
     Phone->>API: Retry original request
     Grandma->>Phone: Tap avatar "Bà nội", enter PIN
     Phone->>API: POST /v1/auth/switch {member_id, pin}
     API->>Redis: INCR pin_fail:{member} (check < 5)
     API->>PG: Verify Argon2id hash, INSERT session for Bà nội on this device
-    API-->>Phone: 200 session; next sales record Bà nội as member
+    API-->>Phone: 200 session, next sales record Bà nội as member
 ```
 
 ## 10. Configuration

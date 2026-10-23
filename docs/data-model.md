@@ -769,14 +769,14 @@ sequenceDiagram
     participant Redis
     participant S as SSE hub (each instance)
     participant P as Phones
-    H->>PG: BEGIN; write rows; INSERT change_log; INSERT outbox_events; NOTIFY outbox; COMMIT
+    H->>PG: BEGIN, write rows, INSERT change_log, INSERT outbox_events, NOTIFY outbox, COMMIT
     PG-->>R: LISTEN wakes relay
     R->>PG: SELECT unpublished FOR UPDATE SKIP LOCKED
     R->>Redis: PUBLISH store:{store_id}:events envelope
     R->>PG: UPDATE published_at
     Redis-->>S: message on subscribed channel
     S-->>P: SSE id/event/data to the store's open connections
-    P->>P: Dedupe by id; pull /v1/sync/changes if needed
+    P->>P: Dedupe by id, pull /v1/sync/changes if needed
 ```
 
 Events are **hints and notifications**, not the data path. The phone never applies data
