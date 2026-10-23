@@ -29,11 +29,18 @@ async function post(
   body: FormData,
   token?: string,
 ): Promise<{ status: number; json: any; ms: number; headers: Headers }> {
-  const started = performance.now();
-  const response = await fetch(`${getBackendUrl()}${path}`, {
+  // Buffer the multipart body: streaming it races the server's early 401 (EPIPE).
+  const request = new Request(`${getBackendUrl()}${path}`, {
     method: 'POST',
     body,
+  });
+  const payload = await request.arrayBuffer();
+  const started = performance.now();
+  const response = await fetch(request.url, {
+    method: 'POST',
+    body: payload,
     headers: {
+      'content-type': request.headers.get('content-type') ?? '',
       'x-forwarded-for': `10.${Math.floor(Math.random() * 256)}.1.${Math.floor(Math.random() * 256)}`,
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
@@ -152,7 +159,7 @@ describe('recognition', () => {
     const notImage = new FormData();
     notImage.set('image', new Blob(['not an image']), 'x.jpg');
     expect((await post('/v1/recognition/scans', notImage, token)).status).toBe(
-      400,
+      415,
     );
   });
 

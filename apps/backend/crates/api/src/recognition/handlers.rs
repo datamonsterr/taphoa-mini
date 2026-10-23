@@ -259,18 +259,8 @@ async fn create_scan(
         pipeline::ScanPurpose::Enrollment => actor.require(Action::EnrollProduct)?,
         pipeline::ScanPurpose::Checkout => actor.require(Action::Sell)?,
     }
-    let (image_bytes, original) = match &request.image {
-        Some(bytes) => {
-            let row = record_original(
-                storage.as_ref(),
-                repository.as_ref(),
-                &actor,
-                request.purpose,
-                bytes,
-            )
-            .await?;
-            (bytes.clone(), row)
-        }
+    let (image_bytes, existing) = match &request.image {
+        Some(bytes) => (bytes.clone(), None),
         None => {
             let image_id = request
                 .image_id
@@ -288,7 +278,7 @@ async fn create_scan(
                     .get(&row.object_key)
                     .await
                     .map_err(pipeline::storage_failure)?,
-                row,
+                Some(row),
             )
         }
     };
@@ -296,18 +286,36 @@ async fn create_scan(
     let block_embedder = Arc::clone(&embedder);
     let block_segmenter = Arc::clone(&segmenter);
     let mode = request.mode;
-    let work: pipeline::BlockingResult = match tokio::task::spawn_blocking(move || {
+    let pipeline_bytes = image_bytes.clone();
+    // Storing the original (a bucket round trip) overlaps with inference.
+    let record = async {
+        match existing {
+            Some(row) => Ok(row),
+            None => {
+                record_original(
+                    storage.as_ref(),
+                    repository.as_ref(),
+                    &actor,
+                    request.purpose,
+                    &image_bytes,
+                )
+                .await
+            }
+        }
+    };
+    let inference = tokio::task::spawn_blocking(move || {
         let _permit = permit; // Held even if the HTTP request is cancelled.
         pipeline::block_pipeline(
             &*block_segmenter,
             &*block_embedder,
-            &image_bytes,
+            &pipeline_bytes,
             mode,
             config.max_detections,
         )
-    })
-    .await
-    {
+    });
+    let (original, inference) = tokio::join!(record, inference);
+    let original = original?;
+    let work: pipeline::BlockingResult = match inference {
         Ok(Ok(work)) => work,
         Ok(Err(pipeline::StageError::InvalidImage(_))) => {
             return Err(ApiError::validation_failed("could not decode the image"));
@@ -381,22 +389,25 @@ async fn create_scan(
         .collect();
     let ordered = pipeline::arrange_display_order(rated);
     // Crop thumbnails reach the bucket once; only object keys are persisted.
-    let mut crop_keys = Vec::with_capacity(ordered.len());
-    for detection in &ordered {
-        let key = object_key("jpg");
-        if let Err(error) = storage
-            .put(&key, "image/jpeg", detection.thumbnail.clone())
-            .await
-        {
-            delete_quietly(
-                storage.as_ref(),
-                &crop_keys,
-                "failed to delete crop thumbnails after put failure",
-            )
-            .await;
-            return Err(pipeline::storage_failure(error));
-        }
-        crop_keys.push(key);
+    // Uploaded concurrently: sequential round trips to a remote bucket would cost
+    // roughly 20 x RTT of the 3 s budget.
+    let crop_keys: Vec<String> = ordered.iter().map(|_| object_key("jpg")).collect();
+    let uploads = futures_util::future::join_all(
+        ordered
+            .iter()
+            .zip(&crop_keys)
+            .map(|(detection, key)| storage.put(key, "image/jpeg", detection.thumbnail.clone())),
+    )
+    .await;
+    if let Some(error) = uploads.into_iter().find_map(Result::err) {
+        // Remove every key: deleting an object that was never written is harmless.
+        delete_quietly(
+            storage.as_ref(),
+            &crop_keys,
+            "failed to delete crop thumbnails after put failure",
+        )
+        .await;
+        return Err(pipeline::storage_failure(error));
     }
     let detections_persist: Vec<pipeline::PersistDetection> = ordered
         .iter()
