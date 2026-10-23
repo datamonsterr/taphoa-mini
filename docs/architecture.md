@@ -16,16 +16,16 @@ is **proposed**. Diagrams use Mermaid and render on GitHub.
 
 ## 1. Scope and drivers
 
-| Driver                                           | Source           | Architectural consequence                                                                 |
-| ------------------------------------------------ | ---------------- | ----------------------------------------------------------------------------------------- |
-| Photo + price enrollment, no barcode needed      | PRD §1, C1       | Embedding index per store; no per-store training                                          |
-| Human confirms every line                        | PRD §3.6, §6     | Recognition API returns candidates only; sales come from the phone, never from the server |
-| Works without internet except recognition        | PRD §6 Offline   | Offline-first phone: local SQLite, outbox, change feed                                    |
-| Lead's price edits propagate to all devices      | G4               | Server owns the catalog; change log + live event stream                                   |
-| Counter photo to editable cart ≤ 3 s             | PRD §6           | Server inference close to the database; image downscale on the phone; one inference slot |
-| No PC, scanner, printer, speaker                 | G5, P4           | Phone does barcode (ML Kit), TTS and VietQR locally                                       |
-| Every photo kept as labeled data for phase 2     | PRD §9, ADR 0002 | Object storage + `scans`/`detections` rows linked to confirmed sale lines                  |
-| Store data belongs to the store; Decree 13/2023  | PRD §6           | Strict store scoping, private bucket, presigned URLs, minimal personal data               |
+| Driver                                          | Source           | Architectural consequence                                                                 |
+| ----------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
+| Photo + price enrollment, no barcode needed     | PRD §1, C1       | Embedding index per store; no per-store training                                          |
+| Human confirms every line                       | PRD §3.6, §6     | Recognition API returns candidates only; sales come from the phone, never from the server |
+| Works without internet except recognition       | PRD §6 Offline   | Offline-first phone: local SQLite, outbox, change feed                                    |
+| Lead's price edits propagate to all devices     | G4               | Server owns the catalog; change log + live event stream                                   |
+| Counter photo to editable cart ≤ 3 s            | PRD §6           | Server inference close to the database; image downscale on the phone; one inference slot  |
+| No PC, scanner, printer, speaker                | G5, P4           | Phone does barcode (ML Kit), TTS and VietQR locally                                       |
+| Every photo kept as labeled data for phase 2    | PRD §9, ADR 0002 | Object storage + `scans`/`detections` rows linked to confirmed sale lines                 |
+| Store data belongs to the store; Decree 13/2023 | PRD §6           | Strict store scoping, private bucket, presigned URLs, minimal personal data               |
 
 ## 2. System context
 
@@ -96,17 +96,17 @@ flowchart TB
     ui -- presigned GET --> bucket
 ```
 
-| Container          | Technology                                                    | Responsibility                                                                     | State      |
-| ------------------ | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
-| Mobile app         | Expo SDK 58, React Native 0.88, Expo Router, TypeScript       | All UI; cart; VietQR; TTS; barcode; offline store of catalog and pending writes    | Skeleton   |
-| Local DB           | `expo-sqlite`                                                 | Catalog replica, outbox, local sales/expenses, sync cursor                          | Proposed   |
-| API                | Rust stable, axum 0.8, tokio, tower-http, tracing             | Auth, REST, SSE, validation, store scoping, reports                                | Skeleton   |
-| Recognition crate  | `ort` (ONNX Runtime, dynamic load), `image`                   | `Segmenter` (SAM phase 1, YOLO phase 2), `Embedder` (DINOv2-class), crop filter/NMS | SAM done   |
-| Postgres           | `pgvector/pgvector:0.8.7-pg18-trixie`, SQLx migrations        | System of record; embeddings and nearest-neighbor search; change log; outbox       | Running    |
-| Redis              | Redis 7                                                       | Event fan-out (pub/sub), rate limits, PIN lockout counters                         | Running    |
-| Object storage     | Railway Bucket (prod), RustFS (local/CI)                      | Photo bytes: enrollment, checkout, crops, receipts                                 | Spec'd     |
-| EAS                | EAS Build, EAS Workflows, Maestro                             | Native builds and mobile e2e                                                       | Configured |
-| GitHub Actions     | `ci.yml`, `deploy.yml`                                        | Lint, test, container build, gated Railway deploy                                  | Running    |
+| Container         | Technology                                              | Responsibility                                                                      | State      |
+| ----------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------- |
+| Mobile app        | Expo SDK 58, React Native 0.88, Expo Router, TypeScript | All UI; cart; VietQR; TTS; barcode; offline store of catalog and pending writes     | Skeleton   |
+| Local DB          | `expo-sqlite`                                           | Catalog replica, outbox, local sales/expenses, sync cursor                          | Proposed   |
+| API               | Rust stable, axum 0.8, tokio, tower-http, tracing       | Auth, REST, SSE, validation, store scoping, reports                                 | Skeleton   |
+| Recognition crate | `ort` (ONNX Runtime, dynamic load), `image`             | `Segmenter` (SAM phase 1, YOLO phase 2), `Embedder` (DINOv2-class), crop filter/NMS | SAM done   |
+| Postgres          | `pgvector/pgvector:0.8.7-pg18-trixie`, SQLx migrations  | System of record; embeddings and nearest-neighbor search; change log; outbox        | Running    |
+| Redis             | Redis 7                                                 | Event fan-out (pub/sub), rate limits, PIN lockout counters                          | Running    |
+| Object storage    | Railway Bucket (prod), RustFS (local/CI)                | Photo bytes: enrollment, checkout, crops, receipts                                  | Spec'd     |
+| EAS               | EAS Build, EAS Workflows, Maestro                       | Native builds and mobile e2e                                                        | Configured |
+| GitHub Actions    | `ci.yml`, `deploy.yml`                                  | Lint, test, container build, gated Railway deploy                                   | Running    |
 
 Redis is never a source of truth. Losing it drops live events (the phone catches up
 by pulling) and resets rate-limit counters.
@@ -291,14 +291,14 @@ flowchart TD
     O --> P[Return Scan JSON<br/>phone shows editable lines]
 ```
 
-| Parameter                | Start value | Notes                                                                       |
-| ------------------------ | ----------- | --------------------------------------------------------------------------- |
+| Parameter                | Start value                   | Notes                                                                  |
+| ------------------------ | ----------------------------- | ---------------------------------------------------------------------- |
 | Embedding model          | DINOv2 ViT-S/14 (ONNX), 384-d | Proposed. Compare with CLIP ViT-B/32 on the A1 test set before fixing. |
-| `T_match`                | 0.80        | Cosine. Tune on A1 (≥ 90% top-1).                                           |
-| `margin`                 | 0.05        | Guards look-alike variants (Lavie 350 vs 500 ml).                           |
-| `T_floor`                | 0.60        | Below: "Không tìm thấy".                                                    |
-| Duplicate threshold (C2) | 0.88        | Enrollment "Same as X?" prompt.                                             |
-| `top_k`                  | 4           | Top match + 3 alternatives (S1).                                            |
+| `T_match`                | 0.80                          | Cosine. Tune on A1 (≥ 90% top-1).                                      |
+| `margin`                 | 0.05                          | Guards look-alike variants (Lavie 350 vs 500 ml).                      |
+| `T_floor`                | 0.60                          | Below: "Không tìm thấy".                                               |
+| Duplicate threshold (C2) | 0.88                          | Enrollment "Same as X?" prompt.                                        |
+| `top_k`                  | 4                             | Top match + 3 alternatives (S1).                                       |
 
 - **Vector search.** `product_embeddings` holds 1–5 vectors per product with an HNSW
   index (`vector_cosine_ops`). Per-store catalogs are small (hundreds to low thousands),
@@ -375,13 +375,13 @@ flowchart LR
     ev --> sse
 ```
 
-| Data                                  | Owner         | Direction       | Conflict rule                                                                 |
-| ------------------------------------- | ------------- | --------------- | ----------------------------------------------------------------------------- |
-| Store, members, categories, products  | Server        | Pull            | Server wins. Lead edits made offline replay as PATCH; last write wins by server receive time; every price change is in history. |
-| Sales                                 | Phone         | Push (outbox)   | Append-only; idempotent by id. Void is a separate idempotent action.          |
-| Expenses, purchases                   | Phone         | Push (outbox)   | Idempotent by id; edits are PATCH, last write wins.                           |
-| Day close                             | Phone (Lead)  | Push (PUT)      | Last write wins per business date; server recomputes expected cash.           |
-| Images                                | Phone         | Upload first    | Outbox entry waits until its image upload returns an `image_id`.              |
+| Data                                 | Owner        | Direction     | Conflict rule                                                                                                                   |
+| ------------------------------------ | ------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Store, members, categories, products | Server       | Pull          | Server wins. Lead edits made offline replay as PATCH; last write wins by server receive time; every price change is in history. |
+| Sales                                | Phone        | Push (outbox) | Append-only; idempotent by id. Void is a separate idempotent action.                                                            |
+| Expenses, purchases                  | Phone        | Push (outbox) | Idempotent by id; edits are PATCH, last write wins.                                                                             |
+| Day close                            | Phone (Lead) | Push (PUT)    | Last write wins per business date; server recomputes expected cash.                                                             |
+| Images                               | Phone        | Upload first  | Outbox entry waits until its image upload returns an `image_id`.                                                                |
 
 Outbox rules:
 
@@ -425,18 +425,18 @@ flowchart LR
 
 ## 8. Security
 
-| Topic             | Design                                                                                                                                                         |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity          | No phone number or email needed. A member is a display name inside a store. Devices hold a session created by store creation, invite join or recovery.        |
-| Tokens            | Access JWT HS256, 15 min (`JWT_SECRET` from Railway). Refresh token opaque, 90 days, rotating, SHA-256 hashed in `sessions`; reuse revokes the session.       |
-| Token storage     | `expo-secure-store` on the phone.                                                                                                                              |
-| Invites           | 128-bit random token, hashed, single use, 10 min default, shown as QR on the Lead's phone.                                                                    |
-| Recovery          | One recovery code per store, Argon2id-hashed, shown once at creation, rotated on use.                                                                          |
-| PIN               | Optional 4–6 digits, Argon2id; 5 failures lock the member 5 min (Redis).                                                                                      |
-| Images            | Private bucket; only presigned GET URLs (15 min). Clients never hold bucket credentials.                                                                        |
-| Transport         | HTTPS only on Railway domains. CORS stays permissive only while there is no web client.                                                                        |
-| Secrets           | Railway variables (`JWT_SECRET`, `AWS_*`) kept with `preserve()`; never in git.                                                                                |
-| Personal data     | Member display names and device names only. Photos are of products. Store deletion removes all rows and objects (Decree 13/2023 request handling, proposed). |
+| Topic         | Design                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity      | No phone number or email needed. A member is a display name inside a store. Devices hold a session created by store creation, invite join or recovery.       |
+| Tokens        | Access JWT HS256, 15 min (`JWT_SECRET` from Railway). Refresh token opaque, 90 days, rotating, SHA-256 hashed in `sessions`; reuse revokes the session.      |
+| Token storage | `expo-secure-store` on the phone.                                                                                                                            |
+| Invites       | 128-bit random token, hashed, single use, 10 min default, shown as QR on the Lead's phone.                                                                   |
+| Recovery      | One recovery code per store, Argon2id-hashed, shown once at creation, rotated on use.                                                                        |
+| PIN           | Optional 4–6 digits, Argon2id; 5 failures lock the member 5 min (Redis).                                                                                     |
+| Images        | Private bucket; only presigned GET URLs (15 min). Clients never hold bucket credentials.                                                                     |
+| Transport     | HTTPS only on Railway domains. CORS stays permissive only while there is no web client.                                                                      |
+| Secrets       | Railway variables (`JWT_SECRET`, `AWS_*`) kept with `preserve()`; never in git.                                                                              |
+| Personal data | Member display names and device names only. Photos are of products. Store deletion removes all rows and objects (Decree 13/2023 request handling, proposed). |
 
 Permission matrix:
 
@@ -725,37 +725,37 @@ sequenceDiagram
 
 ## 10. Configuration
 
-| Variable                                         | Used by  | State       | Meaning                                              |
-| ------------------------------------------------ | -------- | ----------- | ---------------------------------------------------- |
-| `PORT`, `RUST_LOG`, `LOG_FORMAT`                 | backend  | Implemented | Listen port, log filter, `json` on Railway            |
-| `DATABASE_URL`, `REDIS_URL`                      | backend  | Implemented | Railway references                                    |
-| `SAM_ENCODER_PATH`, `SAM_DECODER_PATH`           | backend  | Implemented | SAM ONNX weights                                      |
-| `AWS_*`, `S3_FORCE_PATH_STYLE`, `S3_CREATE_BUCKET`, `IMAGE_URL_TTL_SECONDS` | backend | Spec'd | Object storage ([spec](specs/object-storage.md)) |
-| `EMBEDDER_MODEL_PATH`                            | backend  | Proposed    | DINOv2 ONNX weights                                   |
-| `MATCH_THRESHOLD`, `MATCH_MARGIN`, `MATCH_FLOOR`, `DUPLICATE_THRESHOLD` | backend | Proposed | Recognition tuning (§5.3) |
-| `JWT_SECRET`                                     | backend  | Proposed    | ≥ 32 random bytes                                     |
-| `EXPO_PUBLIC_API_URL`                            | mobile   | Implemented | Backend base URL                                      |
+| Variable                                                                    | Used by | State       | Meaning                                          |
+| --------------------------------------------------------------------------- | ------- | ----------- | ------------------------------------------------ |
+| `PORT`, `RUST_LOG`, `LOG_FORMAT`                                            | backend | Implemented | Listen port, log filter, `json` on Railway       |
+| `DATABASE_URL`, `REDIS_URL`                                                 | backend | Implemented | Railway references                               |
+| `SAM_ENCODER_PATH`, `SAM_DECODER_PATH`                                      | backend | Implemented | SAM ONNX weights                                 |
+| `AWS_*`, `S3_FORCE_PATH_STYLE`, `S3_CREATE_BUCKET`, `IMAGE_URL_TTL_SECONDS` | backend | Spec'd      | Object storage ([spec](specs/object-storage.md)) |
+| `EMBEDDER_MODEL_PATH`                                                       | backend | Proposed    | DINOv2 ONNX weights                              |
+| `MATCH_THRESHOLD`, `MATCH_MARGIN`, `MATCH_FLOOR`, `DUPLICATE_THRESHOLD`     | backend | Proposed    | Recognition tuning (§5.3)                        |
+| `JWT_SECRET`                                                                | backend | Proposed    | ≥ 32 random bytes                                |
+| `EXPO_PUBLIC_API_URL`                                                       | mobile  | Implemented | Backend base URL                                 |
 
 ## 11. Quality attributes
 
-| Requirement (PRD §6)          | How the architecture meets it                                                               | How we measure                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| Photo to editable cart ≤ 3 s  | Phone downscale; single round trip; ONNX on CPU; swappable segmenter; region move           | `scans.timings`, `/v1/reports/recognition`  |
-| Offline grid, manual, VietQR  | SQLite replica, outbox, local VietQR                                                        | Maestro flow in airplane mode               |
-| Never charge unconfirmed      | API returns candidates only; sale lines come from the phone                                 | Code review rule; API has no "auto-sale"    |
-| No data loss after last sync  | Server is system of record; Postgres volume + Railway backups; idempotent replay            | Restore drill onto a new phone              |
-| Accuracy metric               | `detection_id` + `suggested_product_id` on lines                                            | Confirmed-vs-corrected rate                 |
-| Cost per scan                 | Timings per stage; one CPU instance                                                         | Railway usage ÷ scans per day               |
+| Requirement (PRD §6)         | How the architecture meets it                                                     | How we measure                             |
+| ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------ |
+| Photo to editable cart ≤ 3 s | Phone downscale; single round trip; ONNX on CPU; swappable segmenter; region move | `scans.timings`, `/v1/reports/recognition` |
+| Offline grid, manual, VietQR | SQLite replica, outbox, local VietQR                                              | Maestro flow in airplane mode              |
+| Never charge unconfirmed     | API returns candidates only; sale lines come from the phone                       | Code review rule; API has no "auto-sale"   |
+| No data loss after last sync | Server is system of record; Postgres volume + Railway backups; idempotent replay  | Restore drill onto a new phone             |
+| Accuracy metric              | `detection_id` + `suggested_product_id` on lines                                  | Confirmed-vs-corrected rate                |
+| Cost per scan                | Timings per stage; one CPU instance                                               | Railway usage ÷ scans per day              |
 
 ## 12. Open decisions
 
-| #  | Decision                                                 | Default in this document                     | Settle by                       |
-| -- | -------------------------------------------------------- | -------------------------------------------- | ------------------------------- |
-| D1 | Embedding model                                          | DINOv2 ViT-S/14, 384-d                       | A1 benchmark on 50 products     |
-| D2 | SAM variant on CPU within 3 s                            | Current SAM ONNX; smaller variant if slow    | Latency test on Railway         |
-| D3 | Railway region for services                              | Move to an Asian region                      | Before pilot                    |
-| D4 | Auth model: device sessions + invite QR + recovery code  | As in §8                                     | ADR 0003                        |
-| D5 | Sync: REST outbox + change feed + SSE hints              | As in §6.2                                   | ADR 0004                        |
-| D6 | Helpers enroll or only flag (PRD Q5)                     | Per-member `can_enroll` flag, default off    | Family trial                    |
-| D7 | Weighted goods (PRD Q3)                                  | Not modeled; integer quantities only         | Product decision                |
-| D8 | Bank notification provider (S9)                          | Out of phase 1                               | PRD Q1                          |
+| #   | Decision                                                | Default in this document                  | Settle by                   |
+| --- | ------------------------------------------------------- | ----------------------------------------- | --------------------------- |
+| D1  | Embedding model                                         | DINOv2 ViT-S/14, 384-d                    | A1 benchmark on 50 products |
+| D2  | SAM variant on CPU within 3 s                           | Current SAM ONNX; smaller variant if slow | Latency test on Railway     |
+| D3  | Railway region for services                             | Move to an Asian region                   | Before pilot                |
+| D4  | Auth model: device sessions + invite QR + recovery code | As in §8                                  | ADR 0003                    |
+| D5  | Sync: REST outbox + change feed + SSE hints             | As in §6.2                                | ADR 0004                    |
+| D6  | Helpers enroll or only flag (PRD Q5)                    | Per-member `can_enroll` flag, default off | Family trial                |
+| D7  | Weighted goods (PRD Q3)                                 | Not modeled; integer quantities only      | Product decision            |
+| D8  | Bank notification provider (S9)                         | Out of phase 1                            | PRD Q1                      |

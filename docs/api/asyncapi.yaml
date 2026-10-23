@@ -47,7 +47,8 @@ channels:
       alertCreated: { $ref: '#/components/messages/alertCreated' }
       alertResolved: { $ref: '#/components/messages/alertResolved' }
       dayClosed: { $ref: '#/components/messages/dayClosed' }
-      salePaymentConfirmed: { $ref: '#/components/messages/salePaymentConfirmed' }
+      salePaymentConfirmed:
+        { $ref: '#/components/messages/salePaymentConfirmed' }
   storeEventBus:
     address: 'store:{storeId}:events'
     title: Store event bus (Redis pub/sub)
@@ -71,7 +72,8 @@ channels:
       alertCreated: { $ref: '#/components/messages/alertCreated' }
       alertResolved: { $ref: '#/components/messages/alertResolved' }
       dayClosed: { $ref: '#/components/messages/dayClosed' }
-      salePaymentConfirmed: { $ref: '#/components/messages/salePaymentConfirmed' }
+      salePaymentConfirmed:
+        { $ref: '#/components/messages/salePaymentConfirmed' }
   internalEvents:
     address: internal:events
     title: Internal events (Redis pub/sub)
@@ -114,7 +116,12 @@ components:
       type: object
       required: [id, type, version, store_id, occurred_at]
       properties:
-        id: { type: string, pattern: '^evt_[0-9]{15}$', description: 'evt_ + zero-padded outbox id; SSE id.' }
+        id:
+          {
+            type: string,
+            pattern: '^evt_[0-9]{15}$',
+            description: 'evt_ + zero-padded outbox id; SSE id.',
+          }
         type: { type: string }
         version: { type: integer, minimum: 1 }
         store_id: { $ref: '#/components/schemas/Uuid' }
@@ -124,7 +131,12 @@ components:
           properties:
             member_id: { $ref: '#/components/schemas/Uuid' }
             session_id: { $ref: '#/components/schemas/Uuid' }
-        cursor: { type: string, description: Change-feed cursor after this change, when the event has one. }
+        cursor:
+          {
+            type: string,
+            description: Change-feed cursor after this change,
+            when the event has one.,
+          }
         data: { type: object }
 
   messages:
@@ -143,7 +155,11 @@ components:
                 required: [entity, ids]
                 properties:
                   entity: { type: string, enum: [product, category] }
-                  ids: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+                  ids:
+                    {
+                      type: array,
+                      items: { $ref: '#/components/schemas/Uuid' },
+                    }
     priceChanged:
       name: price.changed
       summary: Selling price or unit price changed (C3, G4).
@@ -207,7 +223,11 @@ components:
                 required: [session_id, reason]
                 properties:
                   session_id: { $ref: '#/components/schemas/Uuid' }
-                  reason: { type: string, enum: [logout, member_removed, token_reuse, recovery] }
+                  reason:
+                    {
+                      type: string,
+                      enum: [logout, member_removed, token_reuse, recovery],
+                    }
     saleCreated:
       name: sale.created
       summary: New sale stored. Not emitted on idempotent replay.
@@ -220,7 +240,16 @@ components:
               type: { const: sale.created }
               data:
                 type: object
-                required: [sale_id, code, total, payment_method, member_id, business_date, line_count]
+                required:
+                  [
+                    sale_id,
+                    code,
+                    total,
+                    payment_method,
+                    member_id,
+                    business_date,
+                    line_count,
+                  ]
                 properties:
                   sale_id: { $ref: '#/components/schemas/Uuid' }
                   code: { type: string }
@@ -294,7 +323,8 @@ components:
                 properties:
                   expense_id: { $ref: '#/components/schemas/Uuid' }
                   amount: { $ref: '#/components/schemas/Money' }
-                  category: { type: string, enum: [nhap_hang, dien, nuoc, khac] }
+                  category:
+                    { type: string, enum: [nhap_hang, dien, nuoc, khac] }
                   business_date: { type: string, format: date }
     alertCreated:
       name: alert.created
@@ -308,7 +338,15 @@ components:
               type: { const: alert.created }
               data:
                 type: object
-                required: [alert_id, product_id, cost_price, selling_price, margin_pct, suggested_price]
+                required:
+                  [
+                    alert_id,
+                    product_id,
+                    cost_price,
+                    selling_price,
+                    margin_pct,
+                    suggested_price,
+                  ]
                 properties:
                   alert_id: { $ref: '#/components/schemas/Uuid' }
                   product_id: { $ref: '#/components/schemas/Uuid' }
@@ -343,7 +381,8 @@ components:
               type: { const: day.closed }
               data:
                 type: object
-                required: [business_date, expected_cash, counted_cash, difference]
+                required:
+                  [business_date, expected_cash, counted_cash, difference]
                 properties:
                   business_date: { type: string, format: date }
                   expected_cash: { $ref: '#/components/schemas/Money' }

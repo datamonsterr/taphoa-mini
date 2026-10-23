@@ -7,3 +7,6 @@ coverage/
 apps/backend/target/
 apps/backend/models/
 pnpm-lock.yaml
+
+# Generated design canvas (edited by the design tool)
+docs/design/canvas/

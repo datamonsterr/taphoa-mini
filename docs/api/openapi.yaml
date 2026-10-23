@@ -164,8 +164,13 @@ paths:
               type: object
               required: [invite_token, display_name, device]
               properties:
-                invite_token: { type: string, description: Value from the invite QR. Single use. }
-                display_name: { type: string, minLength: 1, maxLength: 40, example: Bà nội }
+                invite_token:
+                  {
+                    type: string,
+                    description: Value from the invite QR. Single use.,
+                  }
+                display_name:
+                  { type: string, minLength: 1, maxLength: 40, example: Bà nội }
                 device: { $ref: '#/components/schemas/DeviceInfo' }
       responses:
         '201':
@@ -413,7 +418,8 @@ paths:
               properties:
                 role: { $ref: '#/components/schemas/Role' }
                 can_enroll: { type: boolean, default: false }
-                ttl_seconds: { type: integer, minimum: 60, maximum: 86400, default: 600 }
+                ttl_seconds:
+                  { type: integer, minimum: 60, maximum: 86400, default: 600 }
       responses:
         '201':
           description: Invite. Encode `join_url` into the QR.
@@ -503,10 +509,20 @@ paths:
             schema:
               type: object
               properties:
-                image: { type: string, format: binary, description: Required unless `image_id` is given. }
+                image:
+                  {
+                    type: string,
+                    format: binary,
+                    description: Required unless `image_id` is given.,
+                  }
                 image_id: { type: string, format: uuid }
                 mode: { type: string, enum: [single, multi], default: multi }
-                purpose: { type: string, enum: [checkout, enrollment], default: checkout }
+                purpose:
+                  {
+                    type: string,
+                    enum: [checkout, enrollment],
+                    default: checkout,
+                  }
                 top_k: { type: integer, minimum: 1, maximum: 5, default: 4 }
       responses:
         '201':
@@ -555,7 +571,12 @@ paths:
               type: object
               required: [image]
               properties:
-                image: { type: string, format: binary, description: 'PNG or JPEG, max 10 MiB.' }
+                image:
+                  {
+                    type: string,
+                    format: binary,
+                    description: 'PNG or JPEG, max 10 MiB.',
+                  }
       responses:
         '200':
           description: Segments after score/area filtering and NMS.
@@ -923,7 +944,12 @@ paths:
               required: [reason]
               properties:
                 reason: { type: string, minLength: 1, maxLength: 200 }
-                voided_at: { type: string, format: date-time, description: Device time; defaults to server time. }
+                voided_at:
+                  {
+                    type: string,
+                    format: date-time,
+                    description: Device time; defaults to server time.,
+                  }
       responses:
         '200':
           description: Voided sale.
@@ -985,7 +1011,12 @@ paths:
               required: [action]
               properties:
                 action: { type: string, enum: [link, enrolled, dismiss] }
-                product_id: { type: string, format: uuid, description: Required for link and enrolled. }
+                product_id:
+                  {
+                    type: string,
+                    format: uuid,
+                    description: Required for link and enrolled.,
+                  }
       responses:
         '200':
           description: Resolved line.
@@ -1117,7 +1148,8 @@ paths:
       parameters:
         - name: status
           in: query
-          schema: { type: string, enum: [open, accepted, dismissed], default: open }
+          schema:
+            { type: string, enum: [open, accepted, dismissed], default: open }
       responses:
         '200':
           description: Alerts.
@@ -1546,7 +1578,11 @@ components:
       type: object
       required: [error]
       properties:
-        error: { type: string, description: Human-readable message (English; the app localizes by `code`). }
+        error:
+          {
+            type: string,
+            description: Human-readable message (English; the app localizes by `code`).,
+          }
         code: { type: string, example: duplicate_suspected }
         details: { type: object, additionalProperties: true }
     Readiness:
@@ -1586,14 +1622,20 @@ components:
       properties:
         access_token: { type: string }
         refresh_token: { type: string }
-        expires_in: { type: integer, description: Access token lifetime in seconds., example: 900 }
+        expires_in:
+          {
+            type: integer,
+            description: Access token lifetime in seconds.,
+            example: 900,
+          }
         member: { $ref: '#/components/schemas/Member' }
         store: { $ref: '#/components/schemas/Store' }
     CreateStoreRequest:
       type: object
       required: [store_name, display_name, device]
       properties:
-        store_name: { type: string, minLength: 1, maxLength: 80, example: Tạp hóa Cô Ba }
+        store_name:
+          { type: string, minLength: 1, maxLength: 80, example: Tạp hóa Cô Ba }
         display_name: { type: string, minLength: 1, maxLength: 40, example: Mẹ }
         device: { $ref: '#/components/schemas/DeviceInfo' }
         bank_account: { $ref: '#/components/schemas/BankAccount' }
@@ -1602,10 +1644,27 @@ components:
       description: VietQR payee (T1). The phone builds the EMVCo/NAPAS payload locally from this.
       required: [bank_bin, account_number, account_name]
       properties:
-        bank_bin: { type: string, pattern: '^[0-9]{6}$', description: NAPAS bank BIN., example: '970436' }
+        bank_bin:
+          {
+            type: string,
+            pattern: '^[0-9]{6}$',
+            description: NAPAS bank BIN.,
+            example: '970436',
+          }
         bank_short_name: { type: string, example: Vietcombank }
-        account_number: { type: string, pattern: '^[0-9A-Za-z]{4,19}$', example: '0123456789' }
-        account_name: { type: string, maxLength: 50, description: 'Uppercase, no diacritics.', example: NGUYEN THI BA }
+        account_number:
+          {
+            type: string,
+            pattern: '^[0-9A-Za-z]{4,19}$',
+            example: '0123456789',
+          }
+        account_name:
+          {
+            type: string,
+            maxLength: 50,
+            description: 'Uppercase, no diacritics.',
+            example: NGUYEN THI BA,
+          }
     Store:
       type: object
       required: [id, name, timezone, margin_threshold_pct, created_at, version]
@@ -1623,7 +1682,13 @@ components:
           maximum: 100
           default: 0
           description: E3 alert fires when (price − cost) / price × 100 is below this.
-        sales_memo_prefix: { type: string, maxLength: 8, default: TH, description: VietQR memo prefix before the short sale code. }
+        sales_memo_prefix:
+          {
+            type: string,
+            maxLength: 8,
+            default: TH,
+            description: VietQR memo prefix before the short sale code.,
+          }
         created_at: { type: string, format: date-time }
         version: { type: integer, format: int64 }
     StorePatch:
@@ -1638,7 +1703,8 @@ components:
         sales_memo_prefix: { type: string, maxLength: 8 }
     Member:
       type: object
-      required: [id, display_name, role, can_enroll, has_pin, active, created_at]
+      required:
+        [id, display_name, role, can_enroll, has_pin, active, created_at]
       properties:
         id: { type: string, format: uuid }
         display_name: { type: string, example: Bà nội }
@@ -1651,8 +1717,17 @@ components:
       type: object
       required: [token, join_url, role, can_enroll, expires_at]
       properties:
-        token: { type: string, description: '128-bit random, base32. Stored hashed.' }
-        join_url: { type: string, format: uri, example: 'taphoa://join?token=K7Q4MZ2P9HXDT3VA' }
+        token:
+          {
+            type: string,
+            description: '128-bit random, base32. Stored hashed.',
+          }
+        join_url:
+          {
+            type: string,
+            format: uri,
+            example: 'taphoa://join?token=K7Q4MZ2P9HXDT3VA',
+          }
         role: { $ref: '#/components/schemas/Role' }
         can_enroll: { type: boolean }
         expires_at: { type: string, format: date-time }
@@ -1665,8 +1740,13 @@ components:
       required: [id, object_key, content_type, byte_size, url, url_expires_at]
       properties:
         id: { type: string, format: uuid }
-        object_key: { type: string, example: images/2026/10/0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b.jpg }
-        content_type: { type: string, enum: [image/jpeg, image/png, image/webp] }
+        object_key:
+          {
+            type: string,
+            example: images/2026/10/0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b.jpg,
+          }
+        content_type:
+          { type: string, enum: [image/jpeg, image/png, image/webp] }
         byte_size: { type: integer, format: int64 }
         purpose: { $ref: '#/components/schemas/ImagePurpose' }
         width: { type: integer }
@@ -1717,14 +1797,24 @@ components:
       type: object
       required: [id, bbox, score, match, candidates]
       properties:
-        id: { type: string, format: uuid, description: Send back as `sale line.detection_id` to label training data. }
+        id:
+          {
+            type: string,
+            format: uuid,
+            description: Send back as `sale line.detection_id` to label training data.,
+          }
         bbox:
           type: array
           items: { type: number }
           minItems: 4
           maxItems: 4
         score: { type: number }
-        crop_url: { type: string, format: uri, description: Presigned URL of the crop thumbnail. }
+        crop_url:
+          {
+            type: string,
+            format: uri,
+            description: Presigned URL of the crop thumbnail.,
+          }
         match:
           type: string
           enum: [matched, ambiguous, unknown]
@@ -1741,7 +1831,13 @@ components:
       required: [product_id, similarity, name, price]
       properties:
         product_id: { type: string, format: uuid }
-        similarity: { type: number, minimum: -1, maximum: 1, description: Cosine similarity of best reference embedding. }
+        similarity:
+          {
+            type: number,
+            minimum: -1,
+            maximum: 1,
+            description: Cosine similarity of best reference embedding.,
+          }
         name: { type: [string, 'null'] }
         price: { $ref: '#/components/schemas/Money' }
         default_unit_id: { type: [string, 'null'], format: uuid }
@@ -1772,7 +1868,8 @@ components:
         position: { type: integer, minimum: 0, maximum: 4 }
     Product:
       type: object
-      required: [id, price, base_unit, units, images, archived, version, updated_at]
+      required:
+        [id, price, base_unit, units, images, archived, version, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: [string, 'null'], example: Sting đỏ 330ml }
@@ -1873,12 +1970,22 @@ components:
       required: [id, source, quantity, unit_price]
       properties:
         id: { type: string, format: uuid }
-        product_id: { type: [string, 'null'], format: uuid, description: Null only for `source=manual`. }
+        product_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: Null only for `source=manual`.,
+          }
         unit_id: { type: [string, 'null'], format: uuid }
         source: { $ref: '#/components/schemas/LineSource' }
         quantity: { type: integer, minimum: 1, maximum: 999 }
         unit_price: { $ref: '#/components/schemas/Money' }
-        manual_label: { type: string, maxLength: 80, description: Optional note for manual lines. }
+        manual_label:
+          {
+            type: string,
+            maxLength: 80,
+            description: Optional note for manual lines.,
+          }
         detection_id:
           type: [string, 'null']
           format: uuid
@@ -1901,7 +2008,12 @@ components:
       required: [id, sold_at, payment_method, lines, total]
       properties:
         id: { type: string, format: uuid, description: Client UUIDv7. }
-        sold_at: { type: string, format: date-time, description: Device time at "Đã nhận". }
+        sold_at:
+          {
+            type: string,
+            format: date-time,
+            description: Device time at "Đã nhận".,
+          }
         payment_method: { $ref: '#/components/schemas/PaymentMethod' }
         cash_received:
           $ref: '#/components/schemas/Money'
@@ -1917,12 +2029,34 @@ components:
           items: { $ref: '#/components/schemas/SaleLineInput' }
     Sale:
       type: object
-      required: [id, code, sold_at, received_at, business_date, member_id, payment_method, total, status, lines]
+      required:
+        [
+          id,
+          code,
+          sold_at,
+          received_at,
+          business_date,
+          member_id,
+          payment_method,
+          total,
+          status,
+          lines,
+        ]
       properties:
         id: { type: string, format: uuid }
-        code: { type: string, description: Short code shown in the VietQR memo., example: 7KQ4MZ }
+        code:
+          {
+            type: string,
+            description: Short code shown in the VietQR memo.,
+            example: 7KQ4MZ,
+          }
         sold_at: { type: string, format: date-time }
-        received_at: { type: string, format: date-time, description: Server time of first receipt. }
+        received_at:
+          {
+            type: string,
+            format: date-time,
+            description: Server time of first receipt.,
+          }
         business_date: { type: string, format: date }
         member_id: { type: string, format: uuid }
         payment_method: { $ref: '#/components/schemas/PaymentMethod' }
@@ -1948,7 +2082,8 @@ components:
           items: { $ref: '#/components/schemas/SaleLine' }
     ManualLine:
       type: object
-      required: [line_id, sale_id, sold_at, sold_by, unit_price, quantity, status]
+      required:
+        [line_id, sale_id, sold_at, sold_by, unit_price, quantity, status]
       properties:
         line_id: { type: string, format: uuid }
         sale_id: { type: string, format: uuid }
@@ -1979,7 +2114,12 @@ components:
       required: [product_id, quantity, unit_cost]
       properties:
         product_id: { type: string, format: uuid }
-        unit_id: { type: [string, 'null'], format: uuid, description: 'Unit bought, e.g. thùng. Cost is converted to the base unit.' }
+        unit_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: 'Unit bought, e.g. thùng. Cost is converted to the base unit.',
+          }
         quantity: { type: integer, minimum: 1 }
         unit_cost: { $ref: '#/components/schemas/Money' }
     CreateExpenseRequest:
@@ -1990,7 +2130,12 @@ components:
         spent_at: { type: string, format: date-time }
         amount: { $ref: '#/components/schemas/Money' }
         category: { $ref: '#/components/schemas/ExpenseCategory' }
-        paid_with: { type: string, enum: [cash_box, other], description: Only `cash_box` reduces expected cash at close. }
+        paid_with:
+          {
+            type: string,
+            enum: [cash_box, other],
+            description: Only `cash_box` reduces expected cash at close.,
+          }
         image_id: { type: string, format: uuid }
         note: { type: string, maxLength: 500 }
         purchase_lines:
@@ -2014,7 +2159,18 @@ components:
             created_at: { type: string, format: date-time }
     MarginAlert:
       type: object
-      required: [id, product_id, product_name, cost_price, selling_price, margin_pct, suggested_price, status, created_at]
+      required:
+        [
+          id,
+          product_id,
+          product_name,
+          cost_price,
+          selling_price,
+          margin_pct,
+          suggested_price,
+          status,
+          created_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         product_id: { type: string, format: uuid }
@@ -2029,7 +2185,17 @@ components:
         created_at: { type: string, format: date-time }
     DailyReport:
       type: object
-      required: [business_date, revenue, sales_count, cash_revenue, transfer_revenue, expenses, net, expected_cash]
+      required:
+        [
+          business_date,
+          revenue,
+          sales_count,
+          cash_revenue,
+          transfer_revenue,
+          expenses,
+          net,
+          expected_cash,
+        ]
       properties:
         business_date: { type: string, format: date }
         revenue: { $ref: '#/components/schemas/Money' }
@@ -2038,7 +2204,12 @@ components:
         cash_revenue: { $ref: '#/components/schemas/Money' }
         transfer_revenue: { $ref: '#/components/schemas/Money' }
         expenses: { $ref: '#/components/schemas/Money' }
-        net: { type: integer, format: int64, description: Revenue minus expenses; may be negative. }
+        net:
+          {
+            type: integer,
+            format: int64,
+            description: Revenue minus expenses; may be negative.,
+          }
         expected_cash: { $ref: '#/components/schemas/Money' }
         manual_lines_open: { type: integer }
         day_close:
@@ -2071,7 +2242,8 @@ components:
       type: object
       required: [detections, confirmed_top1, confirmed_top3, corrected, unknown]
       properties:
-        detections: { type: integer, description: Detections linked to a sale line. }
+        detections:
+          { type: integer, description: Detections linked to a sale line. }
         confirmed_top1: { type: integer }
         confirmed_top3: { type: integer }
         corrected: { type: integer }
@@ -2080,7 +2252,15 @@ components:
         median_scan_ms: { type: integer }
     DayClose:
       type: object
-      required: [business_date, expected_cash, counted_cash, difference, closed_by, closed_at]
+      required:
+        [
+          business_date,
+          expected_cash,
+          counted_cash,
+          difference,
+          closed_by,
+          closed_at,
+        ]
       properties:
         business_date: { type: string, format: date }
         opening_float: { $ref: '#/components/schemas/Money' }
@@ -2089,9 +2269,19 @@ components:
         cash_expenses: { $ref: '#/components/schemas/Money' }
         expected_cash: { $ref: '#/components/schemas/Money' }
         counted_cash: { $ref: '#/components/schemas/Money' }
-        difference: { type: integer, format: int64, description: counted − expected; negative means missing cash., example: -10000 }
+        difference:
+          {
+            type: integer,
+            format: int64,
+            description: counted − expected; negative means missing cash.,
+            example: -10000,
+          }
         transfer_revenue: { $ref: '#/components/schemas/Money' }
-        late_sales_count: { type: integer, description: Sales synced after the close for this date. }
+        late_sales_count:
+          {
+            type: integer,
+            description: Sales synced after the close for this date.,
+          }
         note: { type: [string, 'null'] }
         closed_by: { type: string, format: uuid }
         closed_at: { type: string, format: date-time }
@@ -2151,5 +2341,9 @@ components:
           properties:
             member_id: { type: string, format: uuid }
             session_id: { type: string, format: uuid }
-        cursor: { type: string, description: 'Change-feed cursor after this event, when relevant.' }
+        cursor:
+          {
+            type: string,
+            description: 'Change-feed cursor after this event, when relevant.',
+          }
         data: { type: object }

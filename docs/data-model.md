@@ -13,17 +13,17 @@ Everything else is a proposal that later migrations implement.
 
 ## 1. Conventions
 
-| Topic          | Rule                                                                                                          |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| Keys           | `UUID` primary keys. Server-created rows use `gen_random_uuid()`; phone-created rows use client UUIDv7.        |
-| Tenancy        | Every store-owned table has `store_id UUID NOT NULL REFERENCES stores`. Every handler index starts with `store_id`. |
-| Money          | `BIGINT` VND, `CHECK (x >= 0)` unless a difference.                                                           |
-| Time           | `TIMESTAMPTZ`. `business_date DATE` is derived on write in `Asia/Ho_Chi_Minh` and stored.                     |
-| Soft delete    | `archived` / `deleted_at` / `active` on records other records reference. Sales are never deleted.             |
-| Versioning     | Pulled entities carry `version BIGINT`, incremented on every update; the change log carries the order.        |
-| Idempotency    | Phone-created rows store `request_hash BYTEA` (SHA-256 of canonical JSON body).                                |
-| Enums          | Postgres `TEXT` + `CHECK` constraints (easier to extend in migrations than `CREATE TYPE`).                     |
-| Names          | `snake_case`, plural tables, `<table>_id` foreign keys.                                                       |
+| Topic       | Rule                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| Keys        | `UUID` primary keys. Server-created rows use `gen_random_uuid()`; phone-created rows use client UUIDv7.             |
+| Tenancy     | Every store-owned table has `store_id UUID NOT NULL REFERENCES stores`. Every handler index starts with `store_id`. |
+| Money       | `BIGINT` VND, `CHECK (x >= 0)` unless a difference.                                                                 |
+| Time        | `TIMESTAMPTZ`. `business_date DATE` is derived on write in `Asia/Ho_Chi_Minh` and stored.                           |
+| Soft delete | `archived` / `deleted_at` / `active` on records other records reference. Sales are never deleted.                   |
+| Versioning  | Pulled entities carry `version BIGINT`, incremented on every update; the change log carries the order.              |
+| Idempotency | Phone-created rows store `request_hash BYTEA` (SHA-256 of canonical JSON body).                                     |
+| Enums       | Postgres `TEXT` + `CHECK` constraints (easier to extend in migrations than `CREATE TYPE`).                          |
+| Names       | `snake_case`, plural tables, `<table>_id` foreign keys.                                                             |
 
 ## 2. Entity-relationship diagram
 
@@ -667,15 +667,15 @@ CREATE INDEX outbox_unpublished ON outbox_events (id) WHERE published_at IS NULL
 
 ### 3.9 Retention
 
-| Data                                   | Kept                                              |
-| -------------------------------------- | ------------------------------------------------- |
-| Sales, lines, expenses, day closes     | Forever (tax records); deleted only with the store |
-| Price history                          | Forever                                           |
-| Scans, detections, checkout photos     | Forever in phase 1 (training data); review before phase 3 |
-| Sessions                               | 30 days after expiry or revoke                    |
-| Invites                                | 30 days after expiry                              |
-| change_log                             | Newest per entity; others 30 days                 |
-| outbox_events                          | 7 days after publish                              |
+| Data                               | Kept                                                      |
+| ---------------------------------- | --------------------------------------------------------- |
+| Sales, lines, expenses, day closes | Forever (tax records); deleted only with the store        |
+| Price history                      | Forever                                                   |
+| Scans, detections, checkout photos | Forever in phase 1 (training data); review before phase 3 |
+| Sessions                           | 30 days after expiry or revoke                            |
+| Invites                            | 30 days after expiry                                      |
+| change_log                         | Newest per entity; others 30 days                         |
+| outbox_events                      | 7 days after publish                                      |
 
 ## 4. Phone storage
 
@@ -743,16 +743,16 @@ older history is read from the API.
 
 ### 4.2 Outbox entry contract
 
-| `kind`              | Request                                     | Depends on            | On 409 `id_conflict` |
-| ------------------- | ------------------------------------------- | --------------------- | -------------------- |
-| `image.upload`      | `POST /v1/images` (multipart from local URI) | —                     | n/a                  |
-| `product.create`    | `POST /v1/products`                         | its `image.upload`s   | mark failed          |
-| `product.update`    | `PATCH /v1/products/{id}`                   | `product.create`      | n/a                  |
-| `sale.create`       | `POST /v1/sales`                            | —                     | mark failed, alert Lead |
-| `sale.void`         | `POST /v1/sales/{id}/void`                  | `sale.create`         | n/a                  |
-| `expense.create`    | `POST /v1/expenses`                         | its `image.upload`    | mark failed          |
-| `expense.update`    | `PATCH /v1/expenses/{id}`                   | `expense.create`      | n/a                  |
-| `day_close.put`     | `PUT /v1/day-closes/{date}`                 | all earlier `sale.*`  | n/a                  |
+| `kind`           | Request                                      | Depends on           | On 409 `id_conflict`    |
+| ---------------- | -------------------------------------------- | -------------------- | ----------------------- |
+| `image.upload`   | `POST /v1/images` (multipart from local URI) | —                    | n/a                     |
+| `product.create` | `POST /v1/products`                          | its `image.upload`s  | mark failed             |
+| `product.update` | `PATCH /v1/products/{id}`                    | `product.create`     | n/a                     |
+| `sale.create`    | `POST /v1/sales`                             | —                    | mark failed, alert Lead |
+| `sale.void`      | `POST /v1/sales/{id}/void`                   | `sale.create`        | n/a                     |
+| `expense.create` | `POST /v1/expenses`                          | its `image.upload`   | mark failed             |
+| `expense.update` | `PATCH /v1/expenses/{id}`                    | `expense.create`     | n/a                     |
+| `day_close.put`  | `PUT /v1/day-closes/{date}`                  | all earlier `sale.*` | n/a                     |
 
 After `image.upload` succeeds, the worker rewrites the dependent entry's body, replacing
 `local:{uri}` placeholders with the returned `image_id`.
@@ -797,7 +797,14 @@ Every event, in Redis and on SSE, is this JSON (formal schema in
   "occurred_at": "2026-10-23T09:14:02.511+07:00",
   "actor": { "member_id": "0192b1f0-…", "session_id": "0192b1f1-…" },
   "cursor": "AAAAAAAAAIA",
-  "data": { "product_id": "…", "unit_id": null, "field": "price", "old_value": 9000, "new_value": 10000, "source": "margin_alert" }
+  "data": {
+    "product_id": "…",
+    "unit_id": null,
+    "field": "price",
+    "old_value": 9000,
+    "new_value": 10000,
+    "source": "margin_alert"
+  }
 }
 ```
 
@@ -809,34 +816,34 @@ Every event, in Redis and on SSE, is this JSON (formal schema in
 
 ### 5.3 Catalog
 
-| Type                     | When                                                   | `data`                                                                                   | Phone reaction                                  |
-| ------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `catalog.changed`        | Product/category/unit/image created, updated, archived | `{entity: "product"\|"category", ids: [uuid]}`                                          | Pull change feed                                |
-| `price.changed`          | Selling price or unit price changed                    | `{product_id, unit_id, field, old_value, new_value, source}`                             | Pull; toast "Giá mới: …" on open carts with it  |
-| `store.changed`          | Store settings updated                                 | `{fields: [string]}`                                                                     | Pull                                            |
-| `member.changed`         | Member joined, updated, deactivated                    | `{member_id, change: "joined"\|"updated"\|"deactivated"}`                                | Pull                                            |
-| `session.revoked`        | Session revoked (logout, member removed, token reuse)  | `{session_id, reason: "logout"\|"member_removed"\|"token_reuse"\|"recovery"}`            | If own session: clear tokens, go to join screen |
+| Type              | When                                                   | `data`                                                                        | Phone reaction                                  |
+| ----------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- | ----------------------------------------------- |
+| `catalog.changed` | Product/category/unit/image created, updated, archived | `{entity: "product"\|"category", ids: [uuid]}`                                | Pull change feed                                |
+| `price.changed`   | Selling price or unit price changed                    | `{product_id, unit_id, field, old_value, new_value, source}`                  | Pull; toast "Giá mới: …" on open carts with it  |
+| `store.changed`   | Store settings updated                                 | `{fields: [string]}`                                                          | Pull                                            |
+| `member.changed`  | Member joined, updated, deactivated                    | `{member_id, change: "joined"\|"updated"\|"deactivated"}`                     | Pull                                            |
+| `session.revoked` | Session revoked (logout, member removed, token reuse)  | `{session_id, reason: "logout"\|"member_removed"\|"token_reuse"\|"recovery"}` | If own session: clear tokens, go to join screen |
 
 ### 5.4 Sales and money
 
-| Type                     | When                                         | `data`                                                                         | Phone reaction                       |
-| ------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------ |
-| `sale.created`           | New sale stored (not on idempotent replay)   | `{sale_id, code, total, payment_method, member_id, business_date, line_count}` | Refresh Today if open                |
-| `sale.voided`            | Sale voided                                  | `{sale_id, reason, voided_by, total}`                                          | Refresh Today                        |
-| `review.line_flagged`    | Manual-price or price-mismatch line stored   | `{line_id, sale_id, reason: "manual_price"\|"price_mismatch", unit_price}`     | Lead: badge on review queue          |
-| `review.line_resolved`   | Line resolved                                | `{line_id, action, product_id}`                                                | Lead: decrement badge                |
-| `expense.created`        | Expense stored                               | `{expense_id, amount, category, business_date}`                                | Refresh Today                        |
-| `alert.created`          | Margin alert opened or updated               | `{alert_id, product_id, cost_price, selling_price, margin_pct, suggested_price}` | Lead: banner with Accept/Keep        |
-| `alert.resolved`         | Alert accepted or dismissed                  | `{alert_id, status, new_price}`                                                | Lead: remove banner                  |
-| `day.closed`             | Day close stored or redone                   | `{business_date, expected_cash, counted_cash, difference}`                     | Refresh Today                        |
-| `sale.payment_confirmed` | Phase 2 (S9): bank notification matched      | `{sale_id, amount, bank_ref}`                                                  | Show "Đã nhận tiền" on pay screen    |
+| Type                     | When                                       | `data`                                                                           | Phone reaction                    |
+| ------------------------ | ------------------------------------------ | -------------------------------------------------------------------------------- | --------------------------------- |
+| `sale.created`           | New sale stored (not on idempotent replay) | `{sale_id, code, total, payment_method, member_id, business_date, line_count}`   | Refresh Today if open             |
+| `sale.voided`            | Sale voided                                | `{sale_id, reason, voided_by, total}`                                            | Refresh Today                     |
+| `review.line_flagged`    | Manual-price or price-mismatch line stored | `{line_id, sale_id, reason: "manual_price"\|"price_mismatch", unit_price}`       | Lead: badge on review queue       |
+| `review.line_resolved`   | Line resolved                              | `{line_id, action, product_id}`                                                  | Lead: decrement badge             |
+| `expense.created`        | Expense stored                             | `{expense_id, amount, category, business_date}`                                  | Refresh Today                     |
+| `alert.created`          | Margin alert opened or updated             | `{alert_id, product_id, cost_price, selling_price, margin_pct, suggested_price}` | Lead: banner with Accept/Keep     |
+| `alert.resolved`         | Alert accepted or dismissed                | `{alert_id, status, new_price}`                                                  | Lead: remove banner               |
+| `day.closed`             | Day close stored or redone                 | `{business_date, expected_cash, counted_cash, difference}`                       | Refresh Today                     |
+| `sale.payment_confirmed` | Phase 2 (S9): bank notification matched    | `{sale_id, amount, bank_ref}`                                                    | Show "Đã nhận tiền" on pay screen |
 
 ### 5.5 Internal (not sent to phones)
 
-| Type               | Producer         | Consumer                     | `data`                                              |
-| ------------------ | ---------------- | ---------------------------- | --------------------------------------------------- |
-| `scan.completed`   | Recognition      | Metrics log                  | `{scan_id, mode, detections, timings, model}`       |
-| `embedding.backfill` | Admin job      | Embedding worker (phase 2)   | `{store_id, from_model, to_model}`                  |
+| Type                 | Producer    | Consumer                   | `data`                                        |
+| -------------------- | ----------- | -------------------------- | --------------------------------------------- |
+| `scan.completed`     | Recognition | Metrics log                | `{scan_id, mode, detections, timings, model}` |
+| `embedding.backfill` | Admin job   | Embedding worker (phase 2) | `{store_id, from_model, to_model}`            |
 
 Internal events go to Redis channel `internal:events`, never to `store:*` channels.
 
@@ -916,11 +923,11 @@ stateDiagram-v2
 
 ## 7. Object storage layout
 
-| Key pattern                        | `images.purpose`   | Written by                      |
-| ---------------------------------- | ------------------ | ------------------------------- |
-| `images/{yyyy}/{mm}/{id}.{ext}`    | `enrollment`, `checkout`, `expense_receipt`, `other` | `POST /v1/images`, scan upload |
-| `images/{yyyy}/{mm}/{id}.jpg`      | `crop`             | Scan pipeline (one per detection, ≤ 320 px) |
-| `datasets/{run_id}/…` (phase 2)    | —                  | YOLO export job                 |
+| Key pattern                     | `images.purpose`                                     | Written by                                  |
+| ------------------------------- | ---------------------------------------------------- | ------------------------------------------- |
+| `images/{yyyy}/{mm}/{id}.{ext}` | `enrollment`, `checkout`, `expense_receipt`, `other` | `POST /v1/images`, scan upload              |
+| `images/{yyyy}/{mm}/{id}.jpg`   | `crop`                                               | Scan pipeline (one per detection, ≤ 320 px) |
+| `datasets/{run_id}/…` (phase 2) | —                                                    | YOLO export job                             |
 
 Every object has exactly one `images` row (except datasets). Orphan cleanup: objects
 without a row older than 24 h are deleted by a weekly job (ADR 0002).
