@@ -1,0 +1,407 @@
+asyncapi: 3.0.0
+info:
+  title: Tạp Hóa Mini events
+  version: 0.1.0-draft
+  description: |
+    Status: **Proposed** (2026-10-23). Describes the backend (`taphoa-api`) as the
+    application. Events are written to the `outbox_events` table in the same transaction as
+    the change, relayed to Redis pub/sub, and fanned out to phones over Server-Sent Events.
+    Delivery is at least once; consumers dedupe by `id`. Events are hints: phones refresh
+    catalog data from `GET /v1/sync/changes`, never from event payloads.
+    See [data-model.md §5](../data-model.md#5-events).
+
+servers:
+  api:
+    host: localhost:8080
+    protocol: http
+    description: SSE endpoint `GET /v1/events` (Bearer JWT). Production uses the Railway domain over HTTPS.
+    security:
+      - $ref: '#/components/securitySchemes/bearerAuth'
+  redis:
+    host: redis:6379
+    protocol: redis
+    description: Railway private network. Pub/sub between backend instances only; phones never connect.
+
+channels:
+  storeEventStream:
+    address: /v1/events
+    title: Store event stream (SSE)
+    description: |
+      `text/event-stream`. One connection per foreground app. Each frame:
+      `id: <envelope.id>`, `event: <envelope.type>`, `data: <envelope JSON>`.
+      Heartbeat comment `: ping` every 25 s. Reconnect with `Last-Event-ID`.
+      Only events of the token's store are sent.
+    servers:
+      - $ref: '#/servers/api'
+    messages:
+      catalogChanged: { $ref: '#/components/messages/catalogChanged' }
+      priceChanged: { $ref: '#/components/messages/priceChanged' }
+      storeChanged: { $ref: '#/components/messages/storeChanged' }
+      memberChanged: { $ref: '#/components/messages/memberChanged' }
+      sessionRevoked: { $ref: '#/components/messages/sessionRevoked' }
+      saleCreated: { $ref: '#/components/messages/saleCreated' }
+      saleVoided: { $ref: '#/components/messages/saleVoided' }
+      reviewLineFlagged: { $ref: '#/components/messages/reviewLineFlagged' }
+      reviewLineResolved: { $ref: '#/components/messages/reviewLineResolved' }
+      expenseCreated: { $ref: '#/components/messages/expenseCreated' }
+      alertCreated: { $ref: '#/components/messages/alertCreated' }
+      alertResolved: { $ref: '#/components/messages/alertResolved' }
+      dayClosed: { $ref: '#/components/messages/dayClosed' }
+      salePaymentConfirmed: { $ref: '#/components/messages/salePaymentConfirmed' }
+  storeEventBus:
+    address: 'store:{storeId}:events'
+    title: Store event bus (Redis pub/sub)
+    description: Outbox relay publishes; every backend instance's SSE hub subscribes with `PSUBSCRIBE store:*:events`.
+    servers:
+      - $ref: '#/servers/redis'
+    parameters:
+      storeId:
+        description: Store UUID.
+    messages:
+      catalogChanged: { $ref: '#/components/messages/catalogChanged' }
+      priceChanged: { $ref: '#/components/messages/priceChanged' }
+      storeChanged: { $ref: '#/components/messages/storeChanged' }
+      memberChanged: { $ref: '#/components/messages/memberChanged' }
+      sessionRevoked: { $ref: '#/components/messages/sessionRevoked' }
+      saleCreated: { $ref: '#/components/messages/saleCreated' }
+      saleVoided: { $ref: '#/components/messages/saleVoided' }
+      reviewLineFlagged: { $ref: '#/components/messages/reviewLineFlagged' }
+      reviewLineResolved: { $ref: '#/components/messages/reviewLineResolved' }
+      expenseCreated: { $ref: '#/components/messages/expenseCreated' }
+      alertCreated: { $ref: '#/components/messages/alertCreated' }
+      alertResolved: { $ref: '#/components/messages/alertResolved' }
+      dayClosed: { $ref: '#/components/messages/dayClosed' }
+      salePaymentConfirmed: { $ref: '#/components/messages/salePaymentConfirmed' }
+  internalEvents:
+    address: internal:events
+    title: Internal events (Redis pub/sub)
+    description: Backend-only events. Never forwarded to phones.
+    servers:
+      - $ref: '#/servers/redis'
+    messages:
+      scanCompleted: { $ref: '#/components/messages/scanCompleted' }
+      embeddingBackfill: { $ref: '#/components/messages/embeddingBackfill' }
+
+operations:
+  streamStoreEvents:
+    action: send
+    channel: { $ref: '#/channels/storeEventStream' }
+    summary: Push store events to connected phones.
+  publishStoreEvents:
+    action: send
+    channel: { $ref: '#/channels/storeEventBus' }
+    summary: Outbox relay publishes committed outbox rows.
+  consumeStoreEvents:
+    action: receive
+    channel: { $ref: '#/channels/storeEventBus' }
+    summary: SSE hub on each instance receives events for fan-out.
+  publishInternalEvents:
+    action: send
+    channel: { $ref: '#/channels/internalEvents' }
+    summary: Recognition and admin jobs publish internal events.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Uuid: { type: string, format: uuid }
+    Money: { type: integer, format: int64, minimum: 0, description: VND }
+    Envelope:
+      type: object
+      required: [id, type, version, store_id, occurred_at]
+      properties:
+        id: { type: string, pattern: '^evt_[0-9]{15}$', description: 'evt_ + zero-padded outbox id; SSE id.' }
+        type: { type: string }
+        version: { type: integer, minimum: 1 }
+        store_id: { $ref: '#/components/schemas/Uuid' }
+        occurred_at: { type: string, format: date-time }
+        actor:
+          type: [object, 'null']
+          properties:
+            member_id: { $ref: '#/components/schemas/Uuid' }
+            session_id: { $ref: '#/components/schemas/Uuid' }
+        cursor: { type: string, description: Change-feed cursor after this change, when the event has one. }
+        data: { type: object }
+
+  messages:
+    catalogChanged:
+      name: catalog.changed
+      summary: Product, category, unit or reference image created, updated or archived.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: catalog.changed }
+              data:
+                type: object
+                required: [entity, ids]
+                properties:
+                  entity: { type: string, enum: [product, category] }
+                  ids: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+    priceChanged:
+      name: price.changed
+      summary: Selling price or unit price changed (C3, G4).
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: price.changed }
+              data:
+                type: object
+                required: [product_id, field, new_value, source]
+                properties:
+                  product_id: { $ref: '#/components/schemas/Uuid' }
+                  unit_id: { type: [string, 'null'], format: uuid }
+                  field: { type: string, enum: [price, unit_price] }
+                  old_value: { type: [integer, 'null'] }
+                  new_value: { $ref: '#/components/schemas/Money' }
+                  source: { type: string, enum: [manual, margin_alert] }
+    storeChanged:
+      name: store.changed
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: store.changed }
+              data:
+                type: object
+                required: [fields]
+                properties:
+                  fields: { type: array, items: { type: string } }
+    memberChanged:
+      name: member.changed
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: member.changed }
+              data:
+                type: object
+                required: [member_id, change]
+                properties:
+                  member_id: { $ref: '#/components/schemas/Uuid' }
+                  change: { type: string, enum: [joined, updated, deactivated] }
+    sessionRevoked:
+      name: session.revoked
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: session.revoked }
+              data:
+                type: object
+                required: [session_id, reason]
+                properties:
+                  session_id: { $ref: '#/components/schemas/Uuid' }
+                  reason: { type: string, enum: [logout, member_removed, token_reuse, recovery] }
+    saleCreated:
+      name: sale.created
+      summary: New sale stored. Not emitted on idempotent replay.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: sale.created }
+              data:
+                type: object
+                required: [sale_id, code, total, payment_method, member_id, business_date, line_count]
+                properties:
+                  sale_id: { $ref: '#/components/schemas/Uuid' }
+                  code: { type: string }
+                  total: { $ref: '#/components/schemas/Money' }
+                  payment_method: { type: string, enum: [cash, transfer] }
+                  member_id: { $ref: '#/components/schemas/Uuid' }
+                  business_date: { type: string, format: date }
+                  line_count: { type: integer }
+    saleVoided:
+      name: sale.voided
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: sale.voided }
+              data:
+                type: object
+                required: [sale_id, reason, voided_by, total]
+                properties:
+                  sale_id: { $ref: '#/components/schemas/Uuid' }
+                  reason: { type: string }
+                  voided_by: { $ref: '#/components/schemas/Uuid' }
+                  total: { $ref: '#/components/schemas/Money' }
+    reviewLineFlagged:
+      name: review.line_flagged
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: review.line_flagged }
+              data:
+                type: object
+                required: [line_id, sale_id, reason, unit_price]
+                properties:
+                  line_id: { $ref: '#/components/schemas/Uuid' }
+                  sale_id: { $ref: '#/components/schemas/Uuid' }
+                  reason: { type: string, enum: [manual_price, price_mismatch] }
+                  unit_price: { $ref: '#/components/schemas/Money' }
+    reviewLineResolved:
+      name: review.line_resolved
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: review.line_resolved }
+              data:
+                type: object
+                required: [line_id, action]
+                properties:
+                  line_id: { $ref: '#/components/schemas/Uuid' }
+                  action: { type: string, enum: [link, enrolled, dismiss] }
+                  product_id: { type: [string, 'null'], format: uuid }
+    expenseCreated:
+      name: expense.created
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: expense.created }
+              data:
+                type: object
+                required: [expense_id, amount, category, business_date]
+                properties:
+                  expense_id: { $ref: '#/components/schemas/Uuid' }
+                  amount: { $ref: '#/components/schemas/Money' }
+                  category: { type: string, enum: [nhap_hang, dien, nuoc, khac] }
+                  business_date: { type: string, format: date }
+    alertCreated:
+      name: alert.created
+      summary: Margin alert opened, or an open alert updated by a newer purchase (E3).
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: alert.created }
+              data:
+                type: object
+                required: [alert_id, product_id, cost_price, selling_price, margin_pct, suggested_price]
+                properties:
+                  alert_id: { $ref: '#/components/schemas/Uuid' }
+                  product_id: { $ref: '#/components/schemas/Uuid' }
+                  cost_price: { $ref: '#/components/schemas/Money' }
+                  selling_price: { $ref: '#/components/schemas/Money' }
+                  margin_pct: { type: number }
+                  suggested_price: { $ref: '#/components/schemas/Money' }
+    alertResolved:
+      name: alert.resolved
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: alert.resolved }
+              data:
+                type: object
+                required: [alert_id, status]
+                properties:
+                  alert_id: { $ref: '#/components/schemas/Uuid' }
+                  status: { type: string, enum: [accepted, dismissed] }
+                  new_price: { type: [integer, 'null'] }
+    dayClosed:
+      name: day.closed
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: day.closed }
+              data:
+                type: object
+                required: [business_date, expected_cash, counted_cash, difference]
+                properties:
+                  business_date: { type: string, format: date }
+                  expected_cash: { $ref: '#/components/schemas/Money' }
+                  counted_cash: { $ref: '#/components/schemas/Money' }
+                  difference: { type: integer, format: int64 }
+    salePaymentConfirmed:
+      name: sale.payment_confirmed
+      summary: Phase 2 (S9). Bank notification matched a transfer sale by memo and amount.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: sale.payment_confirmed }
+              data:
+                type: object
+                required: [sale_id, amount]
+                properties:
+                  sale_id: { $ref: '#/components/schemas/Uuid' }
+                  amount: { $ref: '#/components/schemas/Money' }
+                  bank_ref: { type: string }
+    scanCompleted:
+      name: scan.completed
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: scan.completed }
+              data:
+                type: object
+                required: [scan_id, mode, detections, timings, model]
+                properties:
+                  scan_id: { $ref: '#/components/schemas/Uuid' }
+                  mode: { type: string, enum: [single, multi] }
+                  detections: { type: integer }
+                  timings:
+                    type: object
+                    properties:
+                      segment: { type: integer }
+                      embed: { type: integer }
+                      search: { type: integer }
+                      total: { type: integer }
+                  model: { type: string }
+    embeddingBackfill:
+      name: embedding.backfill
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: embedding.backfill }
+              data:
+                type: object
+                required: [from_model, to_model]
+                properties:
+                  from_model: { type: string }
+                  to_model: { type: string }
