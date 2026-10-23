@@ -30,6 +30,8 @@ pub struct Reply {
 async fn app() -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
         "JWT_SECRET" => Some("e4-test-secret-at-least-32-bytes-long".into()),
+        // Tests create many stores/members from one peer address.
+        "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
