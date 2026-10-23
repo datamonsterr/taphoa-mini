@@ -26,6 +26,23 @@ Embedding (DINOv2 ViT-S/14, 20 crops, batch 8):
 | 154        | 1.5 s   | 1.6 s   |
 | 112        | 0.40 s  | 0.75 s  |
 
+### Railway `test` environment (sfo, deployed from this branch, client in Vietnam)
+
+`packages/e2e/tests/recognition.test.ts`, 5 sequential runs of the 1600 px fixture, includes
+the WAN upload from the client.
+
+| Endpoint                       | Runs (ms)                    | p95     |
+| ------------------------------ | ---------------------------- | ------- |
+| `POST /v1/recognition/scans`   | 1848, 1992, 1941, 1903, 2101 | 2101 ms |
+| `POST /v1/segment`             | 1359, 1406, 1460, 1458, 1372 | 1460 ms |
+| scan before background uploads | 2862, 2971, 3178, 2860, 2920 | 3178 ms |
+
+Server-side breakdown of a 20-detection scan on Railway: segment about 1.2 s, embed 0.25-0.4 s,
+search 20 ms, persist 80-160 ms. A bucket PUT on Railway takes 0.85-1.7 s (the original photo
+upload overlaps with inference; crop thumbnails upload in the background after the response).
+One of about 20 runs showed a 3.6 s outlier when the bucket was slow; shared Railway hosts also
+vary by +-30 % in segmentation time.
+
 ## Decisions
 
 - **MobileSAM** (TinyViT encoder, standard SAM mask decoder, ONNX by Acly, pinned revision)
