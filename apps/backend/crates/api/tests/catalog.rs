@@ -63,6 +63,7 @@ async fn setup_with(
 ) -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
         "JWT_SECRET" => Some("catalog-test-secret-at-least-32-bytes!!".into()),
+        k if k.starts_with("RATE_LIMIT_") => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
