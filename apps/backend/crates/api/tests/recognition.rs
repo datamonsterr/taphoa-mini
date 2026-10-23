@@ -514,8 +514,8 @@ async fn request_validation() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 
     let (status, body, _) = post_scan(&app, &token, Some(&[7u8; 8192]), &[]).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert_eq!(body["code"], "validation_failed");
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+    assert_eq!(body["code"], "unsupported_media_type");
 
     let response = app
         .clone()
@@ -624,6 +624,36 @@ async fn busy_returns_retry_after() {
     drop(permit);
     let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn rejected_formats_and_errors_release_the_inference_slot() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+
+    // Declared as image/png, but WebP and GIF bytes never reach a decoder: 415 before any work.
+    for fake in [&b"RIFF\0\0\0\0WEBPVP8 payload"[..], &b"GIF89a payload"[..]] {
+        let (status, body, _) = post_scan(&app, &token, Some(fake), &[]).await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+        assert_eq!(state.inference_slots.available_permits(), 1);
+    }
+
+    // A truncated JPEG passes the magic-byte check and fails inside the blocking task.
+    let (status, body, _) = post_scan(&app, &token, Some(b"\xff\xd8\xff\xe0 truncated"), &[]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        state.inference_slots.available_permits(),
+        1,
+        "the permit must be released after an inference error"
+    );
+
+    // The slot is still usable.
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(state.inference_slots.available_permits(), 1);
 }
 
 #[tokio::test]

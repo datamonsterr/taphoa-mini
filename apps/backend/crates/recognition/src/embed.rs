@@ -109,8 +109,8 @@ impl Embedder for DinoEmbedder {
     }
 
     fn embed(&self, image: &[u8]) -> Result<Vec<f32>, EmbedError> {
-        let decoded = image::load_from_memory(image)
-            .map_err(|e| EmbedError::InvalidImage(e.to_string()))?
+        let decoded = crate::crop::decode_limited(image)
+            .map_err(EmbedError::InvalidImage)?
             .to_rgb8();
         self.embed_crops(&[decoded])?
             .pop()

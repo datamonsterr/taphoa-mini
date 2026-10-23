@@ -63,14 +63,10 @@ async fn parse_request(multipart: Result<Multipart, MultipartRejection>) -> ApiR
                 if let Some(value) = &declared
                     && !matches!(
                         declared_mime(value).as_deref(),
-                        Some("image/jpeg" | "image/png" | "image/webp")
+                        Some("image/jpeg" | "image/png")
                     )
                 {
-                    return Err(ApiError::new(
-                        StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                        "unsupported_media_type",
-                        "the image field must carry an image content type",
-                    ));
+                    return Err(unsupported_media_type());
                 }
                 let mut bytes = Vec::new();
                 while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
@@ -130,6 +126,14 @@ async fn parse_request(multipart: Result<Multipart, MultipartRejection>) -> ApiR
     })
 }
 
+fn unsupported_media_type() -> ApiError {
+    ApiError::new(
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "unsupported_media_type",
+        "expected a JPEG or PNG image",
+    )
+}
+
 fn top_k_error() -> ApiError {
     ApiError::validation_failed("top_k must be between 1 and 5")
 }
@@ -157,12 +161,10 @@ async fn read_text(field: &mut Field<'_>, limit: usize) -> ApiResult<String> {
 
 /// JPEG/PNG magic bytes; other formats belong to `POST /v1/images`.
 fn sniff_image(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
-    if bytes.starts_with(b"\xff\xd8\xff") {
-        Some(("image/jpeg", "jpg"))
-    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some(("image/png", "png"))
-    } else {
-        None
+    match taphoa_recognition::crop::sniff_format(bytes)? {
+        image::ImageFormat::Jpeg => Some(("image/jpeg", "jpg")),
+        image::ImageFormat::Png => Some(("image/png", "png")),
+        _ => None,
     }
 }
 
@@ -187,7 +189,7 @@ async fn record_original(
     bytes: &[u8],
 ) -> ApiResult<ImageRow> {
     let Some((content_type, extension)) = sniff_image(bytes) else {
-        return Err(ApiError::validation_failed("expected a JPEG or PNG image"));
+        return Err(unsupported_media_type());
     };
     let row = ImageRow {
         id: Uuid::new_v4(),
@@ -223,13 +225,12 @@ async fn create_scan(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult<(StatusCode, Json<pipeline::ScanResponse>)> {
     let wall = Instant::now();
-    // The one inference slot is held before the body is read, so excess work
-    // is rejected before images are copied or decompressed (architecture 5.3).
-    let permit = state
-        .inference_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
+    // Cheap early rejection while the slot is taken; the permit itself is only held around
+    // the blocking segment + embed work below, so storage and database I/O of other scans
+    // is never serialized behind it (architecture 5.3).
+    if state.inference_slots.available_permits() == 0 {
+        return Err(busy());
+    }
     let (segmenter, embedder, vector_index) = match (
         state.segmenter.as_ref().map(Arc::clone),
         state.embedder.as_ref().map(Arc::clone),
@@ -283,6 +284,16 @@ async fn create_scan(
             )
         }
     };
+    // Only JPEG and PNG reach the decoders, whatever the declared content type said.
+    if sniff_image(&image_bytes).is_none() {
+        return Err(unsupported_media_type());
+    }
+    // Taken before anything is stored, so a busy slot leaves no orphan original behind.
+    let permit = state
+        .inference_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| busy())?;
     let config = state.recognition;
     let block_embedder = Arc::clone(&embedder);
     let block_segmenter = Arc::clone(&segmenter);

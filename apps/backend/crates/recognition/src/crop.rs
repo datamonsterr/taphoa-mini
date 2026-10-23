@@ -7,6 +7,35 @@ pub const EMBED_SIDE: u32 = 224;
 pub const IMAGENET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 pub const IMAGENET_STD: [f32; 3] = [0.229, 0.224, 0.225];
 
+/// Longest accepted edge of a decoded photo.
+pub const MAX_DECODE_SIDE: u32 = 4096;
+/// A 4096 x 4096 RGBA decode is 64 MiB; nothing legitimate needs more.
+pub const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
+
+/// Image formats the API accepts, from magic bytes (never from the declared type).
+pub fn sniff_format(bytes: &[u8]) -> Option<image::ImageFormat> {
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        Some(image::ImageFormat::Jpeg)
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(image::ImageFormat::Png)
+    } else {
+        None
+    }
+}
+
+/// Decodes a JPEG or PNG within fixed dimension and allocation limits. Other formats, even
+/// ones the `image` crate could guess, are rejected before any decoder runs.
+pub fn decode_limited(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    let format = sniff_format(bytes).ok_or("expected a JPEG or PNG image")?;
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    reader.decode().map_err(|e| e.to_string())
+}
+
 /// Crops `bbox` (x, y, width, height in pixels) grown by `pad` (fraction of each side, e.g. 0.08)
 /// on every edge, clamped to the image. Returns `None` for an empty or non-finite box.
 pub fn crop_with_padding(image: &RgbImage, bbox: [f32; 4], pad: f32) -> Option<RgbImage> {
@@ -65,6 +94,38 @@ pub fn l2_normalize(vector: &mut [f32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        RgbImage::new(width, height)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    }
+
+    #[test]
+    fn sniffs_only_jpeg_and_png() {
+        assert_eq!(sniff_format(&png(2, 2)), Some(image::ImageFormat::Png));
+        assert_eq!(
+            sniff_format(b"\xff\xd8\xff\xe0rest"),
+            Some(image::ImageFormat::Jpeg)
+        );
+        assert_eq!(sniff_format(b"RIFF\0\0\0\0WEBPVP8 "), None);
+        assert_eq!(sniff_format(b"GIF89a"), None);
+        assert_eq!(sniff_format(b""), None);
+    }
+
+    #[test]
+    fn decode_limited_enforces_formats_and_dimensions() {
+        assert!(decode_limited(&png(8, 8)).is_ok());
+        assert!(decode_limited(b"RIFF\0\0\0\0WEBPVP8 ").is_err());
+        assert!(decode_limited(b"not an image").is_err());
+        assert!(decode_limited(&png(MAX_DECODE_SIDE + 1, 1)).is_err());
+        assert!(decode_limited(&png(MAX_DECODE_SIDE, 1)).is_ok());
+    }
 
     #[test]
     fn padding_grows_box_and_clamps_to_image() {

@@ -1,10 +1,10 @@
 use crate::{Segment, SegmentError, Segmenter, filter_and_nms};
-use image::{DynamicImage, ImageReader, imageops::FilterType};
+use image::{DynamicImage, imageops::FilterType};
 use ort::{
     session::{Session, builder::GraphOptimizationLevel},
     value::{Tensor, TensorRef},
 };
-use std::{io::Cursor, path::Path, sync::Mutex};
+use std::{path::Path, sync::Mutex};
 
 const SIDE: usize = 1024;
 const MEAN: [f32; 3] = [123.675, 116.28, 103.53];
@@ -311,17 +311,7 @@ pub struct SegmentTimings {
 
 fn decode(bytes: &[u8]) -> Result<DynamicImage, SegmentError> {
     // Bound decompression as well as compressed upload size. JPEG and PNG only.
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| SegmentError::InvalidImage(e.to_string()))?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(4096);
-    limits.max_image_height = Some(4096);
-    limits.max_alloc = Some(128 * 1024 * 1024);
-    reader.limits(limits);
-    reader
-        .decode()
-        .map_err(|e| SegmentError::InvalidImage(e.to_string()))
+    crate::crop::decode_limited(bytes).map_err(SegmentError::InvalidImage)
 }
 
 /// An accepted segment (mask resolution) with its foreground bitmap, used for coverage tests.

@@ -9,11 +9,11 @@ use crate::{
 };
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use image::{ImageReader, RgbImage, imageops::FilterType};
+use image::{RgbImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
-use std::{collections::HashMap, io::Cursor, time::Duration};
+use std::{collections::HashMap, time::Duration};
 use taphoa_recognition::{Embedder, Segment, Segmenter};
 use uuid::Uuid;
 
@@ -169,18 +169,9 @@ pub(crate) fn block_pipeline(
 
 /// Decodes the original photo within the same limits segmentation uses.
 fn decode_rgb(bytes: &[u8]) -> Result<RgbImage, StageError> {
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| StageError::InvalidImage(e.to_string()))?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(4096);
-    limits.max_image_height = Some(4096);
-    limits.max_alloc = Some(128 * 1024 * 1024);
-    reader.limits(limits);
-    reader
-        .decode()
+    taphoa_recognition::crop::decode_limited(bytes)
         .map(|image| image.to_rgb8())
-        .map_err(|e| StageError::InvalidImage(e.to_string()))
+        .map_err(StageError::InvalidImage)
 }
 
 /// JPEG quality 80, longest side at most 256 (architecture 5.3).
