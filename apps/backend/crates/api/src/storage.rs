@@ -20,10 +20,12 @@ pub struct SignedUrl {
 pub trait ObjectStore: Send + Sync {
     async fn put(&self, key: &str, content_type: &str, bytes: Vec<u8>) -> anyhow::Result<()>;
     async fn delete(&self, key: &str) -> anyhow::Result<()>;
-    /// Reads one object by key (scan pipeline needs the stored photo bytes).
-    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>>;
     async fn head_bucket(&self) -> anyhow::Result<()>;
     async fn presign_get(&self, key: &str, ttl: Duration) -> anyhow::Result<SignedUrl>;
+    /// Read an object (catalog embeds stored photos). Fakes may leave the default.
+    async fn get(&self, _key: &str) -> anyhow::Result<Vec<u8>> {
+        anyhow::bail!("object reads are not supported by this store")
+    }
 }
 
 // Deliberately no Debug: credentials must never appear in configuration logs.

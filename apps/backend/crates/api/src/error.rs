@@ -5,13 +5,14 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::de::DeserializeOwned;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
     pub message: String,
+    pub details: Option<Value>,
     retry_after_secs: Option<u64>,
 }
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -22,6 +23,7 @@ impl ApiError {
             status,
             code,
             message: message.into(),
+            details: None,
             retry_after_secs: None,
         }
     }
@@ -79,14 +81,18 @@ impl ApiError {
             "internal server error",
         )
     }
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
+        self
+    }
 }
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut response = (
-            self.status,
-            Json(json!({"error": self.message, "code": self.code})),
-        )
-            .into_response();
+        let mut body = json!({"error": self.message, "code": self.code});
+        if let Some(details) = self.details {
+            body["details"] = details;
+        }
+        let mut response = (self.status, Json(body)).into_response();
         if let Some(seconds) = self.retry_after_secs {
             response.headers_mut().insert(RETRY_AFTER, seconds.into());
         }

@@ -6,10 +6,12 @@ pub mod events;
 pub mod expenses;
 pub mod idempotency;
 pub mod images;
+pub mod money;
 pub mod pagination;
 pub mod ratelimit;
 pub mod recognition;
 pub mod reports;
+pub mod retention;
 pub mod sales;
 pub mod seed;
 pub mod storage;
@@ -49,9 +51,12 @@ pub struct AppState {
     pub config: Option<Arc<config::Config>>,
     pub postgres: Option<PgPool>,
     pub redis: Option<ConnectionManager>,
+    pub hub: events::Hub,
     pub segmenter: Option<Arc<dyn Segmenter>>,
+    /// Catalog enrollment embeds reference photos. None -> 503 on enroll.
     pub embedder: Option<Arc<dyn Embedder>>,
-    pub vector_index: Option<Arc<dyn VectorIndex>>,
+    /// Duplicate-check search port. None -> catalog queries product_embeddings in SQL.
+    pub vector_index: Option<Arc<dyn vector::VectorIndex>>,
     pub recognition: RecognitionConfig,
     pub storage: Option<Arc<dyn storage::ObjectStore>>,
     pub image_repository: Option<Arc<dyn images::ImageRepository>>,
@@ -69,6 +74,7 @@ impl Default for AppState {
             config: None,
             postgres: None,
             redis: None,
+            hub: events::Hub::new(),
             segmenter: None,
             embedder: None,
             vector_index: None,
