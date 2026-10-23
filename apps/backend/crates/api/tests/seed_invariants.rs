@@ -1,15 +1,39 @@
 //! Real-database checks of seed money, authentication, event and replay contracts.
 use argon2::{Argon2, password_hash::PasswordVerifier};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{
+    Connection, PgConnection, PgPool, Row,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
+use std::str::FromStr;
 
 #[tokio::test]
 #[ignore = "real Postgres required; DATABASE_URL must name a disposable seed database"]
 async fn seeded_money_credentials_and_events_reconcile() -> anyhow::Result<()> {
+    // The invariants below are global, so run them in a private database: other
+    // suites sharing DATABASE_URL create their own stores and sales.
+    let base = PgConnectOptions::from_str(&std::env::var("DATABASE_URL")?)?;
+    let name = format!("seed_inv_{}", uuid::Uuid::new_v4().simple());
+    let mut admin = PgConnection::connect_with(&base).await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+        .execute(&mut admin)
+        .await?;
     let pool = PgPoolOptions::new()
         .max_connections(4)
-        .connect(&std::env::var("DATABASE_URL")?)
+        .connect_with(base.clone().database(&name))
         .await?;
+    let result = invariants(&pool).await;
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP DATABASE {name} WITH (FORCE)"
+    )))
+    .execute(&mut admin)
+    .await?;
+    result
+}
+
+async fn invariants(pool: &PgPool) -> anyhow::Result<()> {
+    let pool = pool.clone();
     taphoa_api::MIGRATOR.run(&pool).await?;
     let report = taphoa_api::seed::run(&pool).await?;
     assert_eq!(report.stores.len(), 2);

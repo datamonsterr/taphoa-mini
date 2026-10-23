@@ -6,6 +6,7 @@ pub mod events;
 pub mod expenses;
 pub mod idempotency;
 pub mod images;
+pub mod money;
 pub mod pagination;
 pub mod ratelimit;
 pub mod recognition;
