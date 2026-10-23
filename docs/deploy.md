@@ -136,6 +136,19 @@ random 48-byte token generated in the terminal and piped through
 image. The TCP proxies expose Postgres and Redis publicly (credentials still required) so
 CI can seed and run integration tests (`scripts/ci/railway_env.py` builds the URLs).
 
+**Resources and latency findings (integration run).** The backend service limit is 8 vCPU
+and 8 GB (measured peak 3.6 vCPU, 2 GB during scans); E2 needs at least 4 vCPU for SAM, so
+production must run with at least that. The bucket region matters more: the `sin` bucket
+made the original-photo upload take 1.3 to 2.8 s from the `sfo` backend and pushed scan
+p95 to 3.05 s. The test environment therefore uses a second bucket, `images-sjc`
+(`railway bucket create images-sjc --region sjc --environment test`, credentials re-piped
+into the five backend variables). With it, scan p95 is 1.26 s and segment p95 0.85 s.
+Production should move its bucket to `sjc` (or the backend closer to `sin`) the same way;
+`.railway/railway.ts` still declares `images` in `sin`, because IaC has no per-environment
+region. The test database was seeded by restoring a local `taphoa-seed` run with
+`pg_restore --data-only` (seeding through the public proxy is round-trip bound); sequences
+of `change_log` and `outbox_events` were then advanced past the restored ids.
+
 Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys too: a
 `railway up` whose snapshot has no backend change versus the last deployment ends as
 `SKIPPED`, meaning the running deployment already matches.
