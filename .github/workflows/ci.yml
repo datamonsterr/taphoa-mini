@@ -185,9 +185,14 @@ jobs:
           if-no-files-found: ignore
 
   rust-integration:
+    name: rust-integration (${{ matrix.partition }}/2)
     needs: rust-build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
     services:
       postgres:
         image: pgvector/pgvector:0.8.7-pg18-trixie
@@ -220,6 +225,11 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 30
     env:
       RUSTUP_TOOLCHAIN: stable
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
+      # Many suites create stores from one IP; raise the per-IP auth limits for the run.
+      RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
+      RATE_LIMIT_JOIN_PER_HOUR: '100000'
+      RATE_LIMIT_RECOVER_PER_10MIN: '100000'
       DATABASE_URL: postgres://taphoa:taphoa@localhost:5432/taphoa
       REDIS_URL: redis://localhost:6379
       AWS_ENDPOINT_URL: http://localhost:9000
@@ -240,24 +250,86 @@ jobs:
         with:
           name: nextest-archive
           path: apps/backend
-      - name: Integration tests (real Postgres+pgvector, Redis, RustFS)
+      # The per-IP limit test needs the default limits and fresh Redis counters, so it runs
+      # first; everything else runs with the raised limits from the job env.
+      - name: Integration tests - default rate limits
+        if: matrix.partition == 1
+        working-directory: apps/backend
+        run: >-
+          env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR -u RATE_LIMIT_RECOVER_PER_10MIN
+          cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
+          --profile ci --run-ignored only --test-threads 1 --no-tests=pass
+          -E 'test(validation_invite_expiry_and_ip_limits)'
+      - name: Keep first JUnit report
+        if: matrix.partition == 1
+        run: cp apps/backend/target/nextest/ci/junit.xml apps/backend/target/nextest/ci/junit-limits.xml
+      - name: Integration tests - everything else (real Postgres+pgvector, Redis, RustFS)
         working-directory: apps/backend
         run: >-
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
-          --profile ci --run-ignored only --no-tests=pass
+          --profile ci --run-ignored only --test-threads 1 --no-tests=pass
+          --partition count:${{ matrix.partition }}/2
+          -E 'not test(validation_invite_expiry_and_ip_limits)'
       - name: Summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          python3 -I scripts/ci/junit_summary.py "rust-integration" apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          python3 -I scripts/ci/junit_summary.py "rust-integration ${{ matrix.partition }}/2" apps/backend/target/nextest/ci/junit-limits.xml apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
           scripts/ci/job-summary.sh "rust-integration timing"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: junit-rust-integration
+          name: junit-rust-integration-${{ matrix.partition }}
           path: apps/backend/target/nextest/ci/junit.xml
           if-no-files-found: ignore
+
+  # SAM/DINO model tests (release build) with cached ONNX Runtime and weights.
+  model-test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect the recognition model test
+        id: present
+        run: |
+          if [ -f apps/backend/crates/recognition/tests/model.rs ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::recognition model test not present; skipping model-test."
+          fi
+      - uses: ./.github/actions/setup-rust
+        if: steps.present.outputs.run == 'true'
+        with:
+          cache-key: model
+      - uses: actions/cache@v6
+        if: steps.present.outputs.run == 'true'
+        id: models
+        with:
+          path: |
+            apps/backend/models
+            apps/backend/onnxruntime
+          key: models-${{ hashFiles('apps/backend/scripts/fetch-models.sh', 'apps/backend/scripts/fetch-onnxruntime.sh') }}
+      - name: Fetch ONNX Runtime and model weights
+        if: steps.present.outputs.run == 'true' && steps.models.outputs.cache-hit != 'true'
+        run: |
+          apps/backend/scripts/fetch-onnxruntime.sh
+          apps/backend/scripts/fetch-models.sh
+      - name: Model tests
+        if: steps.present.outputs.run == 'true'
+        working-directory: apps/backend
+        env:
+          SAM_MAX_MS: '3000'
+        run: |
+          export ORT_DYLIB_PATH="$PWD/onnxruntime/lib/libonnxruntime.so.1.23.2"
+          cargo test --locked -p taphoa-recognition --test model --release -- --test-threads=1 --nocapture
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "model-test" "SAM + DINO ONNX tests, SAM_MAX_MS=3000"
 
   # ---------- JavaScript ----------
 
@@ -526,6 +598,7 @@ jobs:
       - rust-build
       - rust-test
       - rust-integration
+      - model-test
       - js-format
       - js-lint
       - js-typecheck
