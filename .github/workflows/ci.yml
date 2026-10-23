@@ -28,10 +28,31 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
-      - run: pnpm --filter @taphoa/mobile lint
-      - run: pnpm --filter @taphoa/mobile typecheck
-      - run: pnpm --filter @taphoa/mobile test
+      # Rust is covered by the rust jobs; Turborepo runs only the JS packages here.
+      - run: pnpm lint --filter=@taphoa/mobile --filter=@taphoa/api-client
+      - run: pnpm typecheck --filter=@taphoa/mobile --filter=@taphoa/api-client
+      - run: pnpm lint:api
+      - run: pnpm --filter @taphoa/api-client check:generated
+      - run: pnpm test --filter=@taphoa/mobile --filter=@taphoa/api-client
       - run: pnpm --filter @taphoa/mobile build
+
+  smoke-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+          standalone: true
+      # Node 24 (.nvmrc) strips TypeScript types natively; the smoke script imports .ts directly.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prism mock of the OpenAPI contract through the typed client
+        run: pnpm test:smoke:mock
 
   rust:
     runs-on: ubuntu-latest

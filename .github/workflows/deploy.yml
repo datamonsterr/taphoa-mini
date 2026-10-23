@@ -38,16 +38,47 @@ jobs:
           if [ "$main_sha" = "$CI_SHA" ]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v7
+      - name: Check for Railway credentials
+        id: railway
         if: steps.revision.outputs.current == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::RAILWAY_TOKEN is not set in the production environment; skipping deploy."
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.railway.outputs.configured == 'true'
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
       - name: Install Railway CLI
-        if: steps.revision.outputs.current == 'true'
+        if: steps.railway.outputs.configured == 'true'
         run: npm install --global @railway/cli@5.71.0
       - name: Deploy the tested backend revision
-        if: steps.revision.outputs.current == 'true'
+        if: steps.railway.outputs.configured == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --service backend --ci
+      - name: Post-deploy smoke test
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::notice::Repository variable BACKEND_URL is not set; skipping post-deploy smoke test."
+            exit 0
+          fi
+          base="${BACKEND_URL%/}"
+          for path in /healthz /readyz; do
+            for attempt in $(seq 1 30); do
+              code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 "$base$path" || true)
+              echo "GET $base$path attempt $attempt: HTTP $code"
+              [ "$code" = "200" ] && continue 2
+              sleep 10
+            done
+            echo "::error::$base$path did not return 200 after 30 attempts"
+            exit 1
+          done

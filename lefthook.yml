@@ -14,4 +14,4 @@ commit-msg:
 pre-push:
   commands:
     quality:
-      run: pnpm lint && pnpm typecheck && pnpm test
+      run: pnpm lint && pnpm lint:api && pnpm typecheck && pnpm test

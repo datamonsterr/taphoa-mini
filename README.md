@@ -138,14 +138,27 @@ module, a thin React hook on top, tests beside them.
 `pnpm install` installs lefthook. Pre-commit runs Prettier on staged JS/TS/JSON/Markdown/YAML
 and rustfmt when backend files are staged. Commit messages must follow Conventional
 Commits, for example `chore: configure local stack`. Pre-push runs root lint,
-typecheck and unit tests. Hook references: [lefthook](https://lefthook.dev/installation/node/)
+`lint:api`, typecheck and unit tests. Hook references: [lefthook](https://lefthook.dev/installation/node/)
 and [commitlint](https://commitlint.js.org/guides/local-setup.html).
 
-GitHub CI runs on pull requests and pushes to `main`: mobile checks/export, Rust
-fmt/clippy/tests, integration against pgvector + Redis service containers, model-free
-Docker HTTP e2e, and actionlint. New runs cancel older CI runs on the same ref.
+GitHub CI runs on pull requests and pushes to `main` (new runs cancel older ones on
+the same ref). Jobs:
+
+- `js`: Node from `.nvmrc`, `pnpm install --frozen-lockfile`, `format:check`, root
+  `lint` and `typecheck` filtered to `@taphoa/mobile` and `@taphoa/api-client`,
+  `lint:api` (Redocly), `api-client check:generated`, JS tests, mobile export.
+- `smoke-mock`: `pnpm test:smoke:mock`, a Prism mock of the OpenAPI contract called
+  through the typed client.
+- `rust`: `cargo fmt --check`, clippy with warnings denied, `cargo test` (includes the
+  contract tests that validate handler responses against `docs/api/openapi.yaml`).
+- `rust-integration`: real Postgres (pgvector), Redis and RustFS service containers.
+- `docker-e2e`: model-free Docker image plus HTTP e2e through Compose.
+- `actionlint`: validates all workflows.
+
 Production deployment follows successful **push-to-main CI** and checks out that tested
-revision. EAS native builds/Maestro remain in `apps/mobile/.eas/workflows/`.
+revision. It is skipped with a notice while `RAILWAY_TOKEN` is unset, and runs a
+`/healthz` and `/readyz` smoke test when the repository variable `BACKEND_URL` is set.
+EAS native builds/Maestro remain in `apps/mobile/.eas/workflows/`.
 See [deployment setup and credentials](docs/deploy.md). Dependabot checks npm, Cargo,
 GitHub Actions, Dockerfiles and Compose images weekly.
 

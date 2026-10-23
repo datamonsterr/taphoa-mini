@@ -124,6 +124,17 @@ validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
 the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.
 
+`RAILWAY_TOKEN` is optional for a green pipeline: when the secret is empty or missing,
+the workflow emits a `::notice::` and skips the Railway CLI install, `railway up` and
+the smoke test, so `main` stays green before the secret exists.
+
+**Post-deploy smoke.** After `railway up`, if the repository **variable** `BACKEND_URL`
+(for example `https://backend-production.up.railway.app`, no trailing path) is set, the
+workflow runs `curl` against `$BACKEND_URL/healthz` and `$BACKEND_URL/readyz`, expecting
+HTTP 200, retrying every 10 seconds for up to 30 attempts per endpoint. The job fails if
+either never answers 200. Without `BACKEND_URL` this step is skipped with a notice.
+Set it under Settings > Secrets and variables > Actions > Variables.
+
 No GitHub job runs EAS, so **EXPO_TOKEN is not required** in GitHub. Configure EAS
 account authorization/GitHub linkage in Expo when enabling the existing native
 build and Maestro workflows.
