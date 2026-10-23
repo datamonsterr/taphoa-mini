@@ -86,9 +86,27 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 20
+      storage:
+        image: rustfs/rustfs:1.0.3
+        env:
+          RUSTFS_ACCESS_KEY: taphoa-local
+          RUSTFS_SECRET_KEY: taphoa-local-secret
+          RUSTFS_CONSOLE_ENABLE: 'false'
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl --fail --silent http://localhost:9000/health"
+          --health-interval 5s --health-timeout 3s --health-retries 30
     env:
       DATABASE_URL: postgres://taphoa:taphoa@localhost:5432/taphoa
       REDIS_URL: redis://localhost:6379
+      AWS_ENDPOINT_URL: http://localhost:9000
+      AWS_ACCESS_KEY_ID: taphoa-local
+      AWS_SECRET_ACCESS_KEY: taphoa-local-secret
+      AWS_S3_BUCKET_NAME: images
+      AWS_DEFAULT_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_CREATE_BUCKET: 'true'
     steps:
       - uses: actions/checkout@v7
       - name: Read repository Rust toolchain
@@ -108,9 +126,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/backend
-      - name: Test real Postgres, pgvector migrations and Redis
+      - name: Test real Postgres, pgvector migrations, Redis and RustFS
         working-directory: apps/backend
-        run: cargo test --locked -p taphoa-api --test readiness -- --ignored --nocapture
+        run: cargo test --locked -p taphoa-api --test readiness --test storage -- --ignored --nocapture
 
   docker-e2e:
     runs-on: ubuntu-latest
@@ -118,6 +136,7 @@ jobs:
     env:
       SKIP_MODELS: '1'
       EXPECT_SEGMENT_STATUS: '503'
+      EXPECT_IMAGES: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -130,7 +149,7 @@ jobs:
           tags: taphoa-mini-backend:dev
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-      - run: docker compose up -d --wait --wait-timeout 120 postgres redis backend
+      - run: docker compose up -d --wait --wait-timeout 120 postgres redis storage backend
       - run: apps/backend/scripts/e2e.sh
       - name: Compose logs
         if: failure()

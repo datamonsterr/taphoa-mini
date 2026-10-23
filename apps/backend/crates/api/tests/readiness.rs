@@ -43,6 +43,9 @@ async fn real_dependencies_and_migration() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["storage"], "not configured");
     // A pool that cannot reach Postgres must name Postgres while Redis still answers.
     let bad_pool = PgPoolOptions::new()
         .acquire_timeout(std::time::Duration::from_millis(100))

@@ -25,6 +25,22 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+  storage:
+    image: rustfs/rustfs:1.0.3
+    environment:
+      RUSTFS_ACCESS_KEY: ${AWS_ACCESS_KEY_ID:-taphoa-local}
+      RUSTFS_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY:-taphoa-local-secret}
+      RUSTFS_CONSOLE_ENABLE: 'false'
+    ports:
+      - '127.0.0.1:${STORAGE_PORT:-9000}:9000'
+    volumes:
+      - storage_data:/data
+    healthcheck:
+      test:
+        ['CMD', 'curl', '--fail', '--silent', 'http://localhost:9000/health']
+      interval: 5s
+      timeout: 3s
+      retries: 30
   backend:
     image: ${BACKEND_IMAGE:-taphoa-mini-backend:dev}
     build:
@@ -36,11 +52,22 @@ services:
       PORT: '8080'
       DATABASE_URL: postgres://${POSTGRES_USER:-taphoa}:${POSTGRES_PASSWORD:-taphoa}@postgres:5432/${POSTGRES_DB:-taphoa}
       REDIS_URL: redis://redis:6379
+      AWS_ENDPOINT_URL: http://storage:9000
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-taphoa-local}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-taphoa-local-secret}
+      AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-images}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_CREATE_BUCKET: 'true'
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:${STORAGE_PORT:-9000}}
+      IMAGE_URL_TTL_SECONDS: ${IMAGE_URL_TTL_SECONDS:-900}
       RUST_LOG: ${RUST_LOG:-info}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      storage:
         condition: service_healthy
     ports:
       - '${BACKEND_PORT:-8080}:8080'
@@ -59,3 +86,4 @@ services:
 
 volumes:
   postgres_data:
+  storage_data:

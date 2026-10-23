@@ -7,7 +7,7 @@
     "format:check": "cargo fmt --check",
     "typecheck": "cargo check --all-targets",
     "test": "cargo test",
-    "test:integration": "cargo test -p taphoa-api --test readiness -- --ignored --nocapture",
+    "test:integration": "cargo test -p taphoa-api --test readiness --test storage -- --ignored --nocapture",
     "test:e2e": "./scripts/e2e.sh",
     "build": "cargo build --release"
   }
