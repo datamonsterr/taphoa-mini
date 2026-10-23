@@ -58,6 +58,9 @@ vary by +-30 % in segmentation time.
   raise `EMBED_SIDE` when the plan has spare cores.
 - **Requires >= 4 vCPU.** With 2 vCPU segmentation alone is 2.9 s. Railway's per-service
   limits are plan dependent; `.railway/railway.ts` sets none.
+- **ONNX Runtime thread spinning is off by default** (`ORT_SPINNING`, set `1` or `true` to
+  enable). Spinning keeps worker threads busy-waiting while they wait for work; on our
+  8 vCPU cgroup shared with the API it burns CPU quota and gets throttled in production.
 - Sessions load and run one warm-up inference at startup; the API returns 503 until ready.
 
 ## Reproduce
