@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.expo
+**/.turbo
+**/dist
+**/coverage
+**/.env*
+!**/.env.example
+apps/backend/target
+apps/backend/models
+.claude

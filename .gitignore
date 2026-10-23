@@ -1,0 +1,12 @@
+node_modules/
+.pnpm-store/
+.turbo/
+.expo/
+dist/
+coverage/
+apps/backend/target/
+apps/backend/models/
+.env*
+!.env.example
+*.tsbuildinfo
+.DS_Store
