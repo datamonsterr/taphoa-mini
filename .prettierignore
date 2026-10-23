@@ -2,7 +2,10 @@ node_modules/
 .pnpm-store/
 .turbo/
 .expo/
+apps/mobile/expo-env.d.ts
 dist/
+dist-*/
+.claude/
 coverage/
 apps/backend/target/
 apps/backend/models/
@@ -13,3 +16,6 @@ docs/design/canvas/
 
 # Generated from docs/api/openapi.yaml
 packages/api-client/src/schema.d.ts
+apps/mobile/playwright-report/
+apps/mobile/e2e-web/test-results/
+apps/mobile/e2e-web/screenshots/

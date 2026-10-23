@@ -1,0 +1,15 @@
+# Deploys the web build (in-app mock API by default) to EAS Hosting.
+# Docs: https://docs.expo.dev/eas/hosting/workflows/
+name: Deploy web
+
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  deploy:
+    type: deploy
+    name: Deploy web to EAS Hosting
+    environment: production
+    params:
+      prod: true

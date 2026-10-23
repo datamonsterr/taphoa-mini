@@ -1,0 +1,34 @@
+appId: com.datamonsterr.taphoamini
+---
+- runFlow: subflows/launch.yaml
+# camera: capture, add the top match, open the cart
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Thêm vào giỏ'
+    timeout: 15000
+- tapOn: 'Thêm vào giỏ'
+- tapOn: 'Giỏ hàng:.*'
+# cart: change quantity, go to payment
+- extendedWaitUntil:
+    visible: 'Hiện mã QR thanh toán'
+    timeout: 20000
+- tapOn: 'Thêm một'
+- takeScreenshot: checkout-01-cart
+- tapOn: 'Hiện mã QR thanh toán'
+# pay: transfer shows the VietQR, cash shows change
+- extendedWaitUntil:
+    visible: 'Mã VietQR.*'
+    timeout: 20000
+- takeScreenshot: checkout-02-pay-transfer
+- tapOn: 'Tiền mặt'
+- tapOn: '100.000'
+- extendedWaitUntil:
+    visible: 'Tiền thối'
+    timeout: 20000
+- takeScreenshot: checkout-03-pay-cash
+- tapOn: 'Đã nhận tiền'
+# back at the camera with an empty cart
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 20000
+- assertVisible: 'Giỏ hàng trống'

@@ -1,4 +1,4 @@
-name: Android smoke test
+name: Android e2e
 on:
   pull_request:
     branches: ['*']
@@ -10,9 +10,16 @@ jobs:
       platform: android
       profile: e2e
   test_android:
-    name: Run Maestro smoke flow
+    name: Run all Maestro flows
     needs: [build_android]
     type: maestro
     params:
       build_id: ${{ needs.build_android.outputs.build_id }}
-      flow_path: ['.maestro/smoke.yaml']
+      flow_path:
+        - '.maestro/smoke.yaml'
+        - '.maestro/journey.yaml'
+        - '.maestro/camera.yaml'
+        - '.maestro/checkout.yaml'
+        - '.maestro/shop.yaml'
+        - '.maestro/reports.yaml'
+        - '.maestro/account.yaml'

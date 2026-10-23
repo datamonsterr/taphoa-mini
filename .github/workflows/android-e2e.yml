@@ -1,0 +1,207 @@
+name: Android E2E
+
+# Free alternative to EAS Workflows Maestro jobs (those need a paid Expo plan).
+# Builds a release-like APK on the runner and drives it with Maestro on an emulator.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  maestro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MAESTRO_VERSION: 2.11.0
+      # Opt out of Maestro telemetry and the update/analyze banners in CI logs.
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+      MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+          standalone: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: pnpm install --frozen-lockfile
+
+      # The runner has no committed android/ project (CNG): generate it from app.json.
+      - name: Expo prebuild (android)
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      # assembleRelease, not assembleDebug: the release variant bundles the JS (Hermes) into the
+      # APK, so the app boots without a Metro server; a debug APK would show the dev launcher.
+      # The Expo template signs release with the debug keystore, so it installs as-is.
+      # x86_64 only (emulator ABI) and no R8 keep the build short.
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        run: >-
+          ./gradlew assembleRelease
+          -PreactNativeArchitectures=x86_64
+          -Pandroid.enableMinifyInReleaseBuilds=false
+
+      - name: Install Maestro CLI
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Maestro flows on emulator
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          # Modern phone (~411x914 dp) so the main run matches the design target; small-screen layout is covered by jest.
+          profile: pixel_7
+          arch: x86_64
+          disable-animations: true
+          # The default 2 cores / 2 GB make the launcher itself hit ANRs under load.
+          cores: 4
+          ram-size: 4096M
+          # virtualscene: the emulated back camera renders a 3D scene, so capture returns a real image.
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+            -camera-back virtualscene
+          script: apps/mobile/scripts/e2e-android.sh apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload Maestro report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro-report
+          path: apps/mobile/maestro-report.xml
+          if-no-files-found: warn
+
+      # Screenshots (one per screen), commands.json and logs.
+      - name: Upload Maestro debug output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro-debug
+          path: |
+            apps/mobile/maestro-debug
+            ~/.maestro/tests
+          if-no-files-found: warn
+
+      # Raw `dumpsys gfxinfo` used by the jank budget (scripts/gfxinfo-budget.mjs).
+      - name: Upload gfxinfo
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gfxinfo
+          path: apps/mobile/gfxinfo.txt
+          if-no-files-found: warn
+
+  # Proves the app previews in Expo Go (dev client from Metro, no native build): Metro runs on
+  # the runner, Expo Go on the emulator loads it over 10.0.2.2.
+  expo-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MAESTRO_VERSION: 2.11.0
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+      MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+          standalone: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # CI=1 turns off the interactive prompts and file watching. REACT_NATIVE_PACKAGER_HOSTNAME
+      # makes the manifest point at 10.0.2.2, the emulator's alias for the runner.
+      - name: Start Metro for Expo Go
+        working-directory: apps/mobile
+        env:
+          CI: '1'
+          EXPO_NO_TELEMETRY: '1'
+          REACT_NATIVE_PACKAGER_HOSTNAME: 10.0.2.2
+        run: nohup npx expo start --go --port 8081 --host lan > "$RUNNER_TEMP/metro.log" 2>&1 &
+
+      - name: Wait for Metro
+        run: |
+          for _ in $(seq 1 90); do
+            if curl -fsS http://localhost:8081/status | grep -q 'packager-status:running'; then exit 0; fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro.log"
+          exit 1
+
+      # Build the Android bundle once now so Expo Go does not wait on the first Metro transform.
+      - name: Pre-warm Android bundle
+        run: |
+          launch_url="$(curl -fsS -H 'expo-platform: android' -H 'accept: application/expo+json' http://localhost:8081 \
+            | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).launchAsset.url")"
+          # The manifest names 10.0.2.2; fetch the same path from the runner's loopback.
+          curl -fsS --max-time 900 -o /dev/null -w 'bundle: HTTP %{http_code}, %{size_download} bytes\n' \
+            "${launch_url//10.0.2.2/localhost}"
+
+      - name: Install Maestro CLI
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Expo Go preview on emulator
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          profile: pixel_7
+          arch: x86_64
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+            -camera-back virtualscene
+          script: apps/mobile/scripts/e2e-expo-go.sh
+
+      - name: Upload Expo Go screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: expo-go-debug
+          path: |
+            apps/mobile/maestro-expo-go-debug
+            apps/mobile/maestro-expo-go-report.xml
+          if-no-files-found: warn
+
+      - name: Upload Metro log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: expo-go-metro-log
+          path: ${{ runner.temp }}/metro.log
+          if-no-files-found: warn

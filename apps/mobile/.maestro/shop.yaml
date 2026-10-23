@@ -1,0 +1,52 @@
+appId: com.datamonsterr.taphoamini
+---
+# Shop: inventory search, product price edit, bottom bar.
+- runFlow: subflows/launch.yaml
+- openLink: taphoa:///inventory
+- extendedWaitUntil:
+    visible: 'Kho'
+    timeout: 15000
+- assertVisible: 'Vuốt xuống: camera'
+- takeScreenshot: shop-01-inventory
+- tapOn: 'Tìm'
+- inputText: 'Coca'
+- extendedWaitUntil:
+    visible: 'Coca-Cola lon 330ml, 10.000đ, còn 48'
+    timeout: 20000
+- assertNotVisible: '7Up lon 330ml, 9.000đ, sắp hết: còn 3'
+- tapOn: 'Coca-Cola lon 330ml, 10.000đ, còn 48'
+- extendedWaitUntil:
+    visible: 'Coca-Cola lon 330ml'
+    timeout: 20000
+- assertVisible: 'Ảnh 1 trên 2'
+- takeScreenshot: shop-02-product
+- scrollUntilVisible:
+    element: 'Sửa giá'
+- tapOn: 'Sửa giá'
+- takeScreenshot: shop-03-edit-price
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: '1'
+- tapOn: '2'
+- tapOn: '000'
+- tapOn: 'Lưu giá'
+- scrollUntilVisible:
+    element: '12.000đ'
+- assertVisible: '12.000đ'
+- scrollUntilVisible:
+    element: 'Quay lại'
+    direction: UP
+- tapOn: 'Quay lại'
+- assertVisible: 'Coca-Cola lon 330ml, 12.000đ, còn 48'
+- tapOn: 'Báo cáo'
+- assertVisible: 'Báo cáo'
+- tapOn: 'Tài khoản'
+- tapOn: 'Kho'
+- assertVisible: 'Coca-Cola lon 330ml, 12.000đ, còn 48'
+- tapOn: 'Mở camera'
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 20000

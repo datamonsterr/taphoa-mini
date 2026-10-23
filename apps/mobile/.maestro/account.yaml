@@ -1,0 +1,39 @@
+appId: com.datamonsterr.taphoamini
+---
+- runFlow: subflows/launch.yaml
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Tài khoản'
+    timeout: 15000
+- tapOn: 'Tài khoản'
+- extendedWaitUntil:
+    visible: 'Tạp hóa Cô Ba'
+    timeout: 20000
+- assertVisible: 'Chủ'
+- takeScreenshot: account-01-account
+# Content can sit below the fold on a short screen: scroll to each target first.
+- scrollUntilVisible:
+    element: 'Chế độ người lớn tuổi'
+- tapOn: 'Chế độ người lớn tuổi'
+# Elder mode floors the text size at 125 %.
+- scrollUntilVisible:
+    element: 'Chữ to hơn'
+- assertVisible: '125%'
+- tapOn: 'Chữ to hơn'
+- assertVisible: '150%'
+- scrollUntilVisible:
+    element: 'EN'
+- tapOn: 'EN'
+# The member row sits at the top, above the language row.
+- scrollUntilVisible:
+    element: 'Owner'
+    direction: UP
+- assertVisible: 'Owner'
+- scrollUntilVisible:
+    element: 'Invite with QR code'
+- tapOn: 'Invite with QR code'
+- extendedWaitUntil:
+    visible: 'Store invite code'
+    timeout: 20000
+- assertVisible: 'Expires at.*'
+- takeScreenshot: account-02-invite

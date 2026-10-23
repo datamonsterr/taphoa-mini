@@ -1,0 +1,74 @@
+appId: host.exp.exponent
+---
+# Expo Go preview check: Expo Go opens exp://10.0.2.2:8081 (Metro on the runner) and the app
+# reaches the camera screen, a capture, and the cart. Run by scripts/e2e-expo-go.sh only;
+# the main suite does not recurse into this folder.
+# Expo Go may show its onboarding / dev-menu prompts on first launch: dismiss them if present.
+- runFlow:
+    when:
+      visible: 'Continue'
+    commands:
+      - tapOn: 'Continue'
+- runFlow:
+    when:
+      visible: 'Got it'
+    commands:
+      - tapOn: 'Got it'
+- runFlow:
+    when:
+      visible: ".*isn't responding.*"
+    commands:
+      - tapOn: 'Wait'
+# Cold bundle download + Hermes load in Expo Go on a software-GPU emulator is slow.
+# On first launch Expo Go opens its developer-menu sheet (app name, Reload / Go home, TOOLS)
+# over the app. The sheet is a modal, so the app's own views are hidden from Maestro until
+# it closes: wait for the sheet first, then close it with its X (top right of the sheet).
+- extendedWaitUntil:
+    visible: '(Go home|Chụp|Cho phép máy ảnh.*)'
+    timeout: 180000
+- repeat:
+    while:
+      visible: 'Go home'
+    times: 3
+    commands:
+      - tapOn:
+          point: '90%,45%'
+      - waitForAnimationToEnd:
+          timeout: 3000
+      - runFlow:
+          when:
+            visible: 'Go home'
+          commands:
+            - back
+            - waitForAnimationToEnd:
+                timeout: 3000
+# Expo Go cannot show the camera permission dialog until the app asks: e2e-expo-go.sh
+# pre-grants it, and this accepts the in-app prompt plus the system dialog if either shows.
+- extendedWaitUntil:
+    visible: '(Chụp|Cho phép máy ảnh.*)'
+    timeout: 60000
+- runFlow:
+    when:
+      visible: 'Cho phép máy ảnh'
+    commands:
+      - tapOn: 'Cho phép máy ảnh'
+      - runFlow:
+          when:
+            visible: '(While using the app|Only this time|Allow|Chỉ khi dùng ứng dụng|Cho phép).*'
+          commands:
+            - tapOn: '(While using the app|Only this time|Allow|Chỉ khi dùng ứng dụng|Cho phép).*'
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 60000
+- takeScreenshot: expo-go-01-camera
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Thêm vào giỏ'
+    timeout: 30000
+- takeScreenshot: expo-go-02-result
+- tapOn: 'Thêm vào giỏ'
+- extendedWaitUntil:
+    visible: 'Giỏ hàng: 1 món.*'
+    timeout: 20000
+- assertVisible: 'Giỏ hàng: 1 món.*'
+- takeScreenshot: expo-go-03-cart

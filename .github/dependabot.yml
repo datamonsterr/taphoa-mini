@@ -4,6 +4,17 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Versions pinned by the Expo SDK; upgrade them with `npx expo install --fix`
+    # (checked by `expo-doctor` in CI), not one by one.
+    ignore:
+      - dependency-name: react
+      - dependency-name: react-dom
+      - dependency-name: react-native
+      - dependency-name: react-native-*
+      - dependency-name: expo
+      - dependency-name: expo-*
+      - dependency-name: '@expo/*'
+      - dependency-name: jest-expo
   - package-ecosystem: cargo
     directory: /apps/backend
     schedule:

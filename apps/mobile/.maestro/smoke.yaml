@@ -1,4 +1,9 @@
 appId: com.datamonsterr.taphoamini
 ---
-- launchApp
-- assertVisible: 'Tạp Hóa Mini'
+# App boots to the camera.
+- runFlow: subflows/launch.yaml
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 120000
+- assertVisible: 'Giỏ hàng trống'
+- takeScreenshot: smoke-01-camera

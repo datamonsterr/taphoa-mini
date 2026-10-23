@@ -1,0 +1,89 @@
+appId: com.datamonsterr.taphoamini
+---
+# Camera -> box -> + -> cart pill, then the low-match path to enroll.
+- runFlow: subflows/launch.yaml
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 120000
+- assertVisible: 'Giỏ hàng trống'
+- assertVisible: 'Một món'
+- assertVisible: 'Nhiều món'
+- takeScreenshot: camera-01-idle
+
+# Single item: shoot, select, add.
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Chụp lại'
+    timeout: 20000
+- extendedWaitUntil:
+    visible: 'Thêm vào giỏ'
+    timeout: 15000
+- takeScreenshot: camera-02-single-result
+- tapOn: 'Thêm vào giỏ'
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 20000
+- assertVisible:
+    text: 'Giỏ hàng: 1 món.*'
+
+# Many items: shoot, deselect one, add the rest.
+- tapOn: 'Nhiều món'
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Thêm tất cả vào giỏ'
+    timeout: 15000
+- takeScreenshot: camera-03-multi-result
+- tapOn:
+    text: '.*đã chọn'
+    index: 0
+- tapOn: 'Thêm tất cả vào giỏ'
+- assertVisible:
+    text: 'Giỏ hàng: .* món.*'
+
+# Cart pill opens the cart.
+- tapOn:
+    text: 'Giỏ hàng: .*'
+- extendedWaitUntil:
+    visible: 'Hiện mã QR thanh toán'
+    timeout: 20000
+- takeScreenshot: camera-04-cart
+- back
+
+# Low match (every 3rd single scan in the mock): tag opens enroll.
+- tapOn: 'Một món'
+- tapOn: 'Chụp'
+# The mock's scan counter is not fixed by now: reshoot until the low-match pill shows.
+- extendedWaitUntil:
+    visible: 'Chụp lại'
+    timeout: 20000
+- repeat:
+    while:
+      notVisible: 'Chưa có trong kho, nhập giá'
+    times: 4
+    commands:
+      # 'Chụp lại' returns to the live camera; 'Chụp' then takes the next photo.
+      - tapOn: 'Chụp lại'
+      - extendedWaitUntil:
+          visible: 'Chụp'
+          timeout: 20000
+      - tapOn: 'Chụp'
+      - extendedWaitUntil:
+          visible: 'Chụp lại'
+          timeout: 20000
+- extendedWaitUntil:
+    visible: 'Chưa có trong kho, nhập giá'
+    timeout: 20000
+- takeScreenshot: camera-05-low-match
+- tapOn: 'Chưa có trong kho, nhập giá'
+- extendedWaitUntil:
+    visible: 'Lưu vào kho và thêm vào giỏ'
+    timeout: 20000
+- takeScreenshot: camera-06-enroll
+- back
+
+# Swipe handle opens the shop.
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Kho'
+    timeout: 20000
+- takeScreenshot: camera-07-shop

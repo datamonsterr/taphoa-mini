@@ -1,0 +1,50 @@
+appId: com.datamonsterr.taphoamini
+---
+# Dashboard, add an expense, close the day.
+- runFlow: subflows/launch.yaml
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- extendedWaitUntil:
+    visible: 'Hôm nay'
+    timeout: 20000
+- takeScreenshot: reports-01-dashboard
+- tapOn: 'Tuần'
+- extendedWaitUntil:
+    visible: 'Tuần này'
+    timeout: 20000
+- scrollUntilVisible:
+    element: 'Thêm khoản chi'
+- tapOn: 'Thêm khoản chi'
+- tapOn: 'Điện'
+- tapOn: '5'
+- tapOn: '000'
+- tapOn: '0'
+- assertVisible: '−50.000đ'
+- takeScreenshot: reports-02-expense
+- tapOn: 'Lưu khoản chi'
+# Back on the dashboard, possibly scrolled down.
+- scrollUntilVisible:
+    element: 'Tuần này'
+    direction: UP
+- extendedWaitUntil:
+    visible: 'Tuần này'
+    timeout: 20000
+- tapOn: 'Ngày'
+- scrollUntilVisible:
+    element: 'Chốt sổ'
+- tapOn: 'Chốt sổ'
+- extendedWaitUntil:
+    visible: 'Chốt sổ hôm nay'
+    timeout: 20000
+- takeScreenshot: reports-03-close
+- tapOn: '0'
+- tapOn: 'Chốt sổ hôm nay'
+- scrollUntilVisible:
+    element: 'Hôm nay'
+    direction: UP
+- extendedWaitUntil:
+    visible: 'Hôm nay'
+    timeout: 20000

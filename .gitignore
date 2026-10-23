@@ -3,6 +3,7 @@ node_modules/
 .turbo/
 .expo/
 dist/
+dist-*/
 coverage/
 apps/backend/target/
 apps/backend/models/
@@ -14,3 +15,9 @@ __pycache__/
 .ci-cache/
 ci-bin/
 apps/backend/target-local/
+
+# Playwright web e2e
+playwright-report/
+apps/mobile/e2e-web/perf-results.json
+test-results/
+apps/mobile/e2e-web/screenshots/

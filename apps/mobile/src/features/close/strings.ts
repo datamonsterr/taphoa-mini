@@ -1,0 +1,36 @@
+import type { Dict } from '@/lib/i18n';
+
+export const closeStrings: Dict = {
+  vi: {
+    screen: 'Chốt sổ',
+    close: 'Đóng',
+    expected: 'Tiền mặt dự kiến',
+    counted: 'Tiền đếm được',
+    save: 'Chốt sổ hôm nay',
+    closed: 'Đã chốt sổ',
+    error: 'Không tải được số liệu',
+    saveError: 'Không chốt được sổ. Thử lại.',
+    'diff.match': 'Khớp',
+    'diff.short': 'Thiếu',
+    'diff.extra': 'Dư',
+    'keypad.delete': 'Xóa',
+    retry: 'Thử lại',
+    loading: 'Đang tải',
+  },
+  en: {
+    screen: 'Close the day',
+    close: 'Close',
+    expected: 'Expected cash',
+    counted: 'Cash counted',
+    save: 'Close today',
+    closed: 'Day closed',
+    error: 'Could not load the figures',
+    saveError: 'Could not close the day. Try again.',
+    'diff.match': 'Matches',
+    'diff.short': 'Short',
+    'diff.extra': 'Over',
+    'keypad.delete': 'Delete',
+    retry: 'Retry',
+    loading: 'Loading',
+  },
+};

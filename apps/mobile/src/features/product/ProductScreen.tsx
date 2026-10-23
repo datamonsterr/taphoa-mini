@@ -1,0 +1,262 @@
+import { router, useLocalSearchParams } from 'expo-router';
+import {
+  ArrowDownToLine,
+  ChevronLeft,
+  Package,
+  Pencil,
+} from 'lucide-react-native';
+import { memo, useCallback, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+
+import { Text } from '@/components/ui';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { CircleButton } from '@/components/ui/CircleButton';
+import { Icon } from '@/components/ui/Icon';
+import { PressableScale } from '@/components/ui/PressableScale';
+import { MoneyText } from '@/components/ui/MoneyText';
+import { useCategories, usePatchProduct, useProduct } from '@/lib/api/hooks';
+import { isApiError } from '@/lib/api/errors';
+import type { Category, ProductWithStock } from '@/lib/api/types';
+import { formatVnd } from '@/lib/format';
+import { useT } from '@/lib/i18n';
+import { colors, fontFamily, radius, space, typography } from '@/theme';
+
+import { EditPriceSheet } from './EditPriceSheet';
+import { PhotoCarousel } from './PhotoCarousel';
+import { fill, strings } from './strings';
+
+/** Description from the fields the API has: category and extra selling units. */
+function describe(
+  product: ProductWithStock,
+  categories: Category[] | undefined,
+  unitLine: string,
+): string {
+  const category = categories?.find((c) => c.id === product.category_id)?.name;
+  const units = product.units
+    .filter((unit) => unit.quantity_in_base > 1)
+    .map((unit) =>
+      fill(unitLine, {
+        unit: unit.name,
+        quantity: unit.quantity_in_base,
+        base: product.base_unit,
+        price: formatVnd(unit.price),
+      }),
+    );
+  return (
+    [category, ...units].filter(Boolean).join('. ') +
+    (category || units.length ? '.' : '')
+  );
+}
+
+const Stat = memo(function Stat({
+  icon,
+  label,
+  value,
+}: {
+  icon: typeof Package;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label} ${value}`}
+      style={styles.stat}
+    >
+      <Icon icon={icon} color={colors.inkMuted} />
+      <Text style={styles.statValue}>{value}</Text>
+    </View>
+  );
+});
+
+function Skeleton() {
+  return (
+    <View style={styles.skeleton} testID="product-skeleton">
+      <View style={styles.skeletonPhoto} />
+      <View style={[styles.skeletonLine, { width: '60%' }]} />
+      <View style={[styles.skeletonLine, { width: '35%' }]} />
+    </View>
+  );
+}
+
+export function ProductScreen() {
+  const t = useT(strings);
+  const insets = useSafeAreaInsets();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { data: product, error, isError, refetch } = useProduct(id);
+  const { data: categories } = useCategories();
+  const patch = usePatchProduct();
+  const [editing, setEditing] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/inventory');
+  }, []);
+  const openEdit = useCallback(() => setEditing(true), []);
+  const closeEdit = useCallback(() => setEditing(false), []);
+  const retry = useCallback(() => void refetch(), [refetch]);
+
+  const save = useCallback(
+    (price: number) => {
+      setEditing(false);
+      if (!product || price === product.price) return;
+      setSaveFailed(false);
+      patch.mutate(
+        { id: product.id, patch: { price } },
+        { onError: () => setSaveFailed(true) },
+      );
+    },
+    [product, patch],
+  );
+
+  const notFound = isApiError(error) && error.status === 404;
+  let body;
+  if (product) {
+    const description = describe(product, categories, t('unitLine'));
+    body = (
+      <>
+        <PhotoCarousel images={product.images} />
+        <View>
+          <Text accessibilityRole="header" style={styles.name}>
+            {product.name ?? t('unnamed')}
+          </Text>
+          <MoneyText amount={product.price} style={styles.price} />
+        </View>
+        {saveFailed ? (
+          <Text accessibilityRole="alert" style={styles.saveError}>
+            {t('saveError')}
+          </Text>
+        ) : null}
+        <View style={styles.stats}>
+          {product.stock_quantity !== undefined ? (
+            <Stat
+              icon={Package}
+              label={t('stock')}
+              value={String(product.stock_quantity)}
+            />
+          ) : null}
+          {product.cost_price != null ? (
+            <Stat
+              icon={ArrowDownToLine}
+              label={t('cost')}
+              value={formatVnd(product.cost_price)}
+            />
+          ) : null}
+        </View>
+        {description ? (
+          <Text testID="product-description" style={styles.description}>
+            {description}
+          </Text>
+        ) : null}
+      </>
+    );
+  } else if (isError) {
+    body = (
+      <View style={styles.message}>
+        <Text style={styles.messageText}>
+          {t(notFound ? 'notFound' : 'error')}
+        </Text>
+        {notFound ? null : (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('retry')}
+            onPress={retry}
+            style={styles.retry}
+          >
+            <Text style={styles.retryText}>{t('retry')}</Text>
+          </PressableScale>
+        )}
+      </View>
+    );
+  } else {
+    body = <Skeleton />;
+  }
+
+  return (
+    <View style={[styles.screen, { paddingTop: insets.top + space[4] }]}>
+      <View style={styles.header}>
+        <CircleButton
+          icon={ChevronLeft}
+          accessibilityLabel={t('back')}
+          onPress={goBack}
+        />
+        {product ? (
+          <CircleButton
+            icon={Pencil}
+            accessibilityLabel={t('edit')}
+            onPress={openEdit}
+          />
+        ) : null}
+      </View>
+      {body}
+      {editing && product ? (
+        <EditPriceSheet
+          price={product.price}
+          onSave={save}
+          onClose={closeEdit}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    gap: space[4],
+    paddingHorizontal: space[4],
+    paddingBottom: space[4],
+    backgroundColor: colors.surface,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  name: { ...typography.heading, color: colors.ink },
+  price: { marginTop: space[1] },
+  saveError: { ...typography.caption, color: colors.danger },
+  stats: { flexDirection: 'row', gap: space[3] },
+  stat: {
+    flex: 1,
+    padding: space[4],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  statValue: {
+    marginTop: space[1],
+    fontFamily: fontFamily.extrabold,
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.ink,
+    fontVariant: ['tabular-nums'],
+  },
+  description: { ...typography.body, color: colors.inkMuted },
+  skeleton: { gap: space[4] },
+  skeletonPhoto: {
+    height: 300,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  skeletonLine: {
+    height: 28,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceSoft,
+  },
+  message: { alignItems: 'center', gap: space[4], paddingTop: space[8] },
+  messageText: {
+    ...typography.body,
+    color: colors.inkMuted,
+    textAlign: 'center',
+  },
+  retry: {
+    minHeight: 56,
+    justifyContent: 'center',
+    paddingHorizontal: space[6],
+    borderRadius: radius.full,
+    backgroundColor: colors.ink,
+  },
+  retryText: { ...typography.label, color: colors.onInk },
+});
