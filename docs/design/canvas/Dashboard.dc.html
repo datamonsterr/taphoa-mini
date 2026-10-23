@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Dashboard</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+.th-stat:not(.th-stat-wide) b{font-size:22px;line-height:28px;white-space:nowrap}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 1080px; box-sizing: border-box; padding: 24px 16px 112px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 20px">
+  <div style="display: flex; align-items: center; justify-content: space-between">
+    <h1 class="title" style="margin: 0">Hôm nay</h1>
+    <a href="Expense.dc.html" class="th-ib" aria-label="Thêm khoản chi"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></a>
+  </div>
+
+  <div role="radiogroup" aria-label="Khoảng thời gian" style="display: flex; gap: 8px">
+    <sc-for list="{{periods}}" as="p" hint-placeholder-count="3">
+      <button type="button" class="th-chip" role="radio" aria-checked="{{p.on}}" aria-pressed="{{p.on}}" onClick="{{p.pick}}">{{p.label}}</button>
+    </sc-for>
+  </div>
+
+  <div class="th-stats">
+    <div class="th-stat th-stat-wide">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>
+        <span class="th-num" aria-label="32 đơn" style="display: flex; align-items: center; gap: 6px; font: 600 17px/22px var(--font-sans)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>32</span>
+      </div>
+      <b aria-label="Doanh thu {{revenue}}">{{revenue}}</b>
+    </div>
+    <div class="th-stat" aria-label="Tiền mặt">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>
+      <b>{{cash}}</b>
+    </div>
+    <div class="th-stat" aria-label="Chuyển khoản">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>
+      <b>{{transfer}}</b>
+    </div>
+    <div class="th-stat" aria-label="Chi" style="background: var(--danger-soft)">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--danger)"><path d="M7 17L17 7M8 7h9v9"/></svg>
+      <b style="color: var(--danger)">−{{expense}}</b>
+    </div>
+    <div class="th-stat" aria-label="Lãi" style="background: var(--success-soft)">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--success)"><path d="M12 2v20M17 7c0-2-2.2-3-5-3s-5 1.2-5 3.5S9 11 12 12s5 2 5 4.5S14.8 20 12 20s-5-1-5-3"/></svg>
+      <b style="color: var(--success)">{{net}}</b>
+    </div>
+  </div>
+
+  <div style="padding: 16px; border-radius: 28px; background: var(--surface-soft)">
+    <div role="img" aria-label="Doanh thu và chi 7 ngày" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 8px; height: 150px">
+      <sc-for list="{{bars}}" as="b" hint-placeholder-count="7">
+        <div style="display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 150px">
+          <span style="{{b.rev}}"></span><span style="{{b.exp}}"></span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-top: 8px">
+      <sc-for list="{{bars}}" as="b" hint-placeholder-count="7">
+        <span class="caption" style="text-align: center; color: {{b.dayColor}}">{{b.day}}</span>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 12px">
+    <a href="Inventory.dc.html" aria-label="3 món sắp hết" style="flex: 1; display: flex; align-items: center; gap: 10px; height: 64px; padding: 0 18px; border-radius: 9999px; background: var(--warning-soft); color: var(--warning)">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg><b class="th-num" style="font-size: 22px">3</b>
+    </a>
+    <a href="Product.dc.html" aria-label="1 món giá bán dưới giá nhập" style="flex: 1; display: flex; align-items: center; gap: 10px; height: 64px; padding: 0 18px; border-radius: 9999px; background: var(--warning-soft); color: var(--warning)">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><b class="th-num" style="font-size: 22px">1</b>
+    </a>
+    <a href="Inventory.dc.html" aria-label="2 món bán không có trong kho" style="flex: 1; display: flex; align-items: center; gap: 10px; height: 64px; padding: 0 18px; border-radius: 9999px; background: var(--surface-soft); color: var(--ink)">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/></svg><b class="th-num" style="font-size: 22px">2</b>
+    </a>
+  </div>
+
+  <a href="Close.dc.html" class="th-btn th-btn-ink th-btn-block"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg>Chốt sổ</a>
+
+  <div class="th-navwrap" style="position: absolute; left: 16px; bottom: 16px; width: 358px">
+    <a href="Main.dc.html" class="th-ib th-ib-lg th-ib-accent th-ib-float" aria-label="Mở camera"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
+    <nav class="th-nav" aria-label="Chính">
+      <a href="Inventory.dc.html" class="th-ib" aria-label="Kho"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></a>
+      <a href="Dashboard.dc.html" class="th-ib" aria-current="page" aria-label="Báo cáo"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V11M13 17V7M18 17v-4"/></svg></a>
+      <a href="Account.dc.html" class="th-ib" aria-label="Tài khoản"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></a>
+    </nav>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const per = (this.state && this.state.per) || 'day';
+    const fmt = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+    const data = {
+      day: { rev: 1240000, cash: 740000, tr: 500000, exp: 180000 },
+      week: { rev: 8150000, cash: 4900000, tr: 3250000, exp: 2300000 },
+      month: { rev: 33600000, cash: 19800000, tr: 13800000, exp: 9400000 }
+    }[per];
+    const periods = [['day', 'Ngày'], ['week', 'Tuần'], ['month', 'Tháng']].map(([id, label]) => ({
+      label, on: per === id ? 'true' : 'false', pick: () => this.setState({ per: id })
+    }));
+    const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+    const rev = [0.62, 0.75, 0.55, 0.8, 0.7, 0.95, 0.88];
+    const exp = [0.12, 0.4, 0.1, 0.15, 0.6, 0.14, 0.2];
+    const bars = days.map((d, i) => ({
+      day: d, dayColor: i === 6 ? '#111114' : '#5f5f66',
+      rev: 'display: block; width: 14px; border-radius: 7px 7px 3px 3px; background: #111114; height: ' + Math.round(rev[i] * 150) + 'px',
+      exp: 'display: block; width: 14px; border-radius: 7px 7px 3px 3px; background: #c62f2f; opacity: .55; height: ' + Math.round(exp[i] * 150) + 'px'
+    }));
+    return {
+      periods, bars,
+      revenue: fmt(data.rev), cash: fmt(data.cash), transfer: fmt(data.tr), expense: fmt(data.exp), net: fmt(data.rev - data.exp)
+    };
+  }
+}
+</script>
+</body>
+</html>

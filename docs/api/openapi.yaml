@@ -1,0 +1,2353 @@
+openapi: 3.1.0
+info:
+  title: Tạp Hóa Mini API
+  version: 0.1.0-draft
+  summary: Backend API for the Tạp Hóa Mini family-store POS.
+  description: |
+    Status: **Draft / Proposed** (2026-10-23). Source: [PRD](../PRD.md), [architecture](../architecture.md).
+
+    Implemented today: `GET /healthz`, `GET /readyz`, `POST /v1/segment`.
+    Specified and accepted, not yet merged: `POST /v1/images`, `GET /v1/images/{imageId}`
+    ([object storage spec](../specs/object-storage.md)). Everything else is a proposal.
+
+    ## Conventions
+
+    - **Money** is an integer number of Vietnamese đồng (VND). No decimals, no floats.
+    - **Ids** are UUIDs. Records the phone creates offline (sales, expenses, products,
+      day closes) carry a **client-generated UUIDv7** `id`. Replaying the same create with
+      the same `id` and same body returns `200` with the stored record instead of `201`.
+      The same `id` with a different body returns `409 conflict`. This makes the offline
+      outbox safe to retry.
+    - **Timestamps** are RFC 3339 with offset. **Business dates** (`YYYY-MM-DD`) use the
+      store time zone `Asia/Ho_Chi_Minh`.
+    - **Store scope**: every `/v1` route except store creation, join, refresh and recovery
+      acts on the store in the access token. There is no `store_id` in paths.
+    - **Pagination**: cursor based. `?limit=` (default 50, max 200) and `?cursor=`;
+      responses carry `next_cursor` (null on the last page).
+    - **Errors**: JSON `{ "error": "<human message>", "code": "<machine code>" }`.
+      The skeleton endpoints return only `error`.
+    - **Images** are never returned as bytes by the API. Responses carry short-lived
+      presigned GET URLs (`url`, `url_expires_at`, default 15 min).
+  contact:
+    name: datamonsterr
+  license:
+    name: UNLICENSED
+    identifier: UNLICENSED
+
+servers:
+  - url: http://localhost:8080
+    description: Local Docker Compose
+  - url: https://{railwayDomain}
+    description: Railway production backend
+    variables:
+      railwayDomain:
+        default: backend-production.up.railway.app
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Health
+    description: Process liveness and dependency readiness. Implemented.
+  - name: Auth
+    description: Store creation, family join by QR invite, token refresh, member switching.
+  - name: Store
+    description: Store profile and settings, including the VietQR bank account (T1).
+  - name: Members
+    description: Family members, roles (Lead / Seller) and invites (U1–U4).
+  - name: Images
+    description: Photo upload to object storage; presigned read URLs.
+  - name: Recognition
+    description: Counter-photo scans (SAM + embedding match) and raw segmentation.
+  - name: Catalog
+    description: Products, reference photos, units, prices and price history (C1–C7).
+  - name: Sales
+    description: Checkout sales, payment method, voids (S1–S10).
+  - name: Review
+    description: Lead review queue for manual-price lines sold without a catalog match (S4, F3).
+  - name: Expenses
+    description: Expenses and stock purchases (E1–E3).
+  - name: Alerts
+    description: Margin alerts raised when cost rises above selling price (E3, F4).
+  - name: Reports
+    description: Today, period summaries, top products, recognition accuracy, exports (R1–R5).
+  - name: Day close
+    description: End-of-day cash reconciliation, chốt sổ (R2, F5).
+  - name: Sync
+    description: Offline-first change feed and live event stream (G4).
+
+paths:
+  # ---------------------------------------------------------------- Health
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness
+      description: Returns 200 when the process answers. Checks no dependencies. Railway healthcheck target.
+      security: []
+      responses:
+        '200':
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+  /readyz:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Readiness
+      description: |
+        Checks Postgres (`SELECT 1`), Redis (`PING`) and, once object storage lands,
+        the bucket (`HeadBucket`). Each check has a 2 s timeout.
+      security: []
+      responses:
+        '200':
+          description: All dependencies answer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+        '503':
+          description: At least one dependency failed. `dependencies` names each failure.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+              example: { status: unavailable, dependencies: [redis] }
+
+  # ---------------------------------------------------------------- Auth
+  /v1/stores:
+    post:
+      tags: [Auth]
+      operationId: createStore
+      summary: Create a store and its first Lead (F1)
+      description: |
+        Public. Creates the store, the Lead member and a session for this device.
+        Returns a one-time `recovery_code`; the app asks the Lead to save it.
+        Rate limited per IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateStoreRequest' }
+      responses:
+        '201':
+          description: Store created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AuthSession'
+                  - type: object
+                    required: [recovery_code]
+                    properties:
+                      recovery_code:
+                        type: string
+                        description: Shown once. Lets a Lead sign in on a new phone if every device is lost.
+                        example: 7KQ4-MZ2P-9HXD-T3VA
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/auth/join:
+    post:
+      tags: [Auth]
+      operationId: joinStore
+      summary: Join a store by scanning the Lead's invite QR (U1)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invite_token, display_name, device]
+              properties:
+                invite_token:
+                  {
+                    type: string,
+                    description: Value from the invite QR. Single use.,
+                  }
+                display_name:
+                  { type: string, minLength: 1, maxLength: 40, example: Bà nội }
+                device: { $ref: '#/components/schemas/DeviceInfo' }
+      responses:
+        '201':
+          description: Member created and signed in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '410':
+          description: Invite expired or already used.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/auth/recover:
+    post:
+      tags: [Auth]
+      operationId: recoverLead
+      summary: Sign a Lead in on a new phone with the recovery code
+      description: Rotates the recovery code. Revokes no other sessions unless `revoke_other_sessions` is true.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recovery_code, device]
+              properties:
+                recovery_code: { type: string }
+                device: { $ref: '#/components/schemas/DeviceInfo' }
+                revoke_other_sessions: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Signed in. Contains a new `recovery_code`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AuthSession'
+                  - type: object
+                    required: [recovery_code]
+                    properties:
+                      recovery_code: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Rotate the refresh token and get a new access token
+      description: Refresh tokens are single use. Reuse of a rotated token revokes the whole session (theft signal).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: New token pair.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/switch:
+    post:
+      tags: [Auth]
+      operationId: switchMember
+      summary: Switch the acting member on a shared counter phone (U3, U4)
+      description: |
+        The caller's session must belong to the same store. If the target member has a PIN,
+        `pin` is required. Five wrong PINs lock the member for 5 minutes (Redis counter).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id]
+              properties:
+                member_id: { type: string, format: uuid }
+                pin: { type: string, pattern: '^[0-9]{4,6}$' }
+      responses:
+        '200':
+          description: Session for the target member on this device.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the current session
+      responses:
+        '204': { description: Session revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: Current member, store and permissions
+      responses:
+        '200':
+          description: Current identity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [member, store]
+                properties:
+                  member: { $ref: '#/components/schemas/Member' }
+                  store: { $ref: '#/components/schemas/Store' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/me/pin:
+    put:
+      tags: [Auth]
+      operationId: setPin
+      summary: Set or clear the caller's PIN (U4)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin:
+                  type: [string, 'null']
+                  pattern: '^[0-9]{4,6}$'
+                  description: null clears the PIN.
+      responses:
+        '204': { description: PIN updated. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- Store
+  /v1/store:
+    get:
+      tags: [Store]
+      operationId: getStore
+      summary: Store profile and settings
+      responses:
+        '200':
+          description: Store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Store' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Store]
+      operationId: updateStore
+      summary: Update store name, VietQR bank account, margin threshold (Lead)
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/StorePatch' }
+      responses:
+        '200':
+          description: Updated store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Store' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Members
+  /v1/members:
+    get:
+      tags: [Members]
+      operationId: listMembers
+      summary: List family members
+      responses:
+        '200':
+          description: Members, active first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Member' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/members/{memberId}:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    patch:
+      tags: [Members]
+      operationId: updateMember
+      summary: Change role, enroll permission or name (Lead)
+      description: A store keeps at least one active Lead; demoting the last one returns 409.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string, minLength: 1, maxLength: 40 }
+                role: { $ref: '#/components/schemas/Role' }
+                can_enroll: { type: boolean }
+      responses:
+        '200':
+          description: Updated member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Members]
+      operationId: removeMember
+      summary: Deactivate a member and revoke all of their sessions (Lead)
+      description: Past sales keep the member reference. The member row is kept with `active=false`.
+      responses:
+        '204': { description: Member deactivated. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/invites:
+    post:
+      tags: [Members]
+      operationId: createInvite
+      summary: Create a single-use join invite shown as a QR (Lead)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                can_enroll: { type: boolean, default: false }
+                ttl_seconds:
+                  { type: integer, minimum: 60, maximum: 86400, default: 600 }
+      responses:
+        '201':
+          description: Invite. Encode `join_url` into the QR.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invite' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Images
+  /v1/images:
+    post:
+      tags: [Images]
+      operationId: uploadImage
+      summary: Upload a photo (accepted spec, not yet merged)
+      description: |
+        Accepts JPEG, PNG or WebP detected from magic bytes; max 10 MiB. The object is stored
+        under `images/{yyyy}/{mm}/{uuid}.{ext}`, then a row is inserted. If the insert fails
+        the object is deleted. The skeleton spec allows a missing `store_id`; once auth lands
+        the store comes from the token.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+                store_id:
+                  type: string
+                  format: uuid
+                  description: Optional owning store. Unknown store returns 400. Replaced by the token's store once auth lands.
+                purpose: { $ref: '#/components/schemas/ImagePurpose' }
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/webp
+      responses:
+        '201':
+          description: Stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Image' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/images/{imageId}:
+    parameters:
+      - $ref: '#/components/parameters/ImageId'
+    get:
+      tags: [Images]
+      operationId: getImage
+      summary: Image metadata with a fresh presigned URL
+      responses:
+        '200':
+          description: Image.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Image' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ---------------------------------------------------------------- Recognition
+  /v1/recognition/scans:
+    post:
+      tags: [Recognition]
+      operationId: createScan
+      summary: Recognize items in a photo (S1, S8, C2)
+      description: |
+        Stores the photo, segments it (SAM in phase 1, YOLO in phase 2), embeds each crop
+        and searches the store's product embeddings. Every detection returns up to
+        `top_k` candidates. **Nothing is added to a cart or sale by this call**; the phone
+        shows editable lines and the seller confirms.
+
+        - `mode=multi`: whole counter, many detections (S8).
+        - `mode=single`: one item; the largest central segment (or the whole image) is used (S1).
+        - `purpose=enrollment`: duplicate check before creating a product (C2). Candidates
+          above the duplicate threshold come back with `match=matched`.
+
+        Send either a new `image` file or an `image_id` from `POST /v1/images`.
+        Inference is serialized per backend instance; when busy the API returns 503 with
+        `Retry-After`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  {
+                    type: string,
+                    format: binary,
+                    description: Required unless `image_id` is given.,
+                  }
+                image_id: { type: string, format: uuid }
+                mode: { type: string, enum: [single, multi], default: multi }
+                purpose:
+                  {
+                    type: string,
+                    enum: [checkout, enrollment],
+                    default: checkout,
+                  }
+                top_k: { type: integer, minimum: 1, maximum: 5, default: 4 }
+      responses:
+        '201':
+          description: Scan stored with detections and candidates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scan' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/recognition/scans/{scanId}:
+    parameters:
+      - name: scanId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Recognition]
+      operationId: getScan
+      summary: Read a stored scan (debug and review)
+      responses:
+        '200':
+          description: Scan.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/segment:
+    post:
+      tags: [Recognition]
+      operationId: segmentImage
+      summary: Raw class-agnostic segmentation (implemented skeleton)
+      description: |
+        Runs the configured `Segmenter` and returns boxes only, without catalog matching.
+        Kept for diagnostics and the e2e smoke test. Today it is unauthenticated;
+        it moves behind auth once auth lands.
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  {
+                    type: string,
+                    format: binary,
+                    description: 'PNG or JPEG, max 10 MiB.',
+                  }
+      responses:
+        '200':
+          description: Segments after score/area filtering and NMS.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Segment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503':
+          description: '`no model loaded` (weights absent, e.g. `SKIP_MODELS=1`) or `segmenter busy`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------------------------------------------------------- Catalog
+  /v1/products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: Price list / grid (C6, S3)
+      description: Phones normally read the catalog from local SQLite fed by `/v1/sync/changes`; this route serves search and first load.
+      parameters:
+        - name: q
+          in: query
+          description: Case- and accent-insensitive name search (`unaccent`), e.g. `hao hao` matches `Hảo Hảo`.
+          schema: { type: string }
+        - name: barcode
+          in: query
+          description: Exact barcode lookup (S2).
+          schema: { type: string }
+        - name: category_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Products page.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Catalog]
+      operationId: createProduct
+      summary: Enroll a product from 1–5 photos and a price (C1, C4, C5)
+      description: |
+        Requires Lead or `can_enroll`. The server embeds each reference image and stores the
+        vectors. Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
+        "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
+        would match. Idempotent on `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProductRequest' }
+      responses:
+        '200':
+          description: Replay of an identical earlier create.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '201':
+          description: Product created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: |
+            `duplicate_suspected` (with `details.candidates`) when `force_new` is false and a
+            reference image matches an existing product, or `id_conflict` on an id reused with
+            a different body.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/products/{productId}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Product detail
+      responses:
+        '200':
+          description: Product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Catalog]
+      operationId: updateProduct
+      summary: Edit product; price changes are Lead only and logged (C3, G4)
+      description: |
+        Price and cost changes write a `price_history` row (old, new, who, when) and publish a
+        `catalog.changed` event. Conflict rule: the Lead's edits win; concurrent edits resolve
+        last-writer-wins by server receive time, and both appear in history.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ProductPatch' }
+      responses:
+        '200':
+          description: Updated product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Catalog]
+      operationId: archiveProduct
+      summary: Archive a product (Lead)
+      description: Soft delete. Hidden from grid and recognition; past sales keep the reference.
+      responses:
+        '204': { description: Archived. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/products/{productId}/images:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    post:
+      tags: [Catalog]
+      operationId: addProductImage
+      summary: Add a reference photo, e.g. "merge" answer to "Same as X?" (C2)
+      description: Max 5 reference images per product (409 above). The image is embedded and indexed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_id]
+              properties:
+                image_id: { type: string, format: uuid }
+                detection_id:
+                  type: string
+                  format: uuid
+                  description: Optional. Embed this detection's crop instead of the whole image.
+      responses:
+        '201':
+          description: Reference image added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/products/{productId}/images/{imageId}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+      - $ref: '#/components/parameters/ImageId'
+    delete:
+      tags: [Catalog]
+      operationId: removeProductImage
+      summary: Remove a reference photo and its embedding
+      description: A product keeps at least one reference image (409).
+      responses:
+        '204': { description: Removed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/products/{productId}/price-history:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Catalog]
+      operationId: getPriceHistory
+      summary: Price and cost history (C3)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/PriceChange' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: Product categories
+      responses:
+        '200':
+          description: Categories.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Catalog]
+      operationId: createCategory
+      summary: Create a category (Lead)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, name]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string, minLength: 1, maxLength: 40 }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/exports/price-list:
+    get:
+      tags: [Catalog]
+      operationId: exportPriceList
+      summary: Printable price list (C7, P2)
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [pdf, png], default: pdf }
+      responses:
+        '200':
+          description: File download.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- Sales
+  /v1/sales:
+    get:
+      tags: [Sales]
+      operationId: listSales
+      summary: Sales log
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: member_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: payment_method
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentMethod' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [completed, voided] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Sale' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Sales]
+      operationId: createSale
+      summary: Record a completed sale (S5, S6, U3)
+      description: |
+        Sent by the phone's outbox right after "Đã nhận", or later when it comes back online.
+        Sales are append-only. The server **never reprices**: it stores the prices the seller
+        saw. It recomputes `total` from lines and rejects a mismatch (400). A line whose
+        `unit_price` differs from the catalog price at `sold_at` is stored with
+        `price_mismatch=true` for Lead review. `member_id` comes from the token.
+        Idempotent on `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSaleRequest' }
+      responses:
+        '200':
+          description: Replay of an identical earlier create.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '201':
+          description: Sale recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/sales/{saleId}:
+    parameters:
+      - $ref: '#/components/parameters/SaleId'
+    get:
+      tags: [Sales]
+      operationId: getSale
+      summary: Sale detail
+      responses:
+        '200':
+          description: Sale.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/sales/{saleId}/void:
+    parameters:
+      - $ref: '#/components/parameters/SaleId'
+    post:
+      tags: [Sales]
+      operationId: voidSale
+      summary: Void or refund a completed sale with a reason (S10)
+      description: Lead, or the seller who made the sale on the same business date. Idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 200 }
+                voided_at:
+                  {
+                    type: string,
+                    format: date-time,
+                    description: Device time; defaults to server time.,
+                  }
+      responses:
+        '200':
+          description: Voided sale.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Review
+  /v1/review/manual-lines:
+    get:
+      tags: [Review]
+      operationId: listManualLines
+      summary: Items sold without a catalog match (S4, F3)
+      description: Lead sees "3 items sold without catalog", each with the crop photo when one exists.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, resolved], default: open }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Lines to review.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ManualLine' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/review/manual-lines/{lineId}/resolve:
+    parameters:
+      - name: lineId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Review]
+      operationId: resolveManualLine
+      summary: Link to an existing product, mark enrolled, or dismiss (Lead)
+      description: |
+        `link` attaches the line to `product_id` and, if the line has a crop, adds it as a
+        reference image. `enrolled` records the product created from this line in one tap
+        (`POST /v1/products` with the line's image). The sale's amounts never change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [link, enrolled, dismiss] }
+                product_id:
+                  {
+                    type: string,
+                    format: uuid,
+                    description: Required for link and enrolled.,
+                  }
+      responses:
+        '200':
+          description: Resolved line.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualLine' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Expenses
+  /v1/expenses:
+    get:
+      tags: [Expenses]
+      operationId: listExpenses
+      summary: Expenses and purchases
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/ExpenseCategory' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Expense' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Expenses]
+      operationId: createExpense
+      summary: Record an expense or a stock purchase (E1, E2)
+      description: |
+        `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`.
+        When the new cost leaves margin below the store threshold, the server creates a
+        margin alert (E3) and publishes `alert.created`. When lines are present, `amount`
+        must equal the line sum. Idempotent on `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateExpenseRequest' }
+      responses:
+        '200':
+          description: Replay of an identical earlier create.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '201':
+          description: Recorded; `alerts` lists margin alerts raised by this purchase.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/expenses/{expenseId}:
+    parameters:
+      - name: expenseId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Expenses]
+      operationId: getExpense
+      summary: Expense detail
+      responses:
+        '200':
+          description: Expense.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Expenses]
+      operationId: updateExpense
+      summary: Correct amount, category, note or photo (Lead or author)
+      description: Purchase lines are not editable; delete and re-enter instead.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              properties:
+                amount: { $ref: '#/components/schemas/Money' }
+                category: { $ref: '#/components/schemas/ExpenseCategory' }
+                note: { type: [string, 'null'], maxLength: 500 }
+                image_id: { type: [string, 'null'], format: uuid }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Expenses]
+      operationId: deleteExpense
+      summary: Delete an expense (Lead)
+      description: Soft delete. Product cost prices set by its purchase lines are not rolled back.
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Alerts
+  /v1/alerts:
+    get:
+      tags: [Alerts]
+      operationId: listAlerts
+      summary: Margin alerts (E3)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            { type: string, enum: [open, accepted, dismissed], default: open }
+      responses:
+        '200':
+          description: Alerts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/MarginAlert' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/alerts/{alertId}/accept:
+    parameters:
+      - $ref: '#/components/parameters/AlertId'
+    post:
+      tags: [Alerts]
+      operationId: acceptAlert
+      summary: Accept the suggested (or an edited) new price (Lead, F4)
+      description: Sets the product price exactly like `PATCH /v1/products/{id}` and closes the alert.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_price: { $ref: '#/components/schemas/Money' }
+      responses:
+        '200':
+          description: Accepted alert.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarginAlert' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/alerts/{alertId}/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/AlertId'
+    post:
+      tags: [Alerts]
+      operationId: dismissAlert
+      summary: Keep the current price (Lead)
+      responses:
+        '200':
+          description: Dismissed alert.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarginAlert' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Reports
+  /v1/reports/today:
+    get:
+      tags: [Reports]
+      operationId: getDailyReport
+      summary: Today screen (R1)
+      parameters:
+        - name: date
+          in: query
+          description: Business date; defaults to today in Asia/Ho_Chi_Minh.
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Daily figures.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reports/summary:
+    get:
+      tags: [Reports]
+      operationId: getSummaryReport
+      summary: Day/week/month revenue and expenses for bar charts (R3)
+      parameters:
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - name: granularity
+          in: query
+          schema: { type: string, enum: [day, week, month], default: day }
+      responses:
+        '200':
+          description: Buckets in date order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [granularity, buckets]
+                properties:
+                  granularity: { type: string, enum: [day, week, month] }
+                  buckets:
+                    type: array
+                    items: { $ref: '#/components/schemas/SummaryBucket' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reports/top-products:
+    get:
+      tags: [Reports]
+      operationId: getTopProducts
+      summary: Top products by revenue or quantity, with gross margin when cost is known (R4)
+      parameters:
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - name: sort
+          in: query
+          schema: { type: string, enum: [revenue, quantity], default: revenue }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Ranked products.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TopProduct' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reports/recognition:
+    get:
+      tags: [Reports]
+      operationId: getRecognitionReport
+      summary: Confirmed-vs-corrected rate (PRD §6 accuracy metric, A1)
+      parameters:
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+      responses:
+        '200':
+          description: Recognition accuracy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecognitionReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/exports/transactions:
+    get:
+      tags: [Reports]
+      operationId: exportTransactions
+      summary: Sales and expenses for tax declaration (R5)
+      parameters:
+        - $ref: '#/components/parameters/FromRequired'
+        - $ref: '#/components/parameters/ToRequired'
+        - name: format
+          in: query
+          schema: { type: string, enum: [csv, xlsx], default: xlsx }
+      responses:
+        '200':
+          description: File download with `Content-Disposition`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Day close
+  /v1/day-closes:
+    get:
+      tags: [Day close]
+      operationId: listDayCloses
+      summary: Past end-of-day closes
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DayClose' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/day-closes/{businessDate}:
+    parameters:
+      - name: businessDate
+        in: path
+        required: true
+        schema: { type: string, format: date }
+    get:
+      tags: [Day close]
+      operationId: getDayClose
+      summary: One day's close
+      responses:
+        '200':
+          description: Day close.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DayClose' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Day close]
+      operationId: putDayClose
+      summary: Enter counted cash; returns expected cash and difference (R2, F5)
+      description: |
+        `expected_cash = opening_float + cash sales − cash refunds − expenses paid in cash`
+        for that business date, computed on the server from synced records. Re-closing the
+        same date overwrites the count and recomputes; sales synced after a close are
+        reported in `late_sales_count`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [counted_cash]
+              properties:
+                counted_cash: { $ref: '#/components/schemas/Money' }
+                opening_float: { $ref: '#/components/schemas/Money' }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: Close stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DayClose' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Sync
+  /v1/sync/changes:
+    get:
+      tags: [Sync]
+      operationId: pullChanges
+      summary: Pull catalog and settings changes since a cursor (offline-first, G4)
+      description: |
+        Returns server-owned entities that changed after `since`: store, members, categories,
+        products (with units and reference images). Sales and expenses are pushed by the phone
+        and are not part of the feed. Start with no `since` for a full snapshot. Repeat while
+        `has_more`. Deletions arrive as `op=delete`.
+      parameters:
+        - name: since
+          in: query
+          description: Opaque cursor from the previous response.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 500 }
+      responses:
+        '200':
+          description: Ordered changes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeFeed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '410':
+          description: Cursor too old (change log compacted). Discard local catalog and pull a full snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/events:
+    get:
+      tags: [Sync]
+      operationId: streamEvents
+      summary: Server-Sent Events stream of store events
+      description: |
+        Long-lived `text/event-stream` while the app is in the foreground. Events are hints:
+        on `catalog.changed` the phone calls `/v1/sync/changes`. Fan-out across backend
+        instances goes through Redis pub/sub channel `store:{store_id}:events`. Heartbeat
+        comment every 25 s. Clients reconnect with `Last-Event-ID`; a gap is closed by the
+        next pull.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: Event stream. Each `data:` line is one `StoreEvent` JSON.
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/StoreEvent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token (JWT, HS256, 15 min) with claims `sub` (member id), `sid` (session id),
+        `store` (store id), `role`, `can_enroll`. Refresh token is opaque, 90 days, rotating,
+        stored hashed in Postgres.
+
+  parameters:
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ImageId:
+      name: imageId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SaleId:
+      name: saleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AlertId:
+      name: alertId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    From:
+      name: from
+      in: query
+      description: Inclusive business date.
+      schema: { type: string, format: date }
+    To:
+      name: to
+      in: query
+      description: Inclusive business date.
+      schema: { type: string, format: date }
+    FromRequired:
+      name: from
+      in: query
+      required: true
+      description: Inclusive business date.
+      schema: { type: string, format: date }
+    ToRequired:
+      name: to
+      in: query
+      required: true
+      description: Inclusive business date. Max range 366 days.
+      schema: { type: string, format: date }
+
+  responses:
+    BadRequest:
+      description: Invalid input (`code` e.g. `validation_failed`, `total_mismatch`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, expired or revoked credentials.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Role does not allow this action (e.g. Seller changing a price).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Unknown id in this store.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: Upload above 10 MiB.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMediaType:
+      description: Image type is not JPEG, PNG or WebP.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limited. See `Retry-After`.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Unexpected server error, e.g. `inference failed`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadGateway:
+      description: Object storage failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: |
+        Dependency not configured or busy: `no model loaded`, `segmenter busy`
+        (with `Retry-After`), `storage not configured`.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          {
+            type: string,
+            description: Human-readable message (English; the app localizes by `code`).,
+          }
+        code: { type: string, example: duplicate_suspected }
+        details: { type: object, additionalProperties: true }
+    Readiness:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        dependencies:
+          type: array
+          items: { type: string, enum: [postgres, redis, storage] }
+    Money:
+      type: integer
+      format: int64
+      minimum: 0
+      description: Amount in VND (đồng). Integer, no fraction.
+      example: 10000
+    Page:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: { type: array, items: {} }
+        next_cursor: { type: [string, 'null'] }
+    Role:
+      type: string
+      enum: [lead, seller]
+      description: Lead has all permissions and owns prices. Seller sells, views prices, adds manual-price lines.
+    DeviceInfo:
+      type: object
+      required: [name, platform]
+      properties:
+        name: { type: string, maxLength: 60, example: Samsung A15 quầy }
+        platform: { type: string, enum: [android, ios, web] }
+        app_version: { type: string, example: 1.0.0 }
+    AuthSession:
+      type: object
+      required: [access_token, refresh_token, expires_in, member, store]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in:
+          {
+            type: integer,
+            description: Access token lifetime in seconds.,
+            example: 900,
+          }
+        member: { $ref: '#/components/schemas/Member' }
+        store: { $ref: '#/components/schemas/Store' }
+    CreateStoreRequest:
+      type: object
+      required: [store_name, display_name, device]
+      properties:
+        store_name:
+          { type: string, minLength: 1, maxLength: 80, example: Tạp hóa Cô Ba }
+        display_name: { type: string, minLength: 1, maxLength: 40, example: Mẹ }
+        device: { $ref: '#/components/schemas/DeviceInfo' }
+        bank_account: { $ref: '#/components/schemas/BankAccount' }
+    BankAccount:
+      type: object
+      description: VietQR payee (T1). The phone builds the EMVCo/NAPAS payload locally from this.
+      required: [bank_bin, account_number, account_name]
+      properties:
+        bank_bin:
+          {
+            type: string,
+            pattern: '^[0-9]{6}$',
+            description: NAPAS bank BIN.,
+            example: '970436',
+          }
+        bank_short_name: { type: string, example: Vietcombank }
+        account_number:
+          {
+            type: string,
+            pattern: '^[0-9A-Za-z]{4,19}$',
+            example: '0123456789',
+          }
+        account_name:
+          {
+            type: string,
+            maxLength: 50,
+            description: 'Uppercase, no diacritics.',
+            example: NGUYEN THI BA,
+          }
+    Store:
+      type: object
+      required: [id, name, timezone, margin_threshold_pct, created_at, version]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        bank_account:
+          oneOf:
+            - $ref: '#/components/schemas/BankAccount'
+            - type: 'null'
+        timezone: { type: string, const: Asia/Ho_Chi_Minh }
+        margin_threshold_pct:
+          type: number
+          minimum: 0
+          maximum: 100
+          default: 0
+          description: E3 alert fires when (price − cost) / price × 100 is below this.
+        sales_memo_prefix:
+          {
+            type: string,
+            maxLength: 8,
+            default: TH,
+            description: VietQR memo prefix before the short sale code.,
+          }
+        created_at: { type: string, format: date-time }
+        version: { type: integer, format: int64 }
+    StorePatch:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        bank_account:
+          oneOf:
+            - $ref: '#/components/schemas/BankAccount'
+            - type: 'null'
+        margin_threshold_pct: { type: number, minimum: 0, maximum: 100 }
+        sales_memo_prefix: { type: string, maxLength: 8 }
+    Member:
+      type: object
+      required:
+        [id, display_name, role, can_enroll, has_pin, active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string, example: Bà nội }
+        role: { $ref: '#/components/schemas/Role' }
+        can_enroll: { type: boolean, description: Always true for Lead. }
+        has_pin: { type: boolean }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+    Invite:
+      type: object
+      required: [token, join_url, role, can_enroll, expires_at]
+      properties:
+        token:
+          {
+            type: string,
+            description: '128-bit random, base32. Stored hashed.',
+          }
+        join_url:
+          {
+            type: string,
+            format: uri,
+            example: 'taphoa://join?token=K7Q4MZ2P9HXDT3VA',
+          }
+        role: { $ref: '#/components/schemas/Role' }
+        can_enroll: { type: boolean }
+        expires_at: { type: string, format: date-time }
+    ImagePurpose:
+      type: string
+      enum: [enrollment, checkout, expense_receipt, other]
+      default: other
+    Image:
+      type: object
+      required: [id, object_key, content_type, byte_size, url, url_expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        object_key:
+          {
+            type: string,
+            example: images/2026/10/0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b.jpg,
+          }
+        content_type:
+          { type: string, enum: [image/jpeg, image/png, image/webp] }
+        byte_size: { type: integer, format: int64 }
+        purpose: { $ref: '#/components/schemas/ImagePurpose' }
+        width: { type: integer }
+        height: { type: integer }
+        url: { type: string, format: uri, description: Presigned GET URL. }
+        url_expires_at: { type: string, format: date-time }
+    Segment:
+      type: object
+      required: [bbox, score, area]
+      properties:
+        bbox:
+          type: array
+          description: '[x, y, width, height] in original image pixels.'
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+        score: { type: number, description: Model mask quality score. }
+        area: { type: integer, description: Foreground pixel count. }
+      example: { bbox: [120, 80, 210, 330], score: 0.95, area: 51234 }
+    Scan:
+      type: object
+      required: [id, image, mode, purpose, pipeline, detections, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        image: { $ref: '#/components/schemas/Image' }
+        mode: { type: string, enum: [single, multi] }
+        purpose: { type: string, enum: [checkout, enrollment] }
+        pipeline:
+          type: object
+          required: [segmenter, embedder]
+          properties:
+            segmenter: { type: string, example: sam-vit-b-onnx }
+            embedder: { type: string, example: dinov2-vits14-onnx }
+            catalog_version: { type: integer, format: int64 }
+        timings_ms:
+          type: object
+          properties:
+            segment: { type: integer }
+            embed: { type: integer }
+            search: { type: integer }
+            total: { type: integer }
+        detections:
+          type: array
+          description: Ordered left-to-right, top-to-bottom.
+          items: { $ref: '#/components/schemas/Detection' }
+        created_at: { type: string, format: date-time }
+    Detection:
+      type: object
+      required: [id, bbox, score, match, candidates]
+      properties:
+        id:
+          {
+            type: string,
+            format: uuid,
+            description: Send back as `sale line.detection_id` to label training data.,
+          }
+        bbox:
+          type: array
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+        score: { type: number }
+        crop_url:
+          {
+            type: string,
+            format: uri,
+            description: Presigned URL of the crop thumbnail.,
+          }
+        match:
+          type: string
+          enum: [matched, ambiguous, unknown]
+          description: |
+            `matched`: top similarity ≥ match threshold and clear margin over the runner-up.
+            `ambiguous`: above the floor but close to another product (look-alike variants).
+            `unknown`: below the floor; phone shows "Không tìm thấy".
+        candidates:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/Candidate' }
+    Candidate:
+      type: object
+      required: [product_id, similarity, name, price]
+      properties:
+        product_id: { type: string, format: uuid }
+        similarity:
+          {
+            type: number,
+            minimum: -1,
+            maximum: 1,
+            description: Cosine similarity of best reference embedding.,
+          }
+        name: { type: [string, 'null'] }
+        price: { $ref: '#/components/schemas/Money' }
+        default_unit_id: { type: [string, 'null'], format: uuid }
+        thumbnail_url: { type: string, format: uri }
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Nước giải khát }
+    ProductUnit:
+      type: object
+      description: Sellable unit (C5). The base unit has `quantity_in_base=1`.
+      required: [id, name, quantity_in_base, price]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: lốc }
+        quantity_in_base: { type: integer, minimum: 1, example: 6 }
+        price: { $ref: '#/components/schemas/Money' }
+        barcode: { type: [string, 'null'] }
+    ProductImage:
+      type: object
+      required: [image_id, url, url_expires_at, position]
+      properties:
+        image_id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        url_expires_at: { type: string, format: date-time }
+        position: { type: integer, minimum: 0, maximum: 4 }
+    Product:
+      type: object
+      required:
+        [id, price, base_unit, units, images, archived, version, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, 'null'], example: Sting đỏ 330ml }
+        price: { $ref: '#/components/schemas/Money' }
+        base_unit: { type: string, example: chai, default: cái }
+        cost_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        barcode: { type: [string, 'null'] }
+        category_id: { type: [string, 'null'], format: uuid }
+        units:
+          type: array
+          description: Extra units beyond the base one (C5).
+          items: { $ref: '#/components/schemas/ProductUnit' }
+        images:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items: { $ref: '#/components/schemas/ProductImage' }
+        archived: { type: boolean }
+        version: { type: integer, format: int64 }
+        created_by: { type: string, format: uuid }
+        updated_at: { type: string, format: date-time }
+    CreateProductRequest:
+      type: object
+      required: [id, price, image_ids]
+      properties:
+        id: { type: string, format: uuid, description: Client UUIDv7. }
+        price: { $ref: '#/components/schemas/Money' }
+        image_ids:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        base_unit: { type: string, maxLength: 20 }
+        cost_price: { $ref: '#/components/schemas/Money' }
+        barcode: { type: string, maxLength: 64 }
+        category_id: { type: string, format: uuid }
+        units:
+          type: array
+          items:
+            type: object
+            required: [id, name, quantity_in_base, price]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              quantity_in_base: { type: integer, minimum: 2 }
+              price: { $ref: '#/components/schemas/Money' }
+              barcode: { type: string }
+        from_manual_line_id:
+          type: string
+          format: uuid
+          description: Enroll from a flagged manual line (F3); resolves that line.
+        force_new: { type: boolean, default: false }
+    ProductPatch:
+      type: object
+      properties:
+        name: { type: [string, 'null'], maxLength: 120 }
+        price: { $ref: '#/components/schemas/Money' }
+        cost_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        base_unit: { type: string, maxLength: 20 }
+        barcode: { type: [string, 'null'], maxLength: 64 }
+        category_id: { type: [string, 'null'], format: uuid }
+        units:
+          type: array
+          description: Full replacement of extra units.
+          items: { $ref: '#/components/schemas/ProductUnit' }
+        archived: { type: boolean }
+    PriceChange:
+      type: object
+      required: [id, field, new_value, changed_by, changed_at, source]
+      properties:
+        id: { type: string, format: uuid }
+        field: { type: string, enum: [price, cost_price, unit_price] }
+        unit_id: { type: [string, 'null'], format: uuid }
+        old_value:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        new_value: { $ref: '#/components/schemas/Money' }
+        changed_by: { type: string, format: uuid }
+        changed_at: { type: string, format: date-time }
+        source: { type: string, enum: [manual, margin_alert, purchase] }
+    PaymentMethod:
+      type: string
+      enum: [cash, transfer]
+    LineSource:
+      type: string
+      enum: [camera, multi_photo, barcode, grid, manual]
+      description: How the line entered the cart (S1, S8, S2, S3, S4).
+    SaleLineInput:
+      type: object
+      required: [id, source, quantity, unit_price]
+      properties:
+        id: { type: string, format: uuid }
+        product_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: Null only for `source=manual`.,
+          }
+        unit_id: { type: [string, 'null'], format: uuid }
+        source: { $ref: '#/components/schemas/LineSource' }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+        unit_price: { $ref: '#/components/schemas/Money' }
+        manual_label:
+          {
+            type: string,
+            maxLength: 80,
+            description: Optional note for manual lines.,
+          }
+        detection_id:
+          type: [string, 'null']
+          format: uuid
+          description: Detection this line confirmed. Links the confirmed product to the crop (training label).
+        suggested_product_id:
+          type: [string, 'null']
+          format: uuid
+          description: Top-1 candidate shown. Differs from `product_id` when the seller corrected it.
+    SaleLine:
+      allOf:
+        - $ref: '#/components/schemas/SaleLineInput'
+        - type: object
+          required: [line_total, price_mismatch]
+          properties:
+            line_total: { $ref: '#/components/schemas/Money' }
+            price_mismatch: { type: boolean }
+            product_name: { type: [string, 'null'] }
+    CreateSaleRequest:
+      type: object
+      required: [id, sold_at, payment_method, lines, total]
+      properties:
+        id: { type: string, format: uuid, description: Client UUIDv7. }
+        sold_at:
+          {
+            type: string,
+            format: date-time,
+            description: Device time at "Đã nhận".,
+          }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        cash_received:
+          $ref: '#/components/schemas/Money'
+        total: { $ref: '#/components/schemas/Money' }
+        vietqr_memo: { type: string, maxLength: 25, example: TH 7KQ4MZ }
+        scan_ids:
+          type: array
+          items: { type: string, format: uuid }
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: '#/components/schemas/SaleLineInput' }
+    Sale:
+      type: object
+      required:
+        [
+          id,
+          code,
+          sold_at,
+          received_at,
+          business_date,
+          member_id,
+          payment_method,
+          total,
+          status,
+          lines,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        code:
+          {
+            type: string,
+            description: Short code shown in the VietQR memo.,
+            example: 7KQ4MZ,
+          }
+        sold_at: { type: string, format: date-time }
+        received_at:
+          {
+            type: string,
+            format: date-time,
+            description: Server time of first receipt.,
+          }
+        business_date: { type: string, format: date }
+        member_id: { type: string, format: uuid }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        cash_received:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        change_given:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        total: { $ref: '#/components/schemas/Money' }
+        vietqr_memo: { type: [string, 'null'] }
+        status: { type: string, enum: [completed, voided] }
+        void:
+          type: [object, 'null']
+          properties:
+            reason: { type: string }
+            voided_by: { type: string, format: uuid }
+            voided_at: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/SaleLine' }
+    ManualLine:
+      type: object
+      required:
+        [line_id, sale_id, sold_at, sold_by, unit_price, quantity, status]
+      properties:
+        line_id: { type: string, format: uuid }
+        sale_id: { type: string, format: uuid }
+        sold_at: { type: string, format: date-time }
+        sold_by: { type: string, format: uuid }
+        unit_price: { $ref: '#/components/schemas/Money' }
+        quantity: { type: integer }
+        manual_label: { type: [string, 'null'] }
+        crop_image:
+          oneOf:
+            - $ref: '#/components/schemas/Image'
+            - type: 'null'
+        reason: { type: string, enum: [manual_price, price_mismatch] }
+        status: { type: string, enum: [open, resolved] }
+        resolution:
+          type: [object, 'null']
+          properties:
+            action: { type: string, enum: [link, enrolled, dismiss] }
+            product_id: { type: [string, 'null'], format: uuid }
+            resolved_by: { type: string, format: uuid }
+            resolved_at: { type: string, format: date-time }
+    ExpenseCategory:
+      type: string
+      enum: [nhap_hang, dien, nuoc, khac]
+      description: nhập hàng (stock purchase), điện (electricity), nước (water), khác (other).
+    PurchaseLine:
+      type: object
+      required: [product_id, quantity, unit_cost]
+      properties:
+        product_id: { type: string, format: uuid }
+        unit_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: 'Unit bought, e.g. thùng. Cost is converted to the base unit.',
+          }
+        quantity: { type: integer, minimum: 1 }
+        unit_cost: { $ref: '#/components/schemas/Money' }
+    CreateExpenseRequest:
+      type: object
+      required: [id, spent_at, amount, category, paid_with]
+      properties:
+        id: { type: string, format: uuid }
+        spent_at: { type: string, format: date-time }
+        amount: { $ref: '#/components/schemas/Money' }
+        category: { $ref: '#/components/schemas/ExpenseCategory' }
+        paid_with:
+          {
+            type: string,
+            enum: [cash_box, other],
+            description: Only `cash_box` reduces expected cash at close.,
+          }
+        image_id: { type: string, format: uuid }
+        note: { type: string, maxLength: 500 }
+        purchase_lines:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseLine' }
+    Expense:
+      allOf:
+        - $ref: '#/components/schemas/CreateExpenseRequest'
+        - type: object
+          required: [business_date, member_id, created_at]
+          properties:
+            business_date: { type: string, format: date }
+            member_id: { type: string, format: uuid }
+            image:
+              oneOf:
+                - $ref: '#/components/schemas/Image'
+                - type: 'null'
+            alerts:
+              type: array
+              items: { $ref: '#/components/schemas/MarginAlert' }
+            created_at: { type: string, format: date-time }
+    MarginAlert:
+      type: object
+      required:
+        [
+          id,
+          product_id,
+          product_name,
+          cost_price,
+          selling_price,
+          margin_pct,
+          suggested_price,
+          status,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        product_name: { type: [string, 'null'], example: Coca 330ml }
+        cost_price: { $ref: '#/components/schemas/Money' }
+        selling_price: { $ref: '#/components/schemas/Money' }
+        margin_pct: { type: number, example: 5.6 }
+        suggested_price:
+          $ref: '#/components/schemas/Money'
+        status: { type: string, enum: [open, accepted, dismissed] }
+        expense_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+    DailyReport:
+      type: object
+      required:
+        [
+          business_date,
+          revenue,
+          sales_count,
+          cash_revenue,
+          transfer_revenue,
+          expenses,
+          net,
+          expected_cash,
+        ]
+      properties:
+        business_date: { type: string, format: date }
+        revenue: { $ref: '#/components/schemas/Money' }
+        sales_count: { type: integer }
+        voided_count: { type: integer }
+        cash_revenue: { $ref: '#/components/schemas/Money' }
+        transfer_revenue: { $ref: '#/components/schemas/Money' }
+        expenses: { $ref: '#/components/schemas/Money' }
+        net:
+          {
+            type: integer,
+            format: int64,
+            description: Revenue minus expenses; may be negative.,
+          }
+        expected_cash: { $ref: '#/components/schemas/Money' }
+        manual_lines_open: { type: integer }
+        day_close:
+          oneOf:
+            - $ref: '#/components/schemas/DayClose'
+            - type: 'null'
+    SummaryBucket:
+      type: object
+      required: [start, end, revenue, expenses, net, sales_count]
+      properties:
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+        revenue: { $ref: '#/components/schemas/Money' }
+        expenses: { $ref: '#/components/schemas/Money' }
+        net: { type: integer, format: int64 }
+        sales_count: { type: integer }
+    TopProduct:
+      type: object
+      required: [product_id, quantity, revenue]
+      properties:
+        product_id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        quantity: { type: integer, description: In base units. }
+        revenue: { $ref: '#/components/schemas/Money' }
+        gross_margin:
+          type: [integer, 'null']
+          format: int64
+          description: Revenue minus quantity × current cost; null when cost unknown.
+    RecognitionReport:
+      type: object
+      required: [detections, confirmed_top1, confirmed_top3, corrected, unknown]
+      properties:
+        detections:
+          { type: integer, description: Detections linked to a sale line. }
+        confirmed_top1: { type: integer }
+        confirmed_top3: { type: integer }
+        corrected: { type: integer }
+        unknown: { type: integer }
+        top1_rate: { type: number }
+        median_scan_ms: { type: integer }
+    DayClose:
+      type: object
+      required:
+        [
+          business_date,
+          expected_cash,
+          counted_cash,
+          difference,
+          closed_by,
+          closed_at,
+        ]
+      properties:
+        business_date: { type: string, format: date }
+        opening_float: { $ref: '#/components/schemas/Money' }
+        cash_sales: { $ref: '#/components/schemas/Money' }
+        cash_refunds: { $ref: '#/components/schemas/Money' }
+        cash_expenses: { $ref: '#/components/schemas/Money' }
+        expected_cash: { $ref: '#/components/schemas/Money' }
+        counted_cash: { $ref: '#/components/schemas/Money' }
+        difference:
+          {
+            type: integer,
+            format: int64,
+            description: counted − expected; negative means missing cash.,
+            example: -10000,
+          }
+        transfer_revenue: { $ref: '#/components/schemas/Money' }
+        late_sales_count:
+          {
+            type: integer,
+            description: Sales synced after the close for this date.,
+          }
+        note: { type: [string, 'null'] }
+        closed_by: { type: string, format: uuid }
+        closed_at: { type: string, format: date-time }
+    Change:
+      type: object
+      required: [seq, entity, op, id]
+      properties:
+        seq: { type: integer, format: int64 }
+        entity: { type: string, enum: [store, member, category, product] }
+        op: { type: string, enum: [upsert, delete] }
+        id: { type: string, format: uuid }
+        data:
+          description: Full entity for `upsert`, shaped by `entity`; absent for `delete`.
+          anyOf:
+            - $ref: '#/components/schemas/Store'
+            - $ref: '#/components/schemas/Member'
+            - $ref: '#/components/schemas/Category'
+            - $ref: '#/components/schemas/Product'
+    ChangeFeed:
+      type: object
+      required: [changes, cursor, has_more]
+      properties:
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/Change' }
+        cursor: { type: string, description: Pass as `since` next time. }
+        has_more: { type: boolean }
+        server_time: { type: string, format: date-time }
+    StoreEvent:
+      type: object
+      description: Event envelope. Per-type `data` payloads are defined in [asyncapi.yaml](asyncapi.yaml).
+      required: [id, type, version, store_id, occurred_at]
+      properties:
+        id: { type: string, example: evt_000000000000128 }
+        type:
+          type: string
+          enum:
+            - catalog.changed
+            - price.changed
+            - store.changed
+            - member.changed
+            - session.revoked
+            - sale.created
+            - sale.voided
+            - review.line_flagged
+            - review.line_resolved
+            - expense.created
+            - alert.created
+            - alert.resolved
+            - day.closed
+            - sale.payment_confirmed
+        version: { type: integer, minimum: 1 }
+        store_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        actor:
+          type: [object, 'null']
+          properties:
+            member_id: { type: string, format: uuid }
+            session_id: { type: string, format: uuid }
+        cursor:
+          {
+            type: string,
+            description: 'Change-feed cursor after this event, when relevant.',
+          }
+        data: { type: object }

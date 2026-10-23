@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  '@parcel/watcher': true
+  lefthook: true
+  unrs-resolver: true
+  '@scarf/scarf': false

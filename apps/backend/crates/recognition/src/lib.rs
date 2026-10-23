@@ -1,0 +1,126 @@
+//! Class-agnostic segmentation. Call synchronous adapters from `spawn_blocking`.
+mod sam;
+pub use sam::{SamOptions, SamSegmenter};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Segment {
+    /// x, y, width, height in the original image's pixels.
+    pub bbox: [f32; 4],
+    pub score: f32,
+    /// Number of foreground pixels in the original image.
+    pub area: u32,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SegmentError {
+    #[error("invalid image: {0}")]
+    InvalidImage(String),
+    #[error("inference failed: {0}")]
+    Inference(String),
+    #[error("not implemented (phase 2)")]
+    NotImplemented,
+}
+
+pub trait Segmenter: Send + Sync {
+    fn segment(&self, image: &[u8]) -> Result<Vec<Segment>, SegmentError>;
+}
+
+pub struct YoloSegmenter;
+impl Segmenter for YoloSegmenter {
+    fn segment(&self, _image: &[u8]) -> Result<Vec<Segment>, SegmentError> {
+        Err(SegmentError::NotImplemented)
+    }
+}
+
+/// Deterministic adapter for router tests; never selected by production config.
+#[derive(Default)]
+pub struct MockSegmenter {
+    pub segments: Vec<Segment>,
+}
+impl Segmenter for MockSegmenter {
+    fn segment(&self, _image: &[u8]) -> Result<Vec<Segment>, SegmentError> {
+        Ok(self.segments.clone())
+    }
+}
+
+pub fn bbox_iou(a: [f32; 4], b: [f32; 4]) -> f32 {
+    let width = (a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0]);
+    let height = (a[1] + a[3]).min(b[1] + b[3]) - a[1].max(b[1]);
+    let intersection = width.max(0.0) * height.max(0.0);
+    let union = a[2] * a[3] + b[2] * b[3] - intersection;
+    if union > 0.0 {
+        intersection / union
+    } else {
+        0.0
+    }
+}
+
+pub fn filter_and_nms(
+    mut segments: Vec<Segment>,
+    options: &SamOptions,
+    image_area: u64,
+) -> Vec<Segment> {
+    segments.retain(|s| {
+        s.score.is_finite()
+            && s.score >= options.min_score
+            && s.area >= options.min_area
+            && f64::from(s.area) <= image_area as f64 * f64::from(options.max_area_ratio)
+            && s.bbox.iter().all(|v| v.is_finite())
+            && s.bbox[2] > 0.0
+            && s.bbox[3] > 0.0
+    });
+    segments.sort_by(|a, b| b.score.total_cmp(&a.score));
+    let mut kept: Vec<Segment> = Vec::new();
+    for candidate in segments {
+        if kept
+            .iter()
+            .all(|s| bbox_iou(s.bbox, candidate.bbox) <= options.nms_iou)
+        {
+            kept.push(candidate);
+        }
+    }
+    kept
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn segment(bbox: [f32; 4], score: f32, area: u32) -> Segment {
+        Segment { bbox, score, area }
+    }
+
+    #[test]
+    fn iou_handles_overlap_disjoint_and_empty() {
+        assert_eq!(bbox_iou([0., 0., 10., 10.], [0., 0., 10., 10.]), 1.0);
+        assert!((bbox_iou([0., 0., 10., 10.], [5., 0., 10., 10.]) - 1.0 / 3.0).abs() < 1e-6);
+        assert_eq!(bbox_iou([0., 0., 1., 1.], [2., 2., 1., 1.]), 0.0);
+        assert_eq!(bbox_iou([0.; 4], [0.; 4]), 0.0);
+    }
+
+    #[test]
+    fn filters_score_area_background_and_nonfinite_then_suppresses_duplicates() {
+        let options = SamOptions::default();
+        let candidates = vec![
+            segment([0., 0., 10., 10.], 0.95, 100),
+            segment([1., 0., 10., 10.], 0.90, 100),
+            segment([40., 0., 10., 10.], 0.94, 100),
+            segment([60., 0., 10., 10.], 0.1, 100),
+            segment([80., 0., 1., 1.], 0.99, 1),
+            segment([0., 0., 100., 100.], 0.99, 10000),
+            segment([0., 0., 10., 10.], f32::NAN, 100),
+        ];
+        let kept = filter_and_nms(candidates, &options, 10000);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].score, 0.95);
+        assert_eq!(kept[1].bbox[0], 40.0);
+    }
+
+    #[test]
+    fn yolo_is_explicitly_unimplemented() {
+        assert_eq!(
+            YoloSegmenter.segment(&[]).unwrap_err().to_string(),
+            "not implemented (phase 2)"
+        );
+    }
+}

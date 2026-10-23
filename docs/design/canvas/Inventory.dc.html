@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Inventory</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans)">
+  <div style="height: 844px; box-sizing: border-box; padding: 8px 16px 112px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px">
+    <a href="Main.dc.html" aria-label="Vuốt xuống: camera" style="display: flex; justify-content: center; padding: 6px 0"><span style="display: block; width: 40px; height: 5px; border-radius: 9999px; background: var(--surface-pressed)"></span></a>
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <h1 class="title" style="margin: 0">Kho</h1>
+      <button type="button" class="th-ib" aria-label="Tìm"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+    </div>
+
+    <div class="th-grid">
+      <a href="Product.dc.html" class="th-tile" aria-label="Sting đỏ, 10.000đ, còn 24">
+        <div class="th-photo"><span class="th-badge th-num" style="background: var(--surface); color: var(--ink)">24</span><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 46%; height: 70%"><rect x="15" y="2" width="10" height="8" rx="2" fill="#111114"/><path d="M14 10h12l4 10v44a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V20z" fill="#c62f2f"/><rect x="10" y="32" width="20" height="14" fill="#ffffff" opacity=".85"/></svg></div>
+        <div class="th-tile-name">Sting đỏ</div>
+        <div class="th-tile-price">10.000đ</div>
+      </a>
+      <a href="Product.dc.html" class="th-tile" aria-label="Aquafina, 5.000đ, còn 36">
+        <div class="th-photo"><span class="th-badge th-num" style="background: var(--surface); color: var(--ink)">36</span><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 46%; height: 70%"><rect x="15" y="2" width="10" height="7" rx="2" fill="#2f6fc6"/><path d="M13 9h14l3 9v46a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V18z" fill="#cfe0f5"/><rect x="10" y="30" width="20" height="14" fill="#2f6fc6"/></svg></div>
+        <div class="th-tile-name">Aquafina</div>
+        <div class="th-tile-price">5.000đ</div>
+      </a>
+      <a href="Product.dc.html" class="th-tile" aria-label="Hảo Hảo, 4.500đ, sắp hết: còn 3">
+        <div class="th-photo"><span class="th-badge th-badge-warning th-num"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5M12 17h.01"/></svg>3</span><svg viewBox="0 0 40 40" aria-hidden="true" style="width: 60%; height: 60%"><rect x="0" y="0" width="40" height="40" rx="6" fill="#e2a94b"/><circle cx="20" cy="22" r="10" fill="#c62f2f"/><rect x="5" y="4" width="30" height="5" rx="2" fill="#ffffff" opacity=".7"/></svg></div>
+        <div class="th-tile-name">Hảo Hảo</div>
+        <div class="th-tile-price">4.500đ</div>
+      </a>
+      <a href="Product.dc.html" class="th-tile" aria-label="Coca 330ml, 10.000đ, còn 18">
+        <div class="th-photo"><span class="th-badge th-num" style="background: var(--surface); color: var(--ink)">18</span><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 46%; height: 70%"><rect x="8" y="10" width="24" height="52" rx="6" fill="#c62f2f"/><rect x="10" y="6" width="20" height="6" rx="3" fill="#a1a1a8"/><path d="M8 34c8-6 16 6 24 0" stroke="#ffffff" stroke-width="3" fill="none"/></svg></div>
+        <div class="th-tile-name">Coca 330ml</div>
+        <div class="th-tile-price">10.000đ</div>
+      </a>
+      <a href="Product.dc.html" class="th-tile" aria-label="Bánh bi, 15.000đ, còn 8">
+        <div class="th-photo"><span class="th-badge th-num" style="background: var(--surface); color: var(--ink)">8</span><svg viewBox="0 0 60 60" aria-hidden="true" style="width: 64%; height: 64%"><path d="M12 14c6-4 30-4 36 0l4 38a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4z" fill="#f2e6cf"/><path d="M14 8h32l2 8H12z" fill="#d9c8a6"/><circle cx="22" cy="32" r="5" fill="#a34f00"/><circle cx="36" cy="28" r="5" fill="#a34f00"/><circle cx="30" cy="42" r="5" fill="#a34f00"/></svg></div>
+        <div class="th-tile-name">Bánh bi</div>
+        <div class="th-tile-price">15.000đ</div>
+      </a>
+      <a href="Product.dc.html" class="th-tile" aria-label="Sữa Vinamilk, 8.000đ, còn 12">
+        <div class="th-photo"><span class="th-badge th-num" style="background: var(--surface); color: var(--ink)">12</span><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 46%; height: 70%"><path d="M8 18l6-10h12l6 10v46H8z" fill="#ffffff" stroke="#d0d0d6" stroke-width="1.5"/><rect x="8" y="34" width="24" height="16" fill="#2f6fc6"/></svg></div>
+        <div class="th-tile-name">Sữa hộp</div>
+        <div class="th-tile-price">8.000đ</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="th-navwrap" style="position: absolute; left: 16px; bottom: 16px; width: 358px">
+    <a href="Main.dc.html" class="th-ib th-ib-lg th-ib-accent th-ib-float" aria-label="Mở camera"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
+    <nav class="th-nav" aria-label="Chính">
+      <a href="Inventory.dc.html" class="th-ib" aria-current="page" aria-label="Kho"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></a>
+      <a href="Dashboard.dc.html" class="th-ib" aria-label="Báo cáo"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V11M13 17V7M18 17v-4"/></svg></a>
+      <a href="Account.dc.html" class="th-ib" aria-label="Tài khoản"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></a>
+    </nav>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

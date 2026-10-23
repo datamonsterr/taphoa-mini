@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Camera</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); color: var(--camera-ink); font-family: var(--font-sans)">
+
+  <div style="position: absolute; left: 0; top: 20px; width: 390px; display: flex; justify-content: center">
+    <div style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(255,255,255,.14)">
+      <a href="Main.dc.html" aria-label="Một món" aria-current="page" style="display: grid; place-items: center; width: 56px; height: 48px; border-radius: 9999px; background: var(--camera-ink); color: var(--ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
+      <a href="Multi.dc.html" aria-label="Nhiều món" style="display: grid; place-items: center; width: 56px; height: 48px; border-radius: 9999px; color: var(--camera-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M17 14v6M14 17h6"/></svg></a>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 16px; top: 136px; width: 358px; height: 358px; border-radius: 28px; overflow: hidden; background: #2a2a2e">
+    <div style="position: absolute; left: 0; top: 250px; width: 358px; height: 108px; background: #38383e"></div>
+    <svg viewBox="0 0 40 70" aria-hidden="true" style="position: absolute; left: 129px; top: 90px; width: 100px; height: 175px"><rect x="15" y="2" width="10" height="8" rx="2" fill="#111114"/><path d="M14 10h12l4 10v44a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V20z" fill="#c62f2f"/><rect x="10" y="32" width="20" height="14" fill="#ffffff" opacity=".85"/></svg>
+    <svg viewBox="0 0 358 358" aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 358px; height: 358px; fill: none; stroke: rgba(255,255,255,.5); stroke-width: 3; stroke-linecap: round"><path d="M40 70V40h30M288 40h30v30M318 288v30h-30M70 318H40v-30"/></svg>
+  </div>
+
+  <div style="position: absolute; left: 0; top: 590px; width: 390px; display: flex; align-items: center; justify-content: space-around">
+    <a href="Enroll.dc.html" class="th-ib th-ib-lg" aria-label="Thêm vào kho với giá" style="background: rgba(255,255,255,.14); color: var(--camera-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></a>
+    <a href="Match.dc.html" class="th-shutter" aria-label="Chụp" style="display: block; box-sizing: border-box"><span></span></a>
+    <span class="th-ib th-ib-lg" aria-label="Thêm vào giỏ" aria-disabled="true" style="background: rgba(255,255,255,.14); color: var(--camera-ink); opacity: .4"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+  </div>
+
+  <div style="position: absolute; left: 16px; top: 756px; width: 358px; display: flex; align-items: center; justify-content: space-between">
+    <a href="Cart.dc.html" aria-label="Giỏ hàng trống" style="display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 16px; border-radius: 9999px; background: rgba(255,255,255,.14); color: var(--camera-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg><b class="th-num" style="font-size: 18px">0</b></a>
+    <a href="Inventory.dc.html" aria-label="Vuốt lên: cửa hàng" style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; height: 56px; justify-content: center; color: var(--camera-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg><span style="display: block; width: 36px; height: 5px; border-radius: 9999px; background: var(--camera-muted)"></span></a>
+    <span style="width: 92px"></span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

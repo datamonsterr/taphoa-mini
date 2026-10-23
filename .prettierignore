@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+.turbo/
+.expo/
+dist/
+coverage/
+apps/backend/target/
+apps/backend/models/
+pnpm-lock.yaml
+
+# Generated design canvas (edited by the design tool)
+docs/design/canvas/
+
+# Generated from docs/api/openapi.yaml
+packages/api-client/src/schema.d.ts

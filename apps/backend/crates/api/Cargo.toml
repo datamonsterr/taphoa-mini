@@ -1,0 +1,35 @@
+[package]
+name = "taphoa-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "taphoa-api"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1"
+aws-config = { version = "1.13.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.155.0", default-features = false, features = ["default-https-client", "rt-tokio", "rustls"] }
+chrono = { version = "0.4", features = ["serde"] }
+axum.workspace = true
+http-body-util.workspace = true
+redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+taphoa-recognition = { path = "../recognition" }
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tower.workspace = true
+jsonschema = { version = "0.60", default-features = false }
+serde_norway = "0.9"

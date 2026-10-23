@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>End-of-day close</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+.th-keypad{gap:10px}
+.th-key{width:68px;height:68px}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--surface); font-family: var(--font-sans); color: var(--ink)">
+  <div style="position: absolute; left: 16px; top: 24px; width: 358px; height: 120px; border-radius: 28px; background: var(--ink)"></div>
+  <div style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: var(--scrim)"></div>
+
+  <div style="position: absolute; left: 0; top: 96px; width: 390px; height: 748px; box-sizing: border-box; padding: 16px 16px 24px; border-radius: 36px 36px 0 0; background: var(--surface); box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; justify-content: center"><span style="display: block; width: 40px; height: 5px; border-radius: 9999px; background: var(--surface-pressed)"></span></div>
+    <div style="display: flex; align-items: center; gap: 12px">
+      <a href="Dashboard.dc.html" class="th-ib" aria-label="Đóng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></a>
+      <h2 class="heading" style="margin: 0; flex: 1">Chốt sổ</h2>
+      <span class="caption th-num" style="color: var(--ink-muted)">23/10</span>
+    </div>
+
+    <div aria-label="Tiền mặt dự kiến 740.000đ" style="display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 20px; border-radius: 9999px; background: var(--surface-soft)">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h8"/></svg>
+      <span style="flex: 1"></span>
+      <b class="th-num" style="font: 700 24px/30px var(--font-sans)">740.000đ</b>
+    </div>
+
+    <div aria-label="Tiền đếm được" style="display: flex; align-items: center; gap: 12px; padding: 0 4px 0 20px">
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+      <output aria-live="polite" class="th-big-total" style="flex: 1; text-align: right">{{countedText}}</output>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end">
+      <span aria-live="polite" aria-label="{{diffAria}}" style="{{diffStyle}}">
+        <sc-if value="{{isZero}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></sc-if>
+        <sc-if value="{{isOff}}" hint-placeholder-val="{{true}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></sc-if>
+        <span class="th-num">{{diffText}}</span>
+      </span>
+    </div>
+
+    <div class="th-keypad">
+      <sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+        <button type="button" class="th-key" onClick="{{k.press}}" aria-label="{{k.aria}}" style="{{k.style}}">
+          <sc-if value="{{k.isBack}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="M18 9l-6 6M12 9l6 6"/></svg></sc-if>
+          <sc-if value="{{k.isDigit}}" hint-placeholder-val="{{true}}">{{k.label}}</sc-if>
+        </button>
+      </sc-for>
+    </div>
+
+    <a href="Dashboard.dc.html" class="th-btn th-btn-ink th-btn-block" aria-label="Chốt sổ hôm nay" style="margin-top: auto"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const expected = 740000;
+    const digits = (this.state && this.state.digits != null) ? this.state.digits : '730000';
+    const counted = Number(digits || 0);
+    const fmt = (n) => String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+    const diff = counted - expected;
+    const tone = diff === 0 ? ['#e4f4ea', '#18703c'] : diff < 0 ? ['#fde8e8', '#c62f2f'] : ['#fdf0dc', '#a34f00'];
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'back'].map((l) => {
+      const isBack = l === 'back';
+      return {
+        label: l, isBack, isDigit: !isBack, aria: isBack ? 'Xóa' : l,
+        style: l === '000' ? 'font-size: 22px' : '',
+        press: () => {
+          if (isBack) return this.setState({ digits: digits.slice(0, -1) });
+          const next = (digits === '0' ? '' : digits) + l;
+          if (next.length <= 10) this.setState({ digits: String(Number(next)) });
+        }
+      };
+    });
+    return {
+      keys,
+      countedText: fmt(counted),
+      isZero: diff === 0, isOff: diff !== 0,
+      diffText: diff === 0 ? '0đ' : (diff < 0 ? '−' : '+') + fmt(diff),
+      diffAria: diff === 0 ? 'Khớp' : (diff < 0 ? 'Thiếu ' : 'Dư ') + fmt(diff),
+      diffStyle: 'display: inline-flex; align-items: center; gap: 6px; height: 48px; padding: 0 18px; border-radius: 9999px; font: 800 22px/28px var(--font-sans); background: ' + tone[0] + '; color: ' + tone[1]
+    };
+  }
+}
+</script>
+</body>
+</html>

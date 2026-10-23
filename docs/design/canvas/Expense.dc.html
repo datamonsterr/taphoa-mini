@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Expense</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--surface); font-family: var(--font-sans); color: var(--ink)">
+  <div style="position: absolute; left: 16px; top: 24px; width: 358px; height: 120px; border-radius: 28px; background: var(--surface-soft)"></div>
+  <div style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: var(--scrim)"></div>
+
+  <div style="position: absolute; left: 0; top: 96px; width: 390px; height: 748px; box-sizing: border-box; padding: 16px 16px 24px; border-radius: 36px 36px 0 0; background: var(--surface); box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; justify-content: center"><span style="display: block; width: 40px; height: 5px; border-radius: 9999px; background: var(--surface-pressed)"></span></div>
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="Dashboard.dc.html" class="th-ib" aria-label="Đóng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></a>
+      <button type="button" class="th-ib" aria-label="Chụp hóa đơn"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></button>
+    </div>
+
+    <div role="radiogroup" aria-label="Loại chi" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{cats}}" as="c" hint-placeholder-count="4">
+        <button type="button" role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" aria-label="{{c.label}}" style="{{c.style}}">
+          <sc-if value="{{c.isStock}}" hint-placeholder-val="{{true}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></sc-if>
+          <sc-if value="{{c.isPower}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 13h6l-1 8 8-10h-6z"/></svg></sc-if>
+          <sc-if value="{{c.isWater}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg></sc-if>
+          <sc-if value="{{c.isOther}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></sc-if>
+          <span style="font: 600 15px/20px var(--font-sans)">{{c.label}}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <output aria-live="polite" aria-label="Số tiền chi" class="th-big-total" style="display: block; text-align: center; color: var(--danger)">−{{amountText}}</output>
+
+    <div class="th-keypad">
+      <sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+        <button type="button" class="th-key" onClick="{{k.press}}" aria-label="{{k.aria}}" style="{{k.style}}">
+          <sc-if value="{{k.isBack}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="M18 9l-6 6M12 9l6 6"/></svg></sc-if>
+          <sc-if value="{{k.isDigit}}" hint-placeholder-val="{{true}}">{{k.label}}</sc-if>
+        </button>
+      </sc-for>
+    </div>
+
+    <a href="Dashboard.dc.html" class="th-btn th-btn-ink th-btn-block" aria-label="Lưu khoản chi" style="margin-top: auto"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const digits = st.digits != null ? st.digits : '850000';
+    const cat = st.cat || 'stock';
+    const fmt = (s) => (s === '' ? '0' : String(Number(s)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')) + 'đ';
+    const cats = [['stock', 'Nhập'], ['power', 'Điện'], ['water', 'Nước'], ['other', 'Khác']].map(([id, label]) => ({
+      label, on: cat === id ? 'true' : 'false',
+      isStock: id === 'stock', isPower: id === 'power', isWater: id === 'water', isOther: id === 'other',
+      style: 'display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 76px; border: 0; border-radius: 22px; cursor: pointer; ' + (cat === id ? 'background: #111114; color: #ffffff;' : 'background: #f3f3f5; color: #111114;'),
+      pick: () => this.setState({ cat: id })
+    }));
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'back'].map((l) => {
+      const isBack = l === 'back';
+      return {
+        label: l, isBack, isDigit: !isBack, aria: isBack ? 'Xóa' : l,
+        style: l === '000' ? 'font-size: 22px' : '',
+        press: () => {
+          if (isBack) return this.setState({ digits: digits.slice(0, -1) });
+          const next = (digits === '0' ? '' : digits) + l;
+          if (next.length <= 10) this.setState({ digits: String(Number(next)) });
+        }
+      };
+    });
+    return { cats, keys, amountText: fmt(digits) };
+  }
+}
+</script>
+</body>
+</html>
