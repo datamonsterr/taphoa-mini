@@ -87,7 +87,7 @@ pub(crate) fn vector_text(vector: &[f32]) -> String {
     )
 }
 
-const SQL_SEARCH: &str = "SELECT e.product_id, max(1.0::float8 - (e.embedding <=> $1::vector))::float8 AS similarity FROM product_embeddings e JOIN products p ON p.id = e.product_id WHERE e.store_id = $2 AND e.model = $3 AND p.store_id = $2 AND NOT p.archived GROUP BY e.product_id HAVING max(1.0::float8 - (e.embedding <=> $1::vector)) >= $4 ORDER BY similarity DESC LIMIT 5";
+const SQL_SEARCH: &str = crate::recognition::pgvector::SEARCH_SQL;
 
 async fn search_sql(
     state: &AppState,
@@ -95,18 +95,20 @@ async fn search_sql(
     model_name: &str,
     vector: &[f32],
 ) -> ApiResult<Vec<DuplicateHit>> {
-    let rows: Vec<(Uuid, f64)> = sqlx::query_as(SQL_SEARCH)
+    let rows: Vec<(Uuid, f32)> = sqlx::query_as(SQL_SEARCH)
         .bind(vector_text(vector))
         .bind(store_id)
         .bind(model_name)
-        .bind(DUPLICATE_THRESHOLD)
+        .bind(40_i64)
+        .bind(5_i64)
         .fetch_all(pool(state)?)
         .await?;
     Ok(rows
         .into_iter()
+        .filter(|(_, similarity)| f64::from(*similarity) >= DUPLICATE_THRESHOLD)
         .map(|(product_id, similarity)| DuplicateHit {
             product_id,
-            similarity,
+            similarity: f64::from(similarity),
         })
         .collect())
 }
