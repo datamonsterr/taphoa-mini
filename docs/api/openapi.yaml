@@ -1867,7 +1867,7 @@ components:
               description: Mask height in pixels.
             png_base64:
               type: string
-              description: Base64-encoded PNG mask.
+              description: 'PNG with alpha channel: opaque = product, transparent = background'
         cutout_image_id:
           type: string
           format: uuid
