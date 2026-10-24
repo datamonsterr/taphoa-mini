@@ -55,8 +55,9 @@ up() {
   local model_env=()
   if [[ "${E2E_SKIP_MODELS:-0}" != "1" ]]; then
     echo "==> ONNX Runtime and model weights (cached under apps/backend)"
-    # fetch-onnxruntime.sh prints an `export ORT_DYLIB_PATH=...` line on stdout.
-    eval "$("$backend_dir/scripts/fetch-onnxruntime.sh")"
+    # fetch-onnxruntime.sh prints an `export ORT_DYLIB_PATH=...` line on stdout, after the
+    # checksum result on a first download; keep only the export line.
+    eval "$("$backend_dir/scripts/fetch-onnxruntime.sh" | grep '^export ORT_DYLIB_PATH=')"
     "$backend_dir/scripts/fetch-models.sh" > /dev/null
     local models="${MODEL_DIR:-$backend_dir/models}"
     model_env=(
@@ -65,6 +66,11 @@ up() {
       SAM_DECODER_PATH="$models/sam_mask_decoder_multi.onnx"
       DINO_MODEL_PATH="$models/dinov2_small.onnx"
     )
+  fi
+
+  if (exec 3<> "/dev/tcp/127.0.0.1/$backend_port") 2> /dev/null; then
+    echo "port $backend_port is already in use; set E2E_BACKEND_PORT to a free port" >&2
+    exit 1
   fi
 
   echo "==> backend on :$backend_port ($bin)"
@@ -93,14 +99,15 @@ up() {
 
   local url="http://127.0.0.1:$backend_port/readyz"
   for _ in $(seq 1 120); do
-    if curl --silent --fail --max-time 3 "$url" > /dev/null; then
-      echo "==> ready: $url (pid $(cat "$pid_file"), log $log_file)"
-      return 0
-    fi
+    # Check our own process first: a foreign server on the port must not count as ready.
     if ! kill -0 "$(cat "$pid_file")" 2>/dev/null; then
       echo "backend exited early; log tail:" >&2
       tail -n 40 "$log_file" >&2
       exit 1
+    fi
+    if curl --silent --fail --max-time 3 "$url" > /dev/null; then
+      echo "==> ready: $url (pid $(cat "$pid_file"), log $log_file)"
+      return 0
     fi
     sleep 1
   done
