@@ -84,6 +84,9 @@ pub(crate) fn product_json(
         "images": images,
         "index_status": row.product.index_status,
         "archived": row.product.archived,
+        "stock_quantity": row.product.stock_quantity,
+        "low_stock_threshold": row.product.low_stock_threshold,
+        "stock_status": crate::stock::status(row.product.stock_quantity,row.product.low_stock_threshold.unwrap_or(row.product.store_stock_threshold)),
         "version": row.product.version,
         "created_by": row.product.created_by,
         "updated_at": row.product.updated_at,
@@ -602,6 +605,9 @@ pub(crate) async fn patch_product(
     let patch: model::ProductPatch =
         serde_json::from_value(value).map_err(|e| ApiError::validation_failed(e.to_string()))?;
     model::validate_patch(&patch)?;
+    if patch.low_stock_threshold.is_some() {
+        actor.require(crate::auth::Action::AdjustStock)?;
+    }
     let mut tx = pool(&state)?.begin().await?;
     let current = require_product(&mut tx, actor.store_id, id).await?;
     let existing_units = load_units(&mut tx, id).await?;
@@ -645,6 +651,10 @@ pub(crate) async fn patch_product(
         first = false;
         query.push(clause);
     };
+    if let Some(threshold) = plan.low_stock_threshold {
+        set(&mut updates, "low_stock_threshold = ");
+        updates.push_bind(threshold);
+    }
     if let Some(name) = plan.name.clone() {
         set(&mut updates, "name = ");
         updates.push_bind(name);

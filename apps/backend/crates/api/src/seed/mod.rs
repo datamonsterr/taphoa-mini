@@ -3,6 +3,7 @@
 //! A store is inserted atomically with its entire 30-day snapshot. Existing fixture
 //! store IDs are skipped, even on later dates: reruns preserve counts and edits.
 mod catalog;
+mod stock;
 mod trading;
 
 use anyhow::{Context, Result};
@@ -222,7 +223,8 @@ async fn seed_store(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Resu
             .execute(&mut **tx).await?;
         change(tx, store, "product", id, start).await?;
     }
-    trading::seed(tx, store).await
+    trading::seed(tx, store).await?;
+    stock::seed(tx, store).await
 }
 
 fn password_hash(password: &str, salt_key: &str) -> Result<String> {

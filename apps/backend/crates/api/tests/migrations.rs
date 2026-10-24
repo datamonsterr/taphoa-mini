@@ -41,6 +41,10 @@ const TABLES: &[&str] = &[
     "day_closes",
     "change_log",
     "outbox_events",
+    "stock_movements",
+    "stock_adjustment_requests",
+    "receipts",
+    "receipt_lines",
 ];
 
 #[tokio::test]
@@ -323,4 +327,84 @@ async fn quick_enroll_schema_and_constraints() {
         .execute(&mut *tx)
         .await;
     assert!(job.is_ok(), "inserting index_jobs should succeed: {job:?}");
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn stock_receipts_columns_and_checks() {
+    let Some(pool) = pool().await else { return };
+    let mut tx = pool.begin().await.unwrap();
+    let store: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO stores(name,recovery_code_hash) VALUES ('stock','x') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(store_id,display_name,role) VALUES ($1,'Lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let product: uuid::Uuid = sqlx::query_scalar("INSERT INTO products(id,store_id,price,request_hash,created_by,stock_quantity,low_stock_threshold) VALUES (gen_random_uuid(),$1,1,'hash',$2,-2,0) RETURNING id").bind(store).bind(member).fetch_one(&mut *tx).await.unwrap();
+    let threshold: i32 = sqlx::query_scalar("SELECT low_stock_threshold FROM stores WHERE id=$1")
+        .bind(store)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(threshold, 5);
+    for statement in [
+        "UPDATE stores SET low_stock_threshold=-1 WHERE id=$1",
+        "UPDATE stores SET low_stock_threshold=100001 WHERE id=$1",
+        "UPDATE products SET low_stock_threshold=-1 WHERE store_id=$1",
+        "UPDATE products SET low_stock_threshold=100001 WHERE store_id=$1",
+        "INSERT INTO stock_movements(store_id,product_id,delta,quantity_after,reason) VALUES ($1,$2,1,1,'bad')",
+        "INSERT INTO stock_movements(store_id,product_id,delta,quantity_after,reason,note) VALUES ($1,$2,1,1,'adjustment',repeat('a',201))",
+    ] {
+        sqlx::query("SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let mut q = sqlx::query(statement).bind(store);
+        if statement.contains("$2") {
+            q = q.bind(product);
+        }
+        let e = q.execute(&mut *tx).await.unwrap_err();
+        assert_eq!(
+            e.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    let image: uuid::Uuid=sqlx::query_scalar("INSERT INTO images(id,store_id,object_key,content_type,byte_size) VALUES(gen_random_uuid(),$1,'stock-test','image/jpeg',1) RETURNING id").bind(store).fetch_one(&mut *tx).await.unwrap();
+    let receipt = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO receipts(id,store_id,member_id,image_id,ocr_text,parser,request_hash) VALUES($1,$2,$3,$4,'text','fallback','hash')").bind(receipt).bind(store).bind(member).bind(image).execute(&mut *tx).await.unwrap();
+    for statement in [
+        "UPDATE receipts SET status='bad' WHERE id=$1",
+        "UPDATE receipts SET parser='bad' WHERE id=$1",
+        "INSERT INTO receipt_lines(receipt_id,store_id,position,raw_text,product_name,quantity,cost) SELECT id,store_id,0,'x','x',0,1 FROM receipts WHERE id=$1",
+        "INSERT INTO receipt_lines(receipt_id,store_id,position,raw_text,product_name,quantity,cost) SELECT id,store_id,0,'x','x',1,-1 FROM receipts WHERE id=$1",
+    ] {
+        sqlx::query("SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let e = sqlx::query(statement)
+            .bind(receipt)
+            .execute(&mut *tx)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            e.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
 }

@@ -210,6 +210,12 @@ async fn create(
             sale(&mut tx, actor.store_id, input.id).await?,
         ));
     }
+    let products: Vec<Uuid> = input
+        .lines
+        .iter()
+        .filter_map(|line| line.product_id)
+        .collect();
+    crate::stock::lock_products(&mut tx, actor.store_id, &products).await?;
     for (position, line) in input.lines.iter().enumerate() {
         let mut quantity_in_base = 1;
         let mut mismatch = false;
@@ -265,6 +271,23 @@ async fn create(
         sqlx::query("INSERT INTO sale_lines(id,store_id,sale_id,position,product_id,unit_id,source,quantity,unit_price,quantity_in_base,manual_label,detection_id,suggested_product_id,price_mismatch,review_status,review_reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)")
             .bind(line.id).bind(actor.store_id).bind(input.id).bind(position as i16).bind(line.product_id).bind(line.unit_id).bind(&line.source).bind(line.quantity).bind(line.unit_price).bind(quantity_in_base).bind(&line.manual_label).bind(line.detection_id).bind(line.suggested_product_id).bind(mismatch).bind(reason.map(|_| "open")).bind(reason)
             .execute(&mut *tx).await.map_err(write_error)?;
+        if let Some(product) = line.product_id {
+            let quantity = line
+                .quantity
+                .checked_mul(quantity_in_base)
+                .ok_or_else(|| ApiError::validation_failed("stock quantity overflow"))?;
+            crate::stock::apply(
+                &mut tx,
+                actor.store_id,
+                product,
+                crate::stock::Change::Delta(-quantity),
+                "sale",
+                Some(input.id),
+                Some(actor.member_id),
+                None,
+            )
+            .await?;
+        }
         if let Some(reason) = reason {
             event(&mut tx, &actor, "review.line_flagged", json!({"line_id":line.id,"sale_id":input.id,"reason":reason,"unit_price":line.unit_price})).await?;
         }
@@ -403,6 +426,26 @@ async fn void(
         return Err(ApiError::forbidden());
     }
     if status != "voided" {
+        let lines: Vec<(Uuid, i32, i32)> = sqlx::query_as("SELECT product_id,quantity,quantity_in_base FROM sale_lines WHERE store_id=$1 AND sale_id=$2 AND product_id IS NOT NULL ORDER BY position")
+            .bind(actor.store_id).bind(id).fetch_all(&mut *tx).await?;
+        let products: Vec<Uuid> = lines.iter().map(|(product, _, _)| *product).collect();
+        crate::stock::lock_products(&mut tx, actor.store_id, &products).await?;
+        for (product, quantity, size) in lines {
+            let quantity = quantity
+                .checked_mul(size)
+                .ok_or_else(|| ApiError::validation_failed("stock quantity overflow"))?;
+            crate::stock::apply(
+                &mut tx,
+                actor.store_id,
+                product,
+                crate::stock::Change::Delta(quantity),
+                "sale_void",
+                Some(id),
+                Some(actor.member_id),
+                None,
+            )
+            .await?;
+        }
         sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(input.voided_at.unwrap_or_else(Utc::now)).execute(&mut *tx).await?;
         event(
             &mut tx,
