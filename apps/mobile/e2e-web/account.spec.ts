@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   button,
   callApi,
@@ -166,9 +166,9 @@ test.describe('account', () => {
       await expect(
         page.getByRole('heading', { name: 'Báo cáo' }),
       ).toBeVisible();
-      await expect(
-        page.getByRole('button', { name: /món sắp hết$/ }),
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: /^\d+ món/ })).toHaveCount(
+        0,
+      );
       await expect(
         page.getByRole('button', { name: /dưới giá nhập$/ }),
       ).toHaveCount(0);
@@ -179,6 +179,146 @@ test.describe('account', () => {
     } finally {
       await context.close();
     }
+  });
+});
+
+/** A seller of the Lead's store who has a PIN, as the shared counter phone would hold. */
+async function joinWithPin(
+  lead: { token: string },
+  pin: string,
+  name = 'Bé Út',
+) {
+  const seller = await joinAsSeller(lead, name);
+  await http('PUT', '/v1/me/pin', {
+    token: seller.access_token,
+    body: { pin },
+  });
+  return seller;
+}
+
+const tapKeys = async (scope: Page | Locator, digits: string) => {
+  for (const digit of digits) await button(scope, digit).click();
+};
+
+const SWITCH = '/v1/auth/switch';
+
+test.describe('switching the acting member (U3, U4)', () => {
+  test('the Lead switches to a seller with the PIN, then back to the Lead who has none', async ({
+    page,
+    store,
+  }) => {
+    const seller = await joinWithPin(store.api, '4821');
+    await openShop(page, '/account');
+    await expect(page.getByText('Đang dùng: Cô Ba')).toBeVisible();
+    await expect(button(page, 'Chuyển sang Cô Ba')).toHaveCount(0);
+
+    await button(page, 'Chuyển sang Bé Út').click();
+    const sheet = page.getByTestId('sheet-panel');
+    await expect(
+      sheet.getByRole('heading', { name: 'Mã PIN của Bé Út' }),
+    ).toBeVisible();
+
+    // a wrong PIN: 401, an explanation, and the Lead is still the acting member
+    await tapKeys(sheet, '0000');
+    const refused = await callApi(
+      page,
+      'POST',
+      SWITCH,
+      () => button(sheet, 'Xác nhận').click(),
+      401,
+    );
+    expect(refused.requestBody).toEqual({
+      member_id: seller.member.id,
+      pin: '0000',
+    });
+    await expect(sheet.getByText('Mã PIN không đúng')).toBeVisible();
+    await expect(page.getByLabel('4 chữ số đã nhập')).toBeVisible();
+
+    // the right PIN: 200, the session is the seller's, the screen shows the seller
+    for (let i = 0; i < 4; i += 1) await button(sheet, 'Xóa').click();
+    await tapKeys(sheet, '4821');
+    const switched = await callApi(page, 'POST', SWITCH, () =>
+      button(sheet, 'Xác nhận').click(),
+    );
+    expect(switched.requestBody).toEqual({
+      member_id: seller.member.id,
+      pin: '4821',
+    });
+    expect(switched.body.member).toMatchObject({
+      id: seller.member.id,
+      role: 'seller',
+    });
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByText('Đang dùng: Bé Út')).toBeVisible();
+    await expect(page.getByText('Người bán', { exact: true })).toBeVisible();
+    await expect(button(page, 'Mời bằng mã QR')).toHaveCount(0);
+    const stored = await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)!),
+      SESSION_STORAGE_KEY,
+    );
+    expect(stored.member.id).toBe(seller.member.id);
+    expect(stored.access_token).toBe(switched.body.access_token);
+    const me = await http('GET', '/v1/me', { token: stored.access_token });
+    expect(me.member.id).toBe(seller.member.id);
+
+    // the Lead has no PIN: one tap and the phone is the Lead's again
+    const back = await callApi(page, 'POST', SWITCH, () =>
+      button(page, 'Chuyển sang Cô Ba').click(),
+    );
+    expect(back.requestBody).toEqual({ member_id: store.session.member.id });
+    await expect(page.getByText('Đang dùng: Cô Ba')).toBeVisible();
+    await expect(button(page, 'Mời bằng mã QR')).toBeVisible();
+  });
+
+  test('"Đặt mã PIN": two matching entries, PUT /v1/me/pin, and the server holds a PIN', async ({
+    page,
+    store,
+  }) => {
+    await openShop(page, '/account');
+    expect(
+      (await store.api.get('/v1/members')).items.find(
+        (m: any) => m.id === store.session.member.id,
+      ).has_pin,
+    ).toBe(false);
+    await button(page, 'Đặt mã PIN').click();
+    const sheet = page.getByTestId('sheet-panel');
+    await expect(
+      sheet.getByRole('heading', { name: 'Mã PIN mới (4–6 chữ số)' }),
+    ).toBeVisible();
+    await expect(button(sheet, 'Tiếp')).toBeDisabled();
+
+    // different second entry: starts over, saves nothing
+    await tapKeys(sheet, '1357');
+    await button(sheet, 'Tiếp').click();
+    await tapKeys(sheet, '1358');
+    await button(sheet, 'Xác nhận').click();
+    await expect(sheet.getByText('Hai mã PIN không khớp')).toBeVisible();
+
+    await tapKeys(sheet, '135790');
+    await button(sheet, 'Tiếp').click();
+    await expect(
+      sheet.getByRole('heading', { name: 'Nhập lại mã PIN' }),
+    ).toBeVisible();
+    await tapKeys(sheet, '135790');
+    const saved = await callApi(page, 'PUT', '/v1/me/pin', () =>
+      button(sheet, 'Xác nhận').click(),
+    );
+    expect(saved.requestBody).toEqual({ pin: '135790' });
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByText('Đã đặt mã PIN')).toBeVisible();
+    expect(
+      (await store.api.get('/v1/members')).items.find(
+        (m: any) => m.id === store.session.member.id,
+      ).has_pin,
+    ).toBe(true);
+
+    // and it is the PIN the switch now asks of the Lead: a seller phone must give it
+    const seller = await joinAsSeller(store.api, 'Bé Hai');
+    const asSeller = await http('POST', SWITCH, {
+      token: seller.access_token,
+      body: { member_id: store.session.member.id, pin: '135790' },
+    });
+    expect(asSeller.member.id).toBe(store.session.member.id);
   });
 });
 

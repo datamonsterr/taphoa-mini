@@ -1,15 +1,10 @@
 import { router } from 'expo-router';
-import { Box, Tag, TriangleAlert } from 'lucide-react-native';
+import { Tag, TriangleAlert } from 'lucide-react-native';
 import { memo, useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AlertPill, PressableScale, Text } from '@/components/ui';
-import {
-  useAlerts,
-  useLowStockProducts,
-  useManualLines,
-  type ManualLine,
-} from '@/lib/api';
+import { useAlerts, useManualLines, type ManualLine } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { selectIsLead, useSessionStore } from '@/stores/session';
 import { useT } from '@/lib/i18n';
@@ -19,20 +14,15 @@ import { dashboardStrings } from './strings';
 
 type Open = 'price' | 'manual' | null;
 
-/** Low stock, price below cost and sold-without-catalog pills; the last two expand a list. */
+/** Price below cost and sold-without-catalog pills (Lead only); each expands a list. */
 export const AlertsSection = memo(function AlertsSection() {
   const t = useT(dashboardStrings);
   const [open, setOpen] = useState<Open>(null);
-  const lowStock = useLowStockProducts();
   // Margin alerts and the review queue are Lead-only: a Seller's request would answer 403.
   const isLead = useSessionStore(selectIsLead);
   const margin = useAlerts('open', isLead);
   const manual = useManualLines('open', isLead);
 
-  const toLowStock = useCallback(
-    () => router.push({ pathname: '/inventory', params: { filter: 'low' } }),
-    [],
-  );
   const enrollLine = useCallback((line: ManualLine) => {
     router.push({
       pathname: '/enroll',
@@ -53,7 +43,7 @@ export const AlertsSection = memo(function AlertsSection() {
     [],
   );
 
-  if (lowStock.isError || margin.isError || manual.isError) {
+  if (margin.isError || manual.isError) {
     return (
       <View style={styles.errorRow}>
         <Text style={styles.errorText}>{t('alertsError')}</Text>
@@ -62,7 +52,6 @@ export const AlertsSection = memo(function AlertsSection() {
           accessibilityLabel={`${t('alertsError')}, ${t('retry')}`}
           pressedScale={0.96}
           onPress={() => {
-            void lowStock.refetch();
             void margin.refetch();
             void manual.refetch();
           }}
@@ -74,13 +63,13 @@ export const AlertsSection = memo(function AlertsSection() {
     );
   }
 
-  if (
-    lowStock.isPending ||
-    (isLead && (margin.isPending || manual.isPending))
-  ) {
+  // A Seller has no alert to see: the margin and review requests are the Lead's.
+  if (!isLead) return null;
+
+  if (margin.isPending || manual.isPending) {
     return (
       <View testID="alerts-skeleton" style={styles.row}>
-        {[0, 1, 2].map((i) => (
+        {[0, 1].map((i) => (
           <View key={i} style={styles.skeleton} />
         ))}
       </View>
@@ -94,28 +83,18 @@ export const AlertsSection = memo(function AlertsSection() {
     <View style={styles.section}>
       <View style={styles.row}>
         <AlertPill
-          count={lowStock.data.length}
-          label={t('lowStock')}
-          icon={Box}
-          onPress={toLowStock}
+          count={marginAlerts.length}
+          label={t('belowCost')}
+          icon={TriangleAlert}
+          onPress={togglePrice}
         />
-        {isLead ? (
-          <>
-            <AlertPill
-              count={marginAlerts.length}
-              label={t('belowCost')}
-              icon={TriangleAlert}
-              onPress={togglePrice}
-            />
-            <AlertPill
-              count={manualLines.length}
-              label={t('noCatalog')}
-              icon={Tag}
-              tone="neutral"
-              onPress={toggleManual}
-            />
-          </>
-        ) : null}
+        <AlertPill
+          count={manualLines.length}
+          label={t('noCatalog')}
+          icon={Tag}
+          tone="neutral"
+          onPress={toggleManual}
+        />
       </View>
       {open === 'price' ? (
         <View style={styles.list}>

@@ -628,27 +628,6 @@ describe('manual lines (sold without catalog)', () => {
   });
 });
 
-test('Product responses carry stock_quantity, decremented by sales', async () => {
-  const before = (await api.getProduct(PRODUCT_IDS.coca)).stock_quantity!;
-  await api.createSale({
-    id: newUuid(),
-    sold_at: new Date().toISOString(),
-    payment_method: 'cash',
-    total: 20000,
-    lines: [lineFor(PRODUCT_IDS.coca, 2, 10000)],
-  });
-  expect((await api.getProduct(PRODUCT_IDS.coca)).stock_quantity).toBe(
-    before - 2,
-  );
-});
-
-test('stock_quantity is the only property served beyond the spec', () => {
-  expect([...extraSeen].sort()).toEqual([
-    '$.items.stock_quantity',
-    '$.stock_quantity',
-  ]);
-});
-
 test('the contract suite called every mocked operation', () => {
   const missing = MOCK_ROUTES.map((r) => `${r.method} ${r.path}`).filter(
     (key) => !covered.has(key),

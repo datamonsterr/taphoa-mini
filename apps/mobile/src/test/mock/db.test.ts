@@ -3,19 +3,15 @@ import { newUuid } from '@/lib/uuid';
 import {
   acceptAlert,
   addProductImage,
-  adjustStock,
   createInvite,
   createProduct,
   dismissAlert,
-  findProductRecord,
   getCurrentMember,
   getMockDb,
-  getMockStock,
   getProduct,
   getStore,
   listAlerts,
   listManualLines,
-  listLowStock,
   listProducts,
   normalizeText,
   patchProduct,
@@ -24,7 +20,6 @@ import {
   registerImage,
   resetMockDb,
   resolveManualLine,
-  withStock,
 } from './db';
 import { MockHttpError } from './errors';
 import { LEAD_ID, PRODUCT_IDS } from './fixtures';
@@ -117,7 +112,6 @@ test('createProduct stores the product, is idempotent on id, validates images an
     created_by: LEAD_ID,
   });
   expect(first.product.units[0]!.barcode).toBeNull();
-  expect(getMockStock(id)).toBe(0);
   const again = createProduct({
     id,
     price: 1,
@@ -175,21 +169,6 @@ test('addProductImage appends at the next position and stops at 5', () => {
   expect(() => addProductImage(PRODUCT_IDS.pepsi, image().id)).toThrow(
     expect.objectContaining({ status: 409, code: 'image_limit' }),
   );
-});
-
-test('stock: low-stock list and adjustments never go below zero', () => {
-  expect(listLowStock().map((p) => p.name)).toEqual(
-    expect.arrayContaining([
-      '7Up lon 330ml',
-      'Sữa Vinamilk 180ml',
-      'Bột giặt OMO 800g',
-    ]),
-  );
-  adjustStock(PRODUCT_IDS.omo, -10);
-  expect(getMockStock(PRODUCT_IDS.omo)).toBe(0);
-  adjustStock(PRODUCT_IDS.omo, 7);
-  expect(getMockStock(PRODUCT_IDS.omo)).toBe(7);
-  expect(() => findProductRecord(newUuid())).toThrow(MockHttpError);
 });
 
 test('store patch bumps the version; invite is a taphoa:// link with ttl', () => {
@@ -281,7 +260,7 @@ test('raiseMarginAlert opens one alert per product and refreshes it', () => {
   ).toHaveLength(1);
 });
 
-describe('manual lines and stock_quantity', () => {
+describe('manual lines', () => {
   test('seed has 3 open manual lines tied to real sales', () => {
     const open = listManualLines('open');
     expect(open).toHaveLength(3);
@@ -325,16 +304,6 @@ describe('manual lines and stock_quantity', () => {
         force_new: false,
       }),
     ).toThrow();
-  });
-
-  test('withStock adds stock_quantity without touching the stored product', () => {
-    const coca = getProduct(PRODUCT_IDS.coca);
-    expect(withStock(coca)).toEqual({ ...coca, stock_quantity: 48 });
-    expect(coca).not.toHaveProperty('stock_quantity');
-  });
-
-  test('at least 3 seeded products are at or below the low-stock threshold', () => {
-    expect(listLowStock().length).toBeGreaterThanOrEqual(3);
   });
 
   test('resolve: link, enrolled, dismiss; resolved lines are returned unchanged', () => {

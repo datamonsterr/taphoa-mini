@@ -225,7 +225,7 @@ export const MOCK_ROUTES: MockRoute[] = [
         categoryId: query.get('category_id'),
         includeArchived: query.get('include_archived') === 'true',
       });
-      return ok(paginate(products.map(db.withStock), query));
+      return ok(paginate(products, query));
     },
   },
   {
@@ -235,24 +235,22 @@ export const MOCK_ROUTES: MockRoute[] = [
       const result = db.createProduct(
         parseCreateProduct(await readJson(request)),
       );
-      return okOrCreated(db.withStock(result.product), result.created);
+      return okOrCreated(result.product, result.created);
     },
   },
   {
     method: 'GET',
     path: '/v1/products/{productId}',
-    handler: ({ params }) => ok(db.withStock(db.getProduct(params.productId!))),
+    handler: ({ params }) => ok(db.getProduct(params.productId!)),
   },
   {
     method: 'PATCH',
     path: '/v1/products/{productId}',
     handler: async ({ params, request }) =>
       ok(
-        db.withStock(
-          db.patchProduct(
-            params.productId!,
-            parseProductPatch(await readJson(request)),
-          ),
+        db.patchProduct(
+          params.productId!,
+          parseProductPatch(await readJson(request)),
         ),
       ),
   },

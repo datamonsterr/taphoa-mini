@@ -1,5 +1,5 @@
 export { createMockFetch, type MockFetchOptions } from './fetch';
-export { getMockDb, getMockStock, listLowStock, resetMockDb } from './db';
+export { getMockDb, resetMockDb } from './db';
 export {
   getMockScenario,
   setMockScenario,

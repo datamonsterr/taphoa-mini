@@ -18,17 +18,11 @@ type Product = {
   name: string | null;
   price: number;
   cost_price?: number | null;
-  stock_quantity?: number;
 };
 
-/**
- * The accessible name of a grid tile, as the app words it. The backend does not report
- * `stock_quantity` yet, so a tile never carries a stock badge here.
- */
+/** The accessible name of a grid tile, as the app words it. */
 function tileName(p: Product) {
-  return p.stock_quantity === undefined
-    ? `${p.name}, ${formatVnd(p.price)}`
-    : `${p.name}, ${formatVnd(p.price)}, còn ${p.stock_quantity}`;
+  return `${p.name}, ${formatVnd(p.price)}`;
 }
 
 /** Three products; a purchase expense sets their cost price. */
@@ -171,8 +165,6 @@ test.describe('product', () => {
     await expect(
       page.getByRole('heading', { name: detail.body.name }),
     ).toBeVisible();
-    // no stock figure until the backend reports one
-    await expect(page.getByLabel(/^Tồn kho/)).toHaveCount(0);
     await expect(
       page.getByLabel(`Giá nhập ${formatVnd(detail.body.cost_price)}`),
     ).toBeVisible();
@@ -214,12 +206,7 @@ test.describe('product', () => {
     await expect(shown(formatVnd(10_000))).toHaveCount(0);
 
     await button(page, 'Quay lại').click();
-    await expect(
-      button(
-        page,
-        tileName({ ...patch.body, stock_quantity: patch.body.stock_quantity }),
-      ),
-    ).toBeVisible();
+    await expect(button(page, tileName(patch.body))).toBeVisible();
 
     // the server kept the change, with the old value, in the price history
     const history = await store.api.get(

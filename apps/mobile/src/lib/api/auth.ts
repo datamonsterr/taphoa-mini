@@ -72,6 +72,26 @@ export async function recoverStore(input: {
 }
 
 /**
+ * U3/U4: the acting member on this phone changes. A member with a PIN needs it in `pin`; the
+ * server answers 401 for a wrong one and 429 once it is locked. The returned session replaces
+ * the stored one, so every following request is made as the new member.
+ */
+export async function switchMember(input: {
+  member_id: string;
+  pin?: string;
+}): Promise<void> {
+  const body = await unwrap(
+    getApiClient().raw.POST('/v1/auth/switch', { body: input }),
+  );
+  useSessionStore.getState().setSession(toSession(body));
+}
+
+/** U4: sets the signed-in member's PIN (4-6 digits), or clears it with `null`. */
+export async function setPin(pin: string | null): Promise<void> {
+  await unwrap(getApiClient().raw.PUT('/v1/me/pin', { body: { pin } }));
+}
+
+/**
  * Revokes this session on the server, then forgets it. The local session goes either way: a
  * phone that cannot reach the server (or whose session is already dead) must still sign out.
  */

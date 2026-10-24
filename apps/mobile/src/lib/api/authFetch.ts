@@ -12,6 +12,15 @@ const PUBLIC_PATHS = new Set([
 
 export const isPublicPath = (pathname: string) => PUBLIC_PATHS.has(pathname);
 
+const isInvalidPin = async (response: Response) => {
+  try {
+    const body = (await response.clone().json()) as { code?: unknown };
+    return body.code === 'invalid_pin';
+  } catch {
+    return false;
+  }
+};
+
 type AuthSessionBody = {
   access_token: string;
   refresh_token: string;
@@ -88,6 +97,8 @@ export function createAuthFetch({
     if (usedToken) request.headers.set('Authorization', `Bearer ${usedToken}`);
     const response = await send(request);
     if (response.status !== 401 || !usedToken) return response;
+    // A wrong PIN is a 401 too, but the token is fine: replaying would count a second attempt.
+    if (await isInvalidPin(response)) return response;
 
     // Another request may already have rotated the pair while this one was in flight.
     const latest = useSessionStore.getState().session?.access_token;

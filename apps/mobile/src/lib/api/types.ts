@@ -40,13 +40,6 @@ export type ResolveManualLineInput = {
   product_id?: string;
 };
 
-/**
- * Proposed API extension: Product.stock_quantity (pending spec).
- * The backend does not return it yet, so stock badges and the low-stock alert stay hidden
- * against the real API. Only the Jest test double fills it in.
- */
-export type ProductWithStock = Product & { stock_quantity?: number };
-
 export type Page<T> = { items: T[]; next_cursor: string | null };
 export type SummaryGranularity = 'day' | 'week' | 'month';
 export type SummaryReport = {

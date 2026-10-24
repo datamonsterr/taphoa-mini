@@ -20,7 +20,6 @@ import type {
 } from '@/lib/api/types';
 
 import {
-  adjustStock,
   findProductRecord,
   getCurrentMember,
   getMockDb,
@@ -46,7 +45,6 @@ export function createSale(req: CreateSaleRequest): {
   const existing = db.sales.find((s) => s.id === req.id);
   if (existing) return { sale: existing, created: false };
 
-  const stockMoves: [string, number][] = [];
   const lines: SaleLine[] = req.lines.map((line) => {
     let productName: string | null = null;
     let listPrice: number | null = null;
@@ -71,10 +69,6 @@ export function createSale(req: CreateSaleRequest): {
       }
       productName = found.product.name ?? null;
       listPrice = unit ? unit.price : found.product.price;
-      stockMoves.push([
-        line.product_id,
-        -line.quantity * (unit?.quantity_in_base ?? 1),
-      ]);
     }
     return {
       ...line,
@@ -139,7 +133,6 @@ export function createSale(req: CreateSaleRequest): {
       resolution: null,
     });
   }
-  for (const [productId, delta] of stockMoves) adjustStock(productId, delta);
   return { sale, created: true };
 }
 
@@ -209,7 +202,6 @@ export function createExpense(req: CreateExpenseRequest): {
       version: record.product.version + 1,
       updated_at: nowIso(),
     };
-    adjustStock(line.product_id, line.quantity * factor);
     const alert = raiseMarginAlert(record.product, expenseId);
     if (alert) alerts.push(alert);
   }

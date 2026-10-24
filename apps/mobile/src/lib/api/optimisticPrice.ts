@@ -1,9 +1,9 @@
 import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 
 import { keys } from '@/lib/api/keys';
-import type { Page, ProductWithStock } from '@/lib/api/types';
+import type { Page, Product } from '@/lib/api/types';
 
-type Cached = ProductWithStock | InfiniteData<Page<ProductWithStock>>;
+type Cached = Product | InfiniteData<Page<Product>>;
 
 const withPrice = (id: string, price: number) => (old: Cached | undefined) => {
   if (!old) return old;

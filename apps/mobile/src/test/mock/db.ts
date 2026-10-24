@@ -1,4 +1,3 @@
-import { LOW_STOCK_THRESHOLD } from '@/lib/api/stock';
 import { newUuid } from '@/lib/uuid';
 import type {
   CreateProductRequest,
@@ -10,7 +9,6 @@ import type {
   Member,
   Product,
   ProductImage,
-  ProductWithStock,
   ResolveManualLineInput,
   ProductPatch,
   Role,
@@ -137,27 +135,6 @@ export function getProduct(id: string): Product {
   return findProductRecord(id).product;
 }
 
-export function getMockStock(productId: string): number {
-  return findProductRecord(productId).stock;
-}
-
-/** Stock is not part of the API schema; the mock tracks it for sale and purchase effects. */
-export function listLowStock(threshold = LOW_STOCK_THRESHOLD): Product[] {
-  return state.products
-    .filter((p) => !p.product.archived && p.stock <= threshold)
-    .map((p) => p.product);
-}
-
-/** Adds the non-spec `stock_quantity` the mock serves on Product responses. */
-export function withStock(product: Product): ProductWithStock {
-  return { ...product, stock_quantity: getMockStock(product.id) };
-}
-
-export function adjustStock(productId: string, delta: number): void {
-  const record = findProductRecord(productId);
-  record.stock = Math.max(0, record.stock + delta);
-}
-
 export function listProducts(filters: {
   q?: string | null;
   barcode?: string | null;
@@ -224,7 +201,7 @@ export function createProduct(req: CreateProductRequest): {
     created_by: state.currentMemberId,
     updated_at: nowIso(),
   };
-  state.products.push({ product, stock: 0 });
+  state.products.push({ product });
   // Enrolling from a flagged manual line resolves that line, as the real server does.
   if (req.from_manual_line_id) {
     resolveManualLine(req.from_manual_line_id, {

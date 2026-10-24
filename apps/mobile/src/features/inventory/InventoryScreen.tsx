@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list';
 import { Search, X } from 'lucide-react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { router } from 'expo-router';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 
 import { Text } from '@/components/ui';
@@ -18,9 +18,8 @@ import { Icon } from '@/components/ui/Icon';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { shouldDismiss } from '@/components/ui/Sheet';
 import { ProductTile } from '@/components/ui/ProductTile';
-import { useLowStockProducts, useProducts } from '@/lib/api/hooks';
-import { isLowStock } from '@/lib/api/stock';
-import type { ProductWithStock } from '@/lib/api/types';
+import { useProducts } from '@/lib/api/hooks';
+import type { Product } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
 import { colors, radius, space, typography } from '@/theme';
 
@@ -35,20 +34,12 @@ const SKELETON_TILES = 6;
 /** Half of the board's 12px grid gap, applied on each tile. */
 const HALF_GAP = space[3] / 2;
 
-/** Case- and accent-insensitive key for the client-side low-stock search. */
-const fold = (text: string) =>
-  text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/gi, 'd')
-    .toLowerCase();
-
-const keyExtractor = (product: ProductWithStock) => product.id;
+const keyExtractor = (product: Product) => product.id;
 
 const InventoryTile = memo(function InventoryTile({
   product,
 }: {
-  product: ProductWithStock;
+  product: Product;
 }) {
   const { id } = product;
   const onPress = useCallback(
@@ -60,8 +51,6 @@ const InventoryTile = memo(function InventoryTile({
       <ProductTile
         name={product.name ?? ''}
         price={product.price}
-        stock={product.stock_quantity}
-        low={isLowStock(product)}
         imageUri={product.images[0]?.url}
         onPress={onPress}
       />
@@ -69,7 +58,7 @@ const InventoryTile = memo(function InventoryTile({
   );
 });
 
-const renderItem = ({ item }: { item: ProductWithStock }) => (
+const renderItem = ({ item }: { item: Product }) => (
   <InventoryTile product={item} />
 );
 
@@ -188,25 +177,15 @@ export function InventoryScreen() {
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS);
-  // `?filter=low` comes from the dashboard's low-stock pill.
-  const { filter } = useLocalSearchParams<{ filter?: string }>();
-  const lowOnly = filter === 'low';
 
-  const all = useProducts({ q: q || undefined, limit: PAGE_SIZE });
-  const low = useLowStockProducts(undefined, lowOnly);
-  const active = lowOnly ? low : all;
-  const { isError, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } =
-    active;
-  const data = useMemo(() => {
-    if (!active.data) return undefined;
-    if (!lowOnly || !q) return active.data;
-    const needle = fold(q);
-    return active.data.filter((p) => fold(p.name ?? '').includes(needle));
-  }, [active.data, lowOnly, q]);
-  const clearFilter = useCallback(
-    () => router.setParams({ filter: undefined }),
-    [],
-  );
+  const {
+    data,
+    isError,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useProducts({ q: q || undefined, limit: PAGE_SIZE });
 
   const openSearch = useCallback(() => setSearching(true), []);
   const closeSearch = useCallback(() => {
@@ -279,18 +258,6 @@ export function InventoryScreen() {
           </>
         )}
       </View>
-      {lowOnly ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={t('clearLowFilter')}
-          pressedScale={0.96}
-          onPress={clearFilter}
-          style={styles.filterChip}
-        >
-          <Text style={styles.filterText}>{t('lowFilter')}</Text>
-          <Icon icon={X} size={18} color={colors.warning} />
-        </PressableScale>
-      ) : null}
       <View style={styles.body}>{body}</View>
     </View>
   );
@@ -333,18 +300,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   input: { flex: 1, ...typography.body, color: colors.ink, padding: 0 },
-  filterChip: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    minHeight: 48,
-    marginLeft: space[4],
-    paddingHorizontal: space[4],
-    borderRadius: radius.full,
-    backgroundColor: colors.warningSoft,
-  },
-  filterText: { ...typography.label, color: colors.warning },
   body: { flex: 1 },
   /** Board: 16px side padding, 112px at the bottom for the bar. */
   listContent: {

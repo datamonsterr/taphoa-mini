@@ -4,7 +4,7 @@ import type {
   Category,
   CreateProductRequest,
   Page,
-  ProductWithStock,
+  Product,
   ProductImage,
   ProductPatch,
 } from './types';
@@ -19,7 +19,7 @@ export type ListProductsParams = {
 
 export function listProducts(
   params: ListProductsParams = {},
-): Promise<Page<ProductWithStock>> {
+): Promise<Page<Product>> {
   const { cursor, ...rest } = params;
   return unwrap(
     getApiClient().raw.GET('/v1/products', {
@@ -28,22 +28,20 @@ export function listProducts(
   );
 }
 
-export const getProduct = (productId: string): Promise<ProductWithStock> =>
+export const getProduct = (productId: string): Promise<Product> =>
   unwrap(
     getApiClient().raw.GET('/v1/products/{productId}', {
       params: { path: { productId } },
     }),
   );
 
-export const createProduct = (
-  body: CreateProductRequest,
-): Promise<ProductWithStock> =>
+export const createProduct = (body: CreateProductRequest): Promise<Product> =>
   unwrap(getApiClient().raw.POST('/v1/products', { body }));
 
 export const patchProduct = (
   productId: string,
   body: ProductPatch,
-): Promise<ProductWithStock> =>
+): Promise<Product> =>
   unwrap(
     getApiClient().raw.PATCH('/v1/products/{productId}', {
       params: { path: { productId } },

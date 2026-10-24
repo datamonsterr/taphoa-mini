@@ -22,12 +22,12 @@ import {
   listExpenses,
   listSales,
 } from './ledger';
+import { setPin, switchMember } from './auth';
 import { isApiError } from './errors';
 import { createScan, uploadImage, type CreateScanInput } from './images';
 import { keys } from './keys';
 import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
-import { isLowStock, LOW_STOCK_THRESHOLD } from './stock';
 import { listManualLines, resolveManualLine } from './review';
 import {
   addProductImage,
@@ -92,22 +92,6 @@ export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
     // Typing a search keeps the previous grid on screen until the new page arrives.
     placeholderData: keepPreviousData,
     select: (data) => data.pages.flatMap((page) => page.items),
-  });
-}
-
-/** Products at or below the low-stock threshold, fewest first (Dashboard alert). Derived from the product list. */
-export function useLowStockProducts(
-  threshold = LOW_STOCK_THRESHOLD,
-  enabled = true,
-) {
-  return useInfiniteQuery({
-    ...productsQuery({ limit: 200 }),
-    enabled,
-    select: (data) =>
-      data.pages
-        .flatMap((page) => page.items)
-        .filter((product) => isLowStock(product, threshold))
-        .sort((a, b) => a.stock_quantity! - b.stock_quantity!),
   });
 }
 
@@ -392,6 +376,24 @@ export function usePatchStore() {
   return useMutation({
     mutationFn: (patch: StorePatch) => patchStore(patch),
     onSuccess: () => invalidate(qc, keys.store(), keys.me(), keys.alerts.all()),
+  });
+}
+
+/** The phone acts as another member: everything cached belonged to the previous one. */
+export function useSwitchMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof switchMember>[0]) =>
+      switchMember(input),
+    onSuccess: () => qc.resetQueries({ queryKey: keys.all }),
+  });
+}
+
+export function useSetPin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pin: string | null) => setPin(pin),
+    onSuccess: () => invalidate(qc, keys.members(), keys.me()),
   });
 }
 

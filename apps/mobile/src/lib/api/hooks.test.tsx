@@ -24,7 +24,6 @@ import {
   useDayClose,
   useDismissAlert,
   useExpenses,
-  useLowStockProducts,
   useManualLines,
   useResolveManualLine,
   useMe,
@@ -373,60 +372,7 @@ describe('mutations and invalidation', () => {
   });
 });
 
-describe('stock and manual lines', () => {
-  test('useLowStockProducts lists products at or below the threshold, fewest first', async () => {
-    const { wrapper } = setup();
-    const { result } = await renderHook(() => useLowStockProducts(), {
-      wrapper,
-    });
-    await waitFor(() =>
-      expect(result.current.data?.length).toBeGreaterThanOrEqual(3),
-    );
-    const stocks = result.current.data!.map((p) => p.stock_quantity!);
-    expect(stocks).toEqual([...stocks].sort((a, b) => a - b));
-    expect(stocks.every((n) => n <= 5)).toBe(true);
-    expect(result.current.data![0]!.name).toBe('Bột giặt OMO 800g');
-  });
-
-  test('a custom threshold widens the list; a sale lowers stock and refreshes it', async () => {
-    const { wrapper } = setup();
-    const wide = await renderHook(() => useLowStockProducts(10), { wrapper });
-    await waitFor(() =>
-      expect(
-        wide.result.current.data?.some((p) => p.id === PRODUCT_IDS.trung),
-      ).toBe(true),
-    );
-    const sale = await renderHook(() => useCreateSale(), { wrapper });
-    const low = await renderHook(() => useLowStockProducts(), { wrapper });
-    await waitFor(() =>
-      expect(
-        low.result.current.data?.some((p) => p.id === PRODUCT_IDS.lavie),
-      ).toBe(false),
-    );
-    await run(() =>
-      sale.result.current.mutateAsync({
-        id: newUuid(),
-        sold_at: new Date().toISOString(),
-        payment_method: 'cash',
-        total: 5000 * 68,
-        lines: [
-          {
-            id: newUuid(),
-            product_id: PRODUCT_IDS.lavie,
-            source: 'camera',
-            quantity: 68,
-            unit_price: 5000,
-          },
-        ],
-      }),
-    );
-    await waitFor(() =>
-      expect(
-        low.result.current.data?.some((p) => p.id === PRODUCT_IDS.lavie),
-      ).toBe(true),
-    );
-  });
-
+describe('manual lines', () => {
   test('useManualLines lists open lines; resolving refreshes the list', async () => {
     const { wrapper, queryClient } = setup();
     const spy = jest.spyOn(queryClient, 'invalidateQueries');

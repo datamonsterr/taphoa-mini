@@ -4,6 +4,7 @@ import {
   Crown,
   Eye,
   Globe,
+  KeyRound,
   Landmark,
   LogOut,
   User,
@@ -20,11 +21,14 @@ import {
   Text,
 } from '@/components/ui';
 import {
+  isApiError,
   logout,
   useMe,
   useMembers,
   useStore,
+  useSwitchMember,
   type BankAccount,
+  type Member,
 } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useChromeStore } from '@/stores/chrome';
@@ -44,6 +48,8 @@ import {
 import { BankSheet } from './BankSheet';
 import { InviteSheet } from './InviteSheet';
 import { MemberRow } from './MemberRow';
+import { PinSheet } from './PinSheet';
+import { SetPinSheet } from './SetPinSheet';
 import { fill, strings } from './strings';
 import { formatAccountNumber, initialOf } from './utils';
 
@@ -215,7 +221,19 @@ const SignOutRow = memo(function SignOutRow() {
   );
 });
 
-type ActiveSheet = 'invite' | 'bank' | null;
+type ActiveSheet = 'invite' | 'bank' | 'switch' | 'setPin' | null;
+
+/** The server answers 401 for a wrong PIN and 429 (with Retry-After) once the member is locked. */
+const switchErrorKey = (error: unknown): { key: string; minutes?: number } => {
+  if (isApiError(error) && error.status === 401) return { key: 'pin.wrong' };
+  if (isApiError(error) && error.status === 429) {
+    return {
+      key: 'pin.locked',
+      minutes: Math.max(1, Math.ceil((error.retryAfterMs ?? 300_000) / 60_000)),
+    };
+  }
+  return { key: 'switch.error' };
+};
 
 export function AccountScreen() {
   const t = useT(strings);
@@ -224,6 +242,9 @@ export function AccountScreen() {
   const store = useStore();
   const members = useMembers();
   const [sheet, setSheet] = useState<ActiveSheet>(null);
+  const [target, setTarget] = useState<Member | null>(null);
+  const [pinSaved, setPinSaved] = useState(false);
+  const switcher = useSwitchMember();
   const setTabBarHidden = useChromeStore((s) => s.setTabBarHidden);
   const sheetOpen = sheet !== null;
   // The floating tab bar sits above this tab's content, so hide it while a sheet is open.
@@ -234,6 +255,48 @@ export function AccountScreen() {
   const closeSheet = useCallback(() => setSheet(null), []);
   const openInvite = useCallback(() => setSheet('invite'), []);
   const openBank = useCallback(() => setSheet('bank'), []);
+  const closeSwitch = useCallback(() => {
+    setSheet(null);
+    setTarget(null);
+    switcher.reset();
+  }, [switcher]);
+  const openSetPin = useCallback(() => {
+    setPinSaved(false);
+    setSheet('setPin');
+  }, []);
+  const pinSavedDone = useCallback(() => {
+    setSheet(null);
+    setPinSaved(true);
+  }, []);
+  const onSwitch = useCallback(
+    (member: Member) => {
+      switcher.reset();
+      // A member with a PIN is asked for it; without one the switch happens at once.
+      if (member.has_pin) {
+        setTarget(member);
+        setSheet('switch');
+      } else {
+        switcher.mutate({ member_id: member.id });
+      }
+    },
+    [switcher],
+  );
+  const submitPin = useCallback(
+    (pin: string) => {
+      if (!target) return;
+      switcher.mutate(
+        { member_id: target.id, pin },
+        { onSuccess: closeSwitch },
+      );
+    },
+    [switcher, target, closeSwitch],
+  );
+  const switchError = switcher.isError
+    ? (() => {
+        const { key, minutes } = switchErrorKey(switcher.error);
+        return fill(t(key), { n: minutes ?? 0 });
+      })()
+    : null;
   const roleLabel = useCallback(
     (role: 'lead' | 'seller') => t(`role.${role}`),
     [t],
@@ -329,6 +392,10 @@ export function AccountScreen() {
           </View>
         </View>
 
+        <ScaledText variant="caption" style={styles.acting}>
+          {fill(t('acting'), { name: me.data.member.display_name })}
+        </ScaledText>
+
         <MemberRow
           members={members.data}
           failed={members.isError}
@@ -339,7 +406,36 @@ export function AccountScreen() {
           errorLabel={t('members.error')}
           inviteLabel={isLead ? t('invite.open') : null}
           onInvite={openInvite}
+          currentMemberId={me.data.member.id}
+          switchLabel={(member) =>
+            fill(t('switch.to'), { name: member.display_name })
+          }
+          onSwitch={onSwitch}
+          switchError={sheet === 'switch' ? null : switchError}
         />
+
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('pin.set')}
+          pressedScale={0.98}
+          onPress={openSetPin}
+          style={[styles.row, styles.rowRight16]}
+        >
+          <Icon icon={KeyRound} color={colors.inkMuted} />
+          <ScaledText variant="label" style={styles.grow}>
+            {t('pin.set')}
+          </ScaledText>
+          <Icon icon={ChevronRight} color={colors.inkMuted} />
+        </PressableScale>
+        {pinSaved ? (
+          <ScaledText
+            accessibilityRole="alert"
+            variant="caption"
+            style={styles.saved}
+          >
+            {t('pin.saved')}
+          </ScaledText>
+        ) : null}
 
         <PressableScale
           accessibilityRole="button"
@@ -368,6 +464,19 @@ export function AccountScreen() {
       </ScrollView>
 
       {sheet === 'invite' ? <InviteSheet onClose={closeSheet} /> : null}
+      {sheet === 'switch' && target ? (
+        <PinSheet
+          title={fill(t('pin.enterTitle'), { name: target.display_name })}
+          confirmLabel={t('pin.confirm')}
+          error={switchError}
+          busy={switcher.isPending}
+          onSubmit={submitPin}
+          onClose={closeSwitch}
+        />
+      ) : null}
+      {sheet === 'setPin' ? (
+        <SetPinSheet onClose={closeSheet} onSaved={pinSavedDone} />
+      ) : null}
       {sheet === 'bank' ? (
         <BankSheet initial={bank} onClose={closeSheet} />
       ) : null}
@@ -459,6 +568,8 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 17, lineHeight: 22, color: colors.ink },
   chipTextOn: { color: colors.onInk },
   error: { color: colors.danger },
+  acting: { color: colors.inkMuted },
+  saved: { color: colors.success },
   retry: {
     alignSelf: 'flex-start',
     minHeight: 56,

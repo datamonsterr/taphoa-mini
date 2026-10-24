@@ -5,7 +5,7 @@ import { Dimensions } from 'react-native';
 
 import * as productsApi from '@/lib/api/products';
 import { keys } from '@/lib/api/keys';
-import type { ProductWithStock } from '@/lib/api/types';
+import type { Product } from '@/lib/api/types';
 import { useSessionStore } from '@/stores/session';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { holdNext } from '@/test/hold';
@@ -57,30 +57,26 @@ test('shows a skeleton while loading', async () => {
   expect(screen.queryByTestId('product-skeleton')).toBeNull();
 });
 
-test('shows name, price, stock, cost and a derived description', async () => {
+test('shows name, price, cost and a derived description', async () => {
   await renderProduct();
   expect(
     await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' }),
   ).toBeOnTheScreen();
   expect(screen.getByText('10.000đ')).toBeOnTheScreen();
-  expect(screen.getByLabelText('Tồn kho 48')).toBeOnTheScreen();
   expect(screen.getByLabelText('Giá nhập 7.500đ')).toBeOnTheScreen();
   expect(
     screen.getByText('Nước giải khát. 1 thùng = 24 lon, 230.000đ.'),
   ).toBeOnTheScreen();
-  expect(flat(screen.getByLabelText('Tồn kho 48'))).toMatchObject({
+  expect(flat(screen.getByLabelText('Giá nhập 7.500đ'))).toMatchObject({
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.lg,
   });
 });
 
-test('hides missing stock, cost and description', async () => {
-  const product = (await productsApi.getProduct(
-    PRODUCT_IDS.coca,
-  )) as ProductWithStock;
+test('hides missing cost and description', async () => {
+  const product = (await productsApi.getProduct(PRODUCT_IDS.coca)) as Product;
   jest.spyOn(productsApi, 'getProduct').mockResolvedValue({
     ...product,
-    stock_quantity: undefined,
     cost_price: null,
     category_id: null,
     units: [],
@@ -91,7 +87,6 @@ test('hides missing stock, cost and description', async () => {
   expect(
     await screen.findByRole('header', { name: 'Sản phẩm chưa đặt tên' }),
   ).toBeOnTheScreen();
-  expect(screen.queryByLabelText(/Tồn kho/)).toBeNull();
   expect(screen.queryByLabelText(/Giá nhập/)).toBeNull();
   expect(screen.queryByTestId('product-description')).toBeNull();
   expect(screen.getByTestId('product-photo-empty')).toBeOnTheScreen();
@@ -205,9 +200,8 @@ test('a failed save rolls the price back and says so', async () => {
   ).toBeOnTheScreen();
   expect(screen.getByText('10.000đ')).toBeOnTheScreen();
   expect(
-    queryClient.getQueryData<ProductWithStock>(
-      keys.products.detail(PRODUCT_IDS.coca),
-    )?.price,
+    queryClient.getQueryData<Product>(keys.products.detail(PRODUCT_IDS.coca))
+      ?.price,
   ).toBe(10000);
 });
 
@@ -232,7 +226,7 @@ test('the optimistic price also reaches cached product lists, and rolls back', a
 
   const listPrice = () =>
     queryClient
-      .getQueryData<{ pages: { items: ProductWithStock[] }[] }>(
+      .getQueryData<{ pages: { items: Product[] }[] }>(
         keys.products.list({ limit: 20 }),
       )
       ?.pages[0]?.items.find((p) => p.id === PRODUCT_IDS.coca)?.price;
