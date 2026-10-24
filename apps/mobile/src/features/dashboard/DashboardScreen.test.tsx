@@ -39,6 +39,30 @@ test('opens import receipt history from the dashboard', async () => {
   await ready();
 });
 
+test.each([
+  [false, false],
+  [true, true],
+] as const)(
+  'receipt entry follows can_enroll=%s for sellers',
+  async (can_enroll, visible) => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: {
+        ...session!,
+        member: { ...session!.member, role: 'seller', can_enroll },
+      },
+    });
+    await renderWithProviders(<DashboardScreen />);
+    if (visible) {
+      expect(
+        screen.getByRole('button', { name: 'Hóa đơn nhập' }),
+      ).toBeOnTheScreen();
+    } else {
+      expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
+    }
+  },
+);
+
 test('shows a skeleton while loading', async () => {
   let release: () => void = () => {};
   const real = ledger.getTodayReport;

@@ -971,6 +971,40 @@ describe('quick enroll capture', () => {
 });
 
 describe('import receipt document', () => {
+  it('hides the document button for a Seller without can_enroll', async () => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: {
+        ...session!,
+        member: { ...session!.member, role: 'seller', can_enroll: false },
+      },
+    });
+    setNextScanDocument();
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(shutter());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Đọc hóa đơn nhập' }),
+      ).toBeNull(),
+    );
+  });
+
+  it('shows the document button for a Seller with can_enroll', async () => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: {
+        ...session!,
+        member: { ...session!.member, role: 'seller', can_enroll: true },
+      },
+    });
+    setNextScanDocument();
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(shutter());
+    expect(
+      await screen.findByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    ).toBeOnTheScreen();
+  });
+
   it('only offers the document button inside the captured frame after document detection', async () => {
     await renderWithProviders(<CameraScreen />);
     expect(
@@ -1030,6 +1064,10 @@ describe('import receipt document', () => {
     [
       new ApiError(503, { error: 'unavailable', code: 'ocr_unavailable' }),
       'Chưa đọc được hóa đơn. Thử lại.',
+    ],
+    [
+      new ApiError(403, { error: 'forbidden', code: 'forbidden' }),
+      'Bạn không có quyền nhập hóa đơn',
     ],
     [new Error('offline'), 'Chưa đọc được hóa đơn. Thử lại.'],
   ])('shows an actionable error toast (%s)', async (error, message) => {

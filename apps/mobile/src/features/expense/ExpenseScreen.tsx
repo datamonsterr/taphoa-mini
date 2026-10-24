@@ -30,6 +30,7 @@ import type { ExpenseCategory } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
 import { newUuid } from '@/lib/uuid';
+import { selectCanEnroll, useSessionStore } from '@/stores/session';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { dismissSheet } from '../dashboard/dismiss';
@@ -53,6 +54,7 @@ const keypadLabels = (t: (key: string) => string) => ({
 
 export function ExpenseScreen() {
   const t = useT(expenseStrings);
+  const canEnroll = useSessionStore(selectCanEnroll);
   const padLabels = useLabels(expenseStrings, keypadLabels);
   const keyDiameter = useKeypadDiameter(76);
   const [category, setCategory] = useState<ExpenseCategory | null>(null);
@@ -167,15 +169,17 @@ export function ExpenseScreen() {
             )}
           </View>
 
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t('receipts')}
-            onPress={() => router.push('/receipts')}
-            style={styles.receipts}
-          >
-            <Icon icon={ReceiptText} color={colors.ink} />
-            <Text style={typography.label}>{t('receipts')}</Text>
-          </PressableScale>
+          {canEnroll ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('receipts')}
+              onPress={() => router.push('/receipts')}
+              style={styles.receipts}
+            >
+              <Icon icon={ReceiptText} color={colors.ink} />
+              <Text style={typography.label}>{t('receipts')}</Text>
+            </PressableScale>
+          ) : null}
           <View
             accessibilityRole="radiogroup"
             accessibilityLabel={t('categories')}

@@ -13,7 +13,11 @@ import {
   Text,
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
-import { selectIsLead, useSessionStore } from '@/stores/session';
+import {
+  selectCanEnroll,
+  selectIsLead,
+  useSessionStore,
+} from '@/stores/session';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
@@ -39,6 +43,7 @@ export function DashboardScreen() {
   const [period, setPeriod] = useState<Period>('day');
   const data = useDashboardData(period);
   const isLead = useSessionStore(selectIsLead);
+  const canEnroll = useSessionStore(selectCanEnroll);
 
   const addExpense = useCallback(() => router.push('/expense'), []);
   const closeDay = useCallback(() => router.push('/close'), []);
@@ -122,15 +127,17 @@ export function DashboardScreen() {
 
       <AlertsSection />
 
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={t('receipts')}
-        onPress={() => router.push('/receipts' as Href)}
-        style={styles.receiptsButton}
-      >
-        <Icon icon={ReceiptText} color={colors.ink} />
-        <Text style={styles.retryText}>{t('receipts')}</Text>
-      </PressableScale>
+      {canEnroll ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('receipts')}
+          onPress={() => router.push('/receipts' as Href)}
+          style={styles.receiptsButton}
+        >
+          <Icon icon={ReceiptText} color={colors.ink} />
+          <Text style={styles.retryText}>{t('receipts')}</Text>
+        </PressableScale>
+      ) : null}
 
       {isLead ? (
         <PressableScale

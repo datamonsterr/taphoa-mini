@@ -226,9 +226,11 @@ export function CameraScreen() {
     } catch (error) {
       setNotice(
         t(
-          isApiError(error) && error.code === 'no_text'
-            ? 'receiptNoText'
-            : 'receiptRetry',
+          isApiError(error) && error.status === 403
+            ? 'receiptPermission'
+            : isApiError(error) && error.code === 'no_text'
+              ? 'receiptNoText'
+              : 'receiptRetry',
         ),
       );
     } finally {
@@ -585,7 +587,10 @@ export function CameraScreen() {
               onPress={permission.canAskAgain ? askPermission : openSettings}
             />
           ) : null}
-          {hasResult && scan.document?.detected && !receiptCreate.isPending ? (
+          {canEnroll &&
+          hasResult &&
+          scan.document?.detected &&
+          !receiptCreate.isPending ? (
             <DocumentButton onPress={() => void readReceipt()} />
           ) : null}
           {phase === 'error' ? (
