@@ -1488,6 +1488,136 @@ async fn concurrent_duplicate_category_names_never_500() {
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn enrolling_from_a_manual_line_resolves_that_line_once() {
+    let w = world().await;
+    let line = Uuid::now_v7();
+    let sale = json!({"id": Uuid::now_v7(), "sold_at": chrono::Utc::now().to_rfc3339(),
+        "payment_method": "cash", "total": 10000, "cash_received": 10000,
+        "lines": [{"id": line, "source": "manual", "manual_label": "Kẹo lạc",
+                   "quantity": 2, "unit_price": 5000}]});
+    ok(
+        &w.app,
+        "POST",
+        "/v1/sales",
+        "/v1/sales",
+        &w.lead,
+        sale,
+        StatusCode::CREATED,
+    )
+    .await;
+    let open = |status: &'static str| format!("/v1/review/manual-lines?status={status}");
+    let queue = ok(
+        &w.app,
+        "GET",
+        &open("open"),
+        "/v1/review/manual-lines",
+        &w.lead,
+        json!(null),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(queue["items"][0]["line_id"], line.to_string());
+
+    // the review queue is the Lead's: a seller who may enroll cannot resolve through enrolling
+    let image = upload(&w, &w.enroller, "candy").await;
+    expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.enroller),
+        json!({"id": Uuid::now_v7(), "price": 5000, "image_ids": [image], "from_manual_line_id": line}),
+        StatusCode::FORBIDDEN,
+        "forbidden",
+    )
+    .await;
+
+    // an unknown line is refused and no product is left behind
+    let ghost_product = Uuid::now_v7();
+    let image = upload(&w, &w.lead, "candy").await;
+    expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        json!({"id": ghost_product, "price": 5000, "image_ids": [image],
+               "from_manual_line_id": Uuid::now_v7()}),
+        StatusCode::NOT_FOUND,
+        "not_found",
+    )
+    .await;
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM products WHERE id=$1",
+            ghost_product
+        )
+        .await,
+        0
+    );
+
+    // enrolling from the line creates the product and resolves the line as `enrolled`
+    let product = ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        json!({"id": Uuid::now_v7(), "name": "Kẹo lạc", "price": 5000, "image_ids": [image],
+               "from_manual_line_id": line}),
+        StatusCode::CREATED,
+    )
+    .await;
+    let still_open = ok(
+        &w.app,
+        "GET",
+        &open("open"),
+        "/v1/review/manual-lines",
+        &w.lead,
+        json!(null),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(still_open["items"].as_array().unwrap().is_empty());
+    let resolved = ok(
+        &w.app,
+        "GET",
+        &open("resolved"),
+        "/v1/review/manual-lines",
+        &w.lead,
+        json!(null),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(resolved["items"][0]["line_id"], line.to_string());
+    assert_eq!(resolved["items"][0]["resolution"]["action"], "enrolled");
+    assert_eq!(
+        resolved["items"][0]["resolution"]["product_id"],
+        product["id"]
+    );
+
+    // a line is resolved once: enrolling from it again conflicts and adds nothing
+    let again = Uuid::now_v7();
+    let image = upload(&w, &w.lead, "candy-again").await;
+    expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        json!({"id": again, "price": 5000, "image_ids": [image], "force_new": true,
+               "from_manual_line_id": line}),
+        StatusCode::CONFLICT,
+        "already_resolved",
+    )
+    .await;
+    assert_eq!(
+        count(&w, "SELECT count(*) FROM products WHERE id=$1", again).await,
+        0
+    );
+}
+
 async fn futures_join(
     handles: impl Iterator<Item = tokio::task::JoinHandle<StatusCode>>,
 ) -> Vec<StatusCode> {

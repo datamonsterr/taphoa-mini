@@ -79,6 +79,9 @@ pub struct CreateProductRequest {
     pub barcode: Option<String>,
     pub category_id: Option<Uuid>,
     pub units: Option<Vec<ProductUnitInput>>,
+    /// Enrolling a flagged manual sale line (F3): the line is resolved as `enrolled`.
+    #[serde(default)]
+    pub from_manual_line_id: Option<Uuid>,
     #[serde(default)]
     pub force_new: bool,
 }
@@ -354,6 +357,7 @@ mod tests {
             barcode: None,
             category_id: None,
             units: None,
+            from_manual_line_id: None,
             force_new: false,
         }
     }
