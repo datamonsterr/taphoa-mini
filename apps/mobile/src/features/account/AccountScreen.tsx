@@ -45,6 +45,7 @@ import {
   useMinFontScale,
 } from '@/theme';
 
+import { StockThresholdRow } from './StockThresholdRow';
 import { BankSheet } from './BankSheet';
 import { InviteSheet } from './InviteSheet';
 import { MemberRow } from './MemberRow';
@@ -457,6 +458,9 @@ export function AccountScreen() {
           {isLead ? <Icon icon={ChevronRight} color={colors.inkMuted} /> : null}
         </PressableScale>
 
+        {isLead ? (
+          <StockThresholdRow value={store.data.low_stock_threshold} />
+        ) : null}
         <ElderRow />
         <TextSizeRow />
         <LanguageRow />

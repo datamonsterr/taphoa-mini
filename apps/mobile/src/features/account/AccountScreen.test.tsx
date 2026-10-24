@@ -459,3 +459,73 @@ describe('setting a PIN', () => {
     expect(screen.getByTestId('sheet-panel')).toBeOnTheScreen();
   });
 });
+
+describe('low stock threshold', () => {
+  test('Lead steps the store threshold up and down through the patch API', async () => {
+    const patch = jest.spyOn(storeApi, 'patchStore');
+    await open();
+    expect(screen.getByText('Ngưỡng sắp hết hàng')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Ngưỡng sắp hết hàng 5')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Tăng ngưỡng sắp hết' }),
+    );
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ low_stock_threshold: 6 }),
+    );
+    await screen.findByLabelText('Ngưỡng sắp hết hàng 6');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Giảm ngưỡng sắp hết' }),
+    );
+    await waitFor(() =>
+      expect(patch).toHaveBeenLastCalledWith({ low_stock_threshold: 5 }),
+    );
+    expect(
+      await screen.findByLabelText('Ngưỡng sắp hết hàng 5'),
+    ).toBeOnTheScreen();
+  });
+
+  test.each([0, 100000])(
+    'threshold %s disables its boundary button',
+    async (value) => {
+      jest.spyOn(storeApi, 'getStore').mockResolvedValue({
+        ...(await storeApi.getStore()),
+        low_stock_threshold: value,
+      });
+      await open();
+      expect(
+        screen.getByRole('button', {
+          name: value === 0 ? 'Giảm ngưỡng sắp hết' : 'Tăng ngưỡng sắp hết',
+        }),
+      ).toBeDisabled();
+    },
+  );
+
+  test('failed patch preserves the store value and can be retried', async () => {
+    jest
+      .spyOn(storeApi, 'patchStore')
+      .mockRejectedValueOnce(new Error('offline'));
+    await open();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Tăng ngưỡng sắp hết' }),
+    );
+    expect(
+      await screen.findByText('Không lưu được ngưỡng sắp hết'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('Ngưỡng sắp hết hàng 5')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Tăng ngưỡng sắp hết' }),
+    );
+    expect(
+      await screen.findByLabelText('Ngưỡng sắp hết hàng 6'),
+    ).toBeOnTheScreen();
+  });
+
+  test('Seller cannot see the threshold control', async () => {
+    const me = await storeApi.getMe();
+    jest
+      .spyOn(storeApi, 'getMe')
+      .mockResolvedValue({ ...me, member: { ...me.member, role: 'seller' } });
+    await open();
+    expect(screen.queryByText('Ngưỡng sắp hết hàng')).toBeNull();
+  });
+});

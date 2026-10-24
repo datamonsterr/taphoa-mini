@@ -35,3 +35,24 @@ test('photo is cached on disk and recycled by uri', async () => {
     recyclingKey: 'https://x/coca.jpg',
   });
 });
+
+test('tracked products show stock and untracked products have no badge', async () => {
+  const { rerender } = await renderWithProviders(
+    <ProductTile
+      name="Coca"
+      price={10000}
+      stockQuantity={3}
+      stockStatus="low"
+    />,
+  );
+  expect(screen.getByLabelText('Tồn kho 3, Sắp hết')).toBeOnTheScreen();
+  await rerender(
+    <ProductTile
+      name="Coca"
+      price={10000}
+      stockQuantity={null}
+      stockStatus="untracked"
+    />,
+  );
+  expect(screen.queryByLabelText(/Tồn kho/)).toBeNull();
+});
