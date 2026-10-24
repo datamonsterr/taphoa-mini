@@ -6,7 +6,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import {
   fireGestureHandler,
   getByGestureTestId,
@@ -14,7 +14,7 @@ import {
 
 import * as images from '@/lib/api/images';
 import { mapBox } from '@/lib/bbox';
-import { resetMockDb, setMockScenario } from '@/test/mock';
+import { getMockDb, resetMockDb, setMockScenario } from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
 import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
@@ -24,6 +24,8 @@ import { renderWithProviders } from '@/test/render';
 import { uploadPartsAsBlobs } from './testing';
 import { CameraScreen } from './CameraScreen';
 import { useCaptureModeStore } from './modeStore';
+import { initialQuickEnroll, useQuickEnrollStore } from './quickEnroll';
+import * as downsizing from '@/lib/api/downsize';
 
 const mockFeedbackProps = jest.fn();
 jest.mock('./AddFeedback', () => {
@@ -142,6 +144,7 @@ const IMAGE = { width: 1080, height: 1440 };
 
 beforeEach(() => {
   resetMockDb();
+  useQuickEnrollStore.setState(initialQuickEnroll);
   useCartStore.setState({ lines: [] });
   useCaptureModeStore.setState({ mode: 'one' });
   useSettingsStore.setState({ language: 'vi' });
@@ -264,12 +267,22 @@ describe('idle', () => {
     expect(screen.getByTestId('camera-view')).toBeOnTheScreen();
   });
 
-  it('tag opens enroll without a photo', async () => {
+  it('tag toggles purple quick mode without navigating and turns off immediately without shots', async () => {
+    const alert = jest.spyOn(Alert, 'alert');
     await renderWithProviders(<CameraScreen />);
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
-    );
-    expect(mockPush).toHaveBeenCalledWith('/enroll');
+    const tag = screen.getByRole('button', { name: 'Thêm vào kho với giá' });
+    await fireEvent.press(tag);
+    expect(tag).toBeSelected();
+    expect(tag).toHaveStyle({ backgroundColor: colors.accent });
+    expect(screen.getByText('Thêm hàng nhanh · 0/3')).toHaveStyle({
+      color: colors.accent,
+    });
+    expect(useQuickEnrollStore.getState().active).toBe(true);
+    expect(mockPush).not.toHaveBeenCalled();
+    await fireEvent.press(tag);
+    expect(tag).not.toBeSelected();
+    expect(screen.queryByText('Thêm hàng nhanh · 0/3')).toBeNull();
+    expect(alert).not.toHaveBeenCalled();
   });
 
   it('cart pill opens the cart with the running count and total', async () => {
@@ -471,18 +484,17 @@ describe('single item', () => {
     expect(screen.getByTestId('camera-view')).toBeOnTheScreen();
   });
 
-  it('tag navigates to enroll with the photo and scan id', async () => {
-    const create = jest.spyOn(images, 'createScan');
+  it('tag clears the checkout result when quick mode starts', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    const scan = await create.mock.results[0]!.value;
     await fireEvent.press(
       screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
     );
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/enroll',
-      params: { photoUri: 'file:///shot.jpg', scanId: scan.id },
-    });
+    expect(screen.queryByTestId('viewfinder-photo')).toBeNull();
+    expect(screen.queryByTestId('confidence-badge')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
+    expect(useQuickEnrollStore.getState().active).toBe(true);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it('leaving the screen drops the frozen result', async () => {
@@ -611,7 +623,7 @@ describe('low match', () => {
     expect(screen.queryByTestId('alternatives-strip')).toBeNull();
   });
 
-  it('the ? pill and the tag open enroll with the photo, scan, detection and its crop', async () => {
+  it('the ? pill opens enroll with the photo, scan, detection and its crop', async () => {
     const create = jest.spyOn(images, 'createScan');
     await renderWithProviders(<CameraScreen />);
     await capture();
@@ -631,32 +643,11 @@ describe('low match', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: 'Chưa có trong kho, nhập giá' }),
     );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
-    );
     expect(mockPush).toHaveBeenNthCalledWith(1, {
       pathname: '/enroll',
       params,
     });
-    expect(mockPush).toHaveBeenNthCalledWith(2, {
-      pathname: '/enroll',
-      params,
-    });
-  });
-
-  it('the tag with no low box sends the whole photo, no crop', async () => {
-    setMockScenario('match');
-    const create = jest.spyOn(images, 'createScan');
-    await renderWithProviders(<CameraScreen />);
-    await capture();
-    const scan = await create.mock.results[0]!.value;
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
-    );
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/enroll',
-      params: { photoUri: 'file:///shot.jpg', scanId: scan.id },
-    });
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -687,6 +678,7 @@ describe('enroll permission', () => {
     await fireEvent.press(tag);
     await fireEvent.press(pill);
     expect(mockPush).not.toHaveBeenCalled();
+    expect(useQuickEnrollStore.getState().active).toBe(false);
   });
 
   it('a Seller with can_enroll keeps the enroll path', async () => {
@@ -865,5 +857,105 @@ describe('render counts', () => {
     const rendered = mockBoxRenders.mock.calls.map(([id]) => id);
     expect(new Set(rendered).size).toBe(rendered.length);
     expect(rendered.length).toBeLessThan(3);
+  });
+});
+
+describe('quick enroll capture', () => {
+  const tag = () =>
+    screen.getByRole('button', { name: 'Thêm vào kho với giá' });
+
+  it('uploads a downsized enrollment image without creating a recognition scan', async () => {
+    const downsize = jest.spyOn(downsizing, 'downsizeForUpload');
+    const upload = jest.spyOn(images, 'uploadImage');
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(tag());
+    await fireEvent.press(shutter());
+    await waitFor(() =>
+      expect(useQuickEnrollStore.getState().shots[0]?.status).toBe('pointing'),
+    );
+    expect(downsize).toHaveBeenCalledWith('file:///shot.jpg', 1080, 1440);
+    const shot = useQuickEnrollStore.getState().shots[0]!;
+    expect(shot).toMatchObject({ width: 768, height: 1024 });
+    expect(shot.uri).toMatch(/downsize-/);
+    expect(upload).toHaveBeenCalledWith(
+      expect.objectContaining({ uri: shot.uri, type: 'image/jpeg' }),
+      'enrollment',
+    );
+    expect(getMockDb().images.has(shot.imageId!)).toBe(true);
+    expect(getMockDb().scans.size).toBe(0);
+    expect(shutter()).toBeDisabled();
+    expect(screen.getByText('Thêm hàng nhanh · 1/3')).toBeOnTheScreen();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('asks before discarding shots: cancel keeps them and confirm clears them', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(tag());
+    await fireEvent.press(shutter());
+    await waitFor(() =>
+      expect(useQuickEnrollStore.getState().shots[0]?.status).toBe('pointing'),
+    );
+    await fireEvent.press(tag());
+    expect(alert).toHaveBeenCalledWith(
+      'Bỏ các ảnh đã chụp?',
+      expect.anything(),
+      expect.any(Array),
+    );
+    const buttons = alert.mock.calls[0]![2]!;
+    await act(async () =>
+      buttons.find((b) => b.style === 'cancel')!.onPress?.(),
+    );
+    expect(useQuickEnrollStore.getState().active).toBe(true);
+    expect(useQuickEnrollStore.getState().shots).toHaveLength(1);
+    await fireEvent.press(tag());
+    await act(async () =>
+      alert.mock.calls[1]![2]!.find(
+        (b) => b.style === 'destructive',
+      )!.onPress?.(),
+    );
+    expect(useQuickEnrollStore.getState()).toMatchObject(initialQuickEnroll);
+    expect(shutter()).toBeEnabled();
+  });
+
+  it('ignores a photo that finishes after toggling off and on again', async () => {
+    const imageCount = getMockDb().images.size;
+    let release!: (photo: {
+      uri: string;
+      width: number;
+      height: number;
+    }) => void;
+    mockTakePicture.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(tag());
+    await fireEvent.press(shutter());
+    expect(shutter()).toBeDisabled();
+    await fireEvent.press(tag());
+    await fireEvent.press(tag());
+    await act(async () => release({ uri: 'file:///stale.jpg', ...IMAGE }));
+    expect(useQuickEnrollStore.getState().shots).toHaveLength(0);
+    expect(getMockDb().images.size).toBe(imageCount);
+    expect(shutter()).toBeEnabled();
+  });
+
+  it('records an upload failure without starting recognition', async () => {
+    jest
+      .spyOn(images, 'uploadImage')
+      .mockRejectedValueOnce(new Error('upload offline'));
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(tag());
+    await fireEvent.press(shutter());
+    await waitFor(() =>
+      expect(useQuickEnrollStore.getState().shots[0]).toMatchObject({
+        status: 'error',
+        error: 'upload offline',
+      }),
+    );
+    expect(getMockDb().scans.size).toBe(0);
   });
 });
