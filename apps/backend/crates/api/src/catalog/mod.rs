@@ -7,6 +7,7 @@ use axum::{
 
 pub(crate) mod categories;
 pub(crate) mod enroll;
+pub mod index_jobs;
 pub(crate) mod model;
 pub(crate) mod price_history;
 pub(crate) mod product_images;
