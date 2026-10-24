@@ -11,7 +11,6 @@ pub const BARCODE_MAX: usize = 64;
 pub const CATEGORY_MAX: usize = 40;
 pub const MAX_IMAGES: usize = 8;
 pub const MAX_LEGACY_IMAGE_IDS: usize = 5;
-#[allow(dead_code)]
 pub const MIN_REFERENCES: usize = 3;
 pub const DUPLICATE_THRESHOLD: f64 = 0.88;
 
@@ -70,10 +69,35 @@ impl ProductUnitInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ProductReference {
+    pub image_id: Uuid,
+    pub cutout_image_id: Uuid,
+    pub bbox: [f32; 4],
+}
+
+pub(crate) fn reference_validation(message: impl Into<String>) -> ApiError {
+    ApiError::new(
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+        "validation_failed",
+        message,
+    )
+}
+
+pub(crate) fn validate_bbox(bbox: &[f32; 4]) -> ApiResult<()> {
+    if bbox.iter().any(|v| !v.is_finite()) || bbox[2] <= 0. || bbox[3] <= 0. {
+        return Err(reference_validation(
+            "bbox must be finite with positive width and height",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CreateProductRequest {
     pub id: Uuid,
     pub price: i64,
-    pub image_ids: Vec<Uuid>,
+    pub image_ids: Option<Vec<Uuid>>,
+    pub references: Option<Vec<ProductReference>>,
     #[serde(default)]
     pub name: Option<String>,
     pub base_unit: Option<String>,
@@ -91,7 +115,21 @@ pub struct CreateProductRequest {
 
 impl CreateProductRequest {
     pub fn parse(value: Value) -> ApiResult<Self> {
-        serde_json::from_value(value).map_err(|e| ApiError::validation_failed(e.to_string()))
+        let references = value.get("references").is_some();
+        serde_json::from_value(value).map_err(|e| {
+            if references {
+                reference_validation(e.to_string())
+            } else {
+                ApiError::validation_failed(e.to_string())
+            }
+        })
+    }
+
+    pub fn image_ids(&self) -> Vec<Uuid> {
+        self.references.as_ref().map_or_else(
+            || self.image_ids.clone().unwrap_or_default(),
+            |refs| refs.iter().map(|reference| reference.image_id).collect(),
+        )
     }
 
     pub fn validate(&self) -> ApiResult<()> {
@@ -112,14 +150,41 @@ impl CreateProductRequest {
         if let Some(barcode) = &self.barcode {
             check_len(barcode, BARCODE_MAX, "barcode")?;
         }
-        let mut seen = std::collections::HashSet::new();
-        if self.image_ids.is_empty()
-            || self.image_ids.len() > MAX_LEGACY_IMAGE_IDS
-            || !self.image_ids.iter().all(|id| seen.insert(*id))
-        {
-            return Err(ApiError::validation_failed(
-                "expected 1 to 5 distinct image ids",
-            ));
+        match (&self.image_ids, &self.references) {
+            (Some(ids), None) => {
+                let mut seen = std::collections::HashSet::new();
+                if ids.is_empty()
+                    || ids.len() > MAX_LEGACY_IMAGE_IDS
+                    || !ids.iter().all(|id| seen.insert(*id))
+                {
+                    return Err(ApiError::validation_failed(
+                        "expected 1 to 5 distinct image ids",
+                    ));
+                }
+            }
+            (None, Some(refs)) => {
+                if refs.len() > MAX_IMAGES {
+                    return Err(ApiError::conflict(
+                        "image_limit",
+                        "product supports at most 8 images",
+                    ));
+                }
+                if refs.len() < MIN_REFERENCES {
+                    return Err(reference_validation("expected at least 3 references"));
+                }
+                let mut seen = std::collections::HashSet::new();
+                for reference in refs {
+                    if !seen.insert(reference.image_id) {
+                        return Err(reference_validation("expected distinct image ids"));
+                    }
+                    validate_bbox(&reference.bbox)?;
+                }
+            }
+            _ => {
+                return Err(reference_validation(
+                    "provide exactly one of references or image_ids",
+                ));
+            }
         }
         for unit in self.units.iter().flatten() {
             unit.validate()?;
@@ -214,7 +279,8 @@ pub const UNITS_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('id'
      ORDER BY u.id) FROM product_units u WHERE u.product_id = p.id), '[]'::jsonb) AS units";
 
 pub const IMAGES_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('image_id', \
-     pi.image_id, 'position', pi.position, 'object_key', im.object_key) ORDER BY pi.position, \
+     pi.image_id, 'position', pi.position, 'object_key', im.object_key, \
+     'cutout_image_id', pi.cutout_image_id, 'bbox', pi.bbox) ORDER BY pi.position, \
      pi.image_id) FROM product_images pi JOIN images im ON im.id = pi.image_id WHERE \
      pi.product_id = p.id), '[]'::jsonb) AS images";
 
@@ -226,7 +292,8 @@ pub const PRODUCT_AGG_SELECT: &str = concat!(
     "u.quantity_in_base, 'price', u.price, 'barcode', u.barcode) ORDER BY u.id) ",
     "FROM product_units u WHERE u.product_id = p.id), '[]'::jsonb) AS units, ",
     "COALESCE((SELECT jsonb_agg(jsonb_build_object('image_id', pi.image_id, 'position', ",
-    "pi.position, 'object_key', im.object_key) ORDER BY pi.position, pi.image_id) ",
+    "pi.position, 'object_key', im.object_key, 'cutout_image_id', pi.cutout_image_id, ",
+    "'bbox', pi.bbox) ORDER BY pi.position, pi.image_id) ",
     "FROM product_images pi JOIN images im ON im.id = pi.image_id WHERE pi.product_id = p.id), ",
     "'[]'::jsonb) AS images ",
     "FROM products p WHERE p.id = $1 AND p.store_id = $2"
@@ -354,7 +421,8 @@ mod tests {
         CreateProductRequest {
             id: Uuid::now_v7(),
             price,
-            image_ids: vec![Uuid::now_v7(); images],
+            image_ids: Some(vec![Uuid::now_v7(); images]),
+            references: None,
             name: None,
             base_unit: None,
             cost_price: None,
