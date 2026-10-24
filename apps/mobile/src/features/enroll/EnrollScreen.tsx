@@ -19,7 +19,13 @@ import {
   Text,
 } from '@/components/ui';
 import type { KeypadKeyId } from '@/components/ui';
-import { useCreateProduct, useUploadImage } from '@/lib/api';
+import {
+  isApiError,
+  useAddProductImage,
+  useCreateProduct,
+  useUploadImage,
+  type Candidate,
+} from '@/lib/api';
 import { parseCrop } from '@/lib/bbox';
 import { formatVnd } from '@/lib/format';
 import { newUuid } from '@/lib/uuid';
@@ -141,6 +147,7 @@ export function EnrollScreen() {
   const cropRect = parseCrop(crop);
   const upload = useUploadImage();
   const createProduct = useCreateProduct();
+  const addImage = useAddProductImage();
   const addToCart = useCartStore((s) => s.add);
 
   // The photo list stays empty until the crop (or the downloaded manual-line crop) is ready, so
@@ -184,6 +191,8 @@ export function EnrollScreen() {
   const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  // The server found a look-alike: the person decides to merge the photos or to create anyway.
+  const [duplicate, setDuplicate] = useState<Candidate | null>(null);
   const keyDiameter = useKeypadDiameter(76);
   const productId = useRef(newUuid()).current;
   const uploaded = useRef(new Map<string, string>()).current;
@@ -203,63 +212,100 @@ export function EnrollScreen() {
     setCapturing(false);
   }, []);
 
-  const save = useCallback(async () => {
-    setSaving(true);
-    setFailed(false);
-    try {
-      const imageIds: string[] = [];
-      for (const [index, uri] of photos.entries()) {
-        let id = uploaded.get(uri);
-        if (!id) {
-          const image = await upload.mutateAsync({
-            file: { uri, name: `enroll-${index + 1}.jpg`, type: 'image/jpeg' },
-            purpose: 'enrollment',
-          });
-          id = image.id;
-          uploaded.set(uri, id);
+  const save = useCallback(
+    async (mode: 'check' | 'force' | 'merge' = 'check') => {
+      setSaving(true);
+      setFailed(false);
+      try {
+        const imageIds: string[] = [];
+        for (const [index, uri] of photos.entries()) {
+          let id = uploaded.get(uri);
+          if (!id) {
+            const image = await upload.mutateAsync({
+              file: {
+                uri,
+                name: `enroll-${index + 1}.jpg`,
+                type: 'image/jpeg',
+              },
+              purpose: 'enrollment',
+            });
+            id = image.id;
+            uploaded.set(uri, id);
+          }
+          imageIds.push(id);
         }
-        imageIds.push(id);
+        if (mode === 'merge' && duplicate) {
+          for (const imageId of imageIds) {
+            await addImage.mutateAsync({
+              id: duplicate.product_id,
+              image_id: imageId,
+            });
+          }
+          addToCart({
+            productId: duplicate.product_id,
+            name: duplicate.name ?? FALLBACK_NAME,
+            price: duplicate.price,
+          });
+        } else {
+          const trimmed = name.trim();
+          const product = await createProduct.mutateAsync({
+            id: productId,
+            price,
+            image_ids: imageIds,
+            force_new: mode === 'force',
+            ...(manualLineId ? { from_manual_line_id: manualLineId } : {}),
+            ...(trimmed ? { name: trimmed } : {}),
+          });
+          // A manual line is already sold: enrolling it must not put the product in the cart.
+          if (!manualLineId) {
+            addToCart({
+              productId: product.id,
+              name: product.name ?? FALLBACK_NAME,
+              price: product.price,
+              imageUrl: product.images[0]?.url,
+            });
+          }
+        }
+        void Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+        router.back();
+      } catch (error) {
+        const candidate = duplicateOf(error);
+        if (candidate) {
+          setDuplicate(candidate);
+        } else {
+          setFailed(true);
+        }
+      } finally {
+        setSaving(false);
       }
-      const trimmed = name.trim();
-      const product = await createProduct.mutateAsync({
-        id: productId,
-        price,
-        image_ids: imageIds,
-        force_new: false,
-        ...(manualLineId ? { from_manual_line_id: manualLineId } : {}),
-        ...(trimmed ? { name: trimmed } : {}),
-      });
-      // A manual line is already sold: enrolling it must not put the product in the cart.
-      if (!manualLineId) {
-        addToCart({
-          productId: product.id,
-          name: product.name ?? FALLBACK_NAME,
-          price: product.price,
-          imageUrl: product.images[0]?.url,
-        });
-      }
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
-    } catch {
-      setFailed(true);
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    photos,
-    uploaded,
-    upload,
-    name,
-    createProduct,
-    productId,
-    price,
-    manualLineId,
-    addToCart,
-    router,
-  ]);
+    },
+    [
+      photos,
+      uploaded,
+      upload,
+      name,
+      createProduct,
+      addImage,
+      duplicate,
+      productId,
+      price,
+      manualLineId,
+      addToCart,
+      router,
+    ],
+  );
 
   const onSave = useCallback(() => {
     void save();
+  }, [save]);
+  const onMerge = useCallback(() => {
+    void save('merge');
+  }, [save]);
+  const onForce = useCallback(() => {
+    setDuplicate(null);
+    void save('force');
   }, [save]);
 
   return (
@@ -269,6 +315,31 @@ export function EnrollScreen() {
       testID="enroll-sheet"
       footer={
         <View style={styles.footer}>
+          {duplicate ? (
+            <View style={styles.duplicate}>
+              <Text accessibilityRole="alert" style={styles.error}>
+                {`Giống "${duplicate.name ?? FALLBACK_NAME}" (${formatVnd(duplicate.price)}). Gộp ảnh vào món đó?`}
+              </Text>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Gộp ảnh vào món có sẵn"
+                disabled={saving}
+                onPress={onMerge}
+                style={styles.choice}
+              >
+                <Text style={styles.choiceText}>Gộp ảnh vào món có sẵn</Text>
+              </PressableScale>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Vẫn tạo món mới"
+                disabled={saving}
+                onPress={onForce}
+                style={[styles.choice, styles.choiceAlt]}
+              >
+                <Text style={styles.choiceAltText}>Vẫn tạo món mới</Text>
+              </PressableScale>
+            </View>
+          ) : null}
           {failed ? (
             <Text accessibilityRole="alert" style={styles.error}>
               Không lưu được. Bạn đã nhập vẫn còn, thử lại.
@@ -348,6 +419,15 @@ export function EnrollScreen() {
   );
 }
 
+/** The look-alike the server reported with `409 duplicate_suspected`, if this error is one. */
+function duplicateOf(error: unknown): Candidate | null {
+  if (!isApiError(error) || error.code !== 'duplicate_suspected') return null;
+  const candidates = error.body.details?.candidates;
+  return Array.isArray(candidates)
+    ? ((candidates[0] as Candidate) ?? null)
+    : null;
+}
+
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   photos: { flex: 1 },
@@ -401,6 +481,17 @@ const styles = StyleSheet.create({
   },
   keypad: { paddingHorizontal: 22 },
   footer: { gap: space[2] },
+  duplicate: { gap: space[2] },
+  choice: {
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.ink,
+  },
+  choiceText: { ...typography.label, color: colors.onInk },
+  choiceAlt: { backgroundColor: colors.surfaceSoft },
+  choiceAltText: { ...typography.label, color: colors.ink },
   error: { ...typography.label, color: colors.danger, textAlign: 'center' },
   captureRoot: {
     flex: 1,

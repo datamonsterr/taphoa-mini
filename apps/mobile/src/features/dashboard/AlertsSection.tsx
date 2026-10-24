@@ -11,6 +11,7 @@ import {
   type ManualLine,
 } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
+import { selectIsLead, useSessionStore } from '@/stores/session';
 import { useT } from '@/lib/i18n';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
@@ -23,8 +24,10 @@ export const AlertsSection = memo(function AlertsSection() {
   const t = useT(dashboardStrings);
   const [open, setOpen] = useState<Open>(null);
   const lowStock = useLowStockProducts();
-  const margin = useAlerts('open');
-  const manual = useManualLines('open');
+  // Margin alerts and the review queue are Lead-only: a Seller's request would answer 403.
+  const isLead = useSessionStore(selectIsLead);
+  const margin = useAlerts('open', isLead);
+  const manual = useManualLines('open', isLead);
 
   const toLowStock = useCallback(
     () => router.push({ pathname: '/inventory', params: { filter: 'low' } }),
@@ -71,7 +74,10 @@ export const AlertsSection = memo(function AlertsSection() {
     );
   }
 
-  if (lowStock.isPending || margin.isPending || manual.isPending) {
+  if (
+    lowStock.isPending ||
+    (isLead && (margin.isPending || manual.isPending))
+  ) {
     return (
       <View testID="alerts-skeleton" style={styles.row}>
         {[0, 1, 2].map((i) => (
@@ -81,8 +87,8 @@ export const AlertsSection = memo(function AlertsSection() {
     );
   }
 
-  const marginAlerts = margin.data;
-  const manualLines = manual.data.items;
+  const marginAlerts = margin.data ?? [];
+  const manualLines = manual.data?.items ?? [];
 
   return (
     <View style={styles.section}>
@@ -93,19 +99,23 @@ export const AlertsSection = memo(function AlertsSection() {
           icon={Box}
           onPress={toLowStock}
         />
-        <AlertPill
-          count={marginAlerts.length}
-          label={t('belowCost')}
-          icon={TriangleAlert}
-          onPress={togglePrice}
-        />
-        <AlertPill
-          count={manualLines.length}
-          label={t('noCatalog')}
-          icon={Tag}
-          tone="neutral"
-          onPress={toggleManual}
-        />
+        {isLead ? (
+          <>
+            <AlertPill
+              count={marginAlerts.length}
+              label={t('belowCost')}
+              icon={TriangleAlert}
+              onPress={togglePrice}
+            />
+            <AlertPill
+              count={manualLines.length}
+              label={t('noCatalog')}
+              icon={Tag}
+              tone="neutral"
+              onPress={toggleManual}
+            />
+          </>
+        ) : null}
       </View>
       {open === 'price' ? (
         <View style={styles.list}>

@@ -12,6 +12,7 @@ import { resetApiClient } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
+import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
 
@@ -276,4 +277,29 @@ test('English: period chips and the group follow the language', async () => {
   expect(await screen.findByRole('radio', { name: 'Week' })).toBeOnTheScreen();
   expect(screen.getByText('Month')).toBeOnTheScreen();
   expect(screen.queryByText('Tuần')).toBeNull();
+});
+
+describe('as a Seller', () => {
+  beforeEach(() => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: { ...session!, member: { ...session!.member, role: 'seller' } },
+    });
+  });
+
+  test('never asks for Lead-only data (alerts, review queue) and hides the day close', async () => {
+    const alerts = jest.spyOn(ledger, 'listAlerts');
+    const manual = jest.spyOn(review, 'listManualLines');
+    await renderWithProviders(<DashboardScreen />);
+    await ready();
+    await waitFor(() =>
+      expect(screen.queryByTestId('alerts-skeleton')).toBeNull(),
+    );
+    expect(alerts).not.toHaveBeenCalled();
+    expect(manual).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Chốt sổ' })).toBeNull();
+    expect(screen.queryByLabelText(/món bán không có trong kho/)).toBeNull();
+    expect(screen.queryByLabelText(/món giá bán dưới giá nhập/)).toBeNull();
+    expect(screen.getByLabelText(/món sắp hết/)).toBeOnTheScreen();
+  });
 });

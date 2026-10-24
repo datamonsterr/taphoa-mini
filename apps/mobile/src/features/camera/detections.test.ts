@@ -103,6 +103,7 @@ describe('toCartLines', () => {
         detectionId: 'd1',
         suggestedProductId: 'p1',
         scanId: 'scan-1',
+        source: 'multi_photo',
       },
       {
         productId: 'd2-b',
@@ -111,8 +112,16 @@ describe('toCartLines', () => {
         detectionId: 'd2',
         suggestedProductId: 'd2-a',
         scanId: 'scan-1',
+        source: 'multi_photo',
       },
     ]);
+  });
+
+  it('tags lines of a single-item photo as camera', () => {
+    const one = { ...result, mode: 'single' as const };
+    expect(
+      toCartLines(one, { d2: true }, {}, FALLBACK).map((l) => l.source),
+    ).toEqual(['camera']);
   });
 
   it('skips deselected boxes and low matches', () => {

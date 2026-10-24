@@ -6,6 +6,7 @@ import { Dimensions } from 'react-native';
 import * as productsApi from '@/lib/api/products';
 import { keys } from '@/lib/api/keys';
 import type { ProductWithStock } from '@/lib/api/types';
+import { useSessionStore } from '@/stores/session';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { holdNext } from '@/test/hold';
 import { createTestQueryClient, renderWithProviders } from '@/test/render';
@@ -95,6 +96,16 @@ test('hides missing stock, cost and description', async () => {
   expect(screen.queryByTestId('product-description')).toBeNull();
   expect(screen.getByTestId('product-photo-empty')).toBeOnTheScreen();
   expect(screen.queryByLabelText(/Ảnh \d trên/)).toBeNull();
+});
+
+test('a Seller cannot edit the price: no edit button (the server would answer 403)', async () => {
+  const { session } = useSessionStore.getState();
+  useSessionStore.setState({
+    session: { ...session!, member: { ...session!.member, role: 'seller' } },
+  });
+  await renderProduct();
+  await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' });
+  expect(screen.queryByRole('button', { name: 'Sửa giá' })).toBeNull();
 });
 
 test('photo carousel dots follow the page', async () => {

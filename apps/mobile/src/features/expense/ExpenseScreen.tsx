@@ -61,6 +61,8 @@ export function ExpenseScreen() {
   const [failed, setFailed] = useState(false);
   // One id per open sheet: a retry after a network error must not book the expense twice.
   const expenseId = useRef(newUuid()).current;
+  // Fixed at the first save, so the retry is the same request and the server replays it.
+  const spentAt = useRef<string | null>(null);
   const upload = useUploadImage();
   const create = useCreateExpense();
   const { mutateAsync: uploadAsync } = upload;
@@ -94,7 +96,7 @@ export function ExpenseScreen() {
         : null;
       await createAsync({
         id: expenseId,
-        spent_at: new Date().toISOString(),
+        spent_at: (spentAt.current ??= new Date().toISOString()),
         amount,
         category,
         paid_with: 'cash_box',

@@ -4,13 +4,17 @@ import * as Haptics from 'expo-haptics';
 
 import * as storeApi from '@/lib/api/store';
 import { holdNext } from '@/test/hold';
-import { listSales } from '@/lib/api';
+import { listSales, setApiTransport } from '@/lib/api';
+import { createMockFetch } from '@/test/mock/fetch';
 import * as ledgerApi from '@/lib/api/ledger';
 import { resetMockDb } from '@/test/mock/db';
 import { PRODUCT_IDS } from '@/test/mock/fixtures';
 import { useCartStore } from '@/stores/cart';
 import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
+
+import type { CreateSaleRequest } from '@/lib/api';
+import { saleCode } from '@/lib/uuid';
 
 import { PayScreen, SUCCESS_MS } from './PayScreen';
 import { buildVietQr } from './vietqr';
@@ -246,6 +250,55 @@ describe('PayScreen received', () => {
     expect(useCartStore.getState().lines).toHaveLength(2);
     expect(mockRouter.dismissAll).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Đã nhận tiền' })).toBeEnabled();
+  });
+
+  it('a retry after a failure resends the same request, so the server replays it', async () => {
+    const create = jest
+      .spyOn(ledgerApi, 'createSale')
+      .mockRejectedValueOnce(new Error('offline'));
+    await renderWithProviders(<PayScreen />);
+    await screen.findByTestId('qr-value');
+    await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+    await screen.findByRole('alert');
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    const [first, second] = create.mock.calls.map(([body]) => body);
+    expect(second).toEqual(first);
+  });
+
+  it('puts the sale id in the Idempotency-Key header and its code in the memo', async () => {
+    const seen: Request[] = [];
+    const mock = createMockFetch();
+    setApiTransport(((input: Request) => {
+      seen.push(input.clone());
+      return mock(input);
+    }) as typeof fetch);
+    await renderWithProviders(<PayScreen />);
+    const qr = (await screen.findByTestId('qr-value')).props.children as string;
+    await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+    await waitFor(() => expect(useCartStore.getState().lines).toEqual([]));
+    const post = seen.find(
+      (request) =>
+        request.method === 'POST' && request.url.endsWith('/v1/sales'),
+    )!;
+    const body = (await post.json()) as CreateSaleRequest;
+    expect(post.headers.get('idempotency-key')).toBe(body.id);
+    expect(body.vietqr_memo).toBe(`TH ${saleCode(body.id)}`);
+    expect(qr).toContain(`0809${body.vietqr_memo}`);
+  });
+
+  it('sends the camera source of a multi-photo line', async () => {
+    useCartStore.setState({ lines: [] });
+    useCartStore
+      .getState()
+      .add({ ...sting, productId: PRODUCT_IDS.coca, source: 'multi_photo' });
+    const create = jest.spyOn(ledgerApi, 'createSale');
+    await renderWithProviders(<PayScreen />);
+    await screen.findByTestId('qr-value');
+    await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(create.mock.calls[0]![0].lines[0]!.source).toBe('multi_photo');
   });
 
   it('disables received while the sale is pending', async () => {

@@ -13,6 +13,7 @@ import {
   Text,
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
+import { selectIsLead, useSessionStore } from '@/stores/session';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
@@ -37,6 +38,7 @@ export function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<Period>('day');
   const data = useDashboardData(period);
+  const isLead = useSessionStore(selectIsLead);
 
   const addExpense = useCallback(() => router.push('/expense'), []);
   const closeDay = useCallback(() => router.push('/close'), []);
@@ -120,16 +122,18 @@ export function DashboardScreen() {
 
       <AlertsSection />
 
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={t('close')}
-        pressedScale={0.96}
-        onPress={closeDay}
-        style={styles.closeButton}
-      >
-        <Icon icon={SquareCheck} color={colors.onInk} />
-        <Text style={styles.closeText}>{t('close')}</Text>
-      </PressableScale>
+      {isLead ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('close')}
+          pressedScale={0.96}
+          onPress={closeDay}
+          style={styles.closeButton}
+        >
+          <Icon icon={SquareCheck} color={colors.onInk} />
+          <Text style={styles.closeText}>{t('close')}</Text>
+        </PressableScale>
+      ) : null}
     </ScrollView>
   );
 }

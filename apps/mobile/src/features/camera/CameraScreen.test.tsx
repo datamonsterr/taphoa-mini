@@ -338,6 +338,23 @@ describe('single item', () => {
     expect(screen.queryByTestId('scan-busy')).toBeNull();
   });
 
+  it('maps boxes with the photo size when the API omits the image size (the real backend does)', async () => {
+    const realCreate = images.createScan;
+    jest.spyOn(images, 'createScan').mockImplementation(async (input) => {
+      const result = await realCreate(input);
+      return {
+        ...result,
+        image: { ...result.image, width: undefined, height: undefined },
+      };
+    });
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    const box = screen.getByRole('button', { name: /đã chọn$/ });
+    // The camera mock takes 1080x1440 photos, the size the box coordinates are in.
+    const rect = mapBox([297, 404, 486, 632], IMAGE, SIZE, 'cover');
+    expect(box).toHaveStyle({ left: rect.x, top: rect.y, width: rect.width });
+  });
+
   it('draws the box at the mapped position, with price pill and confidence', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();

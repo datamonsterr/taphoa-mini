@@ -20,6 +20,7 @@ import { isApiError } from '@/lib/api/errors';
 import type { Category, ProductWithStock } from '@/lib/api/types';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { selectIsLead, useSessionStore } from '@/stores/session';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { EditPriceSheet } from './EditPriceSheet';
@@ -87,6 +88,8 @@ export function ProductScreen() {
   const { data: product, error, isError, refetch } = useProduct(id);
   const { data: categories } = useCategories();
   const patch = usePatchProduct();
+  // Only the Lead sets prices; the server answers 403 to anyone else.
+  const isLead = useSessionStore(selectIsLead);
   const [editing, setEditing] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
 
@@ -182,7 +185,7 @@ export function ProductScreen() {
           accessibilityLabel={t('back')}
           onPress={goBack}
         />
-        {product ? (
+        {product && isLead ? (
           <CircleButton
             icon={Pencil}
             accessibilityLabel={t('edit')}

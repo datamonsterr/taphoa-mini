@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
 
-import { listProducts } from '@/lib/api';
+import { ApiError, listProducts } from '@/lib/api';
 import * as imagesApi from '@/lib/api/images';
 import * as productsApi from '@/lib/api/products';
 import * as reviewApi from '@/lib/api/review';
@@ -251,6 +251,90 @@ describe('EnrollScreen save', () => {
     await fireEvent.press(save());
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalledTimes(1));
     expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  describe('when the server suspects a duplicate (409 duplicate_suspected)', () => {
+    const LOOKALIKE = {
+      product_id: '0199aaaa-0000-7000-8000-00000000c0ca',
+      similarity: 0.93,
+      name: 'Coca 330ml',
+      price: 9000,
+    };
+    const duplicate = () =>
+      new ApiError(409, {
+        error: 'a similar product already exists',
+        code: 'duplicate_suspected',
+        details: { candidates: [LOOKALIKE] },
+      });
+
+    it('offers to merge the photos into the look-alike and adds it to the cart', async () => {
+      jest
+        .spyOn(productsApi, 'createProduct')
+        .mockRejectedValueOnce(duplicate());
+      const addImage = jest
+        .spyOn(productsApi, 'addProductImage')
+        .mockResolvedValue({} as never);
+      await renderWithProviders(<EnrollScreen />);
+      await typePrice('9', '000');
+      await fireEvent.press(save());
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Giống "Coca 330ml" (9.000đ). Gộp ảnh vào món đó?',
+      );
+      expect(screen.queryByText(/Không lưu được/)).toBeNull();
+
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Gộp ảnh vào món có sẵn' }),
+      );
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalledTimes(1));
+      expect(addImage).toHaveBeenCalledWith(LOOKALIKE.product_id, {
+        image_id: expect.any(String),
+        detection_id: undefined,
+      });
+      expect(useCartStore.getState().lines[0]).toMatchObject({
+        productId: LOOKALIKE.product_id,
+        name: 'Coca 330ml',
+        price: 9000,
+      });
+    });
+
+    it('creates the product anyway with force_new, reusing the uploaded photo', async () => {
+      const create = jest
+        .spyOn(productsApi, 'createProduct')
+        .mockRejectedValueOnce(duplicate());
+      await renderWithProviders(<EnrollScreen />);
+      await typePrice('9', '000');
+      await fireEvent.press(save());
+      await screen.findByRole('button', { name: 'Vẫn tạo món mới' });
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Vẫn tạo món mới' }),
+      );
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalledTimes(1));
+      expect(create.mock.calls[1]![0]).toMatchObject({
+        force_new: true,
+        price: 9000,
+      });
+      expect(imagesApi.uploadImage).toHaveBeenCalledTimes(1);
+      expect(useCartStore.getState().lines).toHaveLength(1);
+    });
+
+    it('shows the plain error when merging fails (for example the photo limit)', async () => {
+      jest
+        .spyOn(productsApi, 'createProduct')
+        .mockRejectedValueOnce(duplicate());
+      jest
+        .spyOn(productsApi, 'addProductImage')
+        .mockRejectedValueOnce(
+          new ApiError(409, { error: 'limit', code: 'image_limit' }),
+        );
+      await renderWithProviders(<EnrollScreen />);
+      await typePrice('9', '000');
+      await fireEvent.press(save());
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Gộp ảnh vào món có sẵn' }),
+      );
+      expect(await screen.findByText(/Không lưu được/)).toBeOnTheScreen();
+      expect(mockRouter.back).not.toHaveBeenCalled();
+    });
   });
 
   it('disables save while pending', async () => {

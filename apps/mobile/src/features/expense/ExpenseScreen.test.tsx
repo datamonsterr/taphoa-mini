@@ -120,6 +120,21 @@ test('a failed save keeps the sheet open and says so', async () => {
   expect(screen.queryByText('Không lưu được khoản chi. Thử lại.')).toBeNull();
 });
 
+test('a retry resends the same spent_at, or the server would see a different request', async () => {
+  const create = jest
+    .spyOn(ledger, 'createExpense')
+    .mockRejectedValueOnce(new Error('x'));
+  await renderWithProviders(<ExpenseScreen />);
+  await type(['5', '000']);
+  await fireEvent.press(screen.getByRole('radio', { name: 'Khác' }));
+  await fireEvent.press(save());
+  await screen.findByText('Không lưu được khoản chi. Thử lại.');
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  await fireEvent.press(save());
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  expect(create.mock.calls[1]![0]).toEqual(create.mock.calls[0]![0]);
+});
+
 test('a retry after a failed save reuses the same expense id', async () => {
   const create = jest
     .spyOn(ledger, 'createExpense')

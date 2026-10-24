@@ -144,9 +144,14 @@ export function CameraScreen() {
     () => (scan ? toOverlayDetections(scan, chosen, fallbackName) : []),
     [scan, chosen, fallbackName],
   );
+  // `Image.width/height` are optional in the API and the backend omits them: the boxes are in
+  // pixels of the uploaded photo, whose size the camera reported.
   const imageSize = useMemo(
-    () => ({ width: scan?.image.width ?? 0, height: scan?.image.height ?? 0 }),
-    [scan],
+    () => ({
+      width: scan?.image.width ?? photo?.width ?? 0,
+      height: scan?.image.height ?? photo?.height ?? 0,
+    }),
+    [scan, photo],
   );
   const batch = useMemo(
     () => detections.filter((d) => selected[d.id] && !d.lowMatch).length,

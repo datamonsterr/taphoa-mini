@@ -22,7 +22,7 @@ import { useCreateSale, useStore } from '@/lib/api';
 import type { CreateSaleRequest } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useLabels } from '@/lib/i18n';
-import { newUuid } from '@/lib/uuid';
+import { newUuid, saleCode } from '@/lib/uuid';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
 import type { CartLine } from '@/stores/cart';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
@@ -40,9 +40,6 @@ const groupAccount = (account: string) =>
   account.length > 4
     ? `${account.slice(0, 4)} ${account.slice(4).replace(/(\d{3})(?=\d)/g, '$1 ')}`
     : account;
-
-const randomCode = () =>
-  Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, '0');
 
 const OrderItem = memo(function OrderItem({ line }: { line: CartLine }) {
   return (
@@ -114,9 +111,11 @@ export function PayScreen() {
   const [method, setMethod] = useState<PayMethod>('transfer');
   const [tendered, setTendered] = useState<number | null>(null);
   const [done, setDone] = useState(false);
-  const saleId = useRef(newUuid()).current;
+  const [saleId] = useState(newUuid);
   const lineIds = useRef(new Map<string, string>()).current;
-  const [code] = useState(randomCode);
+  // The device time of the first "Đã nhận": a retry must resend it, or the server sees another body.
+  const soldAt = useRef<string | null>(null);
+  const code = saleCode(saleId);
 
   const bank = store.data?.bank_account;
   const memo = `${store.data?.sales_memo_prefix ?? 'TH'} ${code}`;
@@ -159,7 +158,7 @@ export function PayScreen() {
     ];
     const body: CreateSaleRequest = {
       id: saleId,
-      sold_at: new Date().toISOString(),
+      sold_at: (soldAt.current ??= new Date().toISOString()),
       payment_method: method === 'cash' ? 'cash' : 'transfer',
       total,
       ...(method === 'cash'
@@ -174,7 +173,7 @@ export function PayScreen() {
         return {
           id,
           product_id: line.productId,
-          source: line.manual ? 'manual' : 'camera',
+          source: line.manual ? 'manual' : (line.source ?? 'camera'),
           quantity: line.qty,
           unit_price: line.price,
           ...(line.manual ? { manual_label: line.name.slice(0, 80) } : {}),

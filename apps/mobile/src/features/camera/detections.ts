@@ -75,6 +75,7 @@ export function toCartLines(
       detectionId: detection.id,
       suggestedProductId: detection.candidates[0]!.product_id,
       scanId: scan.id,
+      source: scan.mode === 'multi' ? 'multi_photo' : 'camera',
     });
   }
   return lines;
