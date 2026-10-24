@@ -1,8 +1,14 @@
-import { QrCode, Users } from 'lucide-react-native';
+import { ArrowRightLeft, QrCode, Users } from 'lucide-react-native';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { CircleButton, Icon, ScaledText, Text } from '@/components/ui';
+import {
+  CircleButton,
+  Icon,
+  PressableScale,
+  ScaledText,
+  Text,
+} from '@/components/ui';
 import type { Member } from '@/lib/api';
 import { colors, fontFamily, radius, space } from '@/theme';
 
@@ -41,6 +47,12 @@ export type MemberRowProps = {
   errorLabel: string;
   inviteLabel: string | null;
   onInvite: () => void;
+  /** Who is acting on this phone; every other active member gets a switch action. */
+  currentMemberId: string;
+  switchLabel: (member: Member) => string;
+  onSwitch: (member: Member) => void;
+  /** Why the last switch failed (a member without a PIN is switched to straight away). */
+  switchError: string | null;
 };
 
 /**
@@ -55,40 +67,86 @@ export const MemberRow = memo(function MemberRow({
   errorLabel,
   inviteLabel,
   onInvite,
+  currentMemberId,
+  switchLabel,
+  onSwitch,
+  switchError,
 }: MemberRowProps) {
+  const others = members?.filter((m) => m.active && m.id !== currentMemberId);
   return (
-    <View style={styles.row}>
-      <Icon icon={Users} color={colors.inkMuted} />
-      {failed ? (
-        <ScaledText variant="caption" style={styles.error}>
-          {errorLabel}
+    <View style={styles.group}>
+      <View style={styles.row}>
+        <Icon icon={Users} color={colors.inkMuted} />
+        {failed ? (
+          <ScaledText variant="caption" style={styles.error}>
+            {errorLabel}
+          </ScaledText>
+        ) : (
+          <View
+            accessible
+            accessibilityLabel={countLabel}
+            style={styles.avatars}
+          >
+            {members?.map((member, index) => (
+              <Avatar
+                key={member.id}
+                first={index === 0}
+                label={`${member.display_name}, ${roleLabel(member.role)}`}
+                initial={initialOf(member.display_name)}
+                background={AVATAR_COLORS[index % AVATAR_COLORS.length]!}
+              />
+            ))}
+          </View>
+        )}
+        {inviteLabel ? (
+          <CircleButton
+            icon={QrCode}
+            variant="ink"
+            accessibilityLabel={inviteLabel}
+            onPress={onInvite}
+          />
+        ) : null}
+      </View>
+      {others?.map((member) => (
+        <PressableScale
+          key={member.id}
+          accessibilityRole="button"
+          accessibilityLabel={switchLabel(member)}
+          pressedScale={0.98}
+          onPress={() => onSwitch(member)}
+          style={styles.switchRow}
+        >
+          <Icon icon={ArrowRightLeft} color={colors.inkMuted} />
+          <ScaledText variant="label" style={styles.switchText}>
+            {switchLabel(member)}
+          </ScaledText>
+        </PressableScale>
+      ))}
+      {switchError ? (
+        <ScaledText
+          accessibilityRole="alert"
+          variant="caption"
+          style={styles.error}
+        >
+          {switchError}
         </ScaledText>
-      ) : (
-        <View accessible accessibilityLabel={countLabel} style={styles.avatars}>
-          {members?.map((member, index) => (
-            <Avatar
-              key={member.id}
-              first={index === 0}
-              label={`${member.display_name}, ${roleLabel(member.role)}`}
-              initial={initialOf(member.display_name)}
-              background={AVATAR_COLORS[index % AVATAR_COLORS.length]!}
-            />
-          ))}
-        </View>
-      )}
-      {inviteLabel ? (
-        <CircleButton
-          icon={QrCode}
-          variant="ink"
-          accessibilityLabel={inviteLabel}
-          onPress={onInvite}
-        />
       ) : null}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
+  group: { gap: space[2] },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    minHeight: 56,
+    paddingHorizontal: space[4],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  switchText: { flex: 1, minWidth: 0, color: colors.ink },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

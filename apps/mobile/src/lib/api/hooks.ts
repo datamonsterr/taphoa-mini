@@ -22,6 +22,7 @@ import {
   listExpenses,
   listSales,
 } from './ledger';
+import { setPin, switchMember } from './auth';
 import { isApiError } from './errors';
 import { createScan, uploadImage, type CreateScanInput } from './images';
 import { keys } from './keys';
@@ -375,6 +376,24 @@ export function usePatchStore() {
   return useMutation({
     mutationFn: (patch: StorePatch) => patchStore(patch),
     onSuccess: () => invalidate(qc, keys.store(), keys.me(), keys.alerts.all()),
+  });
+}
+
+/** The phone acts as another member: everything cached belonged to the previous one. */
+export function useSwitchMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof switchMember>[0]) =>
+      switchMember(input),
+    onSuccess: () => qc.resetQueries({ queryKey: keys.all }),
+  });
+}
+
+export function useSetPin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pin: string | null) => setPin(pin),
+    onSuccess: () => invalidate(qc, keys.members(), keys.me()),
   });
 }
 

@@ -209,3 +209,34 @@ test('without a session a 401 is returned as is', async () => {
   expect((await authFetch(`${BASE}/v1/products`)).status).toBe(401);
   expect(calls).toHaveLength(1);
 });
+
+test('a wrong PIN is a 401 that is neither refreshed nor replayed', async () => {
+  const { calls, transport } = backend({
+    validToken: () => 'access-0',
+    refresh: refreshOk(1),
+  });
+  const wrongPin = jest.fn(async (input: RequestInfo | URL) => {
+    const request = input as Request;
+    if (new URL(request.url).pathname === '/v1/auth/switch') {
+      return json(401, {
+        error: 'missing or invalid PIN',
+        code: 'invalid_pin',
+      });
+    }
+    return (
+      transport as unknown as (i: RequestInfo | URL) => Promise<Response>
+    )(input);
+  });
+  const authFetch = createAuthFetch({
+    baseUrl: BASE,
+    fetch: wrongPin as unknown as typeof fetch,
+  });
+  const response = await authFetch(`${BASE}/v1/auth/switch`, {
+    method: 'POST',
+    body: '{}',
+  });
+  expect(response.status).toBe(401);
+  expect(wrongPin).toHaveBeenCalledTimes(1);
+  expect(calls).toEqual([]);
+  expect(useSessionStore.getState().session?.access_token).toBe('access-0');
+});
