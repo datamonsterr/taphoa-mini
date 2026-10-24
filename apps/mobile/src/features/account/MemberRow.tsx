@@ -43,7 +43,10 @@ export type MemberRowProps = {
   onInvite: () => void;
 };
 
-/** Board: people icon, overlapping initials, invite-by-QR ink circle. */
+/**
+ * Board: people icon, overlapping initials, invite-by-QR ink circle. The initials are one
+ * accessible element labelled with the member count, so TalkBack and Maestro read "3 thành viên".
+ */
 export const MemberRow = memo(function MemberRow({
   members,
   failed,
@@ -61,7 +64,7 @@ export const MemberRow = memo(function MemberRow({
           {errorLabel}
         </ScaledText>
       ) : (
-        <View accessibilityLabel={countLabel} style={styles.avatars}>
+        <View accessible accessibilityLabel={countLabel} style={styles.avatars}>
           {members?.map((member, index) => (
             <Avatar
               key={member.id}

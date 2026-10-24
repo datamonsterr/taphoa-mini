@@ -25,7 +25,10 @@ test('shows a loading indicator under the title', async () => {
 test('shows store name, role, members and bank account', async () => {
   await open();
   expect(screen.getByText('Chủ')).toBeOnTheScreen();
-  expect(await screen.findByLabelText('3 thành viên')).toBeOnTheScreen();
+  const count = await screen.findByLabelText('3 thành viên');
+  expect(count).toBeOnTheScreen();
+  // Android only exposes a labelled View to accessibility services (and Maestro) when it is accessible.
+  expect(count.props.accessible).toBe(true);
   expect(screen.getByLabelText('Cô Ba, Chủ')).toBeOnTheScreen();
   expect(screen.getByLabelText('Bà nội, Người bán')).toBeOnTheScreen();
   expect(
