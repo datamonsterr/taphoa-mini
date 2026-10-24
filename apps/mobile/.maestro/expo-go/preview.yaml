@@ -25,8 +25,18 @@ appId: host.exp.exponent
 # over the app. The sheet is a modal, so the app's own views are hidden from Maestro until
 # it closes: wait for the sheet first, then close it with its X (top right of the sheet).
 - extendedWaitUntil:
-    visible: '(Go home|Tạo cửa hàng)'
+    visible: '(Go home|Tạo cửa hàng|Continue)'
     timeout: 180000
+# The first-run dev-menu intro ("This is the developer menu… Continue") can appear only once the
+# bundle has loaded, after the checks above ran; it is a modal that hides the app.
+- repeat:
+    while:
+      visible: 'Continue'
+    times: 3
+    commands:
+      - tapOn: 'Continue'
+      - waitForAnimationToEnd:
+          timeout: 3000
 - repeat:
     while:
       visible: 'Go home'
