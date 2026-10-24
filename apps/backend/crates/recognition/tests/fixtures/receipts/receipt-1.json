@@ -1,0 +1,25 @@
+{
+  "lines": [
+    {
+      "product_name": "Coca-Cola lon 330ml",
+      "quantity": 24,
+      "cost": 204000
+    },
+    {
+      "product_name": "Mì Hảo Hảo tôm chua cay",
+      "quantity": 30,
+      "cost": 126000
+    },
+    {
+      "product_name": "Nước suối Aquafina 500ml",
+      "quantity": 12,
+      "cost": 60000
+    },
+    {
+      "product_name": "Bánh Chocopie hộp",
+      "quantity": 5,
+      "cost": 66000
+    }
+  ],
+  "total": 456000
+}

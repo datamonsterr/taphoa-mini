@@ -1,0 +1,35 @@
+{
+  "lines": [
+    {
+      "product_name": "Sữa tươi Vinamilk 180ml",
+      "quantity": 24,
+      "cost": 168000
+    },
+    {
+      "product_name": "Dầu ăn Neptune 1L",
+      "quantity": 6,
+      "cost": 270000
+    },
+    {
+      "product_name": "Bột giặt OMO 800g",
+      "quantity": 5,
+      "cost": 190000
+    },
+    {
+      "product_name": "Đường Biên Hòa 1kg",
+      "quantity": 10,
+      "cost": 240000
+    },
+    {
+      "product_name": "Nước mắm Nam Ngư 500ml",
+      "quantity": 6,
+      "cost": 180000
+    },
+    {
+      "product_name": "Bánh Oreo 133g",
+      "quantity": 8,
+      "cost": 96000
+    }
+  ],
+  "total": 1144000
+}

@@ -1,6 +1,7 @@
 //! Class-agnostic segmentation. Call synchronous adapters from `spawn_blocking`.
 pub mod crop;
 pub mod embed;
+pub mod ocr;
 mod sam;
 pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
 pub use sam::{
