@@ -73,3 +73,52 @@ cargo run --release -p taphoa-recognition --example bench -- \
 cargo run --release -p taphoa-recognition --example embed_bench -- models/dinov2_small.onnx 20 3 112
 cargo test --release -p taphoa-recognition --test model -- --test-threads=1 --nocapture
 ```
+
+## Point-prompted segmentation (quick enroll)
+
+**Local only, 2026-10-24; Railway D2 pending.** Five sequential uploads of
+`shelf-1024.jpg` (1024×768, resized with LANCZOS, JPEG quality 85), each with a new
+`image_id` for a cold encoder cache; foreground prompt `(98.6, 179.2)`, then a cached
+second call adding background point `(6.4, 6.4)`. Release API, real MobileSAM,
+ONNX Runtime 1.23.2, `SAM_THREADS=4`, shared Ryzen 5 2600 host (6 cores / 12 logical CPUs,
+no CPU quota). Times are ms; client wall time includes upload and segmentation response,
+plus any busy-slot retries. Local traffic uses loopback; Railway runs include WAN upload.
+Nearest-rank p95 of five samples is the maximum; cached encoder time is zero.
+
+| Run | Upload | Upload + cold segment | Encode | Decode | Server total | Cached 2-point wall | Cached encode | Cached decode | Cached server total |
+| --- | ------ | --------------------- | ------ | ------ | ------------ | ------------------- | ------------- | ------------- | ------------------- |
+| 1   | 103.0  | 1380.5                | 1047   | 221    | 1273         | 157.3               | 0             | 152           | 154                 |
+| 2   | 10.0   | 1190.6                | 1003   | 169    | 1178         | 209.7               | 0             | 204           | 207                 |
+| 3   | 103.7  | 1409.5                | 1087   | 212    | 1304         | 176.8               | 0             | 171           | 174                 |
+| 4   | 10.1   | 1159.9                | 965    | 175    | 1147         | 242.5               | 0             | 235           | 238                 |
+| 5   | 135.2  | 1538.2                | 1163   | 214    | 1401         | 171.0               | 0             | 165           | 168                 |
+
+| Environment             | Encoder threads | Cold-photo upload + segment p95 | Cached 2-point p95 |
+| ----------------------- | --------------- | ------------------------------- | ------------------ |
+| Local                   | 4               | **1538.2 ms** (< 3000 ms)       | 242.5 ms           |
+| Railway `test`: pending | pending         | pending                         | pending            |
+
+Local reproduction from the repository root: configure exported database, Redis, JWT and
+storage variables using `apps/backend/.env.example` and the ports in `docker-compose.yml`.
+Export the `ORT_DYLIB_PATH` printed by the runtime script. Run the API in one terminal and
+the test in another after `/readyz` returns 200.
+
+```sh
+apps/backend/scripts/fetch-onnxruntime.sh && apps/backend/scripts/fetch-models.sh
+docker compose up -d postgres redis storage
+(cd apps/backend && SAM_ENCODER_PATH=models/mobile_sam_image_encoder.onnx \
+  SAM_DECODER_PATH=models/sam_mask_decoder_multi.onnx DINO_MODEL_PATH=models/dinov2_small.onnx \
+  SAM_THREADS=4 cargo run --release -p taphoa-api --bin taphoa-api)
+# Another terminal, from the repository root:
+BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run \
+  --config vitest.e2e.config.ts tests/segment-points.test.ts --silent=false --reporter=verbose
+```
+
+Railway reproduction against an existing `test` API with real models and storage:
+require **3 passed, no skips** for D2. No deployment performed.
+
+```sh
+BACKEND_URL=https://<railway-test-api-domain> SEGMENT_POINTS_BUDGET_MS=3000 \
+  pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts \
+  tests/segment-points.test.ts --silent=false --reporter=verbose
+```
