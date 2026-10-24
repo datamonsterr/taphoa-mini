@@ -3,7 +3,7 @@ use super::products::pool;
 use crate::{ApiError, ApiResult, AppState};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use taphoa_recognition::{EmbedError, Embedder};
+use taphoa_recognition::{EmbedError, Embedder, crop};
 use uuid::Uuid;
 
 use super::model::DUPLICATE_THRESHOLD;
@@ -32,9 +32,18 @@ pub(crate) async fn resolve_images(
     if rows.len() != ids.len() {
         return Err(ApiError::not_found());
     }
-    Ok(rows
-        .into_iter()
-        .map(|(id, object_key)| ImageRef { id, object_key })
+    // Preserve request order: position and the first-only duplicate check depend on it.
+    Ok(ids
+        .iter()
+        .map(|id| ImageRef {
+            id: *id,
+            object_key: rows
+                .iter()
+                .find(|row| row.0 == *id)
+                .expect("resolved image")
+                .1
+                .clone(),
+        })
         .collect())
 }
 
@@ -52,12 +61,36 @@ pub(crate) async fn embed_reference(
     state: &AppState,
     embedder: Arc<dyn Embedder>,
     object_key: &str,
+    cutout_key: Option<&str>,
+    bbox: Option<[f32; 4]>,
 ) -> ApiResult<Vec<f32>> {
     let storage = state.storage.clone().ok_or_else(ApiError::unavailable)?;
-    let bytes = storage
-        .get(object_key)
+    // Segment responses can precede the cutout upload. Bound the whole retry
+    // window, including slow storage requests, then use the original bbox crop.
+    let cutout = if let Some(key) = cutout_key {
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Ok(bytes) = storage.get(key).await {
+                    break bytes;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
         .await
-        .map_err(|_| ApiError::unavailable())?;
+        .ok()
+    } else {
+        None
+    };
+    let (bytes, crop_bbox) = match cutout {
+        Some(bytes) => (bytes, None),
+        None => (
+            storage
+                .get(object_key)
+                .await
+                .map_err(|_| ApiError::unavailable())?,
+            bbox,
+        ),
+    };
     let permit = state
         .inference_slots
         .clone()
@@ -66,7 +99,23 @@ pub(crate) async fn embed_reference(
         .map_err(|_| ApiError::internal())?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        embedder.embed(&bytes)
+        let input = if let Some(bbox) = crop_bbox {
+            let decoded = crop::decode_limited(&bytes).map_err(EmbedError::InvalidImage)?;
+            let image = crop::crop_with_padding(
+                &decoded.into_rgb8(),
+                bbox,
+                crate::recognition::service::CROP_PADDING,
+            )
+            .ok_or_else(|| EmbedError::InvalidImage("empty bbox crop".into()))?;
+            let mut png = std::io::Cursor::new(Vec::new());
+            image
+                .write_to(&mut png, image::ImageFormat::Png)
+                .map_err(|error| EmbedError::InvalidImage(error.to_string()))?;
+            png.into_inner()
+        } else {
+            bytes
+        };
+        embedder.embed(&input)
     })
     .await
     .map_err(|error| {
@@ -87,7 +136,7 @@ pub(crate) fn vector_text(vector: &[f32]) -> String {
     )
 }
 
-const SQL_SEARCH: &str = "SELECT e.product_id, max(1.0::float8 - (e.embedding <=> $1::vector))::float8 AS similarity FROM product_embeddings e JOIN products p ON p.id = e.product_id WHERE e.store_id = $2 AND e.model = $3 AND p.store_id = $2 AND NOT p.archived GROUP BY e.product_id HAVING max(1.0::float8 - (e.embedding <=> $1::vector)) >= $4 ORDER BY similarity DESC LIMIT 5";
+const SQL_SEARCH: &str = crate::recognition::pgvector::SEARCH_SQL;
 
 async fn search_sql(
     state: &AppState,
@@ -95,18 +144,20 @@ async fn search_sql(
     model_name: &str,
     vector: &[f32],
 ) -> ApiResult<Vec<DuplicateHit>> {
-    let rows: Vec<(Uuid, f64)> = sqlx::query_as(SQL_SEARCH)
+    let rows: Vec<(Uuid, f32)> = sqlx::query_as(SQL_SEARCH)
         .bind(vector_text(vector))
         .bind(store_id)
         .bind(model_name)
-        .bind(DUPLICATE_THRESHOLD)
+        .bind(40_i64)
+        .bind(5_i64)
         .fetch_all(pool(state)?)
         .await?;
     Ok(rows
         .into_iter()
+        .filter(|(_, similarity)| f64::from(*similarity) >= DUPLICATE_THRESHOLD)
         .map(|(product_id, similarity)| DuplicateHit {
             product_id,
-            similarity,
+            similarity: f64::from(similarity),
         })
         .collect())
 }

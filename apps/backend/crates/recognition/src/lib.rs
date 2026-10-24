@@ -3,7 +3,10 @@ pub mod crop;
 pub mod embed;
 mod sam;
 pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
-pub use sam::{SamOptions, SamSegmenter, SegmentTimings};
+pub use sam::{
+    ImageEncoding, MockPointSegmenter, PointSegment, PointSegmenter, SamOptions, SamSegmenter,
+    SegmentTimings,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,6 +18,15 @@ pub struct Segment {
     pub area: u32,
 }
 
+/// A point prompt in photo pixel coordinates.
+/// `label` 1 = foreground, 0 = background.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PointPrompt {
+    pub x: f32,
+    pub y: f32,
+    pub label: u8,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SegmentError {
     #[error("invalid image: {0}")]
@@ -23,6 +35,53 @@ pub enum SegmentError {
     Inference(String),
     #[error("not implemented (phase 2)")]
     NotImplemented,
+    #[error("invalid prompt: {0}")]
+    InvalidPrompt(String),
+}
+
+/// Validates point prompts against photo dimensions.
+///
+/// Requirements:
+/// - 1..=2 points
+/// - All labels in {0, 1}
+/// - At least one foreground label (label == 1)
+/// - All coordinates finite and within [0, width) x [0, height)
+pub fn validate_points(
+    points: &[PointPrompt],
+    width: u32,
+    height: u32,
+) -> Result<(), SegmentError> {
+    if points.is_empty() || points.len() > 2 {
+        return Err(SegmentError::InvalidPrompt(format!(
+            "expected 1 or 2 points, got {}",
+            points.len()
+        )));
+    }
+    for p in points {
+        if p.label > 1 {
+            return Err(SegmentError::InvalidPrompt(format!(
+                "label must be 0 or 1, got {}",
+                p.label
+            )));
+        }
+        if !p.x.is_finite() || !p.y.is_finite() {
+            return Err(SegmentError::InvalidPrompt(
+                "coordinates must be finite".into(),
+            ));
+        }
+        if p.x < 0.0 || p.x >= width as f32 || p.y < 0.0 || p.y >= height as f32 {
+            return Err(SegmentError::InvalidPrompt(format!(
+                "point ({}, {}) out of image bounds {}x{}",
+                p.x, p.y, width, height
+            )));
+        }
+    }
+    if !points.iter().any(|p| p.label == 1) {
+        return Err(SegmentError::InvalidPrompt(
+            "at least one foreground point (label 1) required".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub trait Segmenter: Send + Sync {
@@ -120,6 +179,13 @@ mod tests {
         Segment { bbox, score, area }
     }
 
+    fn fg(x: f32, y: f32) -> PointPrompt {
+        PointPrompt { x, y, label: 1 }
+    }
+    fn bg(x: f32, y: f32) -> PointPrompt {
+        PointPrompt { x, y, label: 0 }
+    }
+
     #[test]
     fn iou_handles_overlap_disjoint_and_empty() {
         assert_eq!(bbox_iou([0., 0., 10., 10.], [0., 0., 10., 10.]), 1.0);
@@ -161,5 +227,93 @@ mod tests {
         assert!(!ort_spinning_from(Some("yes")));
         assert!(ort_spinning_from(Some("1")));
         assert!(ort_spinning_from(Some("true")));
+    }
+
+    // ---- validate_points unit tests ----
+
+    #[test]
+    fn validate_points_rejects_zero_points() {
+        assert!(matches!(
+            validate_points(&[], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+    }
+
+    #[test]
+    fn validate_points_rejects_three_points() {
+        let pts = [fg(100., 100.), fg(200., 200.), fg(300., 300.)];
+        assert!(matches!(
+            validate_points(&pts, 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+    }
+
+    #[test]
+    fn validate_points_rejects_label_2() {
+        let bad = PointPrompt {
+            x: 100.,
+            y: 100.,
+            label: 2,
+        };
+        assert!(matches!(
+            validate_points(&[bad], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+    }
+
+    #[test]
+    fn validate_points_rejects_all_background() {
+        let pts = [bg(100., 100.), bg(200., 200.)];
+        assert!(matches!(
+            validate_points(&pts, 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+    }
+
+    #[test]
+    fn validate_points_rejects_out_of_range_coords() {
+        // x >= width
+        assert!(matches!(
+            validate_points(&[fg(1600., 100.)], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+        // y >= height
+        assert!(matches!(
+            validate_points(&[fg(100., 1200.)], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+        // negative
+        assert!(matches!(
+            validate_points(&[fg(-1., 100.)], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+    }
+
+    #[test]
+    fn validate_points_rejects_non_finite_coords() {
+        assert!(matches!(
+            validate_points(&[fg(f32::NAN, 100.)], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+        assert!(matches!(
+            validate_points(&[fg(f32::INFINITY, 100.)], 1600, 1200),
+            Err(SegmentError::InvalidPrompt(_))
+        ));
+    }
+
+    #[test]
+    fn validate_points_accepts_valid_single_foreground() {
+        assert!(validate_points(&[fg(800., 600.)], 1600, 1200).is_ok());
+    }
+
+    #[test]
+    fn validate_points_accepts_fg_bg_pair() {
+        assert!(validate_points(&[fg(800., 600.), bg(400., 300.)], 1600, 1200).is_ok());
+    }
+
+    #[test]
+    fn validate_points_accepts_max_coord_minus_epsilon() {
+        // x = 1599.9 is inside 1600-wide image
+        assert!(validate_points(&[fg(1599.9, 1199.9)], 1600, 1200).is_ok());
     }
 }

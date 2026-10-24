@@ -389,6 +389,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/segment/points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Point-prompted segmentation (MobileSAM)
+         * @description Requires Lead or `can_enroll`. Runs MobileSAM with 1-2 point prompts on a cached or newly
+         *     computed image embedding. Returns mask, bounding box, cutout image, and timings.
+         */
+        post: operations["segmentPoints"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/products": {
         parameters: {
             query?: never;
@@ -403,9 +424,18 @@ export interface paths {
         get: operations["listProducts"];
         put?: never;
         /**
-         * Enroll a product from 1–5 photos and a price (C1, C4, C5)
-         * @description Requires Lead or `can_enroll`. The server embeds each reference image and stores the
-         *     vectors. Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
+         * Enroll a product from 1–8 photos and a price (C1, C4, C5)
+         * @description Requires Lead or `can_enroll`. Accepts either quick-enroll multi-angle `references`
+         *     (3..8 photos with cutouts and bounding boxes) or legacy `image_ids` (1..5 photos).
+         *     Exactly one of `references` or `image_ids` is required (422 `validation_failed`
+         *     for both or neither). Minimum 3 applies only to `references` (422 below 3).
+         *     Reference image IDs must be distinct; bounding boxes must be finite with positive
+         *     width and height (422 `validation_failed`). Returns 409 `image_limit` above 8.
+         *     The synchronous duplicate check embeds only the first cutout (first image for legacy).
+         *     Cutout storage reads retry for up to 1 second, then fall back to a padded bbox crop.
+         *     An async index job embeds reference cutouts into the database;
+         *     the product is returned immediately with `index_status: "pending"`.
+         *     Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
          *     "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
          *     would match. Idempotent on `id`.
          */
@@ -458,7 +488,13 @@ export interface paths {
         put?: never;
         /**
          * Add a reference photo, e.g. "merge" answer to "Same as X?" (C2)
-         * @description Max 5 reference images per product (409 above). The image is embedded and indexed.
+         * @description Max 8 reference images per product (positions 0..7, 409 above). Accepts optional
+         *     `cutout_image_id` and `bbox` together; enqueues a background index job without
+         *     synchronous embedding writes. Invalid pairs and non-finite or non-positive-size
+         *     bounding boxes return 422 `validation_failed`. `detection_id` selects a detection
+         *     belonging to this image and store; its bbox is retained for background cropping.
+         *     Combining `detection_id` with `bbox` returns 422 `validation_failed`.
+         *     `product_embeddings.detection_id` is no longer populated by this endpoint.
          */
         post: operations["addProductImage"];
         delete?: never;
@@ -481,8 +517,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove a reference photo and its embedding
-         * @description A product keeps at least one reference image (409).
+         * Remove a reference photo and enqueue prototype recomputation
+         * @description A product keeps at least one reference image (409). Enqueues background indexing.
          */
         delete: operations["removeProductImage"];
         options?: never;
@@ -1115,6 +1151,54 @@ export interface components {
             /** @description Foreground pixel count. */
             area: number;
         };
+        SegmentPointsRequest: {
+            /**
+             * Format: uuid
+             * @description Uploaded photo to segment.
+             */
+            image_id: string;
+            /** @description Pixel coordinates of original photo; 1 = foreground, 0 = background. */
+            points: {
+                /** @description X coordinate in pixels on original photo. */
+                x: number;
+                /** @description Y coordinate in pixels on original photo. */
+                y: number;
+                /**
+                 * @description 1 = foreground, 0 = background.
+                 * @enum {integer}
+                 */
+                label: 0 | 1;
+            }[];
+        };
+        SegmentPointsResponse: {
+            /** @description [x, y, width, height] in original photo pixels. */
+            bbox: number[];
+            /** @description MobileSAM mask confidence score. */
+            score: number;
+            /** @description Foreground pixel count in mask. */
+            area: number;
+            mask: {
+                /** @description Mask width in pixels. */
+                width: number;
+                /** @description Mask height in pixels. */
+                height: number;
+                /** @description PNG with alpha channel: opaque = product, transparent = background */
+                png_base64: string;
+            };
+            /**
+             * Format: uuid
+             * @description Stored cutout image on neutral grey background.
+             */
+            cutout_image_id: string;
+            timings: {
+                /** @description Encoder latency in ms. */
+                encode: number;
+                /** @description Decoder latency in ms. */
+                decode: number;
+                /** @description Total latency in ms. */
+                total: number;
+            };
+        };
         Scan: {
             /** Format: uuid */
             id: string;
@@ -1204,6 +1288,24 @@ export interface components {
             /** Format: date-time */
             url_expires_at: string;
             position: number;
+            /** Format: uuid */
+            cutout_image_id?: string;
+            /** @description [x, y, width, height] in original image pixels. */
+            bbox?: number[];
+        };
+        ProductReference: {
+            /**
+             * Format: uuid
+             * @description Original photo image ID.
+             */
+            image_id: string;
+            /**
+             * Format: uuid
+             * @description Masked cutout image ID on neutral grey background.
+             */
+            cutout_image_id: string;
+            /** @description [x, y, width, height] in original photo pixels. */
+            bbox: number[];
         };
         Product: {
             /** Format: uuid */
@@ -1223,6 +1325,11 @@ export interface components {
             /** @description Extra units beyond the base one (C5). */
             units: components["schemas"]["ProductUnit"][];
             images: components["schemas"]["ProductImage"][];
+            /**
+             * @description Status of the background reference embedding and prototype job.
+             * @enum {string}
+             */
+            index_status: "pending" | "ready" | "failed";
             archived: boolean;
             /** Format: int64 */
             version: number;
@@ -1231,6 +1338,7 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description Exactly one of references or image_ids is required; both or neither return 422 validation_failed. */
         CreateProductRequest: {
             /**
              * Format: uuid
@@ -1238,7 +1346,13 @@ export interface components {
              */
             id: string;
             price: components["schemas"]["Money"];
-            image_ids: string[];
+            /** @description Legacy enrollment path (1..5 photos from checkout unknown pill). */
+            image_ids?: string[];
+            /**
+             * @description Quick enroll multi-angle references (3..8 photos).
+             *     Minimum 3 applies only to `references` (422 below 3, 409 when total images exceed 8).
+             */
+            references?: components["schemas"]["ProductReference"][];
             name?: string;
             base_unit?: string;
             cost_price?: components["schemas"]["Money"];
@@ -1260,7 +1374,7 @@ export interface components {
             from_manual_line_id?: string;
             /** @default false */
             force_new: boolean;
-        };
+        } & (unknown | unknown);
         ProductPatch: {
             name?: string | null;
             price?: components["schemas"]["Money"];
@@ -1572,7 +1686,7 @@ export interface components {
             /** @example evt_000000000000128 */
             id: string;
             /** @enum {string} */
-            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed";
+            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed";
             version: number;
             /** Format: uuid */
             store_id: string;
@@ -1646,6 +1760,15 @@ export interface components {
         };
         /** @description Image type is not JPEG, PNG or WebP. */
         UnsupportedMediaType: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Semantic validation failed (e.g. invalid points, references count below 3). */
+        UnprocessableEntity: {
             headers: {
                 [name: string]: unknown;
             };
@@ -2344,6 +2467,35 @@ export interface operations {
             503: components["responses"]["ServiceUnavailable"];
         };
     };
+    segmentPoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentPointsRequest"];
+            };
+        };
+        responses: {
+            /** @description Segmentation mask, cutout image, and bounding box. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentPointsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     listProducts: {
         parameters: {
             query?: {
@@ -2412,8 +2564,8 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             /**
              * @description `duplicate_suspected` (with `details.candidates`) when `force_new` is false and a
-             *     reference image matches an existing product, or `id_conflict` on an id reused with
-             *     a different body.
+             *     reference image matches an existing product, `image_limit` when total images would
+             *     exceed 8, or `id_conflict` on an id reused with a different body.
              */
             409: {
                 headers: {
@@ -2423,6 +2575,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            422: components["responses"]["UnprocessableEntity"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -2522,10 +2675,26 @@ export interface operations {
                      * @description Optional. Embed this detection's crop instead of the whole image.
                      */
                     detection_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description Optional. Masked cutout image ID for quick enroll indexing.
+                     */
+                    cutout_image_id?: string;
+                    /** @description [x, y, width, height] in original image pixels. */
+                    bbox?: number[];
                 };
             };
         };
         responses: {
+            /** @description Image already attached; returns the stored reference. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductImage"];
+                };
+            };
             /** @description Reference image added. */
             201: {
                 headers: {
@@ -2538,7 +2707,16 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            /** @description `image_limit` when the product already has 8 reference images. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     removeProductImage: {

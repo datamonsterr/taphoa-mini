@@ -7,6 +7,7 @@ export {
   setApiTransport,
 } from './client';
 export { ApiError, isApiError } from './errors';
+export * from './downsize';
 export { getHealth, type HealthResponse } from './health';
 export * from './hooks';
 export * from './images';

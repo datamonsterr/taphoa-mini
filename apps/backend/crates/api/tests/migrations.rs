@@ -27,6 +27,8 @@ const TABLES: &[&str] = &[
     "product_units",
     "product_images",
     "product_embeddings",
+    "product_prototypes",
+    "index_jobs",
     "price_history",
     "scans",
     "detections",
@@ -126,4 +128,199 @@ async fn check_constraints_reject_bad_rows() {
             .execute(&mut *tx)
             .await;
     assert!(bad_role.is_err(), "role CHECK missing");
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn quick_enroll_schema_and_constraints() {
+    let Some(pool) = pool().await else { return };
+    let mut tx = pool.begin().await.unwrap();
+
+    let store: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO stores(name, recovery_code_hash) VALUES ('qe','x') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(store_id, display_name, role) VALUES ($1,'lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let product: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO products(id, store_id, price, request_hash, created_by) \
+         VALUES (gen_random_uuid(), $1, 1000, 'hash', $2) RETURNING id",
+    )
+    .bind(store)
+    .bind(member)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    // Check products.index_status default is 'ready'
+    let index_status: String =
+        sqlx::query_scalar("SELECT index_status FROM products WHERE id = $1")
+            .bind(product)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(index_status, "ready");
+
+    // Check products.index_status CHECK constraint rejects invalid values
+    sqlx::query("SAVEPOINT sp1")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let bad_status = sqlx::query("UPDATE products SET index_status = 'invalid' WHERE id = $1")
+        .bind(product)
+        .execute(&mut *tx)
+        .await;
+    assert!(
+        bad_status.is_err(),
+        "index_status check should reject invalid values"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT sp1")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let img1: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO images(id, store_id, object_key, content_type, byte_size) \
+         VALUES (gen_random_uuid(), $1, 'k1', 'image/jpeg', 100) RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let img2: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO images(id, store_id, object_key, content_type, byte_size) \
+         VALUES (gen_random_uuid(), $1, 'k2', 'image/jpeg', 100) RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let cutout: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO images(id, store_id, object_key, content_type, byte_size, purpose) \
+         VALUES (gen_random_uuid(), $1, 'cutout1', 'image/png', 100, 'crop') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    // product_images position 7 accepted with cutout_image_id and bbox
+    let pos7 = sqlx::query(
+        "INSERT INTO product_images(product_id, image_id, position, cutout_image_id, bbox) \
+         VALUES ($1, $2, 7, $3, $4)",
+    )
+    .bind(product)
+    .bind(img1)
+    .bind(cutout)
+    .bind(&[10.0_f32, 20.0, 100.0, 200.0][..])
+    .execute(&mut *tx)
+    .await;
+    assert!(pos7.is_ok(), "position 7 should be accepted: {pos7:?}");
+
+    // product_images position 8 rejected
+    sqlx::query("SAVEPOINT sp2")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let pos8 = sqlx::query(
+        "INSERT INTO product_images(product_id, image_id, position) VALUES ($1, $2, 8)",
+    )
+    .bind(product)
+    .bind(img2)
+    .execute(&mut *tx)
+    .await;
+    assert!(pos8.is_err(), "position 8 should be rejected");
+    sqlx::query("ROLLBACK TO SAVEPOINT sp2")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // product_embeddings.kind defaults to 'crop'
+    let emb_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO product_embeddings(store_id, product_id, image_id, model, embedding) \
+         VALUES ($1, $2, $3, 'test-model', array_fill(0.0::real, ARRAY[384])::vector) RETURNING id",
+    )
+    .bind(store)
+    .bind(product)
+    .bind(img1)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let kind: String = sqlx::query_scalar("SELECT kind FROM product_embeddings WHERE id = $1")
+        .bind(emb_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(kind, "crop");
+
+    // product_embeddings with kind 'cutout' can also be inserted for same (store, product, image, model)
+    let emb_cutout = sqlx::query(
+        "INSERT INTO product_embeddings(store_id, product_id, image_id, model, kind, embedding) \
+         VALUES ($1, $2, $3, 'test-model', 'cutout', array_fill(0.1::real, ARRAY[384])::vector)",
+    )
+    .bind(store)
+    .bind(product)
+    .bind(img1)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        emb_cutout.is_ok(),
+        "same image with kind 'cutout' should be accepted: {emb_cutout:?}"
+    );
+
+    // duplicate (store, product, image, model, kind) is rejected by unique index
+    sqlx::query("SAVEPOINT sp3")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let emb_dup = sqlx::query(
+        "INSERT INTO product_embeddings(store_id, product_id, image_id, model, kind, embedding) \
+         VALUES ($1, $2, $3, 'test-model', 'cutout', array_fill(0.2::real, ARRAY[384])::vector)",
+    )
+    .bind(store)
+    .bind(product)
+    .bind(img1)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        emb_dup.is_err(),
+        "duplicate (store, product, image, model, kind) should violate unique index"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT sp3")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // product_prototypes and index_jobs can be inserted
+    let proto = sqlx::query(
+        "INSERT INTO product_prototypes(store_id, product_id, model, embedding, reference_count) \
+         VALUES ($1, $2, 'test-model', array_fill(0.0::real, ARRAY[384])::vector, 3)",
+    )
+    .bind(store)
+    .bind(product)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        proto.is_ok(),
+        "inserting product_prototypes should succeed: {proto:?}"
+    );
+
+    let job = sqlx::query("INSERT INTO index_jobs(store_id, product_id) VALUES ($1, $2)")
+        .bind(store)
+        .bind(product)
+        .execute(&mut *tx)
+        .await;
+    assert!(job.is_ok(), "inserting index_jobs should succeed: {job:?}");
 }

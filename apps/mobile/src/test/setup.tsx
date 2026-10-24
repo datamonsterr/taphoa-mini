@@ -102,24 +102,36 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 );
 
 // The native module is absent under Jest. Each crop returns a distinct file uri and records its
-// rect, so tests can assert what was cut out.
+// rect, so tests can assert what was cut out. Resizes record options and reflect target dimensions.
 jest.mock('expo-image-manipulator', () => {
   const crops: Record<string, unknown>[] = [];
+  const resizes: Record<string, unknown>[] = [];
   return {
     __crops: crops,
+    __resizes: resizes,
     SaveFormat: { JPEG: 'jpeg', PNG: 'png', WEBP: 'webp' },
     ImageManipulator: {
       manipulate: (uri: string) => {
+        let isResize = false;
+        let targetDimensions: { width?: number; height?: number } | undefined;
         const context = {
           crop: (rect: Record<string, unknown>) => {
             crops.push({ uri, ...rect });
             return context;
           },
+          resize: (options: { width?: number; height?: number }) => {
+            isResize = true;
+            resizes.push({ uri, ...options });
+            targetDimensions = options;
+            return context;
+          },
           renderAsync: async () => ({
             saveAsync: async () => ({
-              uri: `file:///crop-${crops.length}.jpg`,
-              width: 1,
-              height: 1,
+              uri: isResize
+                ? `file:///downsize-${resizes.length}.jpg`
+                : `file:///crop-${crops.length}.jpg`,
+              width: targetDimensions?.width ?? 1,
+              height: targetDimensions?.height ?? 1,
             }),
           }),
         };

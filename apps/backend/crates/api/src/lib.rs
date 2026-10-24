@@ -30,7 +30,7 @@ use redis::aio::ConnectionManager;
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{sync::Arc, time::Duration};
-use taphoa_recognition::{Embedder, Segment, SegmentError, Segmenter};
+use taphoa_recognition::{Embedder, PointSegmenter, Segment, SegmentError, Segmenter};
 use tokio::sync::Semaphore;
 use tower_http::{
     cors::{AllowHeaders, CorsLayer},
@@ -57,6 +57,8 @@ pub struct AppState {
     pub redis: Option<ConnectionManager>,
     pub hub: events::Hub,
     pub segmenter: Option<Arc<dyn Segmenter>>,
+    pub point_segmenter: Option<Arc<dyn PointSegmenter>>,
+    pub segment_cache: Arc<recognition::EncodingCache>,
     /// Catalog enrollment embeds reference photos. None -> 503 on enroll.
     pub embedder: Option<Arc<dyn Embedder>>,
     /// Duplicate-check search port. None -> catalog queries product_embeddings in SQL.
@@ -80,6 +82,8 @@ impl Default for AppState {
             redis: None,
             hub: events::Hub::new(),
             segmenter: None,
+            point_segmenter: None,
+            segment_cache: Arc::new(recognition::EncodingCache::default()),
             embedder: None,
             vector_index: None,
             recognition: RecognitionConfig::default(),
@@ -176,6 +180,7 @@ pub fn router(state: AppState) -> Router {
                 .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
                 .layer(RequestBodyLimitLayer::new(MAX_UPLOAD_BYTES)),
         )
+        .route("/v1/segment/points", post(recognition::segment_points))
         .route(
             "/v1/images",
             post(images::upload)

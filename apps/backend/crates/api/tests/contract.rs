@@ -17,6 +17,7 @@ use taphoa_api::{
     router,
     storage::{ObjectStore, SignedUrl},
 };
+use taphoa_recognition::Segment;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -198,4 +199,56 @@ fn the_validator_rejects_a_non_conforming_body() {
         );
     });
     assert!(result.is_err(), "negative control must fail");
+}
+
+#[tokio::test]
+async fn segment_points_matches_the_contract() {
+    let contract = Contract::load();
+    let app = router(AppState {
+        storage: Some(Arc::new(FakeStore::default())),
+        image_repository: Some(Arc::new(FakeRepository::default())),
+        point_segmenter: Some(Arc::new(taphoa_recognition::MockPointSegmenter::new(
+            Segment {
+                bbox: [10.0, 10.0, 50.0, 50.0],
+                score: 0.99,
+                area: 2500,
+            },
+            256,
+            192,
+        ))),
+        ..state()
+    });
+
+    let (status, created) = call(&app, upload(Some("enrollment"))).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let image_id = created["id"].as_str().unwrap();
+
+    let req = Request::post("/v1/segment/points")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "image_id": image_id,
+                "points": [{ "x": 800.0, "y": 600.0, "label": 1 }]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let (status, body) = call(&app, req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    contract.assert_conforms("/v1/segment/points", "post", status, &body);
+
+    let req_invalid = Request::post("/v1/segment/points")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "image_id": image_id,
+                "points": []
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let (status, err_body) = call(&app, req_invalid).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    contract.assert_conforms("/v1/segment/points", "post", status, &err_body);
 }

@@ -11,6 +11,10 @@ import {
   getByGestureTestId,
 } from 'react-native-gesture-handler/jest-utils';
 
+import {
+  initialQuickEnroll,
+  useQuickEnrollStore,
+} from '@/features/camera/quickEnroll';
 import { uploadPartsAsBlobs } from '@/features/camera/testing';
 import * as images from '@/lib/api/images';
 import * as ledger from '@/lib/api/ledger';
@@ -25,7 +29,10 @@ const VIEW = { width: 358, height: 358 };
 const shoot = () =>
   fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
 
-beforeEach(() => uploadPartsAsBlobs());
+beforeEach(() => {
+  uploadPartsAsBlobs();
+  useQuickEnrollStore.setState(initialQuickEnroll);
+});
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -103,7 +110,7 @@ describe('camera -> cart', () => {
     ).toBeOnTheScreen();
   });
 
-  it('low match: + stays disabled and the tag opens enroll with the photo', async () => {
+  it('low match: + stays disabled and the ? pill opens enroll with the photo', async () => {
     setMockScenario('unknown');
     const create = jest.spyOn(images, 'createScan');
     await renderApp('/');
@@ -116,7 +123,7 @@ describe('camera -> cart', () => {
     expect(useCartStore.getState().lines).toHaveLength(0);
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
+      screen.getByRole('button', { name: 'Chưa có trong kho, nhập giá' }),
     );
     expect(screen).toHavePathname('/enroll');
     expect(screen).toHaveSearchParams({
@@ -153,13 +160,14 @@ describe('camera -> cart', () => {
     expect(screen).toHavePathname('/enroll');
   });
 
-  it('idle tag opens enroll without a photo', async () => {
+  it('idle tag toggles quick enroll on the camera screen', async () => {
     await renderApp('/');
     await fireEvent.press(
       screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
     );
-    expect(screen).toHavePathname('/enroll');
-    expect(await screen.findByTestId('enroll-sheet')).toBeOnTheScreen();
+    expect(screen).toHavePathname('/');
+    expect(screen.getByText('Thêm hàng nhanh · 0/3')).toBeOnTheScreen();
+    expect(useQuickEnrollStore.getState().active).toBe(true);
   });
 
   it('swipe handle opens the shop', async () => {

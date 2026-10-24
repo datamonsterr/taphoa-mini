@@ -49,12 +49,18 @@ pub(crate) async fn images_json(state: &AppState, value: &Value) -> ApiResult<Ve
                 continue;
             };
             let (url, expires_at) = signed_url(state, key).await?;
-            images.push(json!({
+            let mut image = json!({
                 "image_id": entry["image_id"].clone(),
                 "position": entry["position"].clone(),
                 "url": url,
                 "url_expires_at": expires_at,
-            }));
+            });
+            for field in ["cutout_image_id", "bbox"] {
+                if !entry[field].is_null() {
+                    image[field] = entry[field].clone();
+                }
+            }
+            images.push(image);
         }
     }
     Ok(images)
@@ -76,6 +82,7 @@ pub(crate) fn product_json(
         "category_id": row.product.category_id,
         "units": row.units,
         "images": images,
+        "index_status": row.product.index_status,
         "archived": row.product.archived,
         "version": row.product.version,
         "created_by": row.product.created_by,
@@ -261,10 +268,6 @@ pub(crate) async fn create(
     }
     let hash = crate::idempotency::request_hash(&value);
 
-    let embedder = state.embedder.clone().ok_or_else(ApiError::unavailable)?;
-    let model_name = embedder.model().to_owned();
-    let images = enroll::resolve_images(&state, actor.store_id, &request.image_ids).await?;
-
     // Idempotency is checked before any expensive work: replay returns the stored product.
     let existing: Option<(Uuid, Vec<u8>)> =
         sqlx::query_as("SELECT store_id, request_hash FROM products WHERE id = $1")
@@ -291,11 +294,35 @@ pub(crate) async fn create(
             .into_response());
     }
 
-    let mut references = Vec::new();
-    for image in &images {
-        let vector = enroll::embed_reference(&state, embedder.clone(), &image.object_key).await?;
-        references.push((image.id, vector));
-    }
+    let embedder = state.embedder.clone().ok_or_else(ApiError::unavailable)?;
+    let model_name = embedder.model().to_owned();
+    let images = enroll::resolve_images(&state, actor.store_id, &request.image_ids()).await?;
+    let mut cutout_ids: Vec<Uuid> = request
+        .references
+        .iter()
+        .flatten()
+        .map(|reference| reference.cutout_image_id)
+        .collect();
+    cutout_ids.sort_unstable();
+    cutout_ids.dedup();
+    let cutouts = enroll::resolve_images(&state, actor.store_id, &cutout_ids).await?;
+    let first_reference = request.references.as_ref().and_then(|refs| refs.first());
+    let cutout_key = first_reference
+        .and_then(|reference| {
+            cutouts
+                .iter()
+                .find(|image| image.id == reference.cutout_image_id)
+        })
+        .map(|image| image.object_key.as_str());
+    let vector = enroll::embed_reference(
+        &state,
+        embedder,
+        &images[0].object_key,
+        cutout_key,
+        first_reference.map(|reference| reference.bbox),
+    )
+    .await?;
+    let references = [(images[0].id, vector)];
     if !request.force_new {
         let hits = enroll::duplicate_hits(&state, actor.store_id, &model_name, &references).await?;
         if !hits.is_empty() {
@@ -350,27 +377,17 @@ pub(crate) async fn create(
     }
     for (position, image) in images.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO product_images (product_id, image_id, position) VALUES ($1,$2,$3)",
+            "INSERT INTO product_images (product_id, image_id, position, cutout_image_id, bbox) VALUES ($1,$2,$3,$4,$5)",
         )
         .bind(request.id)
         .bind(image.id)
         .bind(i16::try_from(position).expect("bounded by validation"))
+        .bind(request.references.as_ref().map(|refs| refs[position].cutout_image_id))
+        .bind(request.references.as_ref().map(|refs| refs[position].bbox.to_vec()))
         .execute(&mut *tx)
         .await?;
     }
-    for (image_id, vector) in &references {
-        sqlx::query(
-            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, embedding) \
-             VALUES ($1,$2,$3,$4, CAST($5 AS vector))",
-        )
-        .bind(actor.store_id)
-        .bind(request.id)
-        .bind(image_id)
-        .bind(&model_name)
-        .bind(enroll::vector_text(vector))
-        .execute(&mut *tx)
-        .await?;
-    }
+    super::index_jobs::enqueue(&mut tx, actor.store_id, request.id).await?;
     sqlx::query(
         "INSERT INTO price_history (store_id, product_id, field, old_value, new_value, source, \
          changed_by) VALUES ($1,$2,'price',NULL,$3,'manual',$4)",
@@ -408,20 +425,14 @@ pub(crate) async fn create(
         },
     )
     .await?;
+    // Capture pending before commit makes the job visible to the worker.
+    let row = load_product(&mut tx, actor.store_id, request.id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let images = images_json(&state, &row.images).await?;
+    let body = product_json(actor.role == crate::auth::Role::Lead, &row, images)?;
     tx.commit().await?;
-    Ok((
-        axum::http::StatusCode::CREATED,
-        Json(
-            aggregate_json(
-                &state,
-                actor.role == crate::auth::Role::Lead,
-                actor.store_id,
-                request.id,
-            )
-            .await?,
-        ),
-    )
-        .into_response())
+    Ok((axum::http::StatusCode::CREATED, Json(body)).into_response())
 }
 
 /// `from_manual_line_id`: the flagged sale line this product was enrolled from is resolved in

@@ -12,6 +12,8 @@ import type {
   ResolveManualLineInput,
   ProductPatch,
   Role,
+  SegmentPointsRequest,
+  SegmentPointsResponse,
   Store,
   StorePatch,
 } from '@/lib/api/types';
@@ -89,7 +91,7 @@ export function createInvite(input: {
 export function registerImage(input: {
   contentType: Image['content_type'];
   byteSize: number;
-  purpose?: ImagePurpose;
+  purpose?: ImagePurpose | 'crop';
   uri?: string | null;
   width?: number;
   height?: number;
@@ -104,7 +106,7 @@ export function registerImage(input: {
     object_key: `images/mock/${id}.${ext}`,
     content_type: input.contentType,
     byte_size: input.byteSize,
-    purpose: input.purpose ?? 'other',
+    purpose: (input.purpose ?? 'other') as ImagePurpose,
     width: input.width ?? 1080,
     height: input.height ?? 1440,
     url: input.uri || `https://mock.local/images/${id}.${ext}`,
@@ -132,7 +134,11 @@ export function findProductRecord(id: string): ProductRecord {
 }
 
 export function getProduct(id: string): Product {
-  return findProductRecord(id).product;
+  const record = findProductRecord(id);
+  if (record.product.index_status === 'pending') {
+    record.product = { ...record.product, index_status: 'ready' };
+  }
+  return record.product;
 }
 
 export function listProducts(filters: {
@@ -159,17 +165,48 @@ export function createProduct(req: CreateProductRequest): {
 } {
   const existing = state.products.find((p) => p.product.id === req.id);
   if (existing) return { product: existing.product, created: false };
-  const images = req.image_ids.map((imageId, position) => {
-    const image = state.images.get(imageId);
-    if (!image) {
-      throw badRequest(
-        `image ${imageId} does not exist`,
-        { image_id: imageId },
-        'unknown_image',
-      );
-    }
-    return toProductImage(image, position);
-  });
+
+  let images: ProductImage[];
+  if (req.references) {
+    images = req.references.map((ref, position) => {
+      const image = state.images.get(ref.image_id);
+      if (!image) {
+        throw badRequest(
+          `image ${ref.image_id} does not exist`,
+          { image_id: ref.image_id },
+          'unknown_image',
+        );
+      }
+      const cutout = state.images.get(ref.cutout_image_id);
+      if (!cutout) {
+        throw badRequest(
+          `cutout image ${ref.cutout_image_id} does not exist`,
+          { cutout_image_id: ref.cutout_image_id },
+          'unknown_image',
+        );
+      }
+      return {
+        ...toProductImage(image, position),
+        cutout_image_id: ref.cutout_image_id,
+        bbox: ref.bbox,
+      };
+    });
+  } else if (req.image_ids) {
+    images = req.image_ids.map((imageId, position) => {
+      const image = state.images.get(imageId);
+      if (!image) {
+        throw badRequest(
+          `image ${imageId} does not exist`,
+          { image_id: imageId },
+          'unknown_image',
+        );
+      }
+      return toProductImage(image, position);
+    });
+  } else {
+    images = [];
+  }
+
   if (
     req.category_id &&
     !state.categories.some((c) => c.id === req.category_id)
@@ -196,12 +233,13 @@ export function createProduct(req: CreateProductRequest): {
     category_id: req.category_id ?? null,
     units: (req.units ?? []).map((u) => ({ ...u, barcode: u.barcode ?? null })),
     images,
+    index_status: 'pending',
     archived: false,
     version: 1,
     created_by: state.currentMemberId,
     updated_at: nowIso(),
   };
-  state.products.push({ product });
+  state.products.push({ product: { ...product } });
   // Enrolling from a flagged manual line resolves that line, as the real server does.
   if (req.from_manual_line_id) {
     resolveManualLine(req.from_manual_line_id, {
@@ -331,6 +369,39 @@ export function listManualLines(status: ManualLine['status']): ManualLine[] {
         b.sold_at.localeCompare(a.sold_at) ||
         b.line_id.localeCompare(a.line_id),
     );
+}
+
+// ---- segmentation ---------------------------------------------------------
+
+export function segmentPoints(
+  body: SegmentPointsRequest,
+): SegmentPointsResponse {
+  const image = state.images.get(body.image_id);
+  if (!image) throw notFound('Image');
+
+  const cutout = registerImage({
+    contentType: 'image/png',
+    byteSize: 1024,
+    purpose: 'crop',
+  });
+
+  return {
+    bbox: [100, 100, 200, 200],
+    score: 0.97,
+    area: 183220,
+    mask: {
+      width: 256,
+      height: 192,
+      png_base64:
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    },
+    cutout_image_id: cutout.id,
+    timings: {
+      encode: 812,
+      decode: 151,
+      total: 963,
+    },
+  };
 }
 
 export function resolveManualLine(

@@ -40,6 +40,10 @@ erDiagram
     images ||--o{ product_images : ""
     products ||--o{ product_embeddings : "indexed by"
     images ||--o{ product_embeddings : "embedded from"
+    products ||--o{ product_prototypes : "summarized by"
+    stores ||--o{ product_prototypes : owns
+    products ||--o{ index_jobs : "indexed via"
+    stores ||--o{ index_jobs : owns
     products ||--o{ price_history : "changes logged in"
     members ||--o{ price_history : changed
     stores ||--o{ images : owns
@@ -120,6 +124,7 @@ erDiagram
         bigint cost_price
         text barcode
         uuid category_id FK
+        text index_status
         bool archived
         bigint version
     }
@@ -135,13 +140,35 @@ erDiagram
         uuid product_id PK
         uuid image_id PK
         smallint position
+        uuid cutout_image_id FK
+        real_array bbox
     }
     product_embeddings {
         uuid id PK
         uuid product_id FK
         uuid image_id FK
         text model
+        text kind
         vector embedding "384"
+    }
+    product_prototypes {
+        uuid store_id FK
+        uuid product_id PK
+        text model PK
+        vector embedding "384"
+        int reference_count
+        timestamptz updated_at
+    }
+    index_jobs {
+        uuid id PK
+        uuid store_id FK
+        uuid product_id FK
+        text status
+        int attempts
+        text last_error
+        timestamptz run_after
+        timestamptz created_at
+        timestamptz updated_at
     }
     price_history {
         uuid id PK
@@ -355,6 +382,7 @@ CREATE TABLE products (
     cost_price   BIGINT CHECK (cost_price >= 0),
     barcode      TEXT,
     category_id  UUID REFERENCES categories,
+    index_status TEXT NOT NULL DEFAULT 'ready' CHECK (index_status IN ('pending', 'ready', 'failed')),
     archived     BOOLEAN NOT NULL DEFAULT false,
     version      BIGINT NOT NULL DEFAULT 1,
     request_hash BYTEA NOT NULL,
@@ -384,7 +412,9 @@ CREATE UNIQUE INDEX product_units_store_barcode ON product_units (store_id, barc
 CREATE TABLE product_images (
     product_id UUID NOT NULL REFERENCES products ON DELETE CASCADE,
     image_id   UUID NOT NULL REFERENCES images,
-    position   SMALLINT NOT NULL CHECK (position BETWEEN 0 AND 4),
+    position   SMALLINT NOT NULL CHECK (position BETWEEN 0 AND 7),
+    cutout_image_id UUID REFERENCES images,
+    bbox       REAL[] CHECK (bbox IS NULL OR array_length(bbox, 1) = 4),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (product_id, image_id),
     UNIQUE (product_id, position)
@@ -397,12 +427,39 @@ CREATE TABLE product_embeddings (
     image_id     UUID NOT NULL REFERENCES images,
     detection_id UUID,                                      -- crop source, when from a scan
     model        TEXT NOT NULL,                             -- e.g. dinov2-vits14-onnx@1
+    kind         TEXT NOT NULL DEFAULT 'crop' CHECK (kind IN ('crop', 'cutout')),
     embedding    vector(384) NOT NULL,                      -- L2-normalized
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX product_embeddings_hnsw ON product_embeddings
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 CREATE INDEX product_embeddings_store ON product_embeddings (store_id, model);
+CREATE UNIQUE INDEX product_embeddings_reference_key
+    ON product_embeddings (store_id, product_id, image_id, model, kind);
+
+CREATE TABLE product_prototypes (
+    store_id        UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    product_id      UUID NOT NULL REFERENCES products ON DELETE CASCADE,
+    model           TEXT NOT NULL,
+    embedding       vector(384) NOT NULL,
+    reference_count INT NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (product_id, model)
+);
+CREATE INDEX product_prototypes_store_model ON product_prototypes (store_id, model);
+
+CREATE TABLE index_jobs (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id   UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products ON DELETE CASCADE,
+    status     TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'failed')),
+    attempts   INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    run_after  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX index_jobs_run_after_queued ON index_jobs (run_after) WHERE status = 'queued';
 
 CREATE TABLE price_history (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
