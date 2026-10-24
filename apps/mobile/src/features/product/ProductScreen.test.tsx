@@ -4,9 +4,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Dimensions } from 'react-native';
 
 import * as productsApi from '@/lib/api/products';
+import * as stockApi from '@/lib/api/stock';
 import { keys } from '@/lib/api/keys';
 import type { Product } from '@/lib/api/types';
 import { useSessionStore } from '@/stores/session';
+import { useSettingsStore } from '@/stores/settings';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { holdNext } from '@/test/hold';
 import { createTestQueryClient, renderWithProviders } from '@/test/render';
@@ -254,4 +256,252 @@ test('a load error offers retry', async () => {
   expect(
     await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' }),
   ).toBeOnTheScreen();
+});
+
+test('tracked stock shows quantity, effective store threshold and status', async () => {
+  await renderProduct();
+  expect(
+    await screen.findByLabelText('Tồn kho 20, Còn hàng'),
+  ).toBeOnTheScreen();
+  expect(await screen.findByText('Ngưỡng sắp hết: 5')).toBeOnTheScreen();
+});
+
+test('untracked products explain stock tracking and can start with a count', async () => {
+  await renderProduct(PRODUCT_IDS['7up']);
+  expect(await screen.findByText('Chưa theo dõi tồn kho')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Kiểm kho' })).toBeOnTheScreen();
+});
+
+describe('stock adjustments', () => {
+  const openAdjust = async () => {
+    await renderProduct();
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Kiểm kho' }),
+    );
+  };
+
+  test('a count with an optional note posts and updates stock', async () => {
+    const adjust = jest.spyOn(stockApi, 'adjustStock');
+    await openAdjust();
+    await fireEvent.changeText(screen.getByLabelText('Số lượng thực tế'), '8');
+    await fireEvent.changeText(
+      screen.getByLabelText('Ghi chú (không bắt buộc)'),
+      'Đếm lại',
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu tồn kho' }));
+    await waitFor(() =>
+      expect(adjust).toHaveBeenCalledWith(
+        PRODUCT_IDS.coca,
+        { count: 8, note: 'Đếm lại' },
+        expect.any(String),
+      ),
+    );
+    expect(
+      await screen.findByLabelText('Tồn kho 8, Còn hàng'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Số lượng thực tế')).toBeNull();
+  });
+
+  test.each(['+4', '-3'])('signed delta %s posts only delta', async (delta) => {
+    const adjust = jest.spyOn(stockApi, 'adjustStock');
+    await openAdjust();
+    await fireEvent.press(screen.getByRole('radio', { name: 'Thêm / bớt' }));
+    await fireEvent.changeText(
+      screen.getByLabelText('Thay đổi số lượng (+/-)'),
+      delta,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu tồn kho' }));
+    await waitFor(() =>
+      expect(adjust).toHaveBeenCalledWith(
+        PRODUCT_IDS.coca,
+        { delta: Number(delta) },
+        expect.any(String),
+      ),
+    );
+  });
+
+  test('invalid counts and zero deltas cannot be submitted', async () => {
+    const adjust = jest.spyOn(stockApi, 'adjustStock');
+    await openAdjust();
+    for (const value of ['', '-1', '1.2', '999999999999']) {
+      await fireEvent.changeText(
+        screen.getByLabelText('Số lượng thực tế'),
+        value,
+      );
+      expect(
+        screen.getByRole('button', { name: 'Lưu tồn kho' }),
+      ).toBeDisabled();
+    }
+    await fireEvent.press(screen.getByRole('radio', { name: 'Thêm / bớt' }));
+    await fireEvent.changeText(
+      screen.getByLabelText('Thay đổi số lượng (+/-)'),
+      '0',
+    );
+    expect(screen.getByRole('button', { name: 'Lưu tồn kho' })).toBeDisabled();
+    expect(adjust).not.toHaveBeenCalled();
+  });
+
+  test('failure preserves the draft and retries with the same operation key', async () => {
+    const adjust = jest
+      .spyOn(stockApi, 'adjustStock')
+      .mockRejectedValueOnce(new Error('offline'));
+    await openAdjust();
+    await fireEvent.changeText(screen.getByLabelText('Số lượng thực tế'), '9');
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu tồn kho' }));
+    expect(
+      await screen.findByText('Không lưu được tồn kho. Thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('Số lượng thực tế').props.value).toBe('9');
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu tồn kho' }));
+    await waitFor(() => expect(adjust).toHaveBeenCalledTimes(2));
+    expect(adjust.mock.calls[0][2]).toBe(adjust.mock.calls[1][2]);
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Số lượng thực tế')).toBeNull(),
+    );
+  });
+
+  test('seller has no adjust button or threshold editor', async () => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: { ...session!, member: { ...session!.member, role: 'seller' } },
+    });
+    await renderProduct();
+    await screen.findByLabelText('Tồn kho 20, Còn hàng');
+    expect(screen.queryByRole('button', { name: 'Kiểm kho' })).toBeNull();
+    expect(
+      screen.queryByLabelText('Ngưỡng riêng (để trống dùng mặc định)'),
+    ).toBeNull();
+  });
+});
+
+describe('stock movements', () => {
+  test('recent movements show localized reasons, signed deltas, resulting counts and dates', async () => {
+    jest.spyOn(stockApi, 'listStockMovements').mockResolvedValue({
+      items: [
+        {
+          id: 'receipt',
+          reason: 'receipt',
+          delta: 12,
+          quantity_after: 20,
+          created_at: '2026-10-25T05:30:00Z',
+          note: null,
+          member_id: null,
+          ref_id: null,
+        },
+        {
+          id: 'sale',
+          reason: 'sale',
+          delta: -2,
+          quantity_after: 8,
+          created_at: '2026-10-24T05:30:00Z',
+          note: null,
+          member_id: null,
+          ref_id: null,
+        },
+        {
+          id: 'void',
+          reason: 'sale_void',
+          delta: 2,
+          quantity_after: 10,
+          created_at: '2026-10-23T05:30:00Z',
+          note: null,
+          member_id: null,
+          ref_id: null,
+        },
+        {
+          id: 'adjust',
+          reason: 'adjustment',
+          delta: -1,
+          quantity_after: 9,
+          created_at: '2026-10-22T05:30:00Z',
+          note: 'Kiểm lại',
+          member_id: null,
+          ref_id: null,
+        },
+      ],
+      next_cursor: null,
+    });
+    await renderProduct();
+    expect(await screen.findByText('Biến động gần đây')).toBeOnTheScreen();
+    for (const reason of ['Nhập hàng', 'Bán hàng', 'Hủy bán', 'Kiểm kho']) {
+      expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText('+12')).toBeOnTheScreen();
+    expect(screen.getByText('-2')).toBeOnTheScreen();
+    expect(screen.getByText('Còn lại: 20')).toBeOnTheScreen();
+    expect(screen.getByText(/25\/10\/2026/)).toBeOnTheScreen();
+    expect(screen.getByText('Kiểm lại')).toBeOnTheScreen();
+    await act(async () => useSettingsStore.setState({ language: 'en' }));
+    for (const reason of ['Receipt', 'Sale', 'Sale void', 'Adjustment'])
+      expect(screen.getByText(reason)).toBeOnTheScreen();
+  });
+
+  test('empty movements explain there is no history', async () => {
+    await renderProduct();
+    expect(
+      await screen.findByText('Chưa có biến động tồn kho'),
+    ).toBeOnTheScreen();
+  });
+
+  test('movement load failure offers its own retry', async () => {
+    jest
+      .spyOn(stockApi, 'listStockMovements')
+      .mockRejectedValueOnce(new Error('offline'));
+    await renderProduct();
+    expect(
+      await screen.findByText('Không tải được biến động tồn kho'),
+    ).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Tải lại biến động' }),
+    );
+    expect(
+      await screen.findByText('Chưa có biến động tồn kho'),
+    ).toBeOnTheScreen();
+  });
+});
+
+describe('product threshold override', () => {
+  const fieldLabel = 'Ngưỡng riêng (để trống dùng mặc định)';
+  test('Lead overrides the store threshold and empty resets to the store default', async () => {
+    const patch = jest.spyOn(productsApi, 'patchProduct');
+    await renderProduct();
+    const field = await screen.findByLabelText(fieldLabel);
+    expect(field.props.value).toBe('');
+    await fireEvent.changeText(field, '25');
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu ngưỡng' }));
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith(PRODUCT_IDS.coca, {
+        low_stock_threshold: 25,
+      }),
+    );
+    expect(await screen.findByText('Ngưỡng sắp hết: 25')).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText(fieldLabel), '');
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu ngưỡng' }));
+    await waitFor(() =>
+      expect(patch).toHaveBeenLastCalledWith(PRODUCT_IDS.coca, {
+        low_stock_threshold: null,
+      }),
+    );
+    expect(await screen.findByText('Ngưỡng sắp hết: 5')).toBeOnTheScreen();
+  });
+
+  test('override validates integer range 0..100000 and preserves failed draft', async () => {
+    jest
+      .spyOn(productsApi, 'patchProduct')
+      .mockRejectedValueOnce(new Error('offline'));
+    await renderProduct();
+    await screen.findByLabelText(fieldLabel);
+    for (const value of ['-1', '1.2', '100001']) {
+      await fireEvent.changeText(screen.getByLabelText(fieldLabel), value);
+      expect(screen.getByRole('button', { name: 'Lưu ngưỡng' })).toBeDisabled();
+    }
+    await fireEvent.changeText(screen.getByLabelText(fieldLabel), '0');
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu ngưỡng' }));
+    expect(
+      await screen.findByText('Không lưu được ngưỡng sắp hết'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText(fieldLabel).props.value).toBe('0');
+    await fireEvent.press(screen.getByRole('button', { name: 'Lưu ngưỡng' }));
+    expect(await screen.findByText('Ngưỡng sắp hết: 0')).toBeOnTheScreen();
+  });
 });

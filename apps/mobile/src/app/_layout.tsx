@@ -72,6 +72,7 @@ export default function RootLayout() {
                 options={{ animation: 'slide_from_bottom' }}
               />
               <Stack.Screen name="product/[id]" />
+              <Stack.Screen name="stock" />
               <Stack.Screen name="pay" />
               <Stack.Screen
                 name="cart"

@@ -257,3 +257,12 @@ test('typing a search keeps the previous grid until the new page arrives', async
     expect(screen.queryByRole('button', { name: SEVEN_UP })).toBeNull(),
   );
 });
+
+test('products segment is selected and stock segment opens the stock route', async () => {
+  await renderWithProviders(<InventoryScreen />);
+  await screen.findByRole('button', { name: COCA });
+  expect(screen.getByRole('radio', { name: 'Sản phẩm' })).toBeChecked();
+  await fireEvent.press(screen.getByRole('radio', { name: 'Tồn kho' }));
+  expect(router.push).toHaveBeenCalledWith('/stock');
+  expect(screen.getByLabelText('Tồn kho 20, Còn hàng')).toBeOnTheScreen();
+});
