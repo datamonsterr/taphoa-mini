@@ -18,6 +18,7 @@ import { camera, colors, radius, size, space, typography } from '@/theme';
 
 export type PointOverlayProps = {
   shot: Shot;
+  tapDisabled?: boolean;
   index: number;
   acceptedCount: number;
   onTap: (point: QuickPoint) => void;
@@ -76,6 +77,7 @@ export function viewToPhoto(
 
 export function PointOverlay({
   shot,
+  tapDisabled = false,
   index,
   acceptedCount,
   onTap,
@@ -91,6 +93,10 @@ export function PointOverlay({
     <View style={[StyleSheet.absoluteFill, styles.overlay]}>
       <Pressable
         testID="point-overlay-canvas"
+        disabled={tapDisabled || shot.status === 'uploading'}
+        accessibilityState={{
+          disabled: tapDisabled || shot.status === 'uploading',
+        }}
         accessibilityLabel="Chạm vào sản phẩm để tách nền"
         style={StyleSheet.absoluteFill}
         onLayout={({ nativeEvent: { layout } }) =>
@@ -167,7 +173,7 @@ export function PointOverlay({
               />
             ))}
           </View>
-          {shot.status === 'segmenting' ? (
+          {shot.status === 'segmenting' || shot.status === 'uploading' ? (
             <View style={styles.waiting}>
               <ActivityIndicator
                 accessible
@@ -175,7 +181,9 @@ export function PointOverlay({
                 color={colors.onAccent}
               />
               <Text accessibilityLiveRegion="polite" style={styles.caption}>
-                Đang tách...
+                {shot.status === 'uploading'
+                  ? 'Đang tải ảnh...'
+                  : 'Đang tách...'}
               </Text>
             </View>
           ) : null}
