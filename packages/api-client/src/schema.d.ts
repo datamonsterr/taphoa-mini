@@ -427,8 +427,13 @@ export interface paths {
          * Enroll a product from 1–8 photos and a price (C1, C4, C5)
          * @description Requires Lead or `can_enroll`. Accepts either quick-enroll multi-angle `references`
          *     (3..8 photos with cutouts and bounding boxes) or legacy `image_ids` (1..5 photos).
-         *     Minimum 3 applies only to `references` (422 below 3). Returns 409 when total images
-         *     would exceed 8. An async index job embeds reference cutouts into the database;
+         *     Exactly one of `references` or `image_ids` is required (422 `validation_failed`
+         *     for both or neither). Minimum 3 applies only to `references` (422 below 3).
+         *     Reference image IDs must be distinct; bounding boxes must be finite with positive
+         *     width and height (422 `validation_failed`). Returns 409 `image_limit` above 8.
+         *     The synchronous duplicate check embeds only the first cutout (first image for legacy).
+         *     Cutout storage reads retry for up to 1 second, then fall back to a padded bbox crop.
+         *     An async index job embeds reference cutouts into the database;
          *     the product is returned immediately with `index_status: "pending"`.
          *     Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
          *     "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
@@ -484,7 +489,12 @@ export interface paths {
         /**
          * Add a reference photo, e.g. "merge" answer to "Same as X?" (C2)
          * @description Max 8 reference images per product (positions 0..7, 409 above). Accepts optional
-         *     `cutout_image_id` and `bbox`; enqueues a background index job. The image is embedded and indexed.
+         *     `cutout_image_id` and `bbox` together; enqueues a background index job without
+         *     synchronous embedding writes. Invalid pairs and non-finite or non-positive-size
+         *     bounding boxes return 422 `validation_failed`. `detection_id` selects a detection
+         *     belonging to this image and store; its bbox is retained for background cropping.
+         *     Combining `detection_id` with `bbox` returns 422 `validation_failed`.
+         *     `product_embeddings.detection_id` is no longer populated by this endpoint.
          */
         post: operations["addProductImage"];
         delete?: never;
@@ -507,8 +517,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove a reference photo and its embedding
-         * @description A product keeps at least one reference image (409).
+         * Remove a reference photo and enqueue prototype recomputation
+         * @description A product keeps at least one reference image (409). Enqueues background indexing.
          */
         delete: operations["removeProductImage"];
         options?: never;
@@ -1328,6 +1338,7 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description Exactly one of references or image_ids is required; both or neither return 422 validation_failed. */
         CreateProductRequest: {
             /**
              * Format: uuid
@@ -1363,7 +1374,7 @@ export interface components {
             from_manual_line_id?: string;
             /** @default false */
             force_new: boolean;
-        };
+        } & (unknown | unknown);
         ProductPatch: {
             name?: string | null;
             price?: components["schemas"]["Money"];
@@ -2675,6 +2686,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Image already attached; returns the stored reference. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductImage"];
+                };
+            };
             /** @description Reference image added. */
             201: {
                 headers: {
@@ -2687,7 +2707,16 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            /** @description `image_limit` when the product already has 8 reference images. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     removeProductImage: {
