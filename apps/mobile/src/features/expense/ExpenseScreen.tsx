@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import {
   Box,
   Droplet,
@@ -166,6 +167,15 @@ export function ExpenseScreen() {
             )}
           </View>
 
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('receipts')}
+            onPress={() => router.push('/receipts')}
+            style={styles.receipts}
+          >
+            <Icon icon={ReceiptText} color={colors.ink} />
+            <Text style={typography.label}>{t('receipts')}</Text>
+          </PressableScale>
           <View
             accessibilityRole="radiogroup"
             accessibilityLabel={t('categories')}
@@ -236,6 +246,15 @@ const CategoryChip = memo(function CategoryChip({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  receipts: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSoft,
+  },
   body: { gap: space[3] },
   srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   topRow: {

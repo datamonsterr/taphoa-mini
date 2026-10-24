@@ -9,6 +9,7 @@ import {
   Alert,
   type LayoutChangeEvent,
   Linking,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -39,6 +40,8 @@ import {
 import { Icon } from '@/components/ui/Icon';
 import { CircleButton } from '@/components/ui';
 import {
+  useCreateReceipt,
+  isApiError,
   useProduct,
   useSegmentPoints,
   useUploadImage,
@@ -60,6 +63,8 @@ import {
   type Layout,
 } from './AddFeedback';
 import { takePhoto } from './capture';
+import { DocumentButton } from './DocumentButton';
+import { ReceiptToast } from '../receipts/ReceiptToast';
 import {
   MIN_SHOTS,
   selectCanCapture,
@@ -201,6 +206,35 @@ export function CameraScreen() {
   const [addingAngle, setAddingAngle] = useState(false);
   const [created, setCreated] = useState<Product[]>([]);
   const [notice, setNotice] = useState('');
+  const receiptCreate = useCreateReceipt();
+  const receiptPending = useRef(false);
+  // Keep the same variables object for an explicit retry of the same uploaded image.
+  const receiptInput = useRef<{ image_id: string } | null>(null);
+  const readReceipt = async () => {
+    if (!scan || receiptPending.current) return;
+    receiptPending.current = true;
+    setNotice('');
+    if (receiptInput.current?.image_id !== scan.image.id)
+      receiptInput.current = { image_id: scan.image.id };
+    const started = performance.now();
+    try {
+      const receipt = await receiptCreate.mutateAsync(receiptInput.current);
+      router.push(`/receipt/${receipt.id}`);
+      console.info('receipt.tap_to_navigation', {
+        duration_ms: Math.round(performance.now() - started),
+      });
+    } catch (error) {
+      setNotice(
+        t(
+          isApiError(error) && error.code === 'no_text'
+            ? 'receiptNoText'
+            : 'receiptRetry',
+        ),
+      );
+    } finally {
+      receiptPending.current = false;
+    }
+  };
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(''), 4000);
@@ -551,6 +585,9 @@ export function CameraScreen() {
               onPress={permission.canAskAgain ? askPermission : openSettings}
             />
           ) : null}
+          {hasResult && scan.document?.detected && !receiptCreate.isPending ? (
+            <DocumentButton onPress={() => void readReceipt()} />
+          ) : null}
           {phase === 'error' ? (
             <ScanError
               message={t('scanError')}
@@ -655,6 +692,22 @@ export function CameraScreen() {
           <SwipeHandle onOpen={openShop} />
         </View>
       </View>
+      <ReceiptToast />
+      <Modal
+        visible={receiptCreate.isPending}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View
+          accessibilityViewIsModal
+          accessibilityLabel={t('readingReceipt')}
+          style={styles.receiptBusy}
+        >
+          <ActivityIndicator size="large" color={camera.white} />
+          <Text style={styles.quickHint}>{t('readingReceipt')}</Text>
+        </View>
+      </Modal>
       {quickActive && currentShot ? (
         <PointOverlay
           key={currentShot.id}
@@ -714,6 +767,13 @@ export function CameraScreen() {
 }
 
 const styles = StyleSheet.create({
+  receiptBusy: {
+    flex: 1,
+    backgroundColor: colors.scrim,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[4],
+  },
   hidden: { display: 'none' },
   screen: { flex: 1, backgroundColor: colors.cameraBg },
   modeRow: { alignItems: 'center' },
