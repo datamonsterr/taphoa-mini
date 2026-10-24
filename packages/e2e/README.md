@@ -59,6 +59,19 @@ BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/mem
 BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/health.test.ts
 ```
 
+`receipts.test.ts` uses real document detection, OCR and product mapping on the
+receipt fixture, then verifies confirmation, its expense and stock ledger, and a
+sale crossing a product threshold. Five fresh receipt drafts (distinct idempotency
+keys, the scan's existing image) must have wall-time p95 below 6000 ms; server OCR,
+decisions and total timings are printed for each run. It skips explicitly only on
+`503 ocr_unavailable`. `stock.test.ts` also checks adjustments, per-product threshold
+overrides and sale movements independently of OCR. Recognition keeps its existing
+3000 ms scan p95 budget.
+
+The live e2e config runs files sequentially because OCR, scans, segmentation and
+catalog indexing share the backend inference slot. This prevents other suites
+from competing with latency samples; each test still owns an isolated store.
+
 ## Available Scripts
 
 | Script                                | Command                                    | Description                                                              |
