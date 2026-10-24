@@ -60,6 +60,8 @@ jobs:
       - name: Start backend stack
         env:
           E2E_PUBLIC_HOST: 10.0.2.2
+          # Request lines (method, path, status) so a failed save in a flow shows in the log.
+          RUST_LOG: info,tower_http=debug
         run: scripts/e2e/stack.sh up
 
       # The runner has no committed android/ project (CNG): generate it from app.json.
