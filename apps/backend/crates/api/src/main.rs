@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
+    catalog::index_jobs::{WorkerConfig, spawn as spawn_index_worker},
     config::Config,
     events,
     recognition::classify::RecognitionConfig,
@@ -47,7 +48,18 @@ async fn main() -> anyhow::Result<()> {
     let (stop, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut background = events::spawn_background(&state, shutdown_rx.clone());
     if let Some(pool) = pool.clone() {
-        background.push(retention::spawn(pool, shutdown_rx));
+        background.push(retention::spawn(pool.clone(), shutdown_rx.clone()));
+        // Spawn the index-job worker only when all required dependencies are present.
+        if let (Some(embedder), Some(storage)) = (state.embedder.clone(), state.storage.clone()) {
+            background.push(spawn_index_worker(
+                pool,
+                embedder,
+                storage,
+                state.inference_slots.clone(),
+                shutdown_rx,
+                WorkerConfig::default(),
+            ));
+        }
     }
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;
