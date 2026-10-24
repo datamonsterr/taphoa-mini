@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod catalog;
 pub mod config;
+pub mod decisions;
 pub mod error;
 pub mod events;
 pub mod expenses;
@@ -9,6 +10,7 @@ pub mod images;
 pub mod money;
 pub mod pagination;
 pub mod ratelimit;
+pub mod receipts;
 pub mod recognition;
 pub mod reports;
 pub mod retention;
