@@ -1,0 +1,28 @@
+appId: com.datamonsterr.taphoamini
+---
+# Onboarding against the real backend: create a store, see it on the account screen, sign out.
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Maestro'
+      OWNER_NAME: 'Cô Ba'
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Tài khoản'
+    timeout: 15000
+- tapOn: 'Tài khoản'
+- extendedWaitUntil:
+    visible: 'Tạp hóa Maestro'
+    timeout: 20000
+- assertVisible: 'Chủ'
+- assertVisible: '1 thành viên'
+- takeScreenshot: onboarding-01-account
+# Sign out: back to the welcome screen with no session.
+- scrollUntilVisible:
+    element: 'Đăng xuất'
+- tapOn: 'Đăng xuất'
+- extendedWaitUntil:
+    visible: 'Khôi phục cửa hàng'
+    timeout: 20000
+- assertVisible: 'Tạo cửa hàng'
+- takeScreenshot: onboarding-02-signed-out

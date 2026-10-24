@@ -1,9 +1,14 @@
 appId: com.datamonsterr.taphoamini
 ---
-# App boots to the camera.
+# The app boots to the welcome screen, and a new store (real backend) opens the camera.
 - runFlow: subflows/launch.yaml
-- extendedWaitUntil:
-    visible: 'Chụp'
-    timeout: 120000
+- assertVisible: 'Tạo cửa hàng'
+- assertVisible: 'Tham gia cửa hàng'
+- takeScreenshot: smoke-01-welcome
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Smoke'
+      OWNER_NAME: 'Cô Ba'
 - assertVisible: 'Giỏ hàng trống'
-- takeScreenshot: smoke-01-camera
+- takeScreenshot: smoke-02-camera

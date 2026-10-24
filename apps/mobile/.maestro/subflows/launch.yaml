@@ -1,6 +1,7 @@
 appId: com.datamonsterr.taphoamini
 ---
-# Shared cold start: fresh state, camera permission pre-granted, wait for the camera screen.
+# Shared cold start: fresh state (no session, so the app opens on the welcome screen), camera
+# permission pre-granted.
 # On the CI emulator, Android sometimes kills the freshly started process while it is still
 # removing the previous task ("Destroy timeout of remove-task ... Killing <new pid>"), which
 # leaves a dead splash screen. Stop the app first and retry the launch when that happens.
@@ -26,5 +27,5 @@ appId: com.datamonsterr.taphoamini
             - tapOn: 'Wait'
       # First load of the JS bundle on a cold emulator can be slow.
       - extendedWaitUntil:
-          visible: 'Chụp'
+          visible: 'Khôi phục cửa hàng'
           timeout: 60000

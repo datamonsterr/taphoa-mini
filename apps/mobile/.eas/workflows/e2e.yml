@@ -17,9 +17,6 @@ jobs:
       build_id: ${{ needs.build_android.outputs.build_id }}
       flow_path:
         - '.maestro/smoke.yaml'
-        - '.maestro/journey.yaml'
-        - '.maestro/camera.yaml'
+        - '.maestro/onboarding.yaml'
+        - '.maestro/inventory.yaml'
         - '.maestro/checkout.yaml'
-        - '.maestro/shop.yaml'
-        - '.maestro/reports.yaml'
-        - '.maestro/account.yaml'

@@ -1,0 +1,23 @@
+appId: com.datamonsterr.taphoamini
+---
+# Cold start, then create a store through the real backend (POST /v1/stores) and land on the
+# camera. Every run makes a store of its own, so flows never see each other's data.
+# Input: STORE_NAME (default below), OWNER_NAME.
+- runFlow: launch.yaml
+- tapOn: 'Tạo cửa hàng'
+- tapOn: 'Tên cửa hàng'
+- inputText: ${STORE_NAME}
+- tapOn: 'Tên của bạn'
+- inputText: ${OWNER_NAME}
+# Enter submits the form (the last field's onSubmitEditing).
+- pressKey: Enter
+# The recovery code is shown once; "Tiếp tục" confirms it was saved.
+- extendedWaitUntil:
+    visible: 'Lưu mã khôi phục'
+    timeout: 30000
+- assertVisible: 'Mã khôi phục của bạn.*'
+- tapOn: 'Tiếp tục'
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 30000
+- assertVisible: 'Giỏ hàng trống'
