@@ -14,6 +14,7 @@ pub mod reports;
 pub mod retention;
 pub mod sales;
 pub mod seed;
+pub mod stock;
 pub mod storage;
 pub mod store;
 pub mod sync;
@@ -196,6 +197,7 @@ pub fn router(state: AppState) -> Router {
         .merge(catalog::router())
         .merge(recognition::router())
         .merge(sales::router())
+        .merge(stock::router())
         .merge(expenses::router())
         .merge(reports::router())
         .merge(sync::router())

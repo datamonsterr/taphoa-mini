@@ -79,6 +79,7 @@ pub struct StoreRow {
     pub bank_account_name: Option<String>,
     pub margin_threshold_pct: f64,
     pub sales_memo_prefix: String,
+    pub low_stock_threshold: i32,
     pub created_at: DateTime<Utc>,
     pub version: i64,
 }
@@ -92,10 +93,10 @@ impl StoreRow {
                 account_name: self.bank_account_name.clone().unwrap_or_default()
             })
         });
-        json!({"id":self.id,"name":self.name,"bank_account":bank,"timezone":"Asia/Ho_Chi_Minh","margin_threshold_pct":self.margin_threshold_pct,"sales_memo_prefix":self.sales_memo_prefix,"created_at":self.created_at,"version":self.version})
+        json!({"id":self.id,"name":self.name,"bank_account":bank,"timezone":"Asia/Ho_Chi_Minh","margin_threshold_pct":self.margin_threshold_pct,"sales_memo_prefix":self.sales_memo_prefix,"low_stock_threshold":self.low_stock_threshold,"created_at":self.created_at,"version":self.version})
     }
 }
-pub const STORE_SELECT: &str = "SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,created_at,version FROM stores WHERE id=$1";
+pub const STORE_SELECT: &str = "SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,low_stock_threshold,created_at,version FROM stores WHERE id=$1";
 pub async fn store(conn: &mut PgConnection, id: Uuid) -> ApiResult<Value> {
     Ok(sqlx::query_as::<_, StoreRow>(STORE_SELECT)
         .bind(id)

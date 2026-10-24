@@ -11,6 +11,30 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+struct ImageSigner;
+#[async_trait::async_trait]
+impl taphoa_api::storage::ObjectStore for ImageSigner {
+    async fn put(&self, _: &str, _: &str, _: Vec<u8>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn head_bucket(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn presign_get(
+        &self,
+        key: &str,
+        ttl: std::time::Duration,
+    ) -> anyhow::Result<taphoa_api::storage::SignedUrl> {
+        Ok(taphoa_api::storage::SignedUrl {
+            url: format!("https://stock.test/{key}"),
+            expires_at: (std::time::SystemTime::now() + ttl).into(),
+        })
+    }
+}
+
 async fn adjust(w: &World, p: Uuid, token: &str, key: &str, body: Value) -> (StatusCode, Value) {
     let response = w
         .app
@@ -187,6 +211,19 @@ async fn adjustment_validation_permissions_and_replay() {
         adjust(&w, p, &w.lead, &key, json!({"count":13})).await.0,
         StatusCode::CONFLICT
     );
+    assert_eq!(
+        adjust(&w, p, &w.lead, &key, json!({"count":-1})).await.0,
+        StatusCode::CONFLICT
+    );
+    let long_key = "k".repeat(3000);
+    let (long_status, long_movement) = adjust(&w, p, &w.lead, &long_key, json!({"count":12})).await;
+    assert_eq!(long_status, StatusCode::OK);
+    assert_eq!(
+        adjust(&w, p, &w.lead, &long_key, json!({"count":12}))
+            .await
+            .1,
+        long_movement
+    );
     let (_, d) = adjust(&w, p, &w.lead, "delta", json!({"delta":-20})).await;
     assert_eq!(d["quantity_after"], -8);
     let (_, replay) = adjust(&w, p, &w.lead, &key, body).await;
@@ -216,8 +253,18 @@ async fn adjustment_validation_permissions_and_replay() {
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn threshold_crossings_override_product_store_and_sync_fields() {
-    let w = World::new().await;
+    let mut w = World::new().await;
+    w.state.storage = Some(std::sync::Arc::new(ImageSigner));
+    w.app = taphoa_api::router(w.state.clone());
     let p = w.product("Threshold", 10, None).await;
+    let image = Uuid::now_v7();
+    sqlx::query("INSERT INTO images(id,store_id,object_key,content_type,byte_size) VALUES($1,$2,$3,'image/jpeg',10)").bind(image).bind(w.store_id).bind(format!("stock/{image}.jpg")).execute(w.pool()).await.unwrap();
+    sqlx::query("INSERT INTO product_images(product_id,image_id,position) VALUES($1,$2,0)")
+        .bind(p)
+        .bind(image)
+        .execute(w.pool())
+        .await
+        .unwrap();
     let store = w
         .checked(
             "PATCH",
@@ -281,7 +328,41 @@ async fn threshold_crossings_override_product_store_and_sync_fields() {
         .call("GET", "/v1/sync/changes", &w.lead, json!(null))
         .await;
     assert_eq!(feed.status, StatusCode::OK);
-    assert!(feed.body.to_string().contains("stock_quantity"));
+    let synced = feed.body["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["entity"] == "product" && c["id"] == p.to_string())
+        .unwrap();
+    assert_eq!(synced["data"]["stock_quantity"], 7);
+    assert_eq!(synced["data"]["low_stock_threshold"], Value::Null);
+    assert_eq!(synced["data"]["stock_status"], "low");
+    let doc: Value =
+        serde_norway::from_str(include_str!("../../../../../docs/api/asyncapi.yaml")).unwrap();
+    for kind in ["stock.changed", "stock.low"] {
+        let schema = doc["components"]["messages"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|m| m["name"] == kind)
+            .unwrap();
+        let root = json!({"components":doc["components"],"allOf":[schema["payload"]]});
+        let validator = jsonschema::draft202012::options()
+            .should_validate_formats(true)
+            .build(&root)
+            .unwrap();
+        let events: Vec<Value> =
+            sqlx::query_scalar("SELECT payload FROM outbox_events WHERE store_id=$1 AND type=$2")
+                .bind(w.store_id)
+                .bind(kind)
+                .fetch_all(w.pool())
+                .await
+                .unwrap();
+        assert!(!events.is_empty());
+        for event in events {
+            assert!(validator.is_valid(&event), "{event}");
+        }
+    }
     assert_eq!(
         w.call(
             "PATCH",
@@ -462,4 +543,85 @@ async fn receipt_apply_starts_tracking_and_concurrent_deltas_serialize() {
             .0,
         StatusCode::UNPROCESSABLE_ENTITY
     );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sale_and_product_image_write_use_product_before_store_lock_order() {
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use std::{str::FromStr, time::Duration};
+    let w = World::new().await;
+    let p = w.product("Concurrent", 10, None).await;
+    count(&w, p, 20).await;
+    let image = Uuid::now_v7();
+    sqlx::query("INSERT INTO images(id,store_id,object_key,content_type,byte_size) VALUES($1,$2,$3,'image/jpeg',1)").bind(image).bind(w.store_id).bind(format!("stock/{image}.jpg")).execute(w.pool()).await.unwrap();
+    // The existing image writer holds the product lock before emitting catalog.changed.
+    let mut writer = w.pool().begin().await.unwrap();
+    sqlx::query("SELECT id FROM products WHERE id=$1 FOR UPDATE")
+        .bind(p)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_images(product_id,image_id,position) VALUES($1,$2,0)")
+        .bind(p)
+        .bind(image)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let application = format!("stock_order_{}", Uuid::new_v4().simple());
+    let options = PgConnectOptions::from_str(&std::env::var("DATABASE_URL").unwrap())
+        .unwrap()
+        .application_name(&application);
+    let sale_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .unwrap();
+    let mut state = w.state.clone();
+    state.postgres = Some(sale_pool.clone());
+    let app = taphoa_api::router(state);
+    let token = w.seller.clone();
+    let sale = tokio::spawn(async move {
+        common::world::send(
+            &app,
+            "POST",
+            "/v1/sales",
+            Some(&token),
+            sale_body(Uuid::now_v7(), &now_iso(), "cash", &[(p, 2, 10)]),
+        )
+        .await
+    });
+    // Observe the actual blocked product query, rather than relying on a sleep race.
+    tokio::time::timeout(Duration::from_secs(5),async {
+        loop {
+            let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock')").bind(&application).fetch_one(w.pool()).await.unwrap();
+            if waiting {break;}
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("sale should wait for the image writer's product lock");
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        taphoa_api::events::emit(
+            &mut writer,
+            taphoa_api::events::Event {
+                store_id: w.store_id,
+                actor: None,
+                typ: "catalog.changed",
+                version: 1,
+                data: json!({"entity":"product","ids":[p]}),
+                change: Some(("product", p, "upsert")),
+            },
+        ),
+    )
+    .await
+    .expect("product writer must not wait on a store lock held by the blocked sale")
+    .unwrap();
+    writer.commit().await.unwrap();
+    let reply = tokio::time::timeout(Duration::from_secs(5), sale)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!(quantity(&w, p).await, Some(18));
+    sale_pool.close().await;
 }

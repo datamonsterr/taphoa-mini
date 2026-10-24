@@ -42,6 +42,7 @@ const TABLES: &[&str] = &[
     "change_log",
     "outbox_events",
     "stock_movements",
+    "stock_adjustment_requests",
     "receipts",
     "receipt_lines",
 ];
