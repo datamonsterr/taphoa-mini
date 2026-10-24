@@ -1,5 +1,5 @@
 //! Crop, resize and normalize helpers shared by the embedder and the scan pipeline.
-use image::{RgbImage, imageops::FilterType};
+use image::{GrayImage, RgbImage, imageops::FilterType};
 
 /// Side of the square embedder input.
 pub const EMBED_SIDE: u32 = 224;
@@ -39,6 +39,12 @@ pub fn decode_limited(bytes: &[u8]) -> Result<image::DynamicImage, String> {
 /// Crops `bbox` (x, y, width, height in pixels) grown by `pad` (fraction of each side, e.g. 0.08)
 /// on every edge, clamped to the image. Returns `None` for an empty or non-finite box.
 pub fn crop_with_padding(image: &RgbImage, bbox: [f32; 4], pad: f32) -> Option<RgbImage> {
+    let (x, y, width, height) = padded_box(image, bbox, pad)?;
+    Some(image::imageops::crop_imm(image, x, y, width, height).to_image())
+}
+
+/// Padded crop rectangle as `(x, y, width, height)` in photo pixels.
+fn padded_box(image: &RgbImage, bbox: [f32; 4], pad: f32) -> Option<(u32, u32, u32, u32)> {
     if bbox.iter().any(|v| !v.is_finite()) || bbox[2] <= 0.0 || bbox[3] <= 0.0 {
         return None;
     }
@@ -50,16 +56,35 @@ pub fn crop_with_padding(image: &RgbImage, bbox: [f32; 4], pad: f32) -> Option<R
     if x1 - x0 < 1.0 || y1 - y0 < 1.0 {
         return None;
     }
-    Some(
-        image::imageops::crop_imm(
-            image,
-            x0 as u32,
-            y0 as u32,
-            (x1 - x0) as u32,
-            (y1 - y0) as u32,
-        )
-        .to_image(),
-    )
+    Some((x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32))
+}
+
+/// Grey used outside the mask so the embedder sees a neutral background.
+pub const CUTOUT_BACKGROUND: image::Rgb<u8> = image::Rgb([128, 128, 128]);
+
+/// Masked crop of `bbox` (photo pixels, `[x, y, w, h]`) padded like `crop_with_padding`.
+///
+/// `mask` may be lower resolution than the photo as long as it covers the whole frame with the
+/// same aspect ratio; it is sampled nearest-neighbour over the crop region and thresholded at
+/// 128. Pixels outside the mask become [`CUTOUT_BACKGROUND`]; the rest keep their colour.
+pub fn cutout(image: &RgbImage, mask: &GrayImage, bbox: [f32; 4], pad: f32) -> Option<RgbImage> {
+    if mask.width() == 0 || mask.height() == 0 {
+        return None;
+    }
+    let (x, y, width, height) = padded_box(image, bbox, pad)?;
+    let mut out = image::imageops::crop_imm(image, x, y, width, height).to_image();
+    let scale_x = f64::from(mask.width()) / f64::from(image.width());
+    let scale_y = f64::from(mask.height()) / f64::from(image.height());
+    let last_x = mask.width() - 1;
+    let last_y = mask.height() - 1;
+    for (dx, dy, pixel) in out.enumerate_pixels_mut() {
+        let mx = (f64::from(x + dx) * scale_x).floor() as u32;
+        let my = (f64::from(y + dy) * scale_y).floor() as u32;
+        if mask.get_pixel(mx.min(last_x), my.min(last_y))[0] < 128 {
+            *pixel = CUTOUT_BACKGROUND;
+        }
+    }
+    Some(out)
 }
 
 /// Resizes to `EMBED_SIDE` square and writes CHW floats normalized with ImageNet statistics
@@ -152,6 +177,51 @@ mod tests {
         assert!((out[0] - (1.0 - 0.485) / 0.229).abs() < 1e-4);
         assert!((out[224 * 224] - (0.0 - 0.456) / 0.224).abs() < 1e-4);
         assert!((out[2 * 224 * 224 + 5] - (128.0 / 255.0 - 0.406) / 0.225).abs() < 1e-3);
+    }
+
+    #[test]
+    fn cutout_keeps_foreground_and_paints_background_grey() {
+        let image = RgbImage::from_pixel(16, 16, image::Rgb([10, 20, 30]));
+        let mut mask = image::GrayImage::new(16, 16);
+        for (x, _y, pixel) in mask.enumerate_pixels_mut() {
+            *pixel = image::Luma([if x < 8 { 128 } else { 127 }]);
+        }
+        let cut = cutout(&image, &mask, [0., 0., 16., 16.], 0.0).unwrap();
+        assert_eq!(*cut.get_pixel(3, 3), image::Rgb([10, 20, 30]));
+        assert_eq!(*cut.get_pixel(12, 12), CUTOUT_BACKGROUND);
+    }
+
+    #[test]
+    fn cutout_matches_padded_crop_dimensions() {
+        let image = RgbImage::new(100, 100);
+        let mask = image::GrayImage::from_pixel(25, 25, image::Luma([255]));
+        let bbox = [20., 20., 50., 50.];
+        let cut = cutout(&image, &mask, bbox, 0.08).unwrap();
+        let plain = crop_with_padding(&image, bbox, 0.08).unwrap();
+        assert_eq!((cut.width(), cut.height()), (plain.width(), plain.height()));
+    }
+
+    #[test]
+    fn cutout_upscales_low_resolution_mask() {
+        let image = RgbImage::from_pixel(16, 16, image::Rgb([200, 100, 50]));
+        let mut mask = image::GrayImage::new(4, 4);
+        for (x, _y, pixel) in mask.enumerate_pixels_mut() {
+            *pixel = image::Luma([if x < 2 { 255 } else { 0 }]);
+        }
+        let cut = cutout(&image, &mask, [0., 0., 16., 16.], 0.0).unwrap();
+        assert_eq!(*cut.get_pixel(0, 0), image::Rgb([200, 100, 50]));
+        assert_eq!(*cut.get_pixel(7, 15), image::Rgb([200, 100, 50]));
+        assert_eq!(*cut.get_pixel(8, 0), CUTOUT_BACKGROUND);
+        assert_eq!(*cut.get_pixel(15, 15), CUTOUT_BACKGROUND);
+    }
+
+    #[test]
+    fn cutout_rejects_empty_or_out_of_bounds_boxes() {
+        let image = RgbImage::new(10, 10);
+        let mask = image::GrayImage::from_pixel(5, 5, image::Luma([255]));
+        assert!(cutout(&image, &mask, [0., 0., 0., 5.], 0.08).is_none());
+        assert!(cutout(&image, &mask, [f32::NAN, 0., 5., 5.], 0.08).is_none());
+        assert!(cutout(&image, &mask, [50., 50., 5., 5.], 0.0).is_none());
     }
 
     #[test]
