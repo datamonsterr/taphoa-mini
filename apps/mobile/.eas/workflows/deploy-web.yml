@@ -1,4 +1,4 @@
-# Deploys the web build (in-app mock API by default) to EAS Hosting.
+# Deploys the web build to EAS Hosting. It calls the backend at EXPO_PUBLIC_API_URL (EAS environment variable).
 # Docs: https://docs.expo.dev/eas/hosting/workflows/
 name: Deploy web
 
