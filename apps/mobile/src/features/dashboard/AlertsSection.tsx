@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { Tag, TriangleAlert } from 'lucide-react-native';
 import { memo, useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -8,14 +8,15 @@ import { useAlerts, useManualLines, type ManualLine } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { selectIsLead, useSessionStore } from '@/stores/session';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
 
 import { dashboardStrings } from './strings';
 
 type Open = 'price' | 'manual' | null;
 
 /** Price below cost and sold-without-catalog pills (Lead only); each expands a list. */
-export const AlertsSection = memo(function AlertsSection() {
+const LeadAlerts = memo(function LeadAlerts() {
   const t = useT(dashboardStrings);
   const [open, setOpen] = useState<Open>(null);
   // Margin alerts and the review queue are Lead-only: a Seller's request would answer 403.
@@ -141,7 +142,87 @@ export const AlertsSection = memo(function AlertsSection() {
   );
 });
 
+/** Stock is visible to every member, independently of the Lead-only review queue. */
+export const AlertsSection = memo(function AlertsSection() {
+  const t = useT(dashboardStrings);
+  const { low, out, items } = useLowStockItems();
+  const isError = low.isError || out.isError;
+  const isPending = low.isPending || out.isPending;
+  return (
+    <View style={styles.section}>
+      {isError ? (
+        <View style={styles.errorRow}>
+          <Text style={styles.errorText}>{t('stockError')}</Text>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={`${t('stockError')}, ${t('retry')}`}
+            onPress={() => {
+              void low.refetch();
+              void out.refetch();
+            }}
+            style={styles.retry}
+          >
+            <Text style={styles.retryText}>{t('retry')}</Text>
+          </PressableScale>
+        </View>
+      ) : isPending ? (
+        <View
+          testID="stock-alerts-skeleton"
+          accessibilityLabel={t('loading')}
+          style={styles.skeleton}
+        />
+      ) : items.length ? (
+        <View style={styles.stockSection}>
+          <View style={styles.stockHeader}>
+            <Text accessibilityRole="header" style={styles.stockTitle}>
+              {t('lowStock')}
+            </Text>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('viewAll')}
+              onPress={() => router.push('/stock' as Href)}
+              style={styles.retry}
+            >
+              <Text style={styles.retryText}>{t('viewAll')}</Text>
+            </PressableScale>
+          </View>
+          <View style={styles.list}>
+            {items.slice(0, 5).map((item) => (
+              <View key={item.product_id} style={styles.item}>
+                <Text style={styles.itemName} numberOfLines={1}>
+                  {item.name ?? t('unnamedProduct')}
+                </Text>
+                <Text
+                  style={[
+                    styles.itemMeta,
+                    {
+                      color:
+                        item.status === 'out' ? colors.danger : colors.warning,
+                    },
+                  ]}
+                >
+                  {t(item.status === 'out' ? 'outOfStock' : 'stockLow')} ·{' '}
+                  {item.stock_quantity} {t('remaining')}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
+      <LeadAlerts />
+    </View>
+  );
+});
+
 const styles = StyleSheet.create({
+  stockSection: { gap: space[2] },
+  stockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space[2],
+  },
+  stockTitle: { ...typography.heading, color: colors.ink, flexShrink: 1 },
   section: { gap: space[3] },
   row: { flexDirection: 'row', gap: space[3] },
   skeleton: {
@@ -171,7 +252,7 @@ const styles = StyleSheet.create({
   },
   errorText: { ...typography.caption, color: colors.danger, flex: 1 },
   retry: {
-    minHeight: 48,
+    minHeight: size.tapMin,
     paddingHorizontal: space[4],
     alignItems: 'center',
     justifyContent: 'center',

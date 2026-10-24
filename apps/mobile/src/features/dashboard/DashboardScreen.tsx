@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { Plus, SquareCheck } from 'lucide-react-native';
+import { router, type Href } from 'expo-router';
+import { Plus, ReceiptText, SquareCheck } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -122,6 +122,16 @@ export function DashboardScreen() {
 
       <AlertsSection />
 
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={t('receipts')}
+        onPress={() => router.push('/receipts' as Href)}
+        style={styles.receiptsButton}
+      >
+        <Icon icon={ReceiptText} color={colors.ink} />
+        <Text style={styles.retryText}>{t('receipts')}</Text>
+      </PressableScale>
+
       {isLead ? (
         <PressableScale
           accessibilityRole="button"
@@ -139,6 +149,15 @@ export function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  receiptsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
+    minHeight: size.tapMin,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
+  },
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: space[4], gap: 20 },
   header: {
