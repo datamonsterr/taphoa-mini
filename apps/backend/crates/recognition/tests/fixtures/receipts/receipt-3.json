@@ -1,0 +1,25 @@
+{
+  "lines": [
+    {
+      "product_name": "Cà phê G7 3in1",
+      "quantity": 10,
+      "cost": 450000
+    },
+    {
+      "product_name": "Trà xanh Không Độ 500ml",
+      "quantity": 24,
+      "cost": 216000
+    },
+    {
+      "product_name": "Sữa đặc Ông Thọ 380g",
+      "quantity": 12,
+      "cost": 336000
+    },
+    {
+      "product_name": "Mì Hảo Hảo tôm chua cay",
+      "quantity": 30,
+      "cost": 126000
+    }
+  ],
+  "total": 1100000
+}

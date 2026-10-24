@@ -9,5 +9,6 @@ license.workspace = true
 image.workspace = true
 ort.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2 = "0.11.1"
 thiserror.workspace = true

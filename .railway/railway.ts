@@ -71,6 +71,8 @@ export default defineRailway(() => {
       LOG_FORMAT: 'json',
       // Four decoder sessions measured fastest on 8 vCPU (docs/specs/recognition-latency.md).
       SAM_DECODERS: '4',
+      // OCR paths are inherited from the Dockerfile; cap intra-op workers.
+      OCR_THREADS: '4',
       // Bucket credentials are not referencable from IaC; set once with
       // `railway bucket credentials` + `railway variable set` (docs/deploy.md).
       AWS_ENDPOINT_URL: preserve(),
