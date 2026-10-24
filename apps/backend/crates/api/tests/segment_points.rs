@@ -243,6 +243,7 @@ async fn call_api(
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_200_shape_and_contract() {
     let w = setup_world(true).await;
     let contract = Contract::load();
@@ -337,6 +338,7 @@ async fn test_segment_points_200_shape_and_contract() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_cutout_uploads_in_background_non_blocking() {
     let w = setup_world(true).await;
 
@@ -384,6 +386,7 @@ async fn test_segment_points_cutout_uploads_in_background_non_blocking() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_422_validation_failed_for_0_and_3_points() {
     let w = setup_world(true).await;
     let contract = Contract::load();
@@ -477,6 +480,7 @@ async fn test_segment_points_422_validation_failed_for_0_and_3_points() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_403_seller_without_can_enroll() {
     let w = setup_world(true).await;
     let contract = Contract::load();
@@ -500,6 +504,7 @@ async fn test_segment_points_403_seller_without_can_enroll() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_404_unknown_or_other_store_image() {
     let w = setup_world(true).await;
     let contract = Contract::load();
@@ -542,6 +547,7 @@ async fn test_segment_points_404_unknown_or_other_store_image() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_503_without_point_segmenter() {
     let w = setup_world(false).await;
     let contract = Contract::load();
@@ -565,6 +571,7 @@ async fn test_segment_points_503_without_point_segmenter() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_cache_hit_on_second_call() {
     let w = setup_world(true).await;
 
@@ -619,6 +626,7 @@ async fn test_segment_points_cache_hit_on_second_call() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn test_segment_points_503_when_inference_slots_busy() {
     let w = setup_world(true).await;
 
