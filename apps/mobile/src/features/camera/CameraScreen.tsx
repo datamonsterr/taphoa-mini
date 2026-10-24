@@ -2,17 +2,26 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowDown } from 'lucide-react-native';
+import { ArrowDown, Plus } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   type LayoutChangeEvent,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
+  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -22,11 +31,21 @@ import {
   DetectionOverlay,
   EnrollButton,
   ModeToggle,
+  PointOverlay,
   Shutter,
   SwipeHandle,
   Viewfinder,
 } from '@/components/camera';
 import { Icon } from '@/components/ui/Icon';
+import { CircleButton } from '@/components/ui';
+import {
+  useProduct,
+  useSegmentPoints,
+  useUploadImage,
+  type Product,
+} from '@/lib/api';
+import { downsizeForUpload } from '@/lib/api/downsize';
+import { newUuid } from '@/lib/uuid';
 import { useT } from '@/lib/i18n';
 import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
@@ -40,6 +59,15 @@ import {
   measuredFlyVector,
   type Layout,
 } from './AddFeedback';
+import { takePhoto } from './capture';
+import {
+  MIN_SHOTS,
+  selectCanCapture,
+  selectCanAdd,
+  selectCurrent,
+  useQuickEnrollStore,
+} from './quickEnroll';
+import { QuickEnrollSheet } from './QuickEnrollSheet';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import {
   confidencePercent,
@@ -102,6 +130,46 @@ const CartShortcut = memo(function CartShortcut({
   );
 });
 
+/** A short scale morph announces the new primary action after the third angle. */
+function QuickAdd({
+  onPress,
+  disabled,
+}: {
+  onPress: () => void;
+  disabled: boolean;
+}) {
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.value = withTiming(1, { duration: 180 });
+  }, [progress]);
+  const animated = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ scale: 0.95 + 0.05 * progress.value }],
+  }));
+  return (
+    <Animated.View style={animated}>
+      <CircleButton
+        icon={Plus}
+        large
+        variant="accent"
+        accessibilityLabel="Thêm sản phẩm"
+        testID="quick-enroll-add"
+        disabled={disabled}
+        onPress={onPress}
+      />
+    </Animated.View>
+  );
+}
+
+function IndexingChip({ id }: { id: string }) {
+  const { data } = useProduct(id);
+  return !data || data.index_status === 'pending' ? (
+    <Text accessibilityLiveRegion="polite" style={styles.indexChip}>
+      đang học
+    </Text>
+  ) : null;
+}
+
 /** Screens 01–04: live camera, then frozen photo with boxes, prices and the `+` batch. */
 export function CameraScreen() {
   const t = useT(strings);
@@ -121,10 +189,48 @@ export function CameraScreen() {
   const { phase, photo, scan, selected, chosen, openId } = state;
   const [addCount, setAddCount] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
+  const quickActive = useQuickEnrollStore((s) => s.active);
+  const shots = useQuickEnrollStore((s) => s.shots);
+  const currentShot = useQuickEnrollStore(selectCurrent);
+  const canQuickAdd = useQuickEnrollStore(selectCanAdd);
+  const acceptedCount = shots.filter(
+    (shot) => shot.status === 'accepted',
+  ).length;
+  const { mutateAsync: segmentPoints } = useSegmentPoints();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [addingAngle, setAddingAngle] = useState(false);
+  const [created, setCreated] = useState<Product[]>([]);
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const canQuickCapture = useQuickEnrollStore(selectCanCapture);
+  const dispatch = useQuickEnrollStore((s) => s.dispatch);
+  const { mutateAsync: uploadImage } = useUploadImage();
+  const [quickCapturing, setQuickCapturing] = useState(false);
+  const quickCaptureToken = useRef(0);
+  const quickCapturePending = useRef(false);
+
+  // Invalidate unfinished captures when this screen unmounts.
+  useEffect(
+    () => () => {
+      quickCaptureToken.current += 1;
+    },
+    [],
+  );
 
   // A frozen result means nothing once the seller leaves the screen.
   useEffect(() => {
-    if (!focused) reset();
+    if (!focused) {
+      reset();
+      quickCaptureToken.current += 1;
+      quickCapturePending.current = false;
+      // Focus loss cancels camera work and releases its local busy indicator.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setQuickCapturing(false);
+    }
   }, [focused, reset]);
 
   const finder = Math.max(
@@ -194,9 +300,62 @@ export function CameraScreen() {
     [router, photo, scan, imageSize, canEnroll],
   );
   const onEnrollPress = useCallback(() => {
-    const unknown = scan?.detections.find(isLowMatch);
-    goEnroll(unknown?.id);
-  }, [scan, goEnroll]);
+    if (!canEnroll) return;
+    const toggleMode = () => {
+      quickCaptureToken.current += 1;
+      quickCapturePending.current = false;
+      setQuickCapturing(false);
+      setSheetOpen(false);
+      setAddingAngle(false);
+      if (!useQuickEnrollStore.getState().active) reset();
+      dispatch({ type: 'toggle' });
+    };
+    if (quickActive && shots.length > 0) {
+      if (Platform.OS === 'web') {
+        if (window.confirm('Bỏ các ảnh đã chụp?')) toggleMode();
+      } else {
+        Alert.alert('Bỏ các ảnh đã chụp?', '', [
+          { text: 'Hủy', style: 'cancel' },
+          { text: 'Bỏ ảnh', style: 'destructive', onPress: toggleMode },
+        ]);
+      }
+    } else toggleMode();
+  }, [canEnroll, quickActive, shots.length, dispatch, reset]);
+
+  const segmentCurrent = useCallback(async () => {
+    const shot = selectCurrent(useQuickEnrollStore.getState());
+    if (!shot?.imageId || shot.points.length === 0) return;
+    const points = shot.points;
+    // Reducer updates replace the points array; undo/re-tap invalidates this request,
+    // including when a later prompt has the same coordinates.
+    const stillCurrent = () => {
+      const current = selectCurrent(useQuickEnrollStore.getState());
+      return current?.id === shot.id && current.points === points;
+    };
+    dispatch({ type: 'segmenting' });
+    try {
+      const result = await segmentPoints({ image_id: shot.imageId, points });
+      if (!stillCurrent()) return;
+      dispatch({
+        type: 'segmented',
+        id: shot.id,
+        mask: {
+          width: result.mask.width,
+          height: result.mask.height,
+          pngBase64: result.mask.png_base64,
+        },
+        bbox: result.bbox as [number, number, number, number],
+        cutoutImageId: result.cutout_image_id,
+      });
+    } catch (error) {
+      if (!stillCurrent()) return;
+      dispatch({
+        type: 'failed',
+        id: shot.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [dispatch, segmentPoints]);
 
   const onPricePress = useCallback(
     (id: string) => {
@@ -223,10 +382,55 @@ export function CameraScreen() {
     [requestPermission],
   );
   const openSettings = useCallback(() => void Linking.openSettings(), []);
+  const captureQuickPhoto = useCallback(async () => {
+    if (
+      !canEnroll ||
+      !cameraReady ||
+      !focused ||
+      quickCapturePending.current ||
+      !selectCanCapture(useQuickEnrollStore.getState())
+    )
+      return;
+    quickCapturePending.current = true;
+    setQuickCapturing(true);
+    const token = ++quickCaptureToken.current;
+    const id = newUuid();
+    try {
+      const photo = await takePhoto(cameraRef.current);
+      const downsized = await downsizeForUpload(
+        photo.uri,
+        photo.width,
+        photo.height,
+      );
+      if (token !== quickCaptureToken.current) return;
+      dispatch({ type: 'captured', id, ...downsized });
+      const image = await uploadImage({
+        file: {
+          uri: downsized.uri,
+          name: 'enrollment.jpg',
+          type: 'image/jpeg',
+        },
+        purpose: 'enrollment',
+      });
+      if (token !== quickCaptureToken.current) return;
+      dispatch({ type: 'uploaded', id, imageId: image.id });
+    } catch (error) {
+      if (token !== quickCaptureToken.current) return;
+      const message = error instanceof Error ? error.message : String(error);
+      dispatch({ type: 'failed', id, error: message });
+      Alert.alert('Chưa tải được ảnh', message);
+    } finally {
+      if (token === quickCaptureToken.current) {
+        quickCapturePending.current = false;
+        setQuickCapturing(false);
+      }
+    }
+  }, [canEnroll, cameraReady, focused, dispatch, uploadImage]);
   const onShutter = useCallback(() => {
-    if (phase === 'idle') void capture();
+    if (quickActive) void captureQuickPhoto();
+    else if (phase === 'idle') void capture();
     else reset();
-  }, [phase, capture, reset]);
+  }, [quickActive, captureQuickPhoto, phase, capture, reset]);
   const onRetry = useCallback(() => void retry(), [retry]);
 
   const [rects, setRects] = useState<{
@@ -358,6 +562,22 @@ export function CameraScreen() {
       </View>
 
       <View style={styles.stripSlot}>
+        {quickActive ? (
+          <Text style={styles.quickHint}>
+            Thêm hàng nhanh · {acceptedCount}/{MIN_SHOTS}
+          </Text>
+        ) : null}
+        {quickActive && acceptedCount < MIN_SHOTS ? (
+          <Text style={styles.quickHint}>Xoay sản phẩm</Text>
+        ) : null}
+        {notice ? (
+          <Text accessibilityRole="alert" style={styles.quickHint}>
+            {notice}
+          </Text>
+        ) : null}
+        {created.map((product) => (
+          <IndexingChip key={product.id} id={product.id} />
+        ))}
         {hasResult && mode === 'one' && openDetection?.alternatives ? (
           <AlternativesStrip
             items={openDetection.alternatives}
@@ -375,6 +595,7 @@ export function CameraScreen() {
       >
         <View>
           <EnrollButton
+            active={quickActive}
             pulse={hasResult && anyLow}
             disabled={!canEnroll}
             onPress={onEnrollPress}
@@ -394,11 +615,22 @@ export function CameraScreen() {
             </View>
           ) : null}
         </View>
-        <Shutter
-          label={phase === 'idle' ? t('shutter') : t('reshoot')}
-          busy={busy || (phase === 'idle' && !cameraReady)}
-          onPress={onShutter}
-        />
+        {quickActive && canQuickAdd && !currentShot && !addingAngle ? (
+          <QuickAdd onPress={() => setSheetOpen(true)} disabled={!canEnroll} />
+        ) : (
+          <Shutter
+            label={phase === 'idle' ? t('shutter') : t('reshoot')}
+            busy={
+              quickActive
+                ? !canQuickCapture ||
+                  quickCapturing ||
+                  !cameraReady ||
+                  !canEnroll
+                : busy || (phase === 'idle' && !cameraReady)
+            }
+            onPress={onShutter}
+          />
+        )}
         <View testID="camera-add-slot" onLayout={onAddLayout}>
           <AddButton
             disabled={!hasResult || batch === 0}
@@ -423,11 +655,66 @@ export function CameraScreen() {
           <SwipeHandle onOpen={openShop} />
         </View>
       </View>
+      {quickActive && currentShot ? (
+        <PointOverlay
+          key={currentShot.id}
+          shot={currentShot}
+          tapDisabled={!currentShot.imageId}
+          index={acceptedCount}
+          acceptedCount={acceptedCount}
+          onTap={(point) => {
+            if (!selectCurrent(useQuickEnrollStore.getState())?.imageId) return;
+            dispatch({ type: 'addPoint', point });
+            void segmentCurrent();
+          }}
+          onUndo={() => {
+            dispatch({ type: 'undoPoint' });
+            void segmentCurrent();
+          }}
+          onRetake={() => {
+            quickCaptureToken.current += 1;
+            quickCapturePending.current = false;
+            setQuickCapturing(false);
+            dispatch({ type: 'retake' });
+          }}
+          onNext={() => {
+            dispatch({ type: 'accept' });
+            if (addingAngle && !selectCurrent(useQuickEnrollStore.getState())) {
+              setAddingAngle(false);
+              setSheetOpen(true);
+            }
+          }}
+        />
+      ) : null}
+      {quickActive && sheetOpen ? (
+        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          <View
+            style={addingAngle ? styles.hidden : StyleSheet.absoluteFill}
+            pointerEvents={addingAngle ? 'none' : 'auto'}
+            accessibilityElementsHidden={addingAngle}
+            importantForAccessibility={
+              addingAngle ? 'no-hide-descendants' : 'auto'
+            }
+          >
+            <QuickEnrollSheet
+              onClose={() => setSheetOpen(false)}
+              onAddPhoto={() => setAddingAngle(true)}
+              onCreated={(product) => {
+                setCreated((products) => [...products, product]);
+                setNotice(`Đã thêm ${product.name || 'Hàng mới'}`);
+                setSheetOpen(false);
+                setAddingAngle(false);
+              }}
+            />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  hidden: { display: 'none' },
   screen: { flex: 1, backgroundColor: colors.cameraBg },
   modeRow: { alignItems: 'center' },
   finderRow: { alignItems: 'center', marginTop: FINDER_GAP },
@@ -436,6 +723,15 @@ const styles = StyleSheet.create({
     marginTop: space[2],
     justifyContent: 'center',
   },
+  indexChip: {
+    color: colors.accent,
+    backgroundColor: camera.glass,
+    alignSelf: 'center',
+    paddingHorizontal: space[3],
+    paddingVertical: space[1],
+    borderRadius: 999,
+  },
+  quickHint: { color: colors.accent, textAlign: 'center' },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',

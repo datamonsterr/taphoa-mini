@@ -5,14 +5,16 @@ import type {
   CreateProductRequest,
   CreateSaleRequest,
   ProductPatch,
+  ProductReference,
   ProductUnit,
   ResolveManualLineInput,
   Role,
   SaleLineInput,
+  SegmentPointsRequest,
   StorePatch,
 } from '@/lib/api/types';
 
-import { badRequest } from './errors';
+import { badRequest, conflict, unprocessableEntity } from './errors';
 
 type Obj = Record<string, unknown>;
 
@@ -154,23 +156,68 @@ function unit(value: unknown): ProductUnit {
   };
 }
 
+function reference(value: unknown): ProductReference {
+  const o = asObject(value, 'references[]');
+  const bbox = o.bbox;
+  if (
+    !Array.isArray(bbox) ||
+    bbox.length !== 4 ||
+    !bbox.every((n) => typeof n === 'number' && Number.isFinite(n))
+  ) {
+    fail('bbox', 'must be an array of 4 numbers [x, y, width, height]');
+  }
+  return {
+    image_id: uuid(o, 'image_id'),
+    cutout_image_id: uuid(o, 'cutout_image_id'),
+    bbox: bbox as number[],
+  };
+}
+
 export function parseCreateProduct(body: unknown): CreateProductRequest {
   const o = asObject(body);
-  const imageIds = o.image_ids;
-  if (
-    !Array.isArray(imageIds) ||
-    imageIds.length < 1 ||
-    imageIds.length > 5 ||
-    !imageIds.every(isUuid)
-  ) {
-    fail('image_ids', 'must be 1–5 UUIDs');
+  const hasRefs = has(o, 'references');
+  const hasImages = has(o, 'image_ids');
+
+  let references: ProductReference[] | undefined;
+  let imageIds: string[] | undefined;
+
+  if (hasRefs) {
+    const refs = o.references;
+    if (!Array.isArray(refs)) {
+      fail('references', 'must be an array');
+    }
+    const refsArray = refs as unknown[];
+    if (refsArray.length < 3) {
+      throw unprocessableEntity('references must have at least 3 items', {
+        field: 'references',
+      });
+    }
+    if (refsArray.length > 8) {
+      throw conflict('image_limit', 'total images cannot exceed 8');
+    }
+    references = refsArray.map(reference);
+  } else if (hasImages) {
+    const rawImageIds = o.image_ids;
+    if (
+      !Array.isArray(rawImageIds) ||
+      rawImageIds.length < 1 ||
+      rawImageIds.length > 5 ||
+      !rawImageIds.every(isUuid)
+    ) {
+      fail('image_ids', 'must be 1–5 UUIDs');
+    }
+    imageIds = rawImageIds as string[];
+  } else {
+    fail('references', 'must provide references (3..8) or image_ids (1..5)');
   }
+
   if (has(o, 'units') && !Array.isArray(o.units))
     fail('units', 'must be an array');
   return {
     id: uuid(o, 'id'),
     price: money(o, 'price'),
-    image_ids: imageIds as string[],
+    ...(references ? { references } : {}),
+    ...(imageIds ? { image_ids: imageIds } : {}),
     force_new: o.force_new === true,
     ...(has(o, 'name') ? { name: text(o, 'name', 120) } : {}),
     ...(has(o, 'base_unit') ? { base_unit: text(o, 'base_unit', 20, 1) } : {}),
@@ -189,6 +236,47 @@ export function parseCreateProduct(body: unknown): CreateProductRequest {
         }
       : {}),
   };
+}
+
+export function parseSegmentPoints(body: unknown): SegmentPointsRequest {
+  const o = asObject(body);
+  const imageId = uuid(o, 'image_id');
+  const rawPoints = o.points;
+  if (
+    !Array.isArray(rawPoints) ||
+    rawPoints.length < 1 ||
+    rawPoints.length > 2
+  ) {
+    throw unprocessableEntity('points must be an array of 1–2 items', {
+      field: 'points',
+    });
+  }
+  const points = rawPoints.map((p, idx) => {
+    if (typeof p !== 'object' || p === null) {
+      throw unprocessableEntity(`points[${idx}] must be an object`, {
+        field: `points[${idx}]`,
+      });
+    }
+    const pt = p as Record<string, unknown>;
+    if (
+      typeof pt.x !== 'number' ||
+      !Number.isFinite(pt.x) ||
+      typeof pt.y !== 'number' ||
+      !Number.isFinite(pt.y)
+    ) {
+      throw unprocessableEntity(
+        `points[${idx}] must have numeric x and y coordinates`,
+        { field: `points[${idx}]` },
+      );
+    }
+    if (pt.label !== 0 && pt.label !== 1) {
+      throw unprocessableEntity(`points[${idx}].label must be 0 or 1`, {
+        field: `points[${idx}].label`,
+      });
+    }
+    return { x: pt.x, y: pt.y, label: pt.label as 0 | 1 };
+  });
+  return { image_id: imageId, points };
 }
 
 export function parseProductPatch(body: unknown): ProductPatch {

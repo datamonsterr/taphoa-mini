@@ -593,6 +593,30 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/segment/points:
+    post:
+      tags: [Recognition]
+      operationId: segmentPoints
+      summary: Point-prompted segmentation (MobileSAM)
+      description: |
+        Requires Lead or `can_enroll`. Runs MobileSAM with 1-2 point prompts on a cached or newly
+        computed image embedding. Returns mask, bounding box, cutout image, and timings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentPointsRequest' }
+      responses:
+        '200':
+          description: Segmentation mask, cutout image, and bounding box.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SegmentPointsResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   # ---------------------------------------------------------------- Catalog
   /v1/products:
@@ -635,10 +659,19 @@ paths:
     post:
       tags: [Catalog]
       operationId: createProduct
-      summary: Enroll a product from 1–5 photos and a price (C1, C4, C5)
+      summary: Enroll a product from 1–8 photos and a price (C1, C4, C5)
       description: |
-        Requires Lead or `can_enroll`. The server embeds each reference image and stores the
-        vectors. Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
+        Requires Lead or `can_enroll`. Accepts either quick-enroll multi-angle `references`
+        (3..8 photos with cutouts and bounding boxes) or legacy `image_ids` (1..5 photos).
+        Exactly one of `references` or `image_ids` is required (422 `validation_failed`
+        for both or neither). Minimum 3 applies only to `references` (422 below 3).
+        Reference image IDs must be distinct; bounding boxes must be finite with positive
+        width and height (422 `validation_failed`). Returns 409 `image_limit` above 8.
+        The synchronous duplicate check embeds only the first cutout (first image for legacy).
+        Cutout storage reads retry for up to 1 second, then fall back to a padded bbox crop.
+        An async index job embeds reference cutouts into the database;
+        the product is returned immediately with `index_status: "pending"`.
+        Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
         "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
         would match. Idempotent on `id`.
       requestBody:
@@ -663,11 +696,12 @@ paths:
         '409':
           description: |
             `duplicate_suspected` (with `details.candidates`) when `force_new` is false and a
-            reference image matches an existing product, or `id_conflict` on an id reused with
-            a different body.
+            reference image matches an existing product, `image_limit` when total images would
+            exceed 8, or `id_conflict` on an id reused with a different body.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/products/{productId}:
     parameters:
@@ -724,7 +758,14 @@ paths:
       tags: [Catalog]
       operationId: addProductImage
       summary: Add a reference photo, e.g. "merge" answer to "Same as X?" (C2)
-      description: Max 5 reference images per product (409 above). The image is embedded and indexed.
+      description: |
+        Max 8 reference images per product (positions 0..7, 409 above). Accepts optional
+        `cutout_image_id` and `bbox` together; enqueues a background index job without
+        synchronous embedding writes. Invalid pairs and non-finite or non-positive-size
+        bounding boxes return 422 `validation_failed`. `detection_id` selects a detection
+        belonging to this image and store; its bbox is retained for background cropping.
+        Combining `detection_id` with `bbox` returns 422 `validation_failed`.
+        `product_embeddings.detection_id` is no longer populated by this endpoint.
       requestBody:
         required: true
         content:
@@ -738,7 +779,22 @@ paths:
                   type: string
                   format: uuid
                   description: Optional. Embed this detection's crop instead of the whole image.
+                cutout_image_id:
+                  type: string
+                  format: uuid
+                  description: Optional. Masked cutout image ID for quick enroll indexing.
+                bbox:
+                  type: array
+                  description: '[x, y, width, height] in original image pixels.'
+                  items: { type: number }
+                  minItems: 4
+                  maxItems: 4
       responses:
+        '200':
+          description: Image already attached; returns the stored reference.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImage' }
         '201':
           description: Reference image added.
           content:
@@ -747,7 +803,12 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`image_limit` when the product already has 8 reference images.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /v1/products/{productId}/images/{imageId}:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -755,8 +816,8 @@ paths:
     delete:
       tags: [Catalog]
       operationId: removeProductImage
-      summary: Remove a reference photo and its embedding
-      description: A product keeps at least one reference image (409).
+      summary: Remove a reference photo and enqueue prototype recomputation
+      description: A product keeps at least one reference image (409). Enqueues background indexing.
       responses:
         '204': { description: Removed. }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1544,6 +1605,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    UnprocessableEntity:
+      description: Semantic validation failed (e.g. invalid points, references count below 3).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     TooManyRequests:
       description: Rate limited. See `Retry-After`.
       headers:
@@ -1766,6 +1832,79 @@ components:
         score: { type: number, description: Model mask quality score. }
         area: { type: integer, description: Foreground pixel count. }
       example: { bbox: [120, 80, 210, 330], score: 0.95, area: 51234 }
+    SegmentPointsRequest:
+      type: object
+      required: [image_id, points]
+      properties:
+        image_id:
+          type: string
+          format: uuid
+          description: Uploaded photo to segment.
+        points:
+          type: array
+          minItems: 1
+          maxItems: 2
+          description: Pixel coordinates of original photo; 1 = foreground, 0 = background.
+          items:
+            type: object
+            required: [x, y, label]
+            properties:
+              x:
+                type: number
+                description: X coordinate in pixels on original photo.
+              y:
+                type: number
+                description: Y coordinate in pixels on original photo.
+              label:
+                type: integer
+                enum: [0, 1]
+                description: '1 = foreground, 0 = background.'
+    SegmentPointsResponse:
+      type: object
+      required: [bbox, score, area, mask, cutout_image_id, timings]
+      properties:
+        bbox:
+          type: array
+          description: '[x, y, width, height] in original photo pixels.'
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+        score:
+          type: number
+          description: MobileSAM mask confidence score.
+        area:
+          type: integer
+          description: Foreground pixel count in mask.
+        mask:
+          type: object
+          required: [width, height, png_base64]
+          properties:
+            width:
+              type: integer
+              description: Mask width in pixels.
+            height:
+              type: integer
+              description: Mask height in pixels.
+            png_base64:
+              type: string
+              description: 'PNG with alpha channel: opaque = product, transparent = background'
+        cutout_image_id:
+          type: string
+          format: uuid
+          description: Stored cutout image on neutral grey background.
+        timings:
+          type: object
+          required: [encode, decode, total]
+          properties:
+            encode:
+              type: integer
+              description: Encoder latency in ms.
+            decode:
+              type: integer
+              description: Decoder latency in ms.
+            total:
+              type: integer
+              description: Total latency in ms.
     Scan:
       type: object
       required: [id, image, mode, purpose, pipeline, detections, created_at]
@@ -1870,11 +2009,46 @@ components:
         image_id: { type: string, format: uuid }
         url: { type: string, format: uri }
         url_expires_at: { type: string, format: date-time }
-        position: { type: integer, minimum: 0, maximum: 4 }
+        position: { type: integer, minimum: 0, maximum: 7 }
+        cutout_image_id: { type: string, format: uuid }
+        bbox:
+          type: array
+          description: '[x, y, width, height] in original image pixels.'
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+    ProductReference:
+      type: object
+      required: [image_id, cutout_image_id, bbox]
+      properties:
+        image_id:
+          type: string
+          format: uuid
+          description: Original photo image ID.
+        cutout_image_id:
+          type: string
+          format: uuid
+          description: Masked cutout image ID on neutral grey background.
+        bbox:
+          type: array
+          description: '[x, y, width, height] in original photo pixels.'
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
     Product:
       type: object
       required:
-        [id, price, base_unit, units, images, archived, version, updated_at]
+        [
+          id,
+          price,
+          base_unit,
+          units,
+          images,
+          index_status,
+          archived,
+          version,
+          updated_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         name: { type: [string, 'null'], example: Sting đỏ 330ml }
@@ -1893,15 +2067,25 @@ components:
         images:
           type: array
           minItems: 1
-          maxItems: 5
+          maxItems: 8
           items: { $ref: '#/components/schemas/ProductImage' }
+        index_status:
+          type: string
+          enum: [pending, ready, failed]
+          description: Status of the background reference embedding and prototype job.
         archived: { type: boolean }
         version: { type: integer, format: int64 }
         created_by: { type: string, format: uuid }
         updated_at: { type: string, format: date-time }
     CreateProductRequest:
       type: object
-      required: [id, price, image_ids]
+      description: Exactly one of references or image_ids is required; both or neither return 422 validation_failed.
+      oneOf:
+        - required: [references]
+          not: { required: [image_ids] }
+        - required: [image_ids]
+          not: { required: [references] }
+      required: [id, price]
       properties:
         id: { type: string, format: uuid, description: Client UUIDv7. }
         price: { $ref: '#/components/schemas/Money' }
@@ -1910,6 +2094,15 @@ components:
           minItems: 1
           maxItems: 5
           items: { type: string, format: uuid }
+          description: Legacy enrollment path (1..5 photos from checkout unknown pill).
+        references:
+          type: array
+          minItems: 3
+          maxItems: 8
+          items: { $ref: '#/components/schemas/ProductReference' }
+          description: |
+            Quick enroll multi-angle references (3..8 photos).
+            Minimum 3 applies only to `references` (422 below 3, 409 when total images exceed 8).
         name: { type: string, maxLength: 120 }
         base_unit: { type: string, maxLength: 20 }
         cost_price: { $ref: '#/components/schemas/Money' }
@@ -2338,6 +2531,7 @@ components:
             - alert.resolved
             - day.closed
             - sale.payment_confirmed
+            - product.indexed
         version: { type: integer, minimum: 1 }
         store_id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }

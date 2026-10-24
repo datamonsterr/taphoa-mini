@@ -43,4 +43,9 @@ separate from the current infrastructure skeleton.
 | Business date                 | Proposed: calendar date in `Asia/Ho_Chi_Minh` stored on sales/expenses; reports and chốt sổ group by it.                            |
 | Session (app)                 | Access + refresh token, member and store kept by the app in `expo-secure-store` (web: `localStorage`); no session means onboarding. |
 | Recovery code                 | One-time code shown after store creation or recovery; the app stays on onboarding until the Lead confirms saving it.                |
+| Quick enroll                  | Proposed: tag-toggle camera mode; 3..8 photos, each cut out by MobileSAM from 1-2 tapped points. See `docs/specs/quick-enroll.md`.  |
+| Point prompt                  | Proposed: 1-2 tapped pixels (foreground/background label) sent to `POST /v1/segment/points`.                                        |
+| Cutout                        | Proposed: masked product crop on a neutral grey background, stored as an image and embedded as a reference.                         |
+| Prototype                     | Proposed: per-product mean of its reference embeddings; few-shot score is `max(best reference, prototype)`.                         |
+| Index job                     | Proposed: background job that embeds references, recomputes the prototype and emits `product.indexed`.                              |
 | Test double (mobile)          | `apps/mobile/src/test/mock`, an in-memory fake of the API for Jest only; the app bundle never imports it.                           |

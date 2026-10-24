@@ -30,5 +30,11 @@ export const badRequest = (
 export const notFound = (what: string) =>
   new MockHttpError(404, 'not_found', `${what} not found`);
 
+export const unprocessableEntity = (
+  message: string,
+  details?: Record<string, unknown>,
+  code = 'validation_failed',
+) => new MockHttpError(422, code, message, details);
+
 export const conflict = (code: string, message: string) =>
   new MockHttpError(409, code, message);

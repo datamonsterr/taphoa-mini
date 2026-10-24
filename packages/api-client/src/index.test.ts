@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createApiClient } from './index';
+import { createApiClient, type paths } from './index';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -70,5 +70,24 @@ describe('api client', () => {
     const form = await req.formData();
     expect(form.get('purpose')).toBe('enrollment');
     expect(form.get('image')).toBeInstanceOf(Blob);
+  });
+
+  it('types: /v1/segment/points exists and product create accepts references', () => {
+    type _SegmentPointsPost = paths['/v1/segment/points']['post'];
+    type CreateProductBody =
+      paths['/v1/products']['post']['requestBody']['content']['application/json'];
+    const sample: CreateProductBody = {
+      id: '0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b',
+      price: 10000,
+      force_new: false,
+      references: [
+        {
+          image_id: '0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b',
+          cutout_image_id: '0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3c',
+          bbox: [0, 0, 100, 100],
+        },
+      ],
+    };
+    expect(sample).toBeDefined();
   });
 });

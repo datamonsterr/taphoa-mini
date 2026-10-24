@@ -8,6 +8,7 @@ export const keys = {
   store: () => [...keys.all, 'store'] as const,
   members: () => [...keys.all, 'members'] as const,
   categories: () => [...keys.all, 'categories'] as const,
+  product: (id: string) => [...keys.all, 'products', 'detail', id] as const,
   products: {
     all: () => [...keys.all, 'products'] as const,
     list: (params: Omit<ListProductsParams, 'cursor'> = {}) =>

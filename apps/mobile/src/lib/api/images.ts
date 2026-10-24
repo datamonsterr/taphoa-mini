@@ -7,6 +7,8 @@ import type {
   Scan,
   ScanMode,
   ScanPurpose,
+  SegmentPointsRequest,
+  SegmentPointsResponse,
   UploadFile,
 } from './types';
 
@@ -95,3 +97,9 @@ export async function uploadImage(
     }),
   );
 }
+
+/** POST /v1/segment/points (point-prompted MobileSAM segmentation). */
+export const segmentPoints = (
+  body: SegmentPointsRequest,
+): Promise<SegmentPointsResponse> =>
+  unwrap(getApiClient().raw.POST('/v1/segment/points', { body }));

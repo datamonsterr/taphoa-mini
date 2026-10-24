@@ -27,6 +27,7 @@ import {
   parseInvite,
   parseProductPatch,
   parseResolveManualLine,
+  parseSegmentPoints,
   parseStorePatch,
 } from './validate';
 
@@ -215,6 +216,12 @@ export const MOCK_ROUTES: MockRoute[] = [
   },
   { method: 'POST', path: '/v1/images', handler: uploadImageHandler },
   { method: 'POST', path: '/v1/recognition/scans', handler: createScanHandler },
+  {
+    method: 'POST',
+    path: '/v1/segment/points',
+    handler: async ({ request }) =>
+      ok(db.segmentPoints(parseSegmentPoints(await readJson(request)))),
+  },
   {
     method: 'GET',
     path: '/v1/products',

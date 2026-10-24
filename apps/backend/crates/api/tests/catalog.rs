@@ -167,6 +167,36 @@ struct World {
     seller: String,   // no can_enroll
     enroller: String, // seller with can_enroll
 }
+impl Drop for World {
+    fn drop(&mut self) {
+        let store_id = self.store_id;
+        // Keep queued jobs from outliving their test's in-memory object store and
+        // being claimed by later worker suites. A separate runtime also works
+        // during unwinding from a current-thread tokio test.
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let url = std::env::var("DATABASE_URL").unwrap();
+                    let pool = sqlx::postgres::PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect(&url)
+                        .await
+                        .unwrap();
+                    sqlx::query("DELETE FROM index_jobs WHERE store_id=$1")
+                        .bind(store_id)
+                        .execute(&pool)
+                        .await
+                        .unwrap();
+                    pool.close().await;
+                });
+        })
+        .join()
+        .unwrap();
+    }
+}
 async fn world_from(app: Router, state: AppState) -> World {
     let device = json!({"name":"counter","platform":"web","app_version":"1.0"});
     let (_, lead) = call(
@@ -212,10 +242,18 @@ async fn world() -> World {
     let (app, state) = setup().await;
     world_from(app, state).await
 }
-/// Upload a PNG-magic image whose bytes (hence MockEmbedder vector) depend on `tag`.
+fn png_bytes(tag: &str) -> Vec<u8> {
+    let mut image = image::RgbImage::new(4, 4);
+    for (i, pixel) in image.pixels_mut().enumerate() {
+        *pixel = image::Rgb([tag.as_bytes()[i % tag.len()], i as u8, tag.len() as u8]);
+    }
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+/// Upload a decodable PNG whose bytes (hence MockEmbedder vector) depend on `tag`.
 async fn upload(w: &World, token: &str, tag: &str) -> String {
-    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-    bytes.extend_from_slice(tag.as_bytes());
+    let bytes = png_bytes(tag);
     let mut body = b"--b\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nenrollment\r\n--b\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n".to_vec();
     body.extend_from_slice(&bytes);
     body.extend_from_slice(b"\r\n--b--\r\n");
@@ -267,6 +305,592 @@ async fn count(w: &World, sql: &'static str, id: Uuid) -> i64 {
         .fetch_one(w.state.postgres.as_ref().unwrap())
         .await
         .unwrap()
+}
+
+async fn references(w: &World, n: usize, tag: &str) -> Vec<Value> {
+    let mut refs = Vec::new();
+    for i in 0..n {
+        refs.push(json!({
+            "image_id": upload(w, &w.lead, &format!("{tag}-photo-{i}")).await,
+            "cutout_image_id": upload(w, &w.lead, &format!("{tag}-cutout-{i}")).await,
+            "bbox": [0.0, 0.0, 2.0, 2.0]
+        }));
+    }
+    refs
+}
+
+#[derive(sqlx::FromRow)]
+struct StoredReference {
+    image_id: Uuid,
+    cutout_image_id: Option<Uuid>,
+    bbox: Option<Vec<f32>>,
+    position: i16,
+}
+
+async fn index_product(w: &World, id: Uuid) {
+    use taphoa_api::catalog::index_jobs::{WorkerConfig, process_next};
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = LOCK.lock().await;
+    let pool = w.state.postgres.as_ref().unwrap();
+    // process_next claims globally; prioritize this world's job.
+    sqlx::query(
+        "UPDATE index_jobs SET run_after='1900-01-01' WHERE product_id=$1 AND status='queued'",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .unwrap();
+    for _ in 0..1000 {
+        if sqlx::query_scalar::<_, String>("SELECT index_status FROM products WHERE id=$1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            == "ready"
+        {
+            return;
+        }
+        assert!(
+            process_next(
+                pool,
+                w.state.embedder.clone().unwrap(),
+                w.state.storage.clone().unwrap(),
+                w.state.inference_slots.clone(),
+                &WorkerConfig::default()
+            )
+            .await
+            .unwrap()
+        );
+    }
+    panic!("product was not indexed");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quick_enroll_reference_validation() {
+    let w = world().await;
+    let refs = references(&w, 9, "validation").await;
+    for (body, status, code) in [
+        (
+            json!({"references": &refs[..2]}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+        ),
+        (
+            json!({"references": refs}),
+            StatusCode::CONFLICT,
+            "image_limit",
+        ),
+        (
+            json!({}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+        ),
+        (
+            json!({"image_ids": [], "references": &refs[..3]}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+        ),
+        (
+            json!({"references": [refs[0].clone(), refs[0].clone(), refs[1].clone()]}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+        ),
+    ] {
+        let mut body = body;
+        body["id"] = json!(Uuid::now_v7());
+        body["price"] = json!(100);
+        let err = expect_code(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            body,
+            status,
+            code,
+        )
+        .await;
+        Contract::load().assert_conforms("/v1/products", "post", status, &err);
+    }
+    for bbox in [
+        json!([0, 0, 0, 2]),
+        json!([0, 0, 2, -1]),
+        json!([0, 0, 1e100, 2]),
+        json!([0, 0, 2]),
+    ] {
+        let mut invalid = refs[..3].to_vec();
+        invalid[0]["bbox"] = bbox;
+        expect_code(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            json!({"id":Uuid::now_v7(),"price":1,"references":invalid}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+        )
+        .await;
+    }
+    for field in ["image_id", "cutout_image_id"] {
+        let mut invalid = refs[..3].to_vec();
+        invalid[0][field] = json!(Uuid::now_v7());
+        expect_code(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            json!({"id":Uuid::now_v7(),"price":1,"references":invalid}),
+            StatusCode::NOT_FOUND,
+            "not_found",
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
+    let w = world().await;
+    let refs = references(&w, 3, "reference-happy").await;
+    let id = Uuid::now_v7();
+    let body = json!({"id": id,"price":5000,"references":refs});
+    let p = ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        body.clone(),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(p["index_status"], "pending");
+    let rows: Vec<StoredReference> = sqlx::query_as("SELECT image_id,cutout_image_id,bbox,position FROM product_images WHERE product_id=$1 ORDER BY position")
+        .bind(id).fetch_all(w.state.postgres.as_ref().unwrap()).await.unwrap();
+    assert_eq!(rows.len(), 3);
+    for (i, row) in rows.iter().enumerate() {
+        assert_eq!(json!(row.image_id), refs[i]["image_id"]);
+        assert_eq!(json!(row.cutout_image_id), refs[i]["cutout_image_id"]);
+        assert_eq!(row.bbox, Some(vec![0., 0., 2., 2.]));
+        assert_eq!(row.position, i as i16);
+        assert_eq!(
+            p["images"][i]["cutout_image_id"],
+            refs[i]["cutout_image_id"]
+        );
+    }
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM index_jobs WHERE product_id=$1 AND status='queued'",
+            id
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id
+        )
+        .await,
+        0
+    );
+    let replay = ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        body.clone(),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(replay["id"], p["id"]);
+    assert_eq!(replay["index_status"], p["index_status"]);
+    let mut changed = body.clone();
+    changed["price"] = json!(6000);
+    expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        changed,
+        StatusCode::CONFLICT,
+        "id_conflict",
+    )
+    .await;
+    index_product(&w, id).await;
+    let ready = ok(
+        &w.app,
+        "GET",
+        &format!("/v1/products/{id}"),
+        "/v1/products/{productId}",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(ready["index_status"], "ready");
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id
+        )
+        .await,
+        6
+    );
+    let mut duplicate = body;
+    duplicate["id"] = json!(Uuid::now_v7());
+    let err = expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        duplicate.clone(),
+        StatusCode::CONFLICT,
+        "duplicate_suspected",
+    )
+    .await;
+    Contract::load().assert_conforms("/v1/products", "post", StatusCode::CONFLICT, &err);
+    assert_eq!(err["details"]["candidates"][0]["product_id"], json!(id));
+    duplicate["force_new"] = json!(true);
+    let forced = ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        duplicate,
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(forced["index_status"], "pending");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quick_enroll_add_cutout_and_remove_enqueue() {
+    let w = world().await;
+    let p = create_product(&w, &w.lead, "legacy", 100, "legacy-pending", json!({})).await;
+    let id = p["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(p["index_status"], "pending");
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id
+        )
+        .await,
+        0
+    );
+    index_product(&w, id).await;
+    let reference = references(&w, 1, "added").await.remove(0);
+    let base = format!("/v1/products/{id}/images");
+    ok(
+        &w.app,
+        "POST",
+        &base,
+        "/v1/products/{productId}/images",
+        &w.lead,
+        reference.clone(),
+        StatusCode::CREATED,
+    )
+    .await;
+    let replay = ok(
+        &w.app,
+        "POST",
+        &base,
+        "/v1/products/{productId}/images",
+        &w.lead,
+        reference.clone(),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(replay["cutout_image_id"], reference["cutout_image_id"]);
+    assert_eq!(replay["bbox"], reference["bbox"]);
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM index_jobs WHERE product_id=$1 AND status='queued'",
+            id
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id
+        )
+        .await,
+        1
+    );
+    index_product(&w, id).await;
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id
+        )
+        .await,
+        3
+    );
+    ok(
+        &w.app,
+        "DELETE",
+        &format!("{base}/{}", reference["image_id"].as_str().unwrap()),
+        "/v1/products/{productId}/images/{imageId}",
+        &w.lead,
+        Value::Null,
+        StatusCode::NO_CONTENT,
+    )
+    .await;
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM index_jobs WHERE product_id=$1 AND status='queued'",
+            id
+        )
+        .await,
+        1
+    );
+    index_product(&w, id).await;
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id
+        )
+        .await,
+        1
+    );
+}
+
+#[derive(Default)]
+struct RecordingEmbedder(Mutex<Vec<Vec<u8>>>);
+impl taphoa_recognition::Embedder for RecordingEmbedder {
+    fn model(&self) -> &str {
+        "mock-sha256-384"
+    }
+    fn dim(&self) -> usize {
+        384
+    }
+    fn embed(&self, bytes: &[u8]) -> Result<Vec<f32>, taphoa_recognition::EmbedError> {
+        self.0.lock().unwrap().push(bytes.to_vec());
+        taphoa_recognition::Embedder::embed(&MockEmbedder, bytes)
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quick_enroll_embeds_only_first_cutout_or_first_legacy_image() {
+    let (_, mut state) = setup().await;
+    let embedder = Arc::new(RecordingEmbedder::default());
+    state.embedder = Some(embedder.clone());
+    let w = world_from(router(state.clone()), state).await;
+    let refs = references(&w, 3, "one-embed").await;
+    ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        json!({"id":Uuid::now_v7(),"price":1,"references":refs}),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(
+        *embedder.0.lock().unwrap(),
+        vec![png_bytes("one-embed-cutout-0")]
+    );
+    embedder.0.lock().unwrap().clear();
+    let first = upload(&w, &w.lead, "legacy-first").await;
+    let second = upload(&w, &w.lead, "legacy-second").await;
+    ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        json!({"id":Uuid::now_v7(),"price":1,"image_ids":[second,first]}),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(
+        *embedder.0.lock().unwrap(),
+        vec![png_bytes("legacy-second")]
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quick_enroll_cutout_upload_retry_and_bbox_fallback() {
+    let (_, mut state) = setup().await;
+    let embedder = Arc::new(RecordingEmbedder::default());
+    state.embedder = Some(embedder.clone());
+    let w = world_from(router(state.clone()), state).await;
+    let refs = references(&w, 3, "upload-race").await;
+    let key: String = sqlx::query_scalar("SELECT object_key FROM images WHERE id=$1")
+        .bind(
+            refs[0]["cutout_image_id"]
+                .as_str()
+                .unwrap()
+                .parse::<Uuid>()
+                .unwrap(),
+        )
+        .fetch_one(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    let storage = w.state.storage.clone().unwrap();
+    storage.delete(&key).await.unwrap();
+    let upload_storage = storage.clone();
+    let upload_key = key.clone();
+    let upload = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        upload_storage
+            .put(&upload_key, "image/png", png_bytes("upload-race-cutout-0"))
+            .await
+            .unwrap();
+    });
+    ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        json!({"id":Uuid::now_v7(),"price":1,"references":refs,"force_new":true}),
+        StatusCode::CREATED,
+    )
+    .await;
+    upload.await.unwrap();
+    assert_eq!(
+        *embedder.0.lock().unwrap(),
+        vec![png_bytes("upload-race-cutout-0")]
+    );
+    storage.delete(&key).await.unwrap();
+    embedder.0.lock().unwrap().clear();
+    let start = std::time::Instant::now();
+    ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        json!({"id":Uuid::now_v7(),"price":1,"references":refs,"force_new":true}),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert!(start.elapsed() < Duration::from_secs(3));
+    let original = image::load_from_memory(&png_bytes("upload-race-photo-0"))
+        .unwrap()
+        .into_rgb8();
+    let crop =
+        taphoa_recognition::crop::crop_with_padding(&original, [0., 0., 2., 2.], 0.08).unwrap();
+    let mut png = std::io::Cursor::new(Vec::new());
+    crop.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    assert_eq!(*embedder.0.lock().unwrap(), vec![png.into_inner()]);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quick_enroll_add_validates_cutout_pair_and_detection_crop() {
+    let w = world().await;
+    let product = create_product(&w, &w.lead, "detection crop", 100, "det-base", json!({})).await;
+    let id = product["id"].as_str().unwrap();
+    let base = format!("/v1/products/{id}/images");
+    let reference = references(&w, 1, "det-photo").await.remove(0);
+    for body in [
+        json!({"image_id":reference["image_id"],"bbox":[0,0,2,2]}),
+        json!({"image_id":reference["image_id"],"cutout_image_id":reference["cutout_image_id"]}),
+        json!({"image_id":reference["image_id"],"cutout_image_id":reference["cutout_image_id"],"bbox":[0,0,-1,2]}),
+        json!({"image_id":reference["image_id"],"detection_id":Uuid::now_v7()}),
+    ] {
+        let err = expect_code(
+            &w.app,
+            "POST",
+            &base,
+            Some(&w.lead),
+            body,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+        )
+        .await;
+        Contract::load().assert_conforms(
+            "/v1/products/{productId}/images",
+            "post",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &err,
+        );
+    }
+    let pool = w.state.postgres.as_ref().unwrap();
+    let member: Uuid =
+        sqlx::query_scalar("SELECT id FROM members WHERE store_id=$1 AND role='lead'")
+            .bind(w.store_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let image_id = reference["image_id"]
+        .as_str()
+        .unwrap()
+        .parse::<Uuid>()
+        .unwrap();
+    let scan: Uuid = sqlx::query_scalar("INSERT INTO scans (store_id,image_id,member_id,mode,purpose,segmenter,embedder,catalog_version,timings) VALUES ($1,$2,$3,'single','enrollment','fake','fake',0,'{}') RETURNING id")
+        .bind(w.store_id).bind(image_id).bind(member).fetch_one(pool).await.unwrap();
+    let detection: Uuid = sqlx::query_scalar("INSERT INTO detections (store_id,scan_id,position,bbox,score,area,match,candidates) VALUES ($1,$2,0,'{0,0,2,2}',0.9,4,'unknown','[]') RETURNING id")
+        .bind(w.store_id).bind(scan).fetch_one(pool).await.unwrap();
+    let mut conflicting = reference.clone();
+    conflicting["detection_id"] = json!(detection);
+    expect_code(
+        &w.app,
+        "POST",
+        &base,
+        Some(&w.lead),
+        conflicting,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "validation_failed",
+    )
+    .await;
+    expect_code(
+        &w.app,
+        "POST",
+        &base,
+        Some(&w.lead),
+        json!({"image_id":product["images"][0]["image_id"],"detection_id":detection}),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "validation_failed",
+    )
+    .await;
+    ok(
+        &w.app,
+        "POST",
+        &base,
+        "/v1/products/{productId}/images",
+        &w.lead,
+        json!({"image_id":image_id,"detection_id":detection}),
+        StatusCode::CREATED,
+    )
+    .await;
+    let bbox: Option<Vec<f32>> =
+        sqlx::query_scalar("SELECT bbox FROM product_images WHERE product_id=$1 AND image_id=$2")
+            .bind(id.parse::<Uuid>().unwrap())
+            .bind(image_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(bbox, Some(vec![0., 0., 2., 2.]));
+    index_product(&w, id.parse().unwrap()).await;
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM product_embeddings WHERE product_id=$1",
+            id.parse().unwrap()
+        )
+        .await,
+        2
+    );
 }
 
 #[tokio::test]
@@ -407,7 +1031,8 @@ async fn create_product_happy_authz_validation_idempotency_events() {
         (Some(1), json!(false), 1, 1)
     );
     assert_eq!(p["images"][0]["position"], 0);
-    // embedding row + initial price history + events in the same transaction
+    assert_eq!(p["index_status"], "pending");
+    // Index job + initial price history + events are committed together.
     assert_eq!(
         count(
             &w,
@@ -415,7 +1040,7 @@ async fn create_product_happy_authz_validation_idempotency_events() {
             id
         )
         .await,
-        1
+        0
     );
     assert_eq!(
         count(
@@ -518,7 +1143,6 @@ async fn create_product_happy_authz_validation_idempotency_events() {
         json!({"id": Uuid::now_v7(), "price": 1, "image_ids": []}),
         json!({"id": Uuid::now_v7(), "price": 1, "image_ids": six}),
         json!({"id": Uuid::now_v7(), "price": -1, "image_ids": [img2]}),
-        json!({"id": Uuid::now_v7(), "price": 1}),
     ] {
         let (status, v) = call(&w.app, "POST", "/v1/products", Some(&w.lead), bad).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{v}");
@@ -563,6 +1187,7 @@ async fn duplicate_check_at_088_with_candidates_and_force_new() {
         json!({}),
     )
     .await;
+    index_product(&w, existing["id"].as_str().unwrap().parse().unwrap()).await;
     // identical photo bytes -> similarity 1.0 >= 0.88 -> 409 duplicate_suspected
     let image = upload(&w, &w.lead, "same-bottle").await;
     let body = json!({"id": Uuid::now_v7(), "price": 6000, "image_ids": [image]});
@@ -639,12 +1264,8 @@ async fn duplicate_check_uses_the_vector_index_port_when_configured() {
     let w = world_from(app, state).await;
     // The fake knows a product the SQL table does not; its hit must be resolved against products.
     let product = create_product(&w, &w.lead, "Coca 330ml", 9000, "coca", json!({})).await;
-    let emb = taphoa_recognition::Embedder::embed(&MockEmbedder, &{
-        let mut b = b"\x89PNG\r\n\x1a\n".to_vec();
-        b.extend_from_slice(b"coca-lookalike");
-        b
-    })
-    .unwrap();
+    let emb =
+        taphoa_recognition::Embedder::embed(&MockEmbedder, &png_bytes("coca-lookalike")).unwrap();
     index
         .upsert(
             w.store_id,
@@ -1129,7 +1750,7 @@ async fn product_images_add_remove_limits() {
     let base = format!("/v1/products/{pid}/images");
     let first = p["images"][0]["image_id"].as_str().unwrap().to_string();
     let mut added = vec![];
-    for i in 1..5 {
+    for i in 1..8 {
         let img = upload(&w, &w.lead, &format!("pepsi{i}")).await;
         let created = ok(
             &w.app,
@@ -1144,6 +1765,7 @@ async fn product_images_add_remove_limits() {
         assert_eq!(created["position"], i);
         added.push(img);
     }
+    index_product(&w, pid.parse().unwrap()).await;
     assert_eq!(
         count(
             &w,
@@ -1151,17 +1773,17 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        5
+        8
     );
-    let sixth = upload(&w, &w.lead, "pepsi5").await;
+    let ninth = upload(&w, &w.lead, "pepsi8").await;
     expect_code(
         &w.app,
         "POST",
         &base,
         Some(&w.lead),
-        json!({"image_id": sixth}),
+        json!({"image_id": ninth}),
         StatusCode::CONFLICT,
-        "conflict",
+        "image_limit",
     )
     .await;
     expect_code(
@@ -1169,7 +1791,7 @@ async fn product_images_add_remove_limits() {
         "POST",
         &base,
         Some(&w.seller),
-        json!({"image_id": sixth}),
+        json!({"image_id": ninth}),
         StatusCode::FORBIDDEN,
         "forbidden",
     )
@@ -1201,7 +1823,7 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        4
+        7
     );
     for img in &added[1..] {
         ok(

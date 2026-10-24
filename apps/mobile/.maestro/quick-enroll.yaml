@@ -1,0 +1,50 @@
+appId: com.datamonsterr.taphoamini
+---
+# Real segmentation and enrollment; virtualscene content is arbitrary, so no checkout match.
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Thêm nhanh'
+      OWNER_NAME: 'Cô Ba'
+- tapOn: 'Thêm vào kho với giá'
+- assertVisible: 'Thêm hàng nhanh · 0/3'
+- assertNotVisible: 'Thêm sản phẩm'
+- repeat:
+    times: 3
+    commands:
+      - tapOn: 'Chụp'
+      - extendedWaitUntil:
+          visible:
+            id: 'point-overlay-canvas'
+          timeout: 30000
+      - extendedWaitUntil:
+          notVisible: 'Đang tải ảnh...'
+          timeout: 30000
+      - tapOn:
+          id: 'point-overlay-canvas'
+          point: '50%,50%'
+      - extendedWaitUntil:
+          visible:
+            id: 'point-overlay-mask'
+          timeout: 30000
+      - assertVisible: 'Tiếp'
+      - tapOn: 'Tiếp'
+- assertVisible: 'Thêm hàng nhanh · 3/3'
+- tapOn:
+    id: 'quick-enroll-add'
+- extendedWaitUntil:
+    visible: 'Lưu sản phẩm'
+    timeout: 20000
+- assertVisible: '3/8'
+- tapOn: 'Tên (không bắt buộc)'
+- inputText: 'Banh nhanh E2E'
+- hideKeyboard
+- tapOn: '1'
+- tapOn: '7'
+- tapOn: '000'
+- assertVisible: '17.000đ'
+- tapOn: 'Lưu sản phẩm'
+- extendedWaitUntil:
+    visible: 'Đã thêm Banh nhanh E2E'
+    timeout: 30000
+- takeScreenshot: quick-enroll-01-saved

@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
+    catalog::index_jobs::{WorkerConfig, spawn as spawn_index_worker},
     config::Config,
     events,
     recognition::classify::RecognitionConfig,
@@ -24,7 +25,13 @@ async fn main() -> anyhow::Result<()> {
     }
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
-    let mut state = AppState::connect_with_config(&config, config.segmenter()?).await?;
+    let sam = config.sam_segmenter()?;
+    let segmenter = sam
+        .as_ref()
+        .map(|s| Arc::clone(s) as Arc<dyn taphoa_recognition::Segmenter>);
+    let point_segmenter = sam.map(|s| s as Arc<dyn taphoa_recognition::PointSegmenter>);
+    let mut state = AppState::connect_with_config(&config, segmenter).await?;
+    state.point_segmenter = point_segmenter;
     state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {
@@ -47,7 +54,18 @@ async fn main() -> anyhow::Result<()> {
     let (stop, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut background = events::spawn_background(&state, shutdown_rx.clone());
     if let Some(pool) = pool.clone() {
-        background.push(retention::spawn(pool, shutdown_rx));
+        background.push(retention::spawn(pool.clone(), shutdown_rx.clone()));
+        // Spawn the index-job worker only when all required dependencies are present.
+        if let (Some(embedder), Some(storage)) = (state.embedder.clone(), state.storage.clone()) {
+            background.push(spawn_index_worker(
+                pool,
+                embedder,
+                storage,
+                state.inference_slots.clone(),
+                shutdown_rx,
+                WorkerConfig::default(),
+            ));
+        }
     }
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;

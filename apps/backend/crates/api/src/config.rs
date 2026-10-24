@@ -79,7 +79,7 @@ impl Config {
             db_max_connections,
         })
     }
-    pub fn segmenter(&self) -> anyhow::Result<Option<Arc<dyn Segmenter>>> {
+    pub fn sam_segmenter(&self) -> anyhow::Result<Option<Arc<SamSegmenter>>> {
         match (&self.encoder, &self.decoder) {
             (None, None) => Ok(None),
             (Some(encoder), Some(decoder)) if !encoder.exists() && !decoder.exists() => {
@@ -93,6 +93,9 @@ impl Config {
             )?))),
             _ => bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
         }
+    }
+    pub fn segmenter(&self) -> anyhow::Result<Option<Arc<dyn Segmenter>>> {
+        Ok(self.sam_segmenter()?.map(|s| s as Arc<dyn Segmenter>))
     }
     pub fn embedder(&self) -> anyhow::Result<Option<Arc<dyn Embedder>>> {
         match &self.dino_model {
