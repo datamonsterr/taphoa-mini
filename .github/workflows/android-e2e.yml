@@ -2,6 +2,11 @@ name: Android E2E
 
 # Free alternative to EAS Workflows Maestro jobs (those need a paid Expo plan).
 # Builds a release-like APK on the runner and drives it with Maestro on an emulator.
+# The app talks to the real backend (with SAM/DINO models) that scripts/e2e/stack.sh starts on
+# the runner; the emulator reaches the runner as 10.0.2.2. Cost: a cold backend release build
+# plus ~250 MB of models on top of the APK build, and inference shares 4 cores with the
+# emulator. If that proves too slow or flaky, drop the pull_request trigger and keep
+# workflow_dispatch only.
 
 on:
   pull_request:
@@ -40,6 +45,23 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - run: pnpm install --frozen-lockfile
 
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: android-e2e
+      - uses: actions/cache@v6
+        id: models
+        with:
+          path: |
+            apps/backend/models
+            apps/backend/onnxruntime
+          key: models-${{ hashFiles('apps/backend/scripts/fetch-models.sh', 'apps/backend/scripts/fetch-onnxruntime.sh') }}
+      # Postgres, Redis, RustFS in compose plus the release backend on :8080 (all interfaces).
+      # S3 URLs are presigned for 10.0.2.2 so the emulator can download images.
+      - name: Start backend stack
+        env:
+          E2E_PUBLIC_HOST: 10.0.2.2
+        run: scripts/e2e/stack.sh up
+
       # The runner has no committed android/ project (CNG): generate it from app.json.
       - name: Expo prebuild (android)
         working-directory: apps/mobile
@@ -49,7 +71,14 @@ jobs:
       # APK, so the app boots without a Metro server; a debug APK would show the dev launcher.
       # The Expo template signs release with the debug keystore, so it installs as-is.
       # x86_64 only (emulator ABI) and no R8 keep the build short.
+      # Release builds block cleartext HTTP; the backend on 10.0.2.2 is plain HTTP.
+      - name: Allow cleartext traffic to the CI backend
+        run: sed -i 's|<application |<application android:usesCleartextTraffic="true" |' apps/mobile/android/app/src/main/AndroidManifest.xml
+
       - name: Build release APK
+        env:
+          EXPO_PUBLIC_API_URL: http://10.0.2.2:8080
+          EXPO_PUBLIC_API_MODE: live
         working-directory: apps/mobile/android
         run: >-
           ./gradlew assembleRelease
@@ -84,6 +113,14 @@ jobs:
             -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
             -camera-back virtualscene
           script: apps/mobile/scripts/e2e-android.sh apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Backend log
+        if: always()
+        run: tail -n 200 .e2e-stack/backend.log || true
+
+      - name: Stop backend stack
+        if: always()
+        run: scripts/e2e/stack.sh down
 
       - name: Upload Maestro report
         if: always()
