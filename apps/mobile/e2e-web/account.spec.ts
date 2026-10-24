@@ -270,6 +270,66 @@ test.describe('switching the acting member (U3, U4)', () => {
     await expect(button(page, 'Mời bằng mã QR')).toBeVisible();
   });
 
+  test('five wrong PINs lock the member: 401 x4, then 429 "Thử lại sau N phút", and even the right PIN is refused', async ({
+    page,
+    store,
+  }) => {
+    const seller = await joinWithPin(store.api, '4821');
+    await openShop(page, '/account');
+    await button(page, 'Chuyển sang Bé Út').click();
+    const sheet = page.getByTestId('sheet-panel');
+    await tapKeys(sheet, '0000');
+
+    // the backend allows 4 wrong PINs; the 5th locks the member (apps/backend ratelimit.rs)
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      await callApi(
+        page,
+        'POST',
+        SWITCH,
+        () => button(sheet, 'Xác nhận').click(),
+        401,
+      );
+      await expect(sheet.getByText('Mã PIN không đúng')).toBeVisible();
+      await expect(page.getByLabel('4 chữ số đã nhập')).toBeVisible();
+    }
+
+    const [locked] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.request().method() === 'POST' && r.url().endsWith(SWITCH),
+      ),
+      button(sheet, 'Xác nhận').click(),
+    ]);
+    expect(locked.status()).toBe(429);
+    const retryAfter = Number(locked.headers()['retry-after']);
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(300);
+    const minutes = Math.max(1, Math.ceil(retryAfter / 60));
+    await expect(
+      sheet.getByText(`Nhập sai quá nhiều lần. Thử lại sau ${minutes} phút`),
+    ).toBeVisible();
+
+    // locked: the correct PIN is refused too, and the Lead stays the acting member
+    for (let i = 0; i < 4; i += 1) await button(sheet, 'Xóa').click();
+    await tapKeys(sheet, '4821');
+    await callApi(
+      page,
+      'POST',
+      SWITCH,
+      () => button(sheet, 'Xác nhận').click(),
+      429,
+    );
+    await expect(
+      sheet.getByText(/^Nhập sai quá nhiều lần\. Thử lại sau \d+ phút$/),
+    ).toBeVisible();
+    await expect(page.getByText('Đang dùng: Cô Ba')).toBeVisible();
+    const stored = await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)!),
+      SESSION_STORAGE_KEY,
+    );
+    expect(stored.member.id).toBe(store.session.member.id);
+    expect(seller.member.id).not.toBe(stored.member.id);
+  });
+
   test('"Đặt mã PIN": two matching entries, PUT /v1/me/pin, and the server holds a PIN', async ({
     page,
     store,
