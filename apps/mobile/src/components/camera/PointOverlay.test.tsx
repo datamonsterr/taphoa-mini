@@ -35,6 +35,9 @@ describe('viewToPhoto', () => {
   });
 
   it.each([
+    { x: NaN, y: 400 },
+    { x: 200, y: NaN },
+    { x: Infinity, y: 400 },
     { x: 200, y: 249 },
     { x: 200, y: 551 },
     { x: -1, y: 400 },

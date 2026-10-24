@@ -1,18 +1,16 @@
 appId: com.datamonsterr.taphoamini
 ---
-# From the live camera: add a product by hand ("Thêm vào kho với giá"): one photo from the
-# emulator's virtual camera, a name and a price on the keypad. It does not depend on what the
-# recognition pipeline makes of the picture. Saving also puts the product in the cart.
+# From an empty store: scan the virtual camera and use the unknown "?" pill for legacy
+# single-photo enrollment. The tag now toggles quick enrollment. Saving also fills the cart.
 # Input: PRODUCT_NAME. The price is 15.000đ (keys 1, 5, 000).
-- tapOn: 'Thêm vào kho với giá'
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Chưa có trong kho, nhập giá'
+    timeout: 30000
+- tapOn: 'Chưa có trong kho, nhập giá'
 - extendedWaitUntil:
     visible: 'Lưu vào kho và thêm vào giỏ'
     timeout: 20000
-- tapOn: 'Thêm ảnh góc khác'
-- extendedWaitUntil:
-    visible: 'Hủy chụp'
-    timeout: 20000
-- tapOn: 'Chụp'
 - extendedWaitUntil:
     visible: '1/5'
     timeout: 20000

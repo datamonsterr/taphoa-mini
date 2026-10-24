@@ -6,6 +6,7 @@ import {
   detectionBoxes,
   expect,
   expectLiveVideo,
+  enrollTag,
   formatVnd,
   openCamera,
   pricePill,
@@ -98,16 +99,21 @@ test.describe('camera', () => {
     await expect(page).toHaveURL(/\/cart/);
   });
 
-  test('tag button with no photo opens an empty enroll; close returns', async ({
+  test('tag toggles purple quick mode and returns to checkout without navigating', async ({
     page,
   }) => {
     await openCamera(page);
-    await button(page, 'Thêm vào kho với giá').click();
-    await expect(page).toHaveURL(/\/enroll$/);
-    await expect(page.getByText('0/5')).toBeVisible();
-    await expect(button(page, 'Lưu vào kho và thêm vào giỏ')).toBeDisabled();
-    await button(page, 'Đóng').click();
+    const tag = enrollTag(page);
+    await expect(tag).toHaveAttribute('aria-selected', 'false');
+    await tag.click();
+    await expect(tag).toHaveAttribute('aria-selected', 'true');
+    await expect(tag).toHaveCSS('background-color', 'rgb(90, 67, 232)');
+    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toBeVisible();
     await expect(page).not.toHaveURL(/\/enroll/);
+    await tag.click();
+    await expect(tag).toHaveAttribute('aria-selected', 'false');
+    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toHaveCount(0);
+    await expectLiveVideo(page);
   });
 
   test('swipe handle opens the stock', async ({ page }) => {

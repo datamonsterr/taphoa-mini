@@ -105,6 +105,17 @@ export class Api {
   patch = <T = any>(route: string, body?: unknown) =>
     http<T>('PATCH', route, { token: this.token, body });
 
+  /** Product creation is asynchronous: a scan must wait for real embeddings. */
+  async waitForIndex(id: string) {
+    await expect
+      .poll(async () => (await this.get(`/v1/products/${id}`)).index_status, {
+        timeout: 60_000,
+        message: `product ${id} finishes indexing`,
+        intervals: [250, 500, 1000],
+      })
+      .toBe('ready');
+  }
+
   /** POST /v1/images (multipart) with a fixture photo; returns the image id. */
   async uploadImage(file = PHOTO, purpose = 'enrollment'): Promise<string> {
     const form = new FormData();
@@ -573,6 +584,7 @@ export async function openShopLoading<T = any>(
 // ---- camera ------------------------------------------------------------------------------
 
 export const shutter = (page: Page) => button(page, 'Chụp');
+export const enrollTag = (page: Page) => button(page, 'Thêm vào kho với giá');
 export const reshoot = (page: Page) => button(page, 'Chụp lại');
 export const addButton = (page: Page) =>
   page.getByRole('button', { name: /^Thêm (vào|tất cả vào) giỏ$/ });
@@ -714,6 +726,11 @@ export async function saveEnroll(page: Page, photos = 1) {
   await expect(page).not.toHaveURL(/\/enroll/);
   const images = await uploads.stop();
   expect(images, 'one upload per photo').toHaveLength(photos);
+  const session = await page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key)!),
+    SESSION_STORAGE_KEY,
+  );
+  await new Api(session).waitForIndex(product.body.id);
   return { images, product };
 }
 
@@ -738,7 +755,51 @@ export async function seedScannableProduct(
   api: Api,
   product = { name: 'Coca-Cola lon 330ml', price: 10_000, cost_price: 7_500 },
 ) {
-  return api.createProduct({ ...product, photo: PRODUCT_PHOTO });
+  const created = await api.createProduct({ ...product, photo: PRODUCT_PHOTO });
+  await api.waitForIndex(created.id);
+  return created;
+}
+
+/** Accept one real point-prompted photo of the red pack in product.mjpeg. */
+export async function acceptQuickAngle(page: Page) {
+  await expectLiveVideo(page);
+  const uploaded = await callApi(page, 'POST', '/v1/images', () =>
+    shutter(page).click(),
+  );
+  expect(uploaded.requestBody.multipart.purpose).toBe('enrollment');
+  const canvas = page.getByTestId('point-overlay-canvas');
+  await expect(canvas).toBeEnabled();
+  await expect(button(page, 'Tiếp')).toBeDisabled();
+  // The 4:3 fixture has a small logo at its centre. Tap the pack's upper red panel,
+  // accounting for the contained photo's letterboxing, so SAM selects the product.
+  const bounds = (await canvas.boundingBox())!;
+  const photoHeight = Math.min(bounds.width / 4, bounds.height / 3) * 3;
+  const segmented = await callInference(
+    page,
+    'POST',
+    '/v1/segment/points',
+    () =>
+      canvas.click({
+        position: {
+          x: bounds.width / 2,
+          y: bounds.height / 2 - photoHeight / 4,
+        },
+      }),
+  );
+  expect(segmented.requestBody).toMatchObject({
+    image_id: uploaded.body.id,
+    points: [{ x: expect.any(Number), y: expect.any(Number), label: 1 }],
+  });
+  expect(segmented.body.mask.png_base64).toBeTruthy();
+  await expect(page.getByTestId('point-overlay-mask')).toBeVisible();
+  await expect(button(page, 'Tiếp')).toBeEnabled();
+  await button(page, 'Tiếp').click();
+  await expect(canvas).toHaveCount(0);
+  return {
+    image_id: uploaded.body.id,
+    cutout_image_id: segmented.body.cutout_image_id,
+    bbox: segmented.body.bbox,
+  };
 }
 
 /**

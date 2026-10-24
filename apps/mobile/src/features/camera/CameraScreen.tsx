@@ -9,6 +9,7 @@ import {
   Alert,
   type LayoutChangeEvent,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -310,10 +311,14 @@ export function CameraScreen() {
       dispatch({ type: 'toggle' });
     };
     if (quickActive && shots.length > 0) {
-      Alert.alert('Bỏ các ảnh đã chụp?', '', [
-        { text: 'Hủy', style: 'cancel' },
-        { text: 'Bỏ ảnh', style: 'destructive', onPress: toggleMode },
-      ]);
+      if (Platform.OS === 'web') {
+        if (window.confirm('Bỏ các ảnh đã chụp?')) toggleMode();
+      } else {
+        Alert.alert('Bỏ các ảnh đã chụp?', '', [
+          { text: 'Hủy', style: 'cancel' },
+          { text: 'Bỏ ảnh', style: 'destructive', onPress: toggleMode },
+        ]);
+      }
     } else toggleMode();
   }, [canEnroll, quickActive, shots.length, dispatch, reset]);
 

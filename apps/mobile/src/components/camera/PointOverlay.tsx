@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -58,6 +59,8 @@ export function viewToPhoto(
   fit: 'contain' | 'cover',
 ): Point | null {
   if (
+    !Number.isFinite(tap.x) ||
+    !Number.isFinite(tap.y) ||
     view.width <= 0 ||
     view.height <= 0 ||
     photo.width <= 0 ||
@@ -102,13 +105,19 @@ export function PointOverlay({
         onLayout={({ nativeEvent: { layout } }) =>
           setView({ width: layout.width, height: layout.height })
         }
-        onPress={({ nativeEvent: { locationX, locationY } }) => {
-          const point = viewToPhoto(
-            { x: locationX, y: locationY },
-            view,
-            shot,
-            'contain',
-          );
+        onPress={(event) => {
+          let { locationX: x, locationY: y } = event.nativeEvent;
+          // Web onPress receives a click MouseEvent, without native locationX/Y.
+          if (Platform.OS === 'web') {
+            const { clientX, clientY } =
+              event.nativeEvent as unknown as MouseEvent;
+            const rect = (
+              event.currentTarget as unknown as HTMLElement
+            ).getBoundingClientRect();
+            x = clientX - rect.left;
+            y = clientY - rect.top;
+          }
+          const point = viewToPhoto({ x, y }, view, shot, 'contain');
           if (point) onTap({ ...point, label: 1 });
         }}
       >
