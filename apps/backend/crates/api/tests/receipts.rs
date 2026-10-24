@@ -565,17 +565,16 @@ async fn real_models_create_receipt_under_six_seconds() {
         config::Config,
         decisions::{DecisionsConfig, OpenRouterDecisions},
     };
+    let (Some(ocr), Some(decisions)) = (
+        Config::from_env().unwrap().ocr().unwrap(),
+        DecisionsConfig::from_env().unwrap(),
+    ) else {
+        eprintln!("skipping: OCR_* model paths and OPENROUTER_API_KEY required");
+        return;
+    };
     let (mut w, photo, _, _) = setup(false).await;
-    let ocr = Config::from_env()
-        .unwrap()
-        .ocr()
-        .unwrap()
-        .expect("OCR paths required");
     w.state.receipt_ocr = Some(ocr);
-    w.state.decisions = Some(Arc::new(
-        OpenRouterDecisions::new(DecisionsConfig::from_env().unwrap().expect("key required"))
-            .unwrap(),
-    ));
+    w.state.decisions = Some(Arc::new(OpenRouterDecisions::new(decisions).unwrap()));
     w.app = taphoa_api::router(w.state.clone());
     let start = std::time::Instant::now();
     let receipt = create(&w, photo, "real").await;
