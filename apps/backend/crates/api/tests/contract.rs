@@ -252,3 +252,78 @@ async fn segment_points_matches_the_contract() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     contract.assert_conforms("/v1/segment/points", "post", status, &err_body);
 }
+
+/// Contract-only checks: implementations land in the dependent stock/receipt tasks.
+#[test]
+fn stock_and_receipt_input_constraints() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../../docs/api/openapi.yaml"
+    );
+    let doc: Value = serde_norway::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let validate = |name: &str, sample: Value| {
+        let schema = &doc["components"]["schemas"][name];
+        assert!(schema.is_object(), "missing schema {name}");
+        let root = json!({"components": doc["components"], "allOf": [schema]});
+        jsonschema::draft202012::options()
+            .should_validate_formats(true)
+            .build(&root)
+            .unwrap()
+            .is_valid(&sample)
+    };
+    for valid in [
+        json!({"count":0}),
+        json!({"delta":-2,"note":"count correction"}),
+    ] {
+        assert!(validate("StockAdjustment", valid));
+    }
+    for invalid in [
+        json!({}),
+        json!({"count":2,"delta":1}),
+        json!({"count":-1}),
+        json!({"delta":0}),
+        json!({"delta":1.5}),
+        json!({"count":1,"note":"x".repeat(201)}),
+    ] {
+        assert!(!validate("StockAdjustment", invalid));
+    }
+    let line = json!({"product_id":Uuid::nil(),"quantity":24,"cost":204000});
+    let valid = json!({"lines":[line.clone()],"paid_with":"cash_box"});
+    assert!(validate("ReceiptConfirm", valid.clone()));
+    for invalid in [
+        json!({"lines":[],"paid_with":"cash_box"}),
+        json!({"lines":vec![line;101],"paid_with":"cash_box"}),
+        json!({"lines":[{"quantity":1,"cost":0}],"paid_with":"other"}),
+    ] {
+        assert!(!validate("ReceiptConfirm", invalid));
+    }
+    for (field, value) in [
+        ("quantity", json!(0)),
+        ("cost", json!(-1)),
+        ("quantity", json!(1.5)),
+    ] {
+        let mut invalid = valid.clone();
+        invalid["lines"][0][field] = value;
+        assert!(!validate("ReceiptConfirm", invalid));
+    }
+    assert!(validate(
+        "ScanDocument",
+        json!({"detected":false,"score":0,"text_lines":0})
+    ));
+    assert!(!validate(
+        "ScanDocument",
+        json!({"detected":true,"score":1.1,"text_lines":6})
+    ));
+    for name in ["ProductPatch", "StorePatch"] {
+        assert!(validate(name, json!({"low_stock_threshold":0})));
+        assert!(validate(name, json!({"low_stock_threshold":100000})));
+        assert!(!validate(name, json!({"low_stock_threshold":-1})));
+        assert!(!validate(name, json!({"low_stock_threshold":100001})));
+    }
+    assert!(
+        doc["components"]["schemas"]["Scan"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("document"))
+    );
+}

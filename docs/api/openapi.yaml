@@ -61,6 +61,10 @@ tags:
     description: Counter-photo scans (SAM + embedding match) and raw segmentation.
   - name: Catalog
     description: Products, reference photos, units, prices and price history (C1–C7).
+  - name: Stock
+    description: Stock quantities, counts, movements and low-stock thresholds (E4).
+  - name: Receipts
+    description: Supplier receipt OCR, product mapping, confirmation and history (E5).
   - name: Sales
     description: Checkout sales, payment method, voids (S1–S10).
   - name: Review
@@ -330,7 +334,7 @@ paths:
     patch:
       tags: [Store]
       operationId: updateStore
-      summary: Update store name, VietQR bank account, margin threshold (Lead)
+      summary: Update store name, VietQR bank account, margin and low-stock thresholds (Lead)
       requestBody:
         required: true
         content:
@@ -726,6 +730,7 @@ paths:
         Price and cost changes write a `price_history` row (old, new, who, when) and publish a
         `catalog.changed` event. Conflict rule: the Lead's edits win; concurrent edits resolve
         last-writer-wins by server receive time, and both appear in history.
+        The low-stock threshold override is Lead only; null restores the store default.
       requestBody:
         required: true
         content:
@@ -1200,6 +1205,185 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ---------------------------------------------------------------- Stock
+  /v1/stock:
+    get:
+      tags: [Stock]
+      operationId: listStock
+      summary: Tracked stock quantities and status
+      description: |
+        Sorted by status (out, low, ok), then name. `all` excludes untracked products.
+        Threshold is the effective product override or store default. Quantities are in base units.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [all, low, out], default: all }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Stock page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/products/{productId}/stock-adjustments:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    post:
+      tags: [Stock]
+      operationId: createStockAdjustment
+      summary: Set or adjust stock (Lead)
+      description: |
+        Exactly one of count or delta is required (422 otherwise). Count sets an absolute
+        quantity; delta changes it. Writes the quantity, ledger movement and outbox events
+        in one transaction. Replaying the same Idempotency-Key returns the same movement.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StockAdjustment' }
+      responses:
+        '200':
+          description: Adjustment movement, including on replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockMovement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /v1/products/{productId}/stock-movements:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Stock]
+      operationId: listStockMovements
+      summary: Stock movement history
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Movements page, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockMovementList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Receipts
+  /v1/receipts:
+    post:
+      tags: [Receipts]
+      operationId: createReceipt
+      summary: Read a supplier receipt into a draft (Lead or can_enroll)
+      description: |
+        Synchronous OCR, parsing and product mapping of an uploaded image; returns a draft
+        within the 6 s budget. Reuses the scan image row. Returns 404 for an unknown image,
+        422 no_text when OCR finds no text, or 503 ocr_unavailable when models are absent.
+        Decision failures fall back to rules. Replaying the same Idempotency-Key returns
+        the same receipt without repeating OCR.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiptCreate' }
+      responses:
+        '201':
+          description: Parsed draft receipt, including on replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    get:
+      tags: [Receipts]
+      operationId: listReceipts
+      summary: Receipt history (Lead or can_enroll)
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, confirmed, discarded] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Receipt summaries, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReceiptList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/receipts/{receiptId}:
+    parameters:
+      - $ref: '#/components/parameters/ReceiptId'
+    get:
+      tags: [Receipts]
+      operationId: getReceipt
+      summary: Receipt detail and photo (Lead or can_enroll)
+      responses:
+        '200':
+          description: Receipt with parsed lines and mapping candidates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Receipts]
+      operationId: discardReceipt
+      summary: Discard a draft receipt (Lead or can_enroll)
+      description: Marks the draft discarded; 409 already_confirmed when confirmed.
+      responses:
+        '204': { description: Draft discarded. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/receipts/{receiptId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ReceiptId'
+    post:
+      tags: [Receipts]
+      operationId: confirmReceipt
+      summary: Confirm a receipt into stock and an expense (Lead or can_enroll)
+      description: |
+        All retained lines must map to known products; map or drop unmatched lines (422).
+        Creates one nhap_hang expense with amount = sum(cost), the receipt image and purchase
+        lines with unit_cost = ceil(cost / quantity). Adds stock, writes movements with
+        reason receipt, runs margin alerts, and emits events in the same transaction.
+        Returns the confirmed receipt with expense_id. The same Idempotency-Key replays
+        the same result; another attempt to confirm returns 409 already_confirmed.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiptConfirm' }
+      responses:
+        '200':
+          description: Confirmed receipt, including on replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
   # ---------------------------------------------------------------- Alerts
   /v1/alerts:
     get:
@@ -1538,6 +1722,17 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ReceiptId:
+      name: receiptId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Stable key for retries of the same operation and body; changed bodies conflict.
+      schema: { type: string, minLength: 1 }
     Limit:
       name: limit
       in: query
@@ -1591,7 +1786,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Conflict:
-      description: State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`).
+      description: State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`, `already_confirmed`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1606,7 +1801,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     UnprocessableEntity:
-      description: Semantic validation failed (e.g. invalid points, references count below 3).
+      description: Semantic validation failed (e.g. invalid points, references count below 3, invalid stock adjustment or receipt lines); no_text when receipt OCR finds no text.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1631,7 +1826,7 @@ components:
     ServiceUnavailable:
       description: |
         Dependency not configured or busy: `no model loaded`, `segmenter busy`
-        (with `Retry-After`), `storage not configured`.
+        (with `Retry-After`), `storage not configured`, or `ocr_unavailable` when receipt OCR models are absent.
       headers:
         Retry-After:
           schema: { type: integer }
@@ -1649,7 +1844,10 @@ components:
             type: string,
             description: Human-readable message (English; the app localizes by `code`).,
           }
-        code: { type: string, example: duplicate_suspected }
+        code:
+          type: string
+          description: Machine code, including no_text (422), ocr_unavailable (503), already_confirmed (409).
+          example: duplicate_suspected
         details: { type: object, additionalProperties: true }
     Readiness:
       type: object
@@ -1733,7 +1931,16 @@ components:
           }
     Store:
       type: object
-      required: [id, name, timezone, margin_threshold_pct, created_at, version]
+      required:
+        [
+          id,
+          name,
+          timezone,
+          margin_threshold_pct,
+          low_stock_threshold,
+          created_at,
+          version,
+        ]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -1748,6 +1955,12 @@ components:
           maximum: 100
           default: 0
           description: E3 alert fires when (price − cost) / price × 100 is below this.
+        low_stock_threshold:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Default low-stock threshold in base units; Lead only.
+          default: 5
         sales_memo_prefix:
           {
             type: string,
@@ -1766,6 +1979,11 @@ components:
             - $ref: '#/components/schemas/BankAccount'
             - type: 'null'
         margin_threshold_pct: { type: number, minimum: 0, maximum: 100 }
+        low_stock_threshold:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Default low-stock threshold in base units; Lead only.
         sales_memo_prefix: { type: string, maxLength: 8 }
     Member:
       type: object
@@ -1907,7 +2125,8 @@ components:
               description: Total latency in ms.
     Scan:
       type: object
-      required: [id, image, mode, purpose, pipeline, detections, created_at]
+      required:
+        [id, image, mode, purpose, pipeline, detections, document, created_at]
       properties:
         id: { type: string, format: uuid }
         image: { $ref: '#/components/schemas/Image' }
@@ -1927,11 +2146,26 @@ components:
             embed: { type: integer }
             search: { type: integer }
             total: { type: integer }
+        document: { $ref: '#/components/schemas/ScanDocument' }
         detections:
           type: array
           description: Ordered left-to-right, top-to-bottom.
           items: { $ref: '#/components/schemas/Detection' }
         created_at: { type: string, format: date-time }
+    ScanDocument:
+      type: object
+      description: Present on every scan; detection runs alongside segmentation on the downsized image.
+      required: [detected, score, text_lines]
+      properties:
+        detected:
+          type: boolean
+          description: True when text_lines >= 6 and text_area_ratio >= 0.08.
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: text_area_ratio / 0.2, clamped to [0, 1].
+        text_lines: { type: integer, minimum: 0 }
     Detection:
       type: object
       required: [id, bbox, score, match, candidates]
@@ -2045,6 +2279,9 @@ components:
           units,
           images,
           index_status,
+          stock_quantity,
+          low_stock_threshold,
+          stock_status,
           archived,
           version,
           updated_at,
@@ -2073,6 +2310,18 @@ components:
           type: string
           enum: [pending, ready, failed]
           description: Status of the background reference embedding and prototype job.
+        stock_quantity:
+          type: [integer, 'null']
+          description: Base-unit quantity; null means untracked. Tracked stock may be negative.
+        low_stock_threshold:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100000
+          description: Product override; null uses the store default.
+        stock_status:
+          type: string
+          enum: [ok, low, out, untracked]
+          description: Untracked for null; out for quantity <= 0; low for quantity <= effective threshold; otherwise ok.
         archived: { type: boolean }
         version: { type: integer, format: int64 }
         created_by: { type: string, format: uuid }
@@ -2140,7 +2389,272 @@ components:
           type: array
           description: Full replacement of extra units.
           items: { $ref: '#/components/schemas/ProductUnit' }
+        low_stock_threshold:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100000
+          description: Lead only. Null restores the store default.
         archived: { type: boolean }
+    StockItem:
+      type: object
+      required:
+        [
+          product_id,
+          name,
+          image_url,
+          stock_quantity,
+          low_stock_threshold,
+          status,
+          updated_at,
+        ]
+      properties:
+        product_id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        image_url:
+          {
+            type: [string, 'null'],
+            format: uri,
+            description: 'Short-lived presigned GET URL of the product photo, or null.',
+          }
+        stock_quantity:
+          {
+            type: [integer, 'null'],
+            description: Base units; null means untracked. May be negative.,
+          }
+        low_stock_threshold:
+          {
+            type: integer,
+            minimum: 0,
+            maximum: 100000,
+            description: Effective product override or store default.,
+          }
+        status: { type: string, enum: [ok, low, out, untracked] }
+        updated_at: { type: string, format: date-time }
+    StockList:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/StockItem' }
+    StockAdjustment:
+      type: object
+      description: Exactly one of count or delta; quantities are in the product base unit.
+      oneOf:
+        - required: [count]
+        - required: [delta]
+      properties:
+        count: { type: integer, minimum: 0, description: Absolute stock count. }
+        delta:
+          type: integer
+          not: { const: 0 }
+          description: Signed nonzero change to stock.
+        note: { type: string, maxLength: 200 }
+    StockMovement:
+      type: object
+      required:
+        [id, delta, quantity_after, reason, ref_id, member_id, note, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        delta: { type: integer }
+        quantity_after: { type: integer }
+        reason: { type: string, enum: [receipt, sale, sale_void, adjustment] }
+        ref_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: Receipt or sale ID when applicable.,
+          }
+        member_id: { type: [string, 'null'], format: uuid }
+        note: { type: [string, 'null'], maxLength: 200 }
+        created_at: { type: string, format: date-time }
+    StockMovementList:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/StockMovement' }
+    ReceiptCandidate:
+      type: object
+      required: [product_id, name, probability]
+      properties:
+        product_id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        probability: { type: number, minimum: 0, maximum: 1 }
+    ReceiptLine:
+      type: object
+      required:
+        [
+          id,
+          position,
+          raw_text,
+          product_name,
+          quantity,
+          cost,
+          product_id,
+          match_confidence,
+          candidates,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        position: { type: integer, minimum: 0 }
+        raw_text: { type: string }
+        product_name: { type: string }
+        quantity:
+          {
+            type: integer,
+            minimum: 1,
+            description: Quantity in the product base unit.,
+          }
+        cost:
+          {
+            $ref: '#/components/schemas/Money',
+            description: Line amount in đồng,
+            not unit price.,
+          }
+        product_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: Null when unmatched; map or drop before confirm.,
+          }
+        match_confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        candidates:
+          type: array
+          maxItems: 8
+          items: { $ref: '#/components/schemas/ReceiptCandidate' }
+    Receipt:
+      type: object
+      required:
+        [
+          id,
+          status,
+          image_id,
+          image_url,
+          total,
+          parser,
+          model,
+          lines,
+          timings,
+          expense_id,
+          created_at,
+          confirmed_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, confirmed, discarded] }
+        image_id: { type: string, format: uuid }
+        image_url:
+          {
+            type: string,
+            format: uri,
+            description: 'Short-lived presigned GET URL; generated on read, never persisted.',
+          }
+        total:
+          {
+            $ref: '#/components/schemas/Money',
+            description: Sum of line costs in đồng.,
+          }
+        parser: { type: string, enum: [decisions, fallback] }
+        model:
+          {
+            type: [string, 'null'],
+            description: 'Decision model ID, or null when unused.',
+            example: 'inception/mercury-decide:free',
+          }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ReceiptLine' }
+        timings:
+          type: object
+          description: Processing durations in milliseconds.
+          required: [ocr, parse, decisions, total]
+          properties:
+            ocr: { type: integer, minimum: 0 }
+            parse: { type: integer, minimum: 0 }
+            decisions: { type: integer, minimum: 0 }
+            total: { type: integer, minimum: 0 }
+        expense_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        confirmed_at: { type: [string, 'null'], format: date-time }
+    ReceiptSummary:
+      type: object
+      required:
+        [
+          id,
+          status,
+          total,
+          line_count,
+          matched_count,
+          image_url,
+          created_at,
+          confirmed_at,
+          expense_id,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, confirmed, discarded] }
+        total: { $ref: '#/components/schemas/Money' }
+        line_count: { type: integer, minimum: 0 }
+        matched_count: { type: integer, minimum: 0 }
+        image_url:
+          {
+            type: string,
+            format: uri,
+            description: Short-lived presigned GET URL.,
+          }
+        created_at: { type: string, format: date-time }
+        confirmed_at: { type: [string, 'null'], format: date-time }
+        expense_id: { type: [string, 'null'], format: uuid }
+    ReceiptList:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/ReceiptSummary' }
+    ReceiptCreate:
+      type: object
+      required: [image_id]
+      properties:
+        image_id:
+          {
+            type: string,
+            format: uuid,
+            description: Uploaded receipt photo; reuse the scan image row.,
+          }
+    ReceiptConfirm:
+      type: object
+      required: [lines, paid_with]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Full retained line set; all products must belong to this store.
+          items:
+            type: object
+            required: [product_id, quantity, cost]
+            properties:
+              line_id:
+                {
+                  type: string,
+                  format: uuid,
+                  description: 'Existing draft line, omitted for a newly added line.',
+                }
+              product_id: { type: string, format: uuid }
+              quantity: { type: integer, minimum: 1 }
+              cost:
+                {
+                  $ref: '#/components/schemas/Money',
+                  description: Line amount in đồng.,
+                }
+        paid_with: { type: string, enum: [cash_box, other] }
+        spent_at: { type: string, format: date-time }
     PriceChange:
       type: object
       required: [id, field, new_value, changed_by, changed_at, source]
@@ -2532,6 +3046,9 @@ components:
             - day.closed
             - sale.payment_confirmed
             - product.indexed
+            - stock.changed
+            - stock.low
+            - receipt.confirmed
         version: { type: integer, minimum: 1 }
         store_id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }

@@ -125,6 +125,7 @@ export function buildScan(input: {
     },
     timings_ms: { segment: 40, embed: 25, search: 5, total: 70 },
     detections,
+    document: { detected: false, score: 0, text_lines: 0 },
     created_at: nowIso(),
   };
   db.scans.set(scan.id, scan);
