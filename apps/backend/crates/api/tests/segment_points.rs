@@ -7,6 +7,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use common::Contract;
 use serde_json::{Value, json};
 use std::{
@@ -274,6 +275,22 @@ async fn test_segment_points_200_shape_and_contract() {
     assert_eq!(body["mask"]["height"], 192);
     let mask_b64 = body["mask"]["png_base64"].as_str().unwrap();
     assert!(!mask_b64.is_empty());
+
+    // Decode mask PNG and verify it is LumaA8 (grey+alpha: luma=255, alpha=mask)
+    let mask_png = STANDARD.decode(mask_b64).expect("valid base64 mask");
+    let decoded_mask = image::load_from_memory(&mask_png).expect("valid png image");
+    assert_eq!(
+        decoded_mask.color(),
+        image::ColorType::La8,
+        "mask PNG must be LumaA8 (grey+alpha)"
+    );
+    let luma_alpha = decoded_mask.into_luma_alpha8();
+    assert_eq!(luma_alpha.width(), 256);
+    assert_eq!(luma_alpha.height(), 192);
+    for pixel in luma_alpha.pixels() {
+        assert_eq!(pixel[0], 255, "luma must be 255 everywhere for tinting");
+        assert_eq!(pixel[1], 255, "alpha must match mock mask foreground");
+    }
 
     // Cutout image id exists and is stored
     let cutout_id = body["cutout_image_id"].as_str().unwrap();

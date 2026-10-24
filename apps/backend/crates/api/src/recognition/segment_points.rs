@@ -330,10 +330,25 @@ pub async fn segment_points(
                 )
             })?;
 
-            // Encode mask as PNG bytes
+            // Encode mask as GrayAlphaImage (LumaA8) PNG:
+            // luma 255 everywhere, alpha = mask value (255 foreground, 0 background)
+            let (mw, mh) = (point_segment.mask.width(), point_segment.mask.height());
+            let mut alpha_bytes = Vec::with_capacity((mw * mh * 2) as usize);
+            for p in point_segment.mask.pixels() {
+                alpha_bytes.push(255);
+                alpha_bytes.push(p[0]);
+            }
+            let alpha_mask =
+                image::GrayAlphaImage::from_raw(mw, mh, alpha_bytes).ok_or_else(|| {
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "internal",
+                        "could not build alpha mask",
+                    )
+                })?;
+
             let mut png_bytes = Vec::new();
-            point_segment
-                .mask
+            alpha_mask
                 .write_to(
                     &mut std::io::Cursor::new(&mut png_bytes),
                     image::ImageFormat::Png,
