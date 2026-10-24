@@ -39,16 +39,30 @@ run out, using a configurable threshold.
 - **`stock.low` fires on the crossing only**: when a movement moves the quantity from
   above the threshold to at or below it. Restocking above the threshold re-arms it. No
   extra table: the ledger row's `quantity_after` and the previous quantity decide it.
-- **Document detection runs inside the existing scan.** A pretrained PP-OCR text detector
-  (DBNet, ONNX, ~2.4 MB) runs on the downsized scan image in parallel with SAM proposals,
-  ~100 ms on 4 vCPU. `detected = text_lines >= 6 && text_area_ratio >= 0.08`. The scan
-  response gains `document: { detected, score, text_lines }`. No extra round trip; the
-  checkout path is unchanged when no document is present.
-- **OCR: Tesseract 5 LSTM, `vie+eng`, pretrained.** Called through a `ReceiptOcr` port. The
-  adapter runs the `tesseract` binary (`--oem 1 --psm 4`, TSV output, `OMP_THREAD_LIMIT=4`)
-  on the stored photo downsized to 1600 px. Vietnamese diacritics are supported by the
-  official `vie` traineddata; the Docker runtime installs `tesseract-ocr` and
-  `tesseract-ocr-vie` from Debian. Budget ≤ 3 s. Fake OCR for tests returns fixture text.
+- **OCR models: PP-OCRv6 det small + VietOCR `vgg_seq2seq`, both pretrained ONNX on the
+  existing `ort` runtime.** Source: release `ocr-v1` of `duchoa1297/vietocr-onnx`
+  (Apache-2.0; VietOCR by pbcquoc was trained on Vietnamese printed text and is the
+  common recognizer for Vietnamese receipts, e.g. MC-OCR 2021). Files: `det.onnx` (9.9 MB),
+  `vietocr_encoder.onnx` (84 MB), `vietocr_decoder.onnx` (5.1 MB), `vietocr.json`
+  (vocab, offsets, widths). `fetch-models.sh` downloads them with pinned SHA-256 hashes;
+  the build fails on a mismatch. Tesseract `vie` was rejected: weaker on diacritics and
+  receipt fonts, and an extra system binary. PP-OCRv5 recognition was rejected: no
+  Vietnamese in its published language set. No PyTorch at runtime.
+- **Detection (`TextDetector` port).** DB post-processing in Rust: probability map, threshold
+  0.3, connected components to axis-aligned boxes, box score ≥ 0.5, unclip ratio 2.0
+  (keeps diacritics inside the box), boxes sorted top-to-bottom, left-to-right, then grouped
+  into lines by vertical overlap. Input: longest side 960 px, padded to a multiple of 32,
+  ImageNet mean/std.
+- **Recognition (`ReceiptOcr` port).** Each line crop: height 32 px, width
+  `ceil(32·w/h / 10)·10` clamped to `vietocr.json` bounds, RGB / 255, no mean/std. Lines are
+  batched by equal width; encoder once per batch, greedy decoder loop from `sos` until
+  `eos` or `max_seq_length`. One shared `ort` session per model, `intra_threads` from env.
+  Budget ≤ 2.5 s for a 40-line receipt on 4 vCPU. A fake OCR for tests returns fixture text.
+- **Document detection runs inside the existing scan.** The same detector runs on the
+  downsized scan image in parallel with SAM proposals (~150 ms on 4 vCPU).
+  `detected = text_lines >= 6 && text_area_ratio >= 0.08`. The scan response gains
+  `document: { detected, score, text_lines }`. No extra round trip; the checkout path is
+  unchanged when no document is present.
 - **Parse: rules first, decision model second.** `receipt::parse` turns OCR lines into
   candidates with regexes for Vietnamese money (`204.000`, `204,000`, `204000đ`) and
   quantities (`x24`, `SL 24`, `24 thùng`). Common layouts: `name qty unit_price amount`,
@@ -109,7 +123,7 @@ Receipts (Lead or `can_enroll`):
 
 - `POST /v1/receipts` `{ image_id }` (`Idempotency-Key`) → 201 `Receipt` with
   `status='draft'`. 404 unknown image, 422 `no_text` when OCR finds nothing,
-  503 `ocr_unavailable` when the OCR binary or language data is missing.
+  503 `ocr_unavailable` when the OCR models are absent (model-free image).
 - `GET /v1/receipts?status&cursor&limit` → `{ items: ReceiptSummary[], next_cursor }`,
   newest first. `ReceiptSummary { id, status, total, line_count, matched_count, image_url,
 created_at, confirmed_at, expense_id }`.
@@ -246,21 +260,21 @@ T0 contract ─┬─ B1 migration + seed ─┬─ B2 stock module ────
                                             └─ M3 low-stock banner + dashboard ────────┴─ E2 web e2e flow
 ```
 
-| ID  | Task                                                                                                                                                                                   | Depends   | Tests first (acceptance)                                                                                               |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
-| T0  | OpenAPI + AsyncAPI changes above, data-model.md §3.6b, CONTEXT.md terms, regenerate `packages/api-client/src/schema.d.ts`                                                              | none      | `tests/contract.rs`, `tests/asyncapi.rs`, api-client tests pass                                                        |
-| B1  | Migration `0601_stock_receipts.sql`; `taphoa-seed` starting stock + 2 confirmed receipts; fixture receipts (PNG + expected JSON)                                                       | T0        | `tests/migrations.rs`: tables/columns/checks exist; `tests/seed_invariants.rs`: seeded stock equals movements sum      |
-| B2  | `stock` module: `stock::apply(tx, ...)`, sale create/void hooks, adjustments, `GET /v1/stock`, movements, product + store fields, `stock.changed`/`stock.low`                          | B1        | `tests/stock.rs`: every reason, untracked stays `NULL`, low fires once per crossing, permissions, contract             |
-| B3  | `receipt` parse (regex), `decisions` client (`DecisionClient` trait, OpenRouter adapter, fake), fallback, candidate prefilter query                                                    | T0        | unit: money/qty formats, layouts, role/match mapping, timeout fallback (wiremock), model from env                      |
-| B4  | `ReceiptOcr` port + Tesseract adapter; `TextDetector` port + PP-OCR det ONNX adapter; Dockerfile + `fetch-models.sh`; `.railway/railway.ts` + `.env.example` vars                      | T0        | unit: TSV to lines; model tests (ignored without binaries): fixtures detected, OCR text contains expected names, < 3 s |
-| B5  | Receipts API: create (OCR + parse + decisions + persist + timings), list, get, confirm (expense, purchase lines, stock, margin alerts, events), discard                                | B1-B4     | `tests/receipts.rs` with fakes: 201 shape, 404/422/503, confirm, idempotency replay, 409, history ordering             |
-| B6  | Scan pipeline runs `TextDetector` in parallel with proposals; `document` field                                                                                                         | B4        | `tests/recognition.rs`: fake detector true/false; scan p95 unchanged                                                   |
-| M0  | api-client wrappers + hooks: `useStock`, `useStockMovements`, `useAdjustStock`, `useCreateReceipt`, `useReceipts`, `useReceipt`, `useConfirmReceipt`, `useDiscardReceipt`; mock routes | T0        | hook tests against the mock                                                                                            |
-| M1  | Stock view + Kho segment, `StockBadge`, product screen stock stat + adjust sheet + movements, Account threshold stepper, product override                                              | M0        | `StockScreen.test.tsx`, `ProductScreen.test.tsx`, `AccountScreen` threshold test                                       |
-| M2  | `DocumentButton` on the captured frame, receipt create overlay, `/receipt/[id]` review + confirm, `/receipts` history, entry points                                                    | M0        | `CameraScreen.test.tsx` (button shown only when detected), `ReceiptReview.test.tsx`, `ReceiptHistory.test.tsx`         |
-| M3  | `LowStockBanner` from SSE `stock.low`, dashboard "Sắp hết hàng" section                                                                                                                | M0        | `LowStockBanner.test.tsx`, `AlertsSection.test.tsx`                                                                    |
-| E1  | Deploy backend to Railway `test` with OCR + key; `packages/e2e/tests/receipts.test.ts` (create < 6 s p95 of 5, confirm adds stock); then production                                    | B5, B6    | e2e passes against `test`                                                                                              |
-| E2  | Playwright `e2e-web/receipts.spec.ts`: scan fixture receipt, review, confirm, stock view shows the quantities                                                                          | B5, M1-M3 | spec passes in CI                                                                                                      |
+| ID  | Task                                                                                                                                                                                                                                  | Depends   | Tests first (acceptance)                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T0  | OpenAPI + AsyncAPI changes above, data-model.md §3.6b, CONTEXT.md terms, regenerate `packages/api-client/src/schema.d.ts`                                                                                                             | none      | `tests/contract.rs`, `tests/asyncapi.rs`, api-client tests pass                                                                                                                                                |
+| B1  | Migration `0601_stock_receipts.sql`; `taphoa-seed` starting stock + 2 confirmed receipts; fixture receipts (PNG + expected JSON)                                                                                                      | T0        | `tests/migrations.rs`: tables/columns/checks exist; `tests/seed_invariants.rs`: seeded stock equals movements sum                                                                                              |
+| B2  | `stock` module: `stock::apply(tx, ...)`, sale create/void hooks, adjustments, `GET /v1/stock`, movements, product + store fields, `stock.changed`/`stock.low`                                                                         | B1        | `tests/stock.rs`: every reason, untracked stays `NULL`, low fires once per crossing, permissions, contract                                                                                                     |
+| B3  | `receipt` parse (regex), `decisions` client (`DecisionClient` trait, OpenRouter adapter, fake), fallback, candidate prefilter query                                                                                                   | T0        | unit: money/qty formats, layouts, role/match mapping, timeout fallback (wiremock), model from env                                                                                                              |
+| B4  | `TextDetector` (PP-OCRv6 det, DB post-process) + `ReceiptOcr` (VietOCR encoder/decoder) ONNX adapters in `taphoa-recognition`; `fetch-models.sh` with SHA-256 pins; Dockerfile env paths; `.railway/railway.ts` + `.env.example` vars | T0        | unit: preprocessing widths, DB boxes on a synthetic map, line grouping, greedy decode with a fake session; model tests (ignored without weights): fixtures detected, OCR text contains expected names, < 2.5 s |
+| B5  | Receipts API: create (OCR + parse + decisions + persist + timings), list, get, confirm (expense, purchase lines, stock, margin alerts, events), discard                                                                               | B1-B4     | `tests/receipts.rs` with fakes: 201 shape, 404/422/503, confirm, idempotency replay, 409, history ordering                                                                                                     |
+| B6  | Scan pipeline runs `TextDetector` in parallel with proposals; `document` field                                                                                                                                                        | B4        | `tests/recognition.rs`: fake detector true/false; scan p95 unchanged                                                                                                                                           |
+| M0  | api-client wrappers + hooks: `useStock`, `useStockMovements`, `useAdjustStock`, `useCreateReceipt`, `useReceipts`, `useReceipt`, `useConfirmReceipt`, `useDiscardReceipt`; mock routes                                                | T0        | hook tests against the mock                                                                                                                                                                                    |
+| M1  | Stock view + Kho segment, `StockBadge`, product screen stock stat + adjust sheet + movements, Account threshold stepper, product override                                                                                             | M0        | `StockScreen.test.tsx`, `ProductScreen.test.tsx`, `AccountScreen` threshold test                                                                                                                               |
+| M2  | `DocumentButton` on the captured frame, receipt create overlay, `/receipt/[id]` review + confirm, `/receipts` history, entry points                                                                                                   | M0        | `CameraScreen.test.tsx` (button shown only when detected), `ReceiptReview.test.tsx`, `ReceiptHistory.test.tsx`                                                                                                 |
+| M3  | `LowStockBanner` from SSE `stock.low`, dashboard "Sắp hết hàng" section                                                                                                                                                               | M0        | `LowStockBanner.test.tsx`, `AlertsSection.test.tsx`                                                                                                                                                            |
+| E1  | Deploy backend to Railway `test` with OCR + key; `packages/e2e/tests/receipts.test.ts` (create < 6 s p95 of 5, confirm adds stock); then production                                                                                   | B5, B6    | e2e passes against `test`                                                                                                                                                                                      |
+| E2  | Playwright `e2e-web/receipts.spec.ts`: scan fixture receipt, review, confirm, stock view shows the quantities                                                                                                                         | B5, M1-M3 | spec passes in CI                                                                                                                                                                                              |
 
 ## Out of scope
 
