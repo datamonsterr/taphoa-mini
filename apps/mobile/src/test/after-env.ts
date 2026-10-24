@@ -21,6 +21,7 @@ beforeEach(() => {
   const { testSession } = require('./session');
   const { initialChrome, useChromeStore } = require('@/stores/chrome');
   const { useCartStore } = require('@/stores/cart');
+  const { useLowStockAlerts } = require('@/stores/lowStockAlerts');
   const { initialSettings, useSettingsStore } = require('@/stores/settings');
   resetMockDb();
   // The app only ever talks to the real backend; tests put the in-memory double underneath it.
@@ -32,6 +33,7 @@ beforeEach(() => {
   });
   useChromeStore.setState(initialChrome);
   useCartStore.setState({ lines: [] });
+  useLowStockAlerts.getState().reset();
   useCaptureModeStore.setState({ mode: 'one' });
   useSettingsStore.setState(initialSettings);
 });
