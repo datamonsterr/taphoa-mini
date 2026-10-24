@@ -74,24 +74,3 @@ test('dashboard, add expense, then close the day', async () => {
     difference: 0,
   });
 });
-
-test('the low stock pill leads to the inventory', async () => {
-  const app = await renderApp('/dashboard');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: /món sắp hết$/ }),
-  );
-  await waitFor(() => expect(app.getPathname()).toBe('/inventory'));
-});
-
-test('the low-stock pill opens the inventory filtered to low stock', async () => {
-  await renderApp('/dashboard');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: /món sắp hết$/ }),
-  );
-  expect(screen).toHavePathname('/inventory');
-  expect(screen).toHaveSearchParams({ filter: 'low' });
-  expect(
-    await screen.findByRole('button', { name: 'Bỏ lọc sắp hết hàng' }),
-  ).toBeOnTheScreen();
-  expect(screen.queryByRole('button', { name: /^Coca-Cola/ })).toBeNull();
-});

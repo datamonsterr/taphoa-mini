@@ -18,15 +18,12 @@ import { renderWithProviders } from '@/test/render';
 
 import { InventoryScreen, HANDLE_PAN_TEST_ID } from './InventoryScreen';
 
-let mockParams: Record<string, string | undefined> = {};
 jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
     dismissTo: jest.fn(),
     back: jest.fn(),
-    setParams: jest.fn(),
   },
-  useLocalSearchParams: () => mockParams,
 }));
 
 const mockTileRenders = jest.fn();
@@ -43,7 +40,6 @@ jest.mock('@/components/ui/ProductTile', () => {
 });
 
 beforeEach(() => {
-  mockParams = {};
   resetMockDb();
   jest.clearAllMocks();
 });
@@ -52,8 +48,8 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const COCA = 'Coca-Cola lon 330ml, 10.000đ, còn 48';
-const SEVEN_UP = '7Up lon 330ml, 9.000đ, sắp hết: còn 3';
+const COCA = 'Coca-Cola lon 330ml, 10.000đ';
+const SEVEN_UP = '7Up lon 330ml, 9.000đ';
 
 test('shows the title, the search circle and a skeleton while loading', async () => {
   const release = holdNext(productsApi, 'listProducts');
@@ -66,11 +62,10 @@ test('shows the title, the search circle and a skeleton while loading', async ()
   expect(screen.queryByTestId('inventory-skeleton')).toBeNull();
 });
 
-test('renders tiles with price and stock, low stock in amber', async () => {
+test('renders tiles with name and price', async () => {
   await renderWithProviders(<InventoryScreen />);
   expect(await screen.findByRole('button', { name: COCA })).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: SEVEN_UP })).toBeOnTheScreen();
-  expect(screen.getAllByTestId('icon-CircleAlert')).toHaveLength(3);
 });
 
 test('tile tap opens the product', async () => {
@@ -243,22 +238,6 @@ test('tiles carry the product photo', async () => {
   expect(within(tile).getByTestId('product-photo')).toBeOnTheScreen();
 });
 
-test('a product without a stock figure shows no "còn 0" badge', async () => {
-  const real = productsApi.listProducts;
-  jest.spyOn(productsApi, 'listProducts').mockImplementation(async (params) => {
-    const page = await real(params);
-    return {
-      ...page,
-      items: page.items.map(({ stock_quantity: _drop, ...rest }) => rest),
-    };
-  });
-  await renderWithProviders(<InventoryScreen />);
-  expect(
-    await screen.findByRole('button', { name: 'Coca-Cola lon 330ml, 10.000đ' }),
-  ).toBeOnTheScreen();
-  expect(screen.queryByLabelText(/còn/)).toBeNull();
-});
-
 test('typing a search keeps the previous grid until the new page arrives', async () => {
   await renderWithProviders(<InventoryScreen />);
   await screen.findByRole('button', { name: SEVEN_UP });
@@ -277,67 +256,4 @@ test('typing a search keeps the previous grid until the new page arrives', async
   await waitFor(() =>
     expect(screen.queryByRole('button', { name: SEVEN_UP })).toBeNull(),
   );
-});
-
-describe('low-stock filter (?filter=low)', () => {
-  beforeEach(() => {
-    mockParams = { filter: 'low' };
-  });
-
-  test('lists only the products running low, fewest first', async () => {
-    await renderWithProviders(<InventoryScreen />);
-    expect(
-      await screen.findByRole('button', { name: SEVEN_UP }),
-    ).toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: COCA })).toBeNull();
-    expect(screen.getAllByTestId('icon-CircleAlert')).toHaveLength(3);
-  });
-
-  test('the chip clears the filter', async () => {
-    await renderWithProviders(<InventoryScreen />);
-    await screen.findByRole('button', { name: SEVEN_UP });
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Bỏ lọc sắp hết hàng' }),
-    );
-    expect(router.setParams).toHaveBeenCalledWith({ filter: undefined });
-  });
-
-  test('narrowing the low-stock list re-renders no tile that keeps its place', async () => {
-    await renderWithProviders(<InventoryScreen />);
-    await screen.findByRole('button', { name: SEVEN_UP });
-    const tiles = screen.getAllByRole('button', { name: /sắp hết/ });
-    const first = tiles[0]!.props.accessibilityLabel.split(',')[0] as string;
-    await fireEvent.press(screen.getByRole('button', { name: 'Tìm' }));
-    // Let FlashList finish its layout passes, so only the search can add renders.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
-    mockTileRenders.mockClear();
-    await fireEvent.changeText(screen.getByLabelText('Tìm sản phẩm'), first);
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole('button', { name: /sắp hết/ }).length,
-      ).toBeLessThan(tiles.length),
-    );
-    // The first tile keeps cell 0 and its data: it must not render again.
-    expect(mockTileRenders).not.toHaveBeenCalledWith(first);
-  });
-
-  test('search still narrows the low-stock list, ignoring accents', async () => {
-    await renderWithProviders(<InventoryScreen />);
-    await screen.findByRole('button', { name: SEVEN_UP });
-    await fireEvent.press(screen.getByRole('button', { name: 'Tìm' }));
-    await fireEvent.changeText(screen.getByLabelText('Tìm sản phẩm'), '7up');
-    await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: /^7Up/ })).toHaveLength(1),
-    );
-  });
-});
-
-test('no filter chip without the low param', async () => {
-  await renderWithProviders(<InventoryScreen />);
-  await screen.findByRole('button', { name: COCA });
-  expect(
-    screen.queryByRole('button', { name: 'Bỏ lọc sắp hết hàng' }),
-  ).toBeNull();
 });

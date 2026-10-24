@@ -7,8 +7,8 @@ import {
   waitFor,
 } from '@/test/router';
 
-const COCA = (price: string) => `Coca-Cola lon 330ml, ${price}, còn 48`;
-const SEVEN_UP = '7Up lon 330ml, 9.000đ, sắp hết: còn 3';
+const COCA = (price: string) => `Coca-Cola lon 330ml, ${price}`;
+const SEVEN_UP = '7Up lon 330ml, 9.000đ';
 
 async function openShop() {
   await renderApp('/');

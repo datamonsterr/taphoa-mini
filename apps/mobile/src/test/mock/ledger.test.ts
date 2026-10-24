@@ -4,7 +4,6 @@ import type { CreateSaleRequest } from '@/lib/api/types';
 
 import {
   getMockDb,
-  getMockStock,
   getProduct,
   listAlerts,
   patchStore,
@@ -49,8 +48,7 @@ const sale = (over: Partial<CreateSaleRequest> = {}): CreateSaleRequest => ({
 });
 
 describe('createSale', () => {
-  test('records a cash sale: totals, change, payment method, stock decrement', () => {
-    const stock = getMockStock(PRODUCT_IDS.coca);
+  test('records a cash sale: totals, change, payment method', () => {
     const { sale: s, created } = createSale(sale());
     expect(created).toBe(true);
     expect(s).toMatchObject({
@@ -67,7 +65,6 @@ describe('createSale', () => {
       price_mismatch: false,
       product_name: 'Coca-Cola lon 330ml',
     });
-    expect(getMockStock(PRODUCT_IDS.coca)).toBe(stock - 2);
   });
 
   test('transfer sale gets a memo with the store prefix and no cash fields', () => {
@@ -88,18 +85,15 @@ describe('createSale', () => {
     expect([s.cash_received, s.change_given]).toEqual([29000, 0]);
   });
 
-  test('is idempotent on id and does not decrement stock twice', () => {
+  test('is idempotent on id', () => {
     const req = sale();
     createSale(req);
-    const stock = getMockStock(PRODUCT_IDS.coca);
     const replay = createSale(req);
     expect(replay.created).toBe(false);
-    expect(getMockStock(PRODUCT_IDS.coca)).toBe(stock);
   });
 
-  test('units multiply stock movement; manual lines have no product', () => {
+  test('units are accepted; manual lines have no product', () => {
     const unit = getProduct(PRODUCT_IDS.coca).units[0]!;
-    const stock = getMockStock(PRODUCT_IDS.coca);
     const { sale: s } = createSale(
       sale({
         cash_received: undefined,
@@ -110,7 +104,6 @@ describe('createSale', () => {
         ],
       }),
     );
-    expect(getMockStock(PRODUCT_IDS.coca)).toBe(stock - 24);
     expect(s.lines[1]).toMatchObject({
       product_name: null,
       price_mismatch: false,
@@ -200,9 +193,8 @@ describe('createExpense', () => {
     expect(getDailyReport(today()).expected_cash).toBe(before.expected_cash);
   });
 
-  test('purchase lines raise stock, set cost per base unit and raise margin alerts', () => {
+  test('purchase lines set cost per base unit and raise margin alerts', () => {
     const unit = getProduct(PRODUCT_IDS.coca).units[0]!;
-    const stock = getMockStock(PRODUCT_IDS.coca);
     const { expense: e } = createExpense(
       expense({
         category: 'nhap_hang',
@@ -216,7 +208,6 @@ describe('createExpense', () => {
         ],
       }),
     );
-    expect(getMockStock(PRODUCT_IDS.coca)).toBe(stock + 48);
     expect(getProduct(PRODUCT_IDS.coca).cost_price).toBe(10000);
     expect(e.alerts).toHaveLength(1);
     expect(listAlerts('open').some((a) => a.expense_id === e.id)).toBe(true);

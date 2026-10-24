@@ -30,7 +30,6 @@ test.describe('dashboard', () => {
     );
     expect(report.body).toMatchObject({ revenue: 0, sales_count: 0 });
     await expectDashboardShows(page, report.body);
-    await expect(pill(page, /^0 món sắp hết$/)).toBeVisible();
   });
 
   test('day: the tiles are GET /v1/reports/today; the chart is the summary, one bar per day', async ({
@@ -166,7 +165,6 @@ test.describe('dashboard alerts and review', () => {
       selling_price: 9_000,
       cost_price: 9_500,
     });
-    await expect(pill(page, /^0 món sắp hết$/)).toBeVisible();
     await expect(pill(page, /^1 món giá bán dưới giá nhập$/)).toBeVisible();
     await expect(pill(page, /^1 món bán không có trong kho$/)).toBeVisible();
 

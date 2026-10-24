@@ -154,17 +154,6 @@ test('a positive net keeps the success colour', async () => {
 });
 
 describe('alerts', () => {
-  test('low stock count opens the inventory filtered to low stock', async () => {
-    await renderWithProviders(<DashboardScreen />);
-    const pill = await screen.findByRole('button', { name: /món sắp hết$/ });
-    expect(pill).toBeOnTheScreen();
-    await fireEvent.press(pill);
-    expect(router.push).toHaveBeenCalledWith({
-      pathname: '/inventory',
-      params: { filter: 'low' },
-    });
-  });
-
   test('price below cost expands a list; a row opens the product', async () => {
     await renderWithProviders(<DashboardScreen />);
     const alerts = await ledger.listAlerts('open');
@@ -250,7 +239,7 @@ describe('alerts', () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: /món sắp hết$/ }),
+        screen.getByRole('button', { name: /món giá bán dưới giá nhập$/ }),
       ).toBeOnTheScreen(),
     );
   });
@@ -267,7 +256,7 @@ describe('alerts', () => {
     await renderWithProviders(<DashboardScreen />);
     expect(screen.getByTestId('alerts-skeleton')).toBeOnTheScreen();
     release();
-    await screen.findByRole('button', { name: /món sắp hết$/ });
+    await screen.findByRole('button', { name: /món giá bán dưới giá nhập$/ });
   });
 });
 
@@ -300,6 +289,5 @@ describe('as a Seller', () => {
     expect(screen.queryByRole('button', { name: 'Chốt sổ' })).toBeNull();
     expect(screen.queryByLabelText(/món bán không có trong kho/)).toBeNull();
     expect(screen.queryByLabelText(/món giá bán dưới giá nhập/)).toBeNull();
-    expect(screen.getByLabelText(/món sắp hết/)).toBeOnTheScreen();
   });
 });

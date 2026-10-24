@@ -42,8 +42,6 @@ export { Sheet, shouldDismiss } from './Sheet';
 export type { SheetProps } from './Sheet';
 export { Stepper } from './Stepper';
 export type { StepperLabels, StepperProps } from './Stepper';
-export { StockBadge } from './StockBadge';
-export type { StockBadgeProps } from './StockBadge';
 export { Switch } from './Switch';
 export type { SwitchProps } from './Switch';
 export { ScaledText, Text } from './ScaledText';

@@ -1,10 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import {
-  ArrowDownToLine,
-  ChevronLeft,
-  Package,
-  Pencil,
-} from 'lucide-react-native';
+import { ArrowDownToLine, ChevronLeft, Pencil } from 'lucide-react-native';
 import { memo, useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -17,7 +12,7 @@ import { PressableScale } from '@/components/ui/PressableScale';
 import { MoneyText } from '@/components/ui/MoneyText';
 import { useCategories, usePatchProduct, useProduct } from '@/lib/api/hooks';
 import { isApiError } from '@/lib/api/errors';
-import type { Category, ProductWithStock } from '@/lib/api/types';
+import type { Category, Product } from '@/lib/api/types';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { selectIsLead, useSessionStore } from '@/stores/session';
@@ -29,7 +24,7 @@ import { fill, strings } from './strings';
 
 /** Description from the fields the API has: category and extra selling units. */
 function describe(
-  product: ProductWithStock,
+  product: Product,
   categories: Category[] | undefined,
   unitLine: string,
 ): string {
@@ -55,7 +50,7 @@ const Stat = memo(function Stat({
   label,
   value,
 }: {
-  icon: typeof Package;
+  icon: typeof ArrowDownToLine;
   label: string;
   value: string;
 }) {
@@ -133,13 +128,6 @@ export function ProductScreen() {
           </Text>
         ) : null}
         <View style={styles.stats}>
-          {product.stock_quantity !== undefined ? (
-            <Stat
-              icon={Package}
-              label={t('stock')}
-              value={String(product.stock_quantity)}
-            />
-          ) : null}
           {product.cost_price != null ? (
             <Stat
               icon={ArrowDownToLine}

@@ -159,7 +159,7 @@ describe('journey', () => {
 
     await fireEvent.press(
       await screen.findByRole('button', {
-        name: 'Coca-Cola lon 330ml, 10.000đ, còn 48',
+        name: 'Coca-Cola lon 330ml, 10.000đ',
       }),
     );
     expect(screen).toHavePathname(`/product/${PRODUCT_IDS.coca}`);
@@ -175,7 +175,7 @@ describe('journey', () => {
     expect(screen).toHavePathname('/inventory');
     expect(
       await screen.findByRole('button', {
-        name: 'Coca-Cola lon 330ml, 12.000đ, còn 48',
+        name: 'Coca-Cola lon 330ml, 12.000đ',
       }),
     ).toBeOnTheScreen();
 

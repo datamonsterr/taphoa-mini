@@ -8,15 +8,10 @@ import { formatVnd } from '@/lib/format';
 import { colors, radius, space, typography } from '@/theme';
 
 import { PressableScale } from './PressableScale';
-import { StockBadge } from './StockBadge';
 
 export type ProductTileProps = {
   name: string;
   price: number;
-  /** Base units in stock. Leave out when the API did not report stock: no badge is shown. */
-  stock?: number;
-  /** Low stock: amber badge. */
-  low?: boolean;
   imageUri?: string;
   onPress?: () => void;
 };
@@ -25,22 +20,14 @@ export type ProductTileProps = {
 export const ProductTile = memo(function ProductTile({
   name,
   price,
-  stock,
-  low = false,
   imageUri,
   onPress,
 }: ProductTileProps) {
   const priceText = formatVnd(price);
-  const stockText =
-    stock === undefined ? null : low ? `sắp hết: còn ${stock}` : `còn ${stock}`;
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={
-        stockText
-          ? `${name}, ${priceText}, ${stockText}`
-          : `${name}, ${priceText}`
-      }
+      accessibilityLabel={`${name}, ${priceText}`}
       pressedScale={0.98}
       onPress={onPress}
       style={styles.tile}
@@ -57,11 +44,6 @@ export const ProductTile = memo(function ProductTile({
             testID="product-photo"
           />
         ) : null}
-        {stock === undefined ? null : (
-          <View style={styles.badge}>
-            <StockBadge quantity={stock} low={low} />
-          </View>
-        )}
       </View>
       <Text numberOfLines={1} style={styles.name}>
         {name}
@@ -84,7 +66,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   image: { width: '70%', height: '70%' },
-  badge: { position: 'absolute', left: 10, top: 10 },
   name: { ...typography.label, color: colors.ink },
   price: {
     ...typography.heading,

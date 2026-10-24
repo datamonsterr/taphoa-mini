@@ -27,7 +27,6 @@ import { createScan, uploadImage, type CreateScanInput } from './images';
 import { keys } from './keys';
 import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
-import { isLowStock, LOW_STOCK_THRESHOLD } from './stock';
 import { listManualLines, resolveManualLine } from './review';
 import {
   addProductImage,
@@ -92,22 +91,6 @@ export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
     // Typing a search keeps the previous grid on screen until the new page arrives.
     placeholderData: keepPreviousData,
     select: (data) => data.pages.flatMap((page) => page.items),
-  });
-}
-
-/** Products at or below the low-stock threshold, fewest first (Dashboard alert). Derived from the product list. */
-export function useLowStockProducts(
-  threshold = LOW_STOCK_THRESHOLD,
-  enabled = true,
-) {
-  return useInfiniteQuery({
-    ...productsQuery({ limit: 200 }),
-    enabled,
-    select: (data) =>
-      data.pages
-        .flatMap((page) => page.items)
-        .filter((product) => isLowStock(product, threshold))
-        .sort((a, b) => a.stock_quantity! - b.stock_quantity!),
   });
 }
 

@@ -166,9 +166,9 @@ test.describe('account', () => {
       await expect(
         page.getByRole('heading', { name: 'Báo cáo' }),
       ).toBeVisible();
-      await expect(
-        page.getByRole('button', { name: /món sắp hết$/ }),
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: /^\d+ món/ })).toHaveCount(
+        0,
+      );
       await expect(
         page.getByRole('button', { name: /dưới giá nhập$/ }),
       ).toHaveCount(0);

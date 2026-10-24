@@ -20,7 +20,7 @@ import type {
 import { productImageUri, type ProductImageSlug } from './assets';
 import { randomCode, seedUuid } from './ids';
 
-export type ProductRecord = { product: Product; stock: number };
+export type ProductRecord = { product: Product };
 
 export type MockState = {
   store: Store;
@@ -56,7 +56,6 @@ type SeedProduct = {
   name: string;
   price: number;
   cost: number;
-  stock: number;
   category: keyof typeof CATEGORY_IDS;
   unit: string;
   images: ProductImageSlug[];
@@ -69,7 +68,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Coca-Cola lon 330ml',
     price: 10000,
     cost: 7500,
-    stock: 48,
     category: 'drinks',
     unit: 'lon',
     images: ['coca', 'coca-b'],
@@ -80,7 +78,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Pepsi lon 330ml',
     price: 9000,
     cost: 9500,
-    stock: 36,
     category: 'drinks',
     unit: 'lon',
     images: ['pepsi'],
@@ -90,7 +87,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: '7Up lon 330ml',
     price: 9000,
     cost: 7000,
-    stock: 3,
     category: 'drinks',
     unit: 'lon',
     images: ['7up'],
@@ -100,7 +96,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Nước suối Lavie 500ml',
     price: 5000,
     cost: 3500,
-    stock: 72,
     category: 'drinks',
     unit: 'chai',
     images: ['lavie'],
@@ -110,7 +105,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Mì Hảo Hảo tôm chua cay',
     price: 4500,
     cost: 3600,
-    stock: 120,
     category: 'noodles',
     unit: 'gói',
     images: ['haohao', 'haohao-b'],
@@ -121,7 +115,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Mì Omachi sườn hầm',
     price: 7000,
     cost: 5800,
-    stock: 60,
     category: 'noodles',
     unit: 'gói',
     images: ['omachi'],
@@ -131,7 +124,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Sữa Vinamilk 180ml',
     price: 8000,
     cost: 6500,
-    stock: 4,
     category: 'dairy',
     unit: 'hộp',
     images: ['vinamilk', 'vinamilk-b'],
@@ -141,7 +133,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Bánh Oreo 133g',
     price: 12000,
     cost: 9500,
-    stock: 24,
     category: 'dairy',
     unit: 'gói',
     images: ['oreo'],
@@ -151,7 +142,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Trứng gà (vỉ 10)',
     price: 35000,
     cost: 30000,
-    stock: 8,
     category: 'pantry',
     unit: 'vỉ',
     images: ['trung'],
@@ -161,7 +151,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Dầu ăn Tường An 1L',
     price: 52000,
     cost: 46000,
-    stock: 15,
     category: 'pantry',
     unit: 'chai',
     images: ['tuongan'],
@@ -171,7 +160,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Nước mắm Nam Ngư 500ml',
     price: 36000,
     cost: 33500,
-    stock: 18,
     category: 'pantry',
     unit: 'chai',
     images: ['namngu'],
@@ -181,7 +169,6 @@ const SEED_PRODUCTS: SeedProduct[] = [
     name: 'Bột giặt OMO 800g',
     price: 48000,
     cost: 41000,
-    stock: 2,
     category: 'household',
     unit: 'gói',
     images: ['omo'],
@@ -350,7 +337,7 @@ export function buildSeed(now: Date = new Date()): MockState {
       created_by: LEAD_ID,
       updated_at: iso,
     };
-    return { product, stock: seed.stock };
+    return { product };
   });
 
   const byKey = (key: keyof typeof PRODUCT_IDS) =>
