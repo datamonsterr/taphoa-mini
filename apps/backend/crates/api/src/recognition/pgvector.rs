@@ -57,7 +57,7 @@ impl VectorIndex for PgVectorIndex {
         sqlx::query(
             "INSERT INTO product_embeddings (store_id, product_id, image_id, model, embedding)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (store_id, product_id, image_id, model)
+             ON CONFLICT (store_id, product_id, image_id, model, kind)
              DO UPDATE SET embedding = EXCLUDED.embedding",
         )
         .bind(store_id)

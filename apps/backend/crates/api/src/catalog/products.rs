@@ -76,6 +76,7 @@ pub(crate) fn product_json(
         "category_id": row.product.category_id,
         "units": row.units,
         "images": images,
+        "index_status": row.product.index_status,
         "archived": row.product.archived,
         "version": row.product.version,
         "created_by": row.product.created_by,
