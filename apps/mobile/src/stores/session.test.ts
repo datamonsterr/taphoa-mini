@@ -4,6 +4,7 @@ import { testSession } from '@/test/session';
 
 import {
   initialSession,
+  selectCanEnroll,
   selectIsLead,
   selectSignedIn,
   SESSION_STORAGE_KEY,
@@ -155,4 +156,19 @@ describe('on the web', () => {
     await flush();
     expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
   });
+});
+
+test('selectCanEnroll: Lead and can_enroll Sellers only', () => {
+  const base = testSession();
+  const as = (role: 'lead' | 'seller', can_enroll: boolean) =>
+    selectCanEnroll({
+      ...useSessionStore.getState(),
+      session: { ...base, member: { ...base.member, role, can_enroll } },
+    });
+  expect(as('lead', false)).toBe(true);
+  expect(as('seller', true)).toBe(true);
+  expect(as('seller', false)).toBe(false);
+  expect(
+    selectCanEnroll({ ...useSessionStore.getState(), session: null }),
+  ).toBe(false);
 });

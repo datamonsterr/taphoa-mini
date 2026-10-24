@@ -17,7 +17,13 @@ type Props =
       expanded?: boolean;
       onPress: (id: string) => void;
     }
-  | { id: string; variant: 'unknown'; onPress: (id: string) => void };
+  | {
+      id: string;
+      variant: 'unknown';
+      /** Member may not enroll: the chip stays as a hint but is inert. */
+      disabled?: boolean;
+      onPress: (id: string) => void;
+    };
 
 /** Price chip on the box's bottom edge. Tap opens the strip, or enroll when unknown. */
 export const PricePill = memo(function PricePill(props: Props) {
@@ -28,8 +34,15 @@ export const PricePill = memo(function PricePill(props: Props) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Chưa có trong kho, nhập giá"
+        accessibilityState={{ disabled: !!props.disabled }}
+        accessibilityHint={
+          props.disabled
+            ? 'Chỉ Chủ tiệm hoặc người được cấp quyền mới thêm hàng mới'
+            : undefined
+        }
+        disabled={props.disabled}
         onPress={press}
-        style={[styles.pill, styles.unknown]}
+        style={[styles.pill, styles.unknown, props.disabled && styles.off]}
       >
         <Icon icon={Tag} size={18} strokeWidth={3} color={colors.warning} />
         <Text style={[styles.text, styles.unknownText]}>?</Text>
@@ -57,6 +70,7 @@ export const PricePill = memo(function PricePill(props: Props) {
 });
 
 const styles = StyleSheet.create({
+  off: { opacity: 0.5 },
   pill: {
     height: 40,
     flexDirection: 'row',

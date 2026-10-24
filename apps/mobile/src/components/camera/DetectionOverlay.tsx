@@ -31,6 +31,8 @@ type Props = {
   mode: CaptureMode;
   /** Detection whose alternatives strip is open. */
   openId?: string | null;
+  /** False hides the enroll path: unknown pills render disabled. Default true. */
+  canEnroll?: boolean;
   onToggle: (id: string) => void;
   onPricePress: (id: string) => void;
   onChoose: (detectionId: string, itemId: string) => void;
@@ -47,6 +49,7 @@ export const DetectionOverlay = memo(function DetectionOverlay({
   selected,
   mode,
   openId,
+  canEnroll = true,
   onToggle,
   onPricePress,
   onChoose,
@@ -112,6 +115,7 @@ export const DetectionOverlay = memo(function DetectionOverlay({
             <PricePill
               id={detection.id}
               variant="unknown"
+              disabled={!canEnroll}
               onPress={onPricePress}
             />
           ) : (

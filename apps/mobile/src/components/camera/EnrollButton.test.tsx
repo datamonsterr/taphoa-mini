@@ -35,3 +35,19 @@ describe('EnrollButton', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('EnrollButton disabled', () => {
+  it('is inert, dimmed, hinted and never pulses', async () => {
+    const onPress = jest.fn();
+    await renderWithProviders(
+      <EnrollButton pulse disabled onPress={onPress} />,
+    );
+    const button = screen.getByRole('button', { name: label });
+    expect(button).toBeDisabled();
+    expect(button).toHaveStyle({ opacity: 0.4 });
+    expect(button.props.accessibilityHint).toMatch(/Chủ tiệm/);
+    expect(screen.queryByTestId('enroll-pulse')).toBeNull();
+    await fireEvent.press(button);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+});

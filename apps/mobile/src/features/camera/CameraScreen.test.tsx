@@ -16,6 +16,7 @@ import * as images from '@/lib/api/images';
 import { mapBox } from '@/lib/bbox';
 import { resetMockDb, setMockScenario } from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
+import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
 import { renderWithProviders } from '@/test/render';
@@ -656,6 +657,49 @@ describe('low match', () => {
       pathname: '/enroll',
       params: { photoUri: 'file:///shot.jpg', scanId: scan.id },
     });
+  });
+});
+
+describe('enroll permission', () => {
+  beforeEach(() => setMockScenario('unknown'));
+  const asSeller = (can_enroll: boolean) => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: {
+        ...session!,
+        member: { ...session!.member, role: 'seller', can_enroll },
+      },
+    });
+  };
+
+  it('a Seller without can_enroll gets disabled tag and ? pill, no pulse, no navigation', async () => {
+    asSeller(false);
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    const tag = screen.getByRole('button', { name: 'Thêm vào kho với giá' });
+    const pill = screen.getByRole('button', {
+      name: 'Chưa có trong kho, nhập giá',
+    });
+    expect(tag).toBeDisabled();
+    expect(pill).toBeDisabled();
+    expect(screen.queryByTestId('enroll-pulse')).toBeNull();
+    expect(screen.queryByTestId('enroll-arrow')).toBeNull();
+    await fireEvent.press(tag);
+    await fireEvent.press(pill);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('a Seller with can_enroll keeps the enroll path', async () => {
+    asSeller(true);
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    expect(
+      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
+    ).toBeEnabled();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Chưa có trong kho, nhập giá' }),
+    );
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 });
 

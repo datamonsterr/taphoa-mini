@@ -96,6 +96,10 @@ export const selectSession = (s: SessionState) => s.session;
 export const selectSignedIn = (s: SessionState) =>
   s.session !== null && s.pendingRecoveryCode === null;
 
+/** Enrolling is the Lead's, or a Seller the Lead granted `can_enroll`; the server answers 403 otherwise. */
+export const selectCanEnroll = (s: SessionState) =>
+  s.session?.member.role === 'lead' || s.session?.member.can_enroll === true;
+
 /** Alerts, the review queue and the day close belong to the Lead; a Seller's calls would answer 403. */
 export const selectIsLead = (s: SessionState) =>
   s.session?.member.role === 'lead';

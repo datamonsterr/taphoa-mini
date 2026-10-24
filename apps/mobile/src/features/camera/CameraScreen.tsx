@@ -30,6 +30,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useT } from '@/lib/i18n';
 import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
+import { selectCanEnroll, useSessionStore } from '@/stores/session';
 import { camera, colors, size, space } from '@/theme';
 
 import {
@@ -167,8 +168,10 @@ export function CameraScreen() {
   const busy = phase === 'capturing' || phase === 'scanning';
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
+  const canEnroll = useSessionStore(selectCanEnroll);
   const goEnroll = useCallback(
     (detectionId?: string) => {
+      if (!canEnroll) return;
       if (!photo || !scan) {
         router.push('/enroll');
         return;
@@ -188,7 +191,7 @@ export function CameraScreen() {
         },
       });
     },
-    [router, photo, scan, imageSize],
+    [router, photo, scan, imageSize, canEnroll],
   );
   const onEnrollPress = useCallback(() => {
     const unknown = scan?.detections.find(isLowMatch);
@@ -313,6 +316,7 @@ export function CameraScreen() {
                     selected={selected}
                     mode={mode}
                     openId={openId}
+                    canEnroll={canEnroll}
                     onToggle={toggle}
                     onPricePress={onPricePress}
                     onChoose={choose}
@@ -370,8 +374,12 @@ export function CameraScreen() {
         onLayout={onControlsLayout}
       >
         <View>
-          <EnrollButton pulse={hasResult && anyLow} onPress={onEnrollPress} />
-          {hasResult && anyLow ? (
+          <EnrollButton
+            pulse={hasResult && anyLow}
+            disabled={!canEnroll}
+            onPress={onEnrollPress}
+          />
+          {hasResult && anyLow && canEnroll ? (
             <View
               testID="enroll-arrow"
               pointerEvents="none"

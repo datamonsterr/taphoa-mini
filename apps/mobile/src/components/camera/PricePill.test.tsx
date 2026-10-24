@@ -70,3 +70,19 @@ describe('PricePill', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PricePill unknown disabled', () => {
+  it('is inert and hinted', async () => {
+    const onPress = jest.fn();
+    await renderWithProviders(
+      <PricePill id="d1" variant="unknown" disabled onPress={onPress} />,
+    );
+    const pill = screen.getByRole('button', {
+      name: 'Chưa có trong kho, nhập giá',
+    });
+    expect(pill).toBeDisabled();
+    expect(pill.props.accessibilityHint).toMatch(/Chủ tiệm/);
+    await fireEvent.press(pill);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+});
