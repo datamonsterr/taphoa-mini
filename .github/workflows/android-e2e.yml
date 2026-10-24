@@ -140,6 +140,16 @@ jobs:
             ~/.maestro/tests
           if-no-files-found: warn
 
+      # The backend's own view of each request (status, multipart rejections, panics).
+      - name: Upload backend log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro-backend-log
+          path: .e2e-stack/backend.log
+          include-hidden-files: true
+          if-no-files-found: warn
+
       # Raw `dumpsys gfxinfo` used by the jank budget (scripts/gfxinfo-budget.mjs).
       - name: Upload gfxinfo
         if: always()
