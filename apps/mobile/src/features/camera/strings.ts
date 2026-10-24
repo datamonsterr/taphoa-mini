@@ -4,6 +4,10 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     unnamed: 'Sản phẩm',
+    readReceipt: 'Đọc hóa đơn nhập',
+    readingReceipt: 'Đang đọc hóa đơn…',
+    receiptNoText: 'Không đọc được chữ trên hóa đơn',
+    receiptRetry: 'Chưa đọc được hóa đơn. Thử lại.',
     permissionTitle: 'Cho phép máy ảnh để quét hàng',
     permissionAsk: 'Cho phép máy ảnh',
     permissionSettings: 'Mở cài đặt',
@@ -16,6 +20,10 @@ export const strings: Dict = {
   },
   en: {
     unnamed: 'Product',
+    readReceipt: 'Read import receipt',
+    readingReceipt: 'Reading receipt…',
+    receiptNoText: 'Could not read text on the receipt',
+    receiptRetry: 'Could not read receipt. Try again.',
     permissionTitle: 'Allow the camera to scan goods',
     permissionAsk: 'Allow camera',
     permissionSettings: 'Open settings',

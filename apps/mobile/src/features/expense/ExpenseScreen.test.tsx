@@ -246,3 +246,9 @@ describe('bill photo', () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+test('opens import receipt history', async () => {
+  await renderWithProviders(<ExpenseScreen />);
+  await press('Hóa đơn nhập');
+  expect(router.push).toHaveBeenCalledWith('/receipts');
+});

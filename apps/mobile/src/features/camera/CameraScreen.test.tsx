@@ -13,8 +13,15 @@ import {
 } from 'react-native-gesture-handler/jest-utils';
 
 import * as images from '@/lib/api/images';
+import * as receiptsApi from '@/lib/api/receipts';
+import { ApiError } from '@/lib/api/errors';
 import { mapBox } from '@/lib/bbox';
-import { getMockDb, resetMockDb, setMockScenario } from '@/test/mock';
+import {
+  getMockDb,
+  resetMockDb,
+  setMockScenario,
+  setNextScanDocument,
+} from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
 import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
@@ -961,4 +968,105 @@ describe('quick enroll capture', () => {
     );
     expect(getMockDb().scans.size).toBe(0);
   });
+});
+
+describe('import receipt document', () => {
+  it('only offers the document button inside the captured frame after document detection', async () => {
+    await renderWithProviders(<CameraScreen />);
+    expect(
+      screen.queryByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    ).toBeNull();
+    await capture();
+    expect(
+      screen.queryByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    ).toBeNull();
+    await fireEvent.press(shutter());
+    setNextScanDocument();
+    await capture();
+    expect(
+      within(screen.getByTestId('viewfinder')).getByRole('button', {
+        name: 'Đọc hóa đơn nhập',
+      }),
+    ).toBeOnTheScreen();
+  });
+
+  it('reuses scan image, blocks interaction while parsing and navigates to the draft', async () => {
+    setNextScanDocument();
+    const original = receiptsApi.createReceipt;
+    let release!: () => void;
+    const spy = jest
+      .spyOn(receiptsApi, 'createReceipt')
+      .mockImplementationOnce(async (...args) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return original(...args);
+      });
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    );
+    expect(await screen.findByLabelText('Đang đọc hóa đơn…')).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    ).toBeNull();
+    expect(spy.mock.calls[0][0]).toEqual({
+      image_id: [...getMockDb().scans.values()][0].image.id,
+    });
+    await act(async () => release());
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        `/receipt/${getMockDb().receipts[0].id}`,
+      ),
+    );
+  });
+
+  it.each([
+    [
+      new ApiError(422, { error: 'no text', code: 'no_text' }),
+      'Không đọc được chữ trên hóa đơn',
+    ],
+    [
+      new ApiError(503, { error: 'unavailable', code: 'ocr_unavailable' }),
+      'Chưa đọc được hóa đơn. Thử lại.',
+    ],
+    [new Error('offline'), 'Chưa đọc được hóa đơn. Thử lại.'],
+  ])('shows an actionable error toast (%s)', async (error, message) => {
+    jest.spyOn(receiptsApi, 'createReceipt').mockRejectedValueOnce(error);
+    setNextScanDocument();
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    ).toBeEnabled();
+  });
+});
+
+test('document action is hidden while scanning and an explicit create retry reuses its request key', async () => {
+  const original = receiptsApi.createReceipt;
+  const spy = jest
+    .spyOn(receiptsApi, 'createReceipt')
+    .mockImplementationOnce(async (...args) => {
+      await original(...args);
+      throw new Error('response lost');
+    });
+  setNextScanDocument();
+  await renderWithProviders(<CameraScreen />);
+  await fireEvent.press(shutter());
+  expect(screen.queryByRole('button', { name: 'Đọc hóa đơn nhập' })).toBeNull();
+  const doc = await screen.findByRole('button', { name: 'Đọc hóa đơn nhập' });
+  await fireEvent.press(doc);
+  await screen.findByRole('alert');
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
+  );
+  await waitFor(() => expect(mockPush).toHaveBeenCalled());
+  expect(spy.mock.calls[0][1]).toBe(spy.mock.calls[1][1]);
+  expect(getMockDb().receipts).toHaveLength(1);
 });
