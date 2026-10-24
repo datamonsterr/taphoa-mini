@@ -9,7 +9,10 @@ pub const NAME_MAX: usize = 120;
 pub const UNIT_MAX: usize = 20;
 pub const BARCODE_MAX: usize = 64;
 pub const CATEGORY_MAX: usize = 40;
-pub const MAX_IMAGES: usize = 5;
+pub const MAX_IMAGES: usize = 8;
+pub const MAX_LEGACY_IMAGE_IDS: usize = 5;
+#[allow(dead_code)]
+pub const MIN_REFERENCES: usize = 3;
 pub const DUPLICATE_THRESHOLD: f64 = 0.88;
 
 pub fn path_id(id: &str) -> ApiResult<Uuid> {
@@ -111,7 +114,7 @@ impl CreateProductRequest {
         }
         let mut seen = std::collections::HashSet::new();
         if self.image_ids.is_empty()
-            || self.image_ids.len() > MAX_IMAGES
+            || self.image_ids.len() > MAX_LEGACY_IMAGE_IDS
             || !self.image_ids.iter().all(|id| seen.insert(*id))
         {
             return Err(ApiError::validation_failed(
@@ -182,6 +185,7 @@ pub struct ProductRow {
     pub version: i64,
     pub created_by: Uuid,
     pub updated_at: DateTime<Utc>,
+    pub index_status: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, PartialEq)]
@@ -203,7 +207,7 @@ pub struct ProductListRow {
 }
 
 pub const PRODUCT_FIELDS: &str = "p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, \
-     p.category_id, p.archived, p.version, p.created_by, p.updated_at";
+     p.category_id, p.archived, p.version, p.created_by, p.updated_at, p.index_status";
 
 pub const UNITS_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'name', \
      u.name, 'quantity_in_base', u.quantity_in_base, 'price', u.price, 'barcode', u.barcode) \
@@ -217,7 +221,7 @@ pub const IMAGES_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('im
 pub const PRODUCT_AGG_SELECT: &str = concat!(
     "SELECT ",
     "p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, p.archived, ",
-    "p.version, p.created_by, p.updated_at, ",
+    "p.version, p.created_by, p.updated_at, p.index_status, ",
     "COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'quantity_in_base', ",
     "u.quantity_in_base, 'price', u.price, 'barcode', u.barcode) ORDER BY u.id) ",
     "FROM product_units u WHERE u.product_id = p.id), '[]'::jsonb) AS units, ",
@@ -230,7 +234,7 @@ pub const PRODUCT_AGG_SELECT: &str = concat!(
 
 pub const PRODUCT_SELECT_LOCK: &str = concat!(
     "SELECT p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, ",
-    "p.archived, p.version, p.created_by, p.updated_at FROM products p WHERE p.id = $1 AND ",
+    "p.archived, p.version, p.created_by, p.updated_at, p.index_status FROM products p WHERE p.id = $1 AND ",
     "p.store_id = $2 FOR UPDATE"
 );
 
@@ -411,6 +415,7 @@ mod tests {
             version: 1,
             created_by: Uuid::now_v7(),
             updated_at: Utc::now(),
+            index_status: "ready".into(),
         }
     }
 

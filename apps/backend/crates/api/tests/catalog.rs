@@ -1129,7 +1129,7 @@ async fn product_images_add_remove_limits() {
     let base = format!("/v1/products/{pid}/images");
     let first = p["images"][0]["image_id"].as_str().unwrap().to_string();
     let mut added = vec![];
-    for i in 1..5 {
+    for i in 1..8 {
         let img = upload(&w, &w.lead, &format!("pepsi{i}")).await;
         let created = ok(
             &w.app,
@@ -1151,15 +1151,15 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        5
+        8
     );
-    let sixth = upload(&w, &w.lead, "pepsi5").await;
+    let ninth = upload(&w, &w.lead, "pepsi8").await;
     expect_code(
         &w.app,
         "POST",
         &base,
         Some(&w.lead),
-        json!({"image_id": sixth}),
+        json!({"image_id": ninth}),
         StatusCode::CONFLICT,
         "conflict",
     )
@@ -1169,7 +1169,7 @@ async fn product_images_add_remove_limits() {
         "POST",
         &base,
         Some(&w.seller),
-        json!({"image_id": sixth}),
+        json!({"image_id": ninth}),
         StatusCode::FORBIDDEN,
         "forbidden",
     )
@@ -1201,7 +1201,7 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        4
+        7
     );
     for img in &added[1..] {
         ok(
