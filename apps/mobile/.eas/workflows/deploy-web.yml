@@ -5,6 +5,19 @@ name: Deploy web
 on:
   push:
     branches: ['main']
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - '!**/*.md'
+      - '!apps/mobile/.maestro/**'
+      - '!apps/mobile/e2e-web/**'
+      - '!apps/mobile/__tests__/**'
+  workflow_dispatch: {}
+
+concurrency:
+  cancel_in_progress: true
+  group: ${{ workflow.filename }}-${{ github.ref }}
 
 jobs:
   deploy:

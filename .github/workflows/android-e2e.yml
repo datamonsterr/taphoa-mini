@@ -9,7 +9,19 @@ name: Android E2E
 # workflow_dispatch only.
 
 on:
+  # Only changes that can affect the app or the backend it talks to; docs-only PRs skip it.
   pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'apps/backend/**'
+      - 'packages/**'
+      - 'scripts/e2e/**'
+      - 'pnpm-lock.yaml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/android-e2e.yml'
+      - '.github/actions/**'
+      - '!**/*.md'
+      - '!apps/mobile/e2e-web/**'
   workflow_dispatch:
 
 permissions:

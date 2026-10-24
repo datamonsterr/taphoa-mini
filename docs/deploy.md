@@ -2,7 +2,7 @@
 
 Railway project `taphoa-mini` has two environments, `production` and `test`, each with
 three services (the `test` environment is a duplicate of production with its own data).
-Mobile native builds and Maestro stay in `apps/mobile/.eas/workflows/`; mobile is
+Mobile native builds and the web deploy stay in `apps/mobile/.eas/workflows/`; mobile is
 not a Railway service.
 
 | Service    | Source and configuration                                                                      |
