@@ -39,3 +39,18 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## CI/CD
+
+The GitHub repo is linked to the Expo project, so every file in `.eas/workflows/` runs on EAS automatically. EAS minutes and builds count against the plan quota; keep triggers narrow.
+
+- `build-preview.yml`: on push to `main` touching the app. Computes the Android fingerprint and reuses the last preview build with the same fingerprint; it builds only when native code changed.
+- `deploy-web.yml`: on push to `main` touching the app. Exports and deploys web to EAS Hosting.
+- No EAS e2e workflow: EAS Maestro jobs need a paid plan, and `workflow:validate` rejects them on the current plan. The Maestro suite runs on GitHub Actions (`.github/workflows/android-e2e.yml`).
+- GitHub Actions (`.github/workflows/ci.yml`) owns lint, typecheck, jest, bundle budget, `expo-doctor` and web e2e. Do not duplicate these checks in EAS workflows.
+- Add `[eas skip]` to a commit message to skip EAS runs for that push.
+- Validate every edited workflow: `npx -y eas-cli@latest workflow:validate .eas/workflows/<file>.yml --non-interactive`.
+
+## Finishing a task
+
+A task is done when its PR is merged. Then clean up the worktree it ran in. Follow the repo-root `CLAUDE.md` section "Finishing a task".

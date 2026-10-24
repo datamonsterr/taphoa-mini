@@ -115,7 +115,8 @@ without a device.
 
 ### GitHub Actions (free, no Expo plan)
 
-`.github/workflows/android-e2e.yml` runs on pull requests and manual dispatch:
+`.github/workflows/android-e2e.yml` runs on pull requests that touch the app, backend or
+shared packages, and on manual dispatch:
 `expo prebuild --platform android`, `./gradlew assembleRelease` (x86_64 only), then
 all flows on an API 34 `google_apis` x86_64 emulator
 (`reactivecircus/android-emulator-runner`, KVM enabled, virtual-scene camera so the
@@ -147,9 +148,9 @@ lookup the Expo CLI uses), opens `exp://10.0.2.2:8081`, and runs
 
 `eas.json` defines development (dev client/internal), preview (internal APK),
 production, and unsigned Android E2E profiles. `.eas/workflows/build-preview.yml`
-builds a preview on push to `main`; `e2e.yml` builds an E2E APK and runs all Maestro
-flows on pull requests. EAS Maestro jobs need a paid Expo plan and an authorized EAS
-account with GitHub linkage. No remote build is needed for local lint/tests/export.
+builds a preview on push to `main` only when the Android fingerprint changed; otherwise
+it reuses the matching earlier build. There is no EAS Maestro workflow: EAS Maestro jobs
+need a paid Expo plan, so the flows run in GitHub Actions instead. No remote build is needed for local lint/tests/export.
 The Android export is a Metro JS/assets build, not an installable APK.
 
 ## Docker development server

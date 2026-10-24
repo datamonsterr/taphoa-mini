@@ -6,7 +6,7 @@ Tạp Hóa Mini is a phone-first point-of-sale app for small family-run convenie
 
 ```text
 apps/mobile/              Expo SDK 58, TypeScript, Expo Router
-  .eas/workflows/          Native Android builds and Maestro smoke tests
+  .eas/workflows/          Android preview builds and EAS Hosting web deploy
 apps/backend/             Rust workspace: axum API and recognition crates
   migrations/             SQLx migrations, including pgvector
   scripts/                Model/runtime downloads and HTTP smoke test
@@ -162,7 +162,7 @@ seeds it, runs the e2e suite and latency probes, then deploys `production` and s
 `railway-integration.yml` runs the ignored integration tests against the real Railway
 `test` Postgres/Redis/bucket (manual, nightly, and on backend changes to `main`).
 Railway steps are skipped with a notice while their secrets are unset.
-EAS native builds/Maestro remain in `apps/mobile/.eas/workflows/`.
+EAS preview builds and web deploy live in `apps/mobile/.eas/workflows/`; Maestro runs in `android-e2e.yml`.
 See [deployment setup and credentials](docs/deploy.md). Dependabot checks npm, Cargo,
 GitHub Actions, Dockerfiles and Compose images weekly.
 
