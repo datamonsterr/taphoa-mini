@@ -663,8 +663,13 @@ paths:
       description: |
         Requires Lead or `can_enroll`. Accepts either quick-enroll multi-angle `references`
         (3..8 photos with cutouts and bounding boxes) or legacy `image_ids` (1..5 photos).
-        Minimum 3 applies only to `references` (422 below 3). Returns 409 when total images
-        would exceed 8. An async index job embeds reference cutouts into the database;
+        Exactly one of `references` or `image_ids` is required (422 `validation_failed`
+        for both or neither). Minimum 3 applies only to `references` (422 below 3).
+        Reference image IDs must be distinct; bounding boxes must be finite with positive
+        width and height (422 `validation_failed`). Returns 409 `image_limit` above 8.
+        The synchronous duplicate check embeds only the first cutout (first image for legacy).
+        Cutout storage reads retry for up to 1 second, then fall back to a padded bbox crop.
+        An async index job embeds reference cutouts into the database;
         the product is returned immediately with `index_status: "pending"`.
         Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
         "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
@@ -755,7 +760,12 @@ paths:
       summary: Add a reference photo, e.g. "merge" answer to "Same as X?" (C2)
       description: |
         Max 8 reference images per product (positions 0..7, 409 above). Accepts optional
-        `cutout_image_id` and `bbox`; enqueues a background index job. The image is embedded and indexed.
+        `cutout_image_id` and `bbox` together; enqueues a background index job without
+        synchronous embedding writes. Invalid pairs and non-finite or non-positive-size
+        bounding boxes return 422 `validation_failed`. `detection_id` selects a detection
+        belonging to this image and store; its bbox is retained for background cropping.
+        Combining `detection_id` with `bbox` returns 422 `validation_failed`.
+        `product_embeddings.detection_id` is no longer populated by this endpoint.
       requestBody:
         required: true
         content:
@@ -780,6 +790,11 @@ paths:
                   minItems: 4
                   maxItems: 4
       responses:
+        '200':
+          description: Image already attached; returns the stored reference.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImage' }
         '201':
           description: Reference image added.
           content:
@@ -788,7 +803,12 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`image_limit` when the product already has 8 reference images.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /v1/products/{productId}/images/{imageId}:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -796,8 +816,8 @@ paths:
     delete:
       tags: [Catalog]
       operationId: removeProductImage
-      summary: Remove a reference photo and its embedding
-      description: A product keeps at least one reference image (409).
+      summary: Remove a reference photo and enqueue prototype recomputation
+      description: A product keeps at least one reference image (409). Enqueues background indexing.
       responses:
         '204': { description: Removed. }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -2059,6 +2079,12 @@ components:
         updated_at: { type: string, format: date-time }
     CreateProductRequest:
       type: object
+      description: Exactly one of references or image_ids is required; both or neither return 422 validation_failed.
+      oneOf:
+        - required: [references]
+          not: { required: [image_ids] }
+        - required: [image_ids]
+          not: { required: [references] }
       required: [id, price]
       properties:
         id: { type: string, format: uuid, description: Client UUIDv7. }

@@ -93,6 +93,16 @@ absorb most of it; the review flow covers the rest.
 adds `index_status: "pending" | "ready" | "failed"`. `POST /v1/products/{id}/images` accepts
 an optional `cutout_image_id` + `bbox` and enqueues a job.
 
+B6 validation: supply exactly one of `references` and `image_ids`; both or neither
+returns 422 `validation_failed`. Reference IDs must be distinct and bboxes finite
+with positive width/height (422); more than eight references returns 409 `image_limit`.
+Add-image requires `cutout_image_id` and `bbox` together. A `detection_id` instead
+resolves a bbox from that image in the same store; combining it with `bbox` is 422.
+The bbox is retained for the worker; the embedding's legacy `detection_id` is not populated.
+Create checks duplicates using one embedding, retrying cutout storage for up to one
+second before falling back to the padded bbox crop. Create, add and remove enqueue
+inside their data transaction; create returns `pending` with no synchronous embedding writes.
+
 Event `product.indexed { product_id, index_status, reference_count }` via the outbox, so the
 phone clears the "indexing" chip.
 
