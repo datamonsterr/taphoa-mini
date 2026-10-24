@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 8099;
 const isCi = !!process.env.CI;
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
+// Optional .y4m/.mjpeg clip the fake camera plays (see e2e-web/fixtures/make-video.sh).
+const FAKE_VIDEO = process.env.PLAYWRIGHT_FAKE_VIDEO;
 
 export default defineConfig({
   testDir: './e2e-web',
@@ -12,6 +15,7 @@ export default defineConfig({
   forbidOnly: isCi,
   retries: isCi ? 1 : 0,
   workers: isCi ? 2 : undefined,
+  globalSetup: './e2e-web/global-setup.ts',
   reporter: [
     ['list'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
@@ -24,6 +28,9 @@ export default defineConfig({
       args: [
         '--use-fake-device-for-media-stream',
         '--use-fake-ui-for-media-stream',
+        ...(FAKE_VIDEO
+          ? [`--use-file-for-fake-video-capture=${FAKE_VIDEO}`]
+          : []),
       ],
     },
   },
@@ -55,5 +62,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !isCi,
     timeout: 300_000,
+    // The export embeds EXPO_PUBLIC_* values: the app talks to the real backend at API_URL.
+    env: { EXPO_PUBLIC_API_URL: API_URL, EXPO_PUBLIC_API_MODE: 'live' },
   },
 });

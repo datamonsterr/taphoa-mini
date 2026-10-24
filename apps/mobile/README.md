@@ -207,3 +207,32 @@ Scan, search, QR and the data tabs include the mock API latency (search also the
 **Render counts** (jest): toggling one detection box, a cart change on the camera screen, typing in the inventory search and incrementing one cart line each re-render only what changed.
 
 Run the perf suite alone with `pnpm exec playwright test --project=perf`; it runs last in `test:e2e:web` so no other spec shares the CPU.
+
+## Web E2E against the real backend
+
+`test:e2e:web` (Playwright, `e2e-web/`) exports the web app with `EXPO_PUBLIC_API_URL` (default
+`http://localhost:8080`) and drives it against the real backend with the SAM and DINO models,
+not the in-app mock. `e2e-web/global-setup.ts` fails the run at once when `/readyz` is not 200.
+
+```sh
+scripts/e2e/stack.sh up      # postgres + redis + storage (compose project taphoa-e2e), backend with models
+pnpm --filter @taphoa/mobile test:e2e:web
+scripts/e2e/stack.sh down    # stops the backend, removes containers and volumes
+```
+
+`stack.sh up` builds `apps/backend` in release mode (or uses the binary in `BACKEND_BIN`),
+downloads ONNX Runtime and the model weights once into `apps/backend/onnxruntime` and
+`apps/backend/models`, and writes the pid and log to the gitignored `.e2e-stack/`. Other
+stacks can run beside it: override `E2E_BACKEND_PORT` (8080), `E2E_POSTGRES_PORT` (55532),
+`E2E_REDIS_PORT` (56579) and `E2E_STORAGE_PORT` (9100); set `EXPO_PUBLIC_API_URL` to match a
+non-default backend port. `E2E_SKIP_MODELS=1` skips the models (recognition then returns 503).
+
+To feed a real photo to the fake camera, generate a clip and point Playwright at it:
+
+```sh
+apps/mobile/e2e-web/fixtures/make-video.sh            # ffmpeg: shelf-1600.jpg -> fixtures/product.mjpeg
+PLAYWRIGHT_FAKE_VIDEO=$PWD/apps/mobile/e2e-web/fixtures/product.mjpeg pnpm --filter @taphoa/mobile test:e2e:web
+```
+
+In CI the `web-e2e` job runs the same steps using the `backend-binary` artifact. The Android
+Maestro workflow starts the stack too and builds the APK for `http://10.0.2.2:8080`.
