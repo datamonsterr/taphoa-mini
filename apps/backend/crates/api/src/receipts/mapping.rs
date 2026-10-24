@@ -32,18 +32,23 @@ pub struct MappingOutcome {
     pub decisions_ms: u64,
 }
 
-/// Candidate prefilter for migration 0006's GIN trigram index. `$1` is the store UUID,
-/// `$2` the parsed product name. `%` enables the index; explicit similarity ordering
-/// (then UUID for ties) does not depend on `set_limit`. Products use `archived`, not
-/// a `deleted_at` column. The session trigram threshold controls candidate inclusion.
+/// Rank all non-archived named store products for every OCR name in one query.
+/// `$2` is a text array; `line_index` is zero-based. No `%` operator: its default
+/// threshold drops useful candidates when OCR includes package/flavour suffixes.
+/// Short catalog names are the needle for word_similarity's OCR-name haystack.
 pub const CANDIDATE_PREFILTER_SQL: &str = r#"
-SELECT id AS product_id, name, price,
-       similarity(immutable_unaccent(lower(name)), immutable_unaccent(lower($2))) AS similarity
-FROM products
-WHERE store_id = $1 AND NOT archived
-  AND immutable_unaccent(lower(name)) % immutable_unaccent(lower($2))
-ORDER BY similarity DESC, id
-LIMIT 8
+SELECT (input.ordinality - 1)::bigint AS line_index, candidate.*
+FROM unnest($2::text[]) WITH ORDINALITY AS input(name, ordinality)
+CROSS JOIN LATERAL (
+    SELECT id AS product_id, name, price,
+           greatest(similarity(immutable_unaccent(lower(name)), immutable_unaccent(lower(input.name))),
+                    word_similarity(immutable_unaccent(lower(name)), immutable_unaccent(lower(input.name)))) AS similarity
+    FROM products
+    WHERE store_id = $1 AND NOT archived AND name IS NOT NULL
+    ORDER BY similarity DESC, id
+    LIMIT 8
+) AS candidate
+ORDER BY line_index, similarity DESC, product_id
 "#;
 
 /// Build one batch request, with stable short catalog IDs scoped to each line.
@@ -57,11 +62,11 @@ pub fn build_request(
     use crate::decisions::Question;
     use std::collections::BTreeMap;
     let mut questions = BTreeMap::new();
-    for (i, _) in candidates.iter().enumerate() {
+    for (i, candidate) in candidates.iter().enumerate() {
         questions.insert(
             format!("role_{i}"),
             Question::Choice {
-                instructions: format!("Role of receipt line {i} in state.line"),
+                instructions: format!("Classify state.line[{i}] (zero-based array index, not OCR position). Target raw_text: {:?}. Choose total for totals, payment, tax or discounts (tổng, cộng, thanh toán, chiết khấu); item only for an actual purchased product.", candidate.raw_text),
                 criteria: [
                     ("item", "Product being purchased"),
                     ("total", "Total, payment, tax or discount"),
@@ -82,7 +87,7 @@ pub fn build_request(
         questions.insert(
             format!("match_{i}"),
             Question::Choice {
-                instructions: format!("Which catalog product is receipt line {i} in state.line?"),
+                instructions: format!("Match state.line[{i}] (zero-based array index, not OCR position). Target product_name: {:?}; raw_text: {:?}. Choose none for totals, headings or non-products.", candidate.product_name, candidate.raw_text),
                 criteria,
             },
         );
@@ -132,6 +137,7 @@ pub async fn map_lines(
     };
     let mut lines = Vec::new();
     for (i, candidate) in candidates.iter().enumerate() {
+        let rule_role = super::parse::keyword_role(&candidate.raw_text);
         let products = products(catalog, i);
         let (role, product_id, match_confidence, alternatives) = if let Some(response) = &response {
             let role = match response.answers.get(&format!("role_{i}")) {
@@ -176,7 +182,7 @@ pub async fn map_lines(
                 alternatives,
             )
         } else {
-            let role = super::parse::keyword_role(&candidate.raw_text);
+            let role = rule_role;
             let matched = products
                 .first()
                 .filter(|p| p.similarity.is_finite() && (0.6..=1.0).contains(&p.similarity));
@@ -194,7 +200,9 @@ pub async fn map_lines(
                     .collect(),
             )
         };
-        if role == "item" {
+        // Deterministic non-item rules are a hard exclusion, including when the
+        // decision model incorrectly calls a total, payment or discount an item.
+        if role == "item" && rule_role == "item" {
             lines.push(MappedLine {
                 candidate: candidate.clone(),
                 role: role.into(),
@@ -257,11 +265,27 @@ mod tests {
                 "model":"custom/model",
                 "state":{"line":[l],"all_lines":["Coca-Cola lon 330ml"]},
                 "questions":{
-                    "role_0":{"type":"choice","instructions":"Role of receipt line 0 in state.line","criteria":{"item":"Product being purchased","total":"Total, payment, tax or discount","header":"Receipt heading or column names","other":"Any other non-item text"}},
-                    "match_0":{"type":"choice","instructions":"Which catalog product is receipt line 0 in state.line?","criteria":{"p0":"Coca-Cola lon 330ml — 8500đ","p1":"Pepsi — 9000đ","none":"No product matches"}}
+                    "role_0":{"type":"choice","instructions":"Classify state.line[0] (zero-based array index, not OCR position). Target raw_text: \"Coca-Cola lon 330ml\". Choose total for totals, payment, tax or discounts (tổng, cộng, thanh toán, chiết khấu); item only for an actual purchased product.","criteria":{"item":"Product being purchased","total":"Total, payment, tax or discount","header":"Receipt heading or column names","other":"Any other non-item text"}},
+                    "match_0":{"type":"choice","instructions":"Match state.line[0] (zero-based array index, not OCR position). Target product_name: \"Coca-Cola lon 330ml\"; raw_text: \"Coca-Cola lon 330ml\". Choose none for totals, headings or non-products.","criteria":{"p0":"Coca-Cola lon 330ml — 8500đ","p1":"Pepsi — 9000đ","none":"No product matches"}}
                 }
             })
         );
+    }
+    #[test]
+    fn request_targets_array_index_and_raw_text_instead_of_ocr_position() {
+        let mut item = line("Coca-Cola lon 330ml");
+        item.position = 4;
+        let mut total = line("Tổng cộng: 456.000");
+        total.position = 8;
+        let request = build_request("model", &[item, total], &[catalog(), catalog()]);
+        for key in ["role_1", "match_1"] {
+            let crate::decisions::Question::Choice { instructions, .. } = &request.questions[key];
+            assert!(instructions.contains("state.line[1]"), "{instructions}");
+            assert!(
+                instructions.contains("Tổng cộng: 456.000"),
+                "{instructions}"
+            );
+        }
     }
     #[test]
     fn request_limits_catalog_and_context() {
@@ -307,6 +331,48 @@ mod tests {
             );
             assert_eq!(outcome.lines[0].candidates.len(), 2);
         }
+    }
+    #[tokio::test]
+    async fn keyword_non_items_are_rejected_even_when_decisions_says_item() {
+        let candidates = [
+            "Coca-Cola lon 330ml",
+            "Tổng cộng: 456.000",
+            "Cộng 204.000",
+            "THANH TOÁN 204.000",
+            "Chiết khấu 10.000",
+            "Giảm giá 1.000",
+            "VAT 8.500",
+            "Thuế 8.500",
+            "Tiền mặt 204.000",
+            "Tiền thối 1.000",
+        ]
+        .map(line);
+        let mut answers = serde_json::Map::new();
+        for i in 0..candidates.len() {
+            answers.insert(
+                format!("role_{i}"),
+                json!({"type":"choice","choice":"item"}),
+            );
+            answers.insert(
+                format!("match_{i}"),
+                json!({"type":"choice","choice":"p0","probabilities":{"p0":1.0}}),
+            );
+        }
+        let client = FakeDecisions::new(
+            "model",
+            [Ok(
+                serde_json::from_value(json!({"answers":answers})).unwrap()
+            )],
+        );
+        let outcome = map_lines(
+            Some(&client),
+            &candidates,
+            &vec![catalog(); candidates.len()],
+        )
+        .await;
+        assert_eq!(outcome.parser, "decisions");
+        assert_eq!(outcome.lines.len(), 1, "{:?}", outcome.lines);
+        assert_eq!(outcome.lines[0].candidate.raw_text, "Coca-Cola lon 330ml");
     }
     #[tokio::test]
     async fn missing_and_unknown_answers_do_not_invent_matches() {

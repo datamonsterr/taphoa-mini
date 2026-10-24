@@ -61,6 +61,9 @@ pub struct AppState {
     pub hub: events::Hub,
     pub segmenter: Option<Arc<dyn Segmenter>>,
     pub point_segmenter: Option<Arc<dyn PointSegmenter>>,
+    pub text_detector: Option<Arc<dyn taphoa_recognition::ocr::TextDetector>>,
+    pub receipt_ocr: Option<Arc<dyn taphoa_recognition::ocr::ReceiptOcr>>,
+    pub decisions: Option<Arc<dyn decisions::DecisionClient>>,
     pub segment_cache: Arc<recognition::EncodingCache>,
     /// Catalog enrollment embeds reference photos. None -> 503 on enroll.
     pub embedder: Option<Arc<dyn Embedder>>,
@@ -86,6 +89,9 @@ impl Default for AppState {
             hub: events::Hub::new(),
             segmenter: None,
             point_segmenter: None,
+            text_detector: None,
+            receipt_ocr: None,
+            decisions: None,
             segment_cache: Arc::new(recognition::EncodingCache::default()),
             embedder: None,
             vector_index: None,
@@ -201,6 +207,7 @@ pub fn router(state: AppState) -> Router {
         .merge(sales::router())
         .merge(stock::router())
         .merge(expenses::router())
+        .merge(receipts::router())
         .merge(reports::router())
         .merge(sync::router())
         .layer(cors())

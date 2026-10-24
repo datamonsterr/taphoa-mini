@@ -154,6 +154,7 @@ async fn build_state(
         .await
         .unwrap();
     let index = Arc::new(InMemoryVectorIndex::default());
+    state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
     state.embedder = Some(Arc::new(TestEmbedder));
     state.vector_index = Some(index.clone() as Arc<dyn VectorIndex>);
     state.inference_slots = Arc::new(Semaphore::new(1));
@@ -167,6 +168,12 @@ async fn build_state(
     Some((router(state.clone()), state, index))
 }
 
+// Fresh, parseable client addresses isolate auth limits between repeated test runs.
+fn unique_ip() -> String {
+    let b = Uuid::new_v4().into_bytes();
+    format!("10.{}.{}.{}", b[0], b[1], b[2])
+}
+
 /// Store + lead member + design device; returns (store, member, token).
 async fn create_store(app: &Router) -> (Uuid, Uuid, String) {
     let created = app
@@ -174,7 +181,7 @@ async fn create_store(app: &Router) -> (Uuid, Uuid, String) {
         .oneshot(
             Request::post("/v1/stores")
                 .header("content-type", "application/json")
-                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .header("x-forwarded-for", unique_ip())
                 .body(Body::from(
                     json!({"store_name":"Recognition test","display_name":"Lead","device":{"name":"counter","platform":"web","app_version":"1.0"},"bank_account":{"bank_bin":"970436","account_number":"VN123","account_name":"CO BA"}})
                         .to_string(),
@@ -278,7 +285,7 @@ async fn post_scan(
             Request::post("/v1/recognition/scans")
                 .header("content-type", "multipart/form-data; boundary=SCAN")
                 .header("authorization", format!("Bearer {token}"))
-                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .header("x-forwarded-for", unique_ip())
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -305,7 +312,7 @@ async fn get_scan(app: &Router, token: &str, scan_id: &str) -> (StatusCode, Valu
         .oneshot(
             Request::get(format!("/v1/recognition/scans/{scan_id}"))
                 .header("authorization", format!("Bearer {token}"))
-                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .header("x-forwarded-for", unique_ip())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -523,7 +530,7 @@ async fn request_validation() {
             Request::post("/v1/recognition/scans")
                 .header("content-type", "multipart/form-data; boundary=SCAN")
                 .header("authorization", format!("Bearer {token}"))
-                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .header("x-forwarded-for", unique_ip())
                 .body(Body::from(build_flagged_body("text/plain", &photo)))
                 .unwrap(),
         )
@@ -565,7 +572,7 @@ async fn upload_image(app: &Router, token: &str, bytes: &[u8]) -> (StatusCode, V
             Request::post("/v1/images")
                 .header("content-type", "multipart/form-data; boundary=SCAN")
                 .header("authorization", format!("Bearer {token}"))
-                .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
+                .header("x-forwarded-for", unique_ip())
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -691,4 +698,114 @@ async fn enrollment_duplicate_threshold_lowers_match() {
         "0.83 must be under the 0.88 duplicate threshold: {enrollment}"
     );
     let _ = (store_id, red, blue);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_without_detector_has_document_signal() {
+    let (app, _, _) = build_state(scan_segments())
+        .await
+        .expect("test services configured");
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        body["document"],
+        json!({"detected":false,"score":0.0,"text_lines":0})
+    );
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_fake_document_detector_true_false_and_get() {
+    use taphoa_recognition::ocr::{FakeTextDetector, TextBox};
+    let (_, mut state, _) = build_state(scan_segments())
+        .await
+        .expect("test services configured");
+    for detected in [true, false] {
+        state.text_detector = Some(Arc::new(FakeTextDetector {
+            boxes: if detected {
+                (0..6)
+                    .map(|i| TextBox {
+                        bbox: [0., i as f32 * 20., 100., 10.],
+                        score: 0.9,
+                    })
+                    .collect()
+            } else {
+                vec![]
+            },
+        }));
+        let app = router(state.clone());
+        let (_, _, token) = create_store(&app).await;
+        let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(body["document"]["detected"], detected);
+        assert_eq!(body["document"]["text_lines"], if detected { 6 } else { 0 });
+        Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+        let (status, got) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(got["document"], body["document"]);
+        Contract::load().assert_conforms("/v1/recognition/scans/{scanId}", "get", status, &got);
+    }
+}
+
+/// A detector that cannot finish until after the response proves checkout does not
+/// await an arbitrarily slow detector. Its admission permit must remain held.
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn slow_detector_times_out_without_releasing_inference_admission() {
+    use std::sync::{Condvar, Mutex};
+    use taphoa_recognition::ocr::{DocumentSignal, OcrError, TextBox, TextDetector};
+    struct StalledDetector(Arc<(Mutex<bool>, Condvar)>);
+    impl TextDetector for StalledDetector {
+        fn detect(&self, _: &[u8]) -> Result<Vec<TextBox>, OcrError> {
+            Ok(vec![])
+        }
+        fn document_signal(&self, _: &[u8]) -> Result<DocumentSignal, OcrError> {
+            let (lock, changed) = &*self.0;
+            let guard = lock.lock().unwrap();
+            let _guard = changed
+                .wait_timeout_while(guard, std::time::Duration::from_secs(3), |released| {
+                    !*released
+                })
+                .unwrap();
+            Ok(DocumentSignal {
+                detected: true,
+                score: 1.,
+                text_lines: 8,
+            })
+        }
+    }
+    let (_, mut state, _) = build_state(scan_segments())
+        .await
+        .expect("test services configured");
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    state.text_detector = Some(Arc::new(StalledDetector(release.clone())));
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        post_scan(&app, &token, Some(&draw_photo()), &[]),
+    )
+    .await;
+    let permits_before_release = state.inference_slots.available_permits();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    let (status, body, _) = response.expect("scan should return while detector is stalled");
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        body["document"],
+        json!({"detected":false,"score":0.0,"text_lines":0})
+    );
+    assert_eq!(
+        permits_before_release, 0,
+        "blocking detector still owns admission"
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while state.inference_slots.available_permits() != 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
 }
