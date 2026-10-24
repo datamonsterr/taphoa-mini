@@ -25,16 +25,23 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 #[derive(Default)]
-struct MemStore(Mutex<HashMap<String, Vec<u8>>>);
+struct MemStore {
+    objects: Mutex<HashMap<String, Vec<u8>>>,
+    put_delay: Mutex<Option<Duration>>,
+}
 
 #[async_trait::async_trait]
 impl ObjectStore for MemStore {
     async fn put(&self, key: &str, _: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
-        self.0.lock().unwrap().insert(key.into(), bytes);
+        let delay = *self.put_delay.lock().unwrap();
+        if let Some(d) = delay {
+            tokio::time::sleep(d).await;
+        }
+        self.objects.lock().unwrap().insert(key.into(), bytes);
         Ok(())
     }
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
-        self.0.lock().unwrap().remove(key);
+        self.objects.lock().unwrap().remove(key);
         Ok(())
     }
     async fn head_bucket(&self) -> anyhow::Result<()> {
@@ -47,7 +54,7 @@ impl ObjectStore for MemStore {
         })
     }
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
-        self.0
+        self.objects
             .lock()
             .unwrap()
             .get(key)
@@ -65,6 +72,7 @@ struct TestWorld {
     seller_can_enroll_token: String,
     mock_segmenter: Arc<MockPointSegmenter>,
     photo_image_id: String,
+    mem_store: Arc<MemStore>,
 }
 
 async fn setup_world(with_segmenter: bool) -> TestWorld {
@@ -165,6 +173,7 @@ async fn setup_world(with_segmenter: bool) -> TestWorld {
         seller_can_enroll_token,
         mock_segmenter,
         photo_image_id,
+        mem_store: store,
     }
 }
 
@@ -276,6 +285,20 @@ async fn test_segment_points_200_shape_and_contract() {
     let cutout_row = cutout_row.unwrap();
     assert_eq!(cutout_row.purpose, "crop");
 
+    // Cutout object appears in storage shortly after background upload finishes
+    let mut stored = None;
+    for _ in 0..20 {
+        if let Ok(bytes) = w.mem_store.get(&cutout_row.object_key).await {
+            stored = Some(bytes);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        stored.is_some(),
+        "cutout object must appear in storage shortly after response"
+    );
+
     // Timings
     assert!(body["timings"]["encode"].is_number());
     assert!(body["timings"]["decode"].is_number());
@@ -294,6 +317,53 @@ async fn test_segment_points_200_shape_and_contract() {
     )
     .await;
     assert_eq!(s2, StatusCode::OK, "response: {body2}");
+}
+
+#[tokio::test]
+async fn test_segment_points_cutout_uploads_in_background_non_blocking() {
+    let w = setup_world(true).await;
+
+    // Simulate slow object storage PUT (e.g. 300 ms Railway bucket latency)
+    *w.mem_store.put_delay.lock().unwrap() = Some(Duration::from_millis(300));
+
+    let (status, body) = call_api(
+        &w.app,
+        "POST",
+        "/v1/segment/points",
+        Some(&w.lead_token),
+        json!({
+            "image_id": w.photo_image_id,
+            "points": [{ "x": 800.0, "y": 600.0, "label": 1 }]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+
+    let cutout_id: Uuid = body["cutout_image_id"].as_str().unwrap().parse().unwrap();
+    let repo = w.state.image_repository.as_ref().unwrap();
+    let cutout_row = repo.get(cutout_id, w.store_id).await.unwrap().unwrap();
+
+    // Immediately upon response return, the slow PUT is still in-flight and NOT in store
+    let immediate_get = w.mem_store.get(&cutout_row.object_key).await;
+    assert!(
+        immediate_get.is_err(),
+        "response returned before slow store put completed; object must not be in store yet"
+    );
+
+    // Shortly after, the background upload completes and the object appears in storage
+    let mut stored = None;
+    for _ in 0..40 {
+        if let Ok(bytes) = w.mem_store.get(&cutout_row.object_key).await {
+            stored = Some(bytes);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        stored.is_some(),
+        "cutout must appear in storage after background upload finishes"
+    );
 }
 
 #[tokio::test]

@@ -220,7 +220,10 @@ pub async fn segment_points(
                     .get(&row.object_key)
                     .await
                     .map_err(storage_failure)?;
-                Arc::new(decode_rgb(&bytes)?)
+                let photo = tokio::task::spawn_blocking(move || decode_rgb(&bytes))
+                    .await
+                    .map_err(task_failure)??;
+                Arc::new(photo)
             }
         };
         (cached_enc, photo, 0u64)
@@ -229,7 +232,6 @@ pub async fn segment_points(
             .get(&row.object_key)
             .await
             .map_err(storage_failure)?;
-        let photo = Arc::new(decode_rgb(&bytes)?);
 
         let permit = state
             .inference_slots
@@ -239,14 +241,14 @@ pub async fn segment_points(
 
         let start_encode = Instant::now();
         let seg = Arc::clone(&point_segmenter);
-        let bytes_clone = bytes.clone();
-        let encoding = tokio::task::spawn_blocking(move || {
+        let (encoding, photo) = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            seg.encode(&bytes_clone)
+            let photo = Arc::new(decode_rgb(&bytes)?);
+            let encoding = seg.encode(&bytes).map_err(inference_failure)?;
+            Ok::<_, ApiError>((encoding, photo))
         })
         .await
-        .map_err(task_failure)?
-        .map_err(inference_failure)?;
+        .map_err(task_failure)??;
         let encode_ms = start_encode.elapsed().as_millis() as u64;
 
         state.segment_cache.insert(
@@ -280,54 +282,77 @@ pub async fn segment_points(
         },
     )?;
 
-    // Run decode_points with an inference slot permit
+    // Run decode_points, cutout, JPEG encode, and mask PNG encode in spawn_blocking with permit
     let permit = state
         .inference_slots
         .clone()
         .try_acquire_owned()
         .map_err(|_| busy())?;
 
-    let start_decode = Instant::now();
     let seg = Arc::clone(&point_segmenter);
     let enc = Arc::clone(&encoding);
     let pts = prompts.clone();
-    let point_segment = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        seg.decode_points(&enc, &pts)
-    })
-    .await
-    .map_err(task_failure)?
-    .map_err(inference_failure)?;
-    let decode_ms = start_decode.elapsed().as_millis() as u64;
+    let photo_for_blocking = Arc::clone(&photo);
 
-    // Build cutout crop
-    let cutout_img = taphoa_recognition::crop::cutout(
-        &photo,
-        &point_segment.mask,
-        point_segment.segment.bbox,
-        CROP_PADDING,
-    )
-    .ok_or_else(|| {
-        ApiError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal",
-            "could not generate cutout",
-        )
-    })?;
+    let (point_segment, cutout_bytes, png_bytes, decode_ms) =
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
 
-    // Encode cutout as JPEG
-    let mut cutout_bytes = Vec::new();
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cutout_bytes, 85);
-    encoder.encode_image(&cutout_img).map_err(|e| {
-        tracing::error!(%e, "cutout jpeg encoding failed");
-        ApiError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal",
-            "cutout encoding failed",
-        )
-    })?;
+            let start_decode = Instant::now();
+            let point_segment = seg.decode_points(&enc, &pts).map_err(inference_failure)?;
+            let decode_ms = start_decode.elapsed().as_millis() as u64;
 
-    // Store cutout image in object storage and images table
+            // Build cutout crop
+            let cutout_img = taphoa_recognition::crop::cutout(
+                &photo_for_blocking,
+                &point_segment.mask,
+                point_segment.segment.bbox,
+                CROP_PADDING,
+            )
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "could not generate cutout",
+                )
+            })?;
+
+            // Encode cutout as JPEG
+            let mut cutout_bytes = Vec::new();
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cutout_bytes, 85);
+            encoder.encode_image(&cutout_img).map_err(|e| {
+                tracing::error!(%e, "cutout jpeg encoding failed");
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "cutout encoding failed",
+                )
+            })?;
+
+            // Encode mask as PNG bytes
+            let mut png_bytes = Vec::new();
+            point_segment
+                .mask
+                .write_to(
+                    &mut std::io::Cursor::new(&mut png_bytes),
+                    image::ImageFormat::Png,
+                )
+                .map_err(|e| {
+                    tracing::error!(%e, "mask png encoding failed");
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "internal",
+                        "mask encoding failed",
+                    )
+                })?;
+
+            Ok::<_, ApiError>((point_segment, cutout_bytes, png_bytes, decode_ms))
+        })
+        .await
+        .map_err(task_failure)??;
+
+    // Create cutout image record in database synchronously so cutout_image_id is valid immediately
     let cutout_row = ImageRow {
         id: Uuid::new_v4(),
         object_key: object_key("jpg"),
@@ -336,36 +361,22 @@ pub async fn segment_points(
         purpose: "crop".into(),
     };
 
-    storage
-        .put(&cutout_row.object_key, "image/jpeg", cutout_bytes)
+    repository
+        .insert(&cutout_row, &actor)
         .await
-        .map_err(storage_failure)?;
+        .map_err(database_failure)?;
 
-    if let Err(error) = repository.insert(&cutout_row, &actor).await {
-        if let Err(cleanup) = storage.delete(&cutout_row.object_key).await {
-            tracing::error!(%cleanup, "failed to delete cutout object after DB insert error");
+    // Background upload to object storage: do not block response path
+    let storage_put = Arc::clone(&storage);
+    let key = cutout_row.object_key.clone();
+    tokio::spawn(async move {
+        if let Err(error) = storage_put.put(&key, "image/jpeg", cutout_bytes).await {
+            tracing::error!(%error, %key, "cutout image background upload failed");
         }
-        return Err(database_failure(error));
-    }
+    });
 
-    // Encode mask as PNG bytes and standard base64
-    let mut png_bytes = Vec::new();
-    point_segment
-        .mask
-        .write_to(
-            &mut std::io::Cursor::new(&mut png_bytes),
-            image::ImageFormat::Png,
-        )
-        .map_err(|e| {
-            tracing::error!(%e, "mask png encoding failed");
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                "mask encoding failed",
-            )
-        })?;
+    // Base64 encode PNG mask
     let png_base64 = STANDARD.encode(&png_bytes);
-
     let total_ms = wall.elapsed().as_millis() as u64;
 
     Ok(Json(SegmentPointsResponse {
