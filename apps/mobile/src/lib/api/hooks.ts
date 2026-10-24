@@ -25,6 +25,7 @@ import {
 import { isApiError } from './errors';
 import { createScan, uploadImage, type CreateScanInput } from './images';
 import { keys } from './keys';
+import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
 import { isLowStock, LOW_STOCK_THRESHOLD } from './stock';
 import { listManualLines, resolveManualLine } from './review';
@@ -209,6 +210,9 @@ export const useReportSummary = (
   useQuery({
     queryKey: keys.reports.summary(period, date),
     queryFn: () => getReportSummary(summaryRange(period, new Date(date))),
+    // The server lists only buckets with activity; the chart needs every day/week/month.
+    select: (report) =>
+      fillSummaryBuckets(report, summaryRange(period, new Date(date))),
   });
 
 /** Day close of a business date; `null` when the day is not closed yet (404). */
