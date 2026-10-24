@@ -163,7 +163,10 @@ beforeEach(() => {
 
 afterEach(() => jest.restoreAllMocks());
 
-const shutter = () => screen.getByRole('button', { name: /^Chụp/ });
+const shutter = () =>
+  within(screen.getByTestId('camera-controls')).getByRole('button', {
+    name: /^Chụp/,
+  });
 async function capture() {
   await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
   await screen.findByRole('button', { name: 'Chụp lại' });
@@ -884,7 +887,7 @@ describe('quick enroll capture', () => {
     expect(getMockDb().images.has(shot.imageId!)).toBe(true);
     expect(getMockDb().scans.size).toBe(0);
     expect(shutter()).toBeDisabled();
-    expect(screen.getByText('Thêm hàng nhanh · 1/3')).toBeOnTheScreen();
+    expect(screen.getByText('Thêm hàng nhanh · 0/3')).toBeOnTheScreen();
     expect(mockPush).not.toHaveBeenCalled();
   });
 

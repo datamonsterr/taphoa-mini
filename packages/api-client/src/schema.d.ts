@@ -1182,7 +1182,7 @@ export interface components {
                 width: number;
                 /** @description Mask height in pixels. */
                 height: number;
-                /** @description Base64-encoded PNG mask. */
+                /** @description PNG with alpha channel: opaque = product, transparent = background */
                 png_base64: string;
             };
             /**
