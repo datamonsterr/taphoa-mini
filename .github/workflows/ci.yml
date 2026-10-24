@@ -472,8 +472,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
+      # The SDK patch-version check compares against the latest Expo release, which pnpm's
+      # minimumReleaseAge keeps out on purpose; Dependabot owns those bumps.
       - run: npx expo-doctor
         working-directory: apps/mobile
+        env:
+          EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK: '1'
+          EXPO_DOCTOR_WARN_ON_NETWORK_ERRORS: '1'
       - name: Summary
         if: always()
         env:
