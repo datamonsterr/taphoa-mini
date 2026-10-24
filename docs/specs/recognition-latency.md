@@ -73,3 +73,85 @@ cargo run --release -p taphoa-recognition --example bench -- \
 cargo run --release -p taphoa-recognition --example embed_bench -- models/dinov2_small.onnx 20 3 112
 cargo test --release -p taphoa-recognition --test model -- --test-threads=1 --nocapture
 ```
+
+## Point-prompted segmentation (quick enroll)
+
+**Local measurement only, 2026-10-24; Railway D2 remains pending.**
+`packages/e2e/tests/segment-points.test.ts` uploads a new enrollment image before each of
+5 sequential one-point calls. Each new `image_id` has a cold encoder cache; the second,
+two-point call on that image checks the cache hit (`encode = 0`). Model sessions receive
+the normal startup warm-up. The fixture is `shelf-1024.jpg` (1024×768, 81,020 bytes), resized
+once from `shelf-1600.jpg` with Pillow 12.2.0 LANCZOS, JPEG quality 85. Foreground prompt:
+`(98.6, 179.2)`, scaled from the model test's bottle-body prompt `(154, 280)`; the second
+call adds a background point at `(6.4, 6.4)`.
+
+Host: AMD Ryzen 5 2600, 6 physical cores / 12 logical CPUs available, shared local host;
+`SAM_THREADS=4` (encoder inference uses 4 threads, no 4-core CPU affinity/quota imposed),
+default single-threaded decoder sessions, ONNX Runtime 1.23.2, release API, real MobileSAM
+and DINOv2 weights. Client and API use loopback; Postgres, Redis and RustFS are local.
+Client wall time includes the full image upload plus segmentation response body and any
+busy-slot retry waits. A Railway run of the same test includes WAN upload; these local
+numbers provide no WAN or hosted acceptance proof. Node 26.12.0 / pnpm 11.5.0 were installed
+locally (pnpm warned that the repository requests Node 24).
+
+All times below are milliseconds; client timings rounded to 0.1 ms. Server encode/decode/
+total are the response's `timings` fields. Nearest-rank p95 of 5 samples is the maximum.
+
+| Run | Upload | Upload + cold segment | Encode | Decode | Server total | Cached 2-point wall | Cached encode | Cached decode | Cached server total |
+| --- | ------ | --------------------- | ------ | ------ | ------------ | ------------------- | ------------- | ------------- | ------------------- |
+| 1   | 103.0  | 1380.5                | 1047   | 221    | 1273         | 157.3               | 0             | 152           | 154                 |
+| 2   | 10.0   | 1190.6                | 1003   | 169    | 1178         | 209.7               | 0             | 204           | 207                 |
+| 3   | 103.7  | 1409.5                | 1087   | 212    | 1304         | 176.8               | 0             | 171           | 174                 |
+| 4   | 10.1   | 1159.9                | 965    | 175    | 1147         | 242.5               | 0             | 235           | 238                 |
+| 5   | 135.2  | 1538.2                | 1163   | 214    | 1401         | 171.0               | 0             | 165           | 168                 |
+
+| Environment             | Encoder threads | Cold-photo upload + segment p95 | Cached 2-point p95 |
+| ----------------------- | --------------- | ------------------------------- | ------------------ |
+| Local                   | 4               | **1538.2 ms** (< 3000 ms)       | 242.5 ms           |
+| Railway `test`: pending | pending         | pending                         | pending            |
+
+All 3 e2e cases passed with real models: cold-photo latency/cache-hit shape, 422 for three
+points, and 401 without authentication. A model-free backend skips only the latency case
+with an explicit message on `503: no model loaded`; a busy `503` retries up to 5 times
+using `Retry-After`, with wait time included in the sample. Other failures remain failures.
+
+Local reproduction (run from repository root; Postgres already listening on 55501):
+
+```sh
+docker run -d --name qe-e1-redis -p 127.0.0.1:55511:6379 redis:7-alpine
+docker run -d --name qe-e1-rustfs -p 127.0.0.1:55512:9000 \
+  -e RUSTFS_ACCESS_KEY=taphoa-local -e RUSTFS_SECRET_KEY=taphoa-local-secret \
+  -e RUSTFS_CONSOLE_ENABLE=false rustfs/rustfs:1.0.3
+# Use only qe_e1, creating it first if absent. Wait for Redis/RustFS readiness.
+cd apps/backend
+PORT=55513 DATABASE_URL=postgres://taphoa:taphoa@127.0.0.1:55501/qe_e1 \
+REDIS_URL=redis://127.0.0.1:55511 \
+JWT_SECRET=qe-e1-local-only-secret-0123456789abcdef \
+RATE_LIMIT_STORE_CREATE_PER_HOUR=100000 \
+AWS_ENDPOINT_URL=http://127.0.0.1:55512 AWS_ACCESS_KEY_ID=taphoa-local \
+AWS_SECRET_ACCESS_KEY=taphoa-local-secret AWS_S3_BUCKET_NAME=qe-e1-images \
+AWS_DEFAULT_REGION=us-east-1 S3_FORCE_PATH_STYLE=true S3_CREATE_BUCKET=true \
+SAM_ENCODER_PATH=/home/dat/dev/taphoa-mini/.qe-models/mobile_sam_image_encoder.onnx \
+SAM_DECODER_PATH=/home/dat/dev/taphoa-mini/.qe-models/sam_mask_decoder_multi.onnx \
+DINO_MODEL_PATH=/home/dat/dev/taphoa-mini/.qe-models/dinov2_small.onnx \
+ORT_DYLIB_PATH=/home/dat/dev/taphoa-mini/.qe-models/onnxruntime/lib/libonnxruntime.so.1.23.2 \
+SAM_THREADS=4 cargo run --release -p taphoa-api --bin taphoa-api
+# In another terminal, from the repository root, after /readyz returns 200:
+BACKEND_URL=http://127.0.0.1:55513 pnpm --filter @taphoa/e2e exec vitest run \
+  --config vitest.e2e.config.ts tests/segment-points.test.ts --silent=false --reporter=verbose
+# Stop the foreground API with Ctrl-C, then remove the task containers:
+docker rm -f -v qe-e1-redis qe-e1-rustfs
+```
+
+Railway reproduction, **pending; no deployment performed for this measurement**: use an
+already deployed `test` API with real SAM weights, `SAM_THREADS=4`, and object storage
+configured. From a client outside Railway, substitute its HTTPS URL below; retain the
+3000 ms budget and confirm **3 passed, no skipped tests** before claiming D2.
+The visible reporter prints `console.table` even when the Vitest agent reporter would
+otherwise hide passing-test logs.
+
+```sh
+BACKEND_URL=https://<railway-test-api-domain> SEGMENT_POINTS_BUDGET_MS=3000 \
+  pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts \
+  tests/segment-points.test.ts --silent=false --reporter=verbose
+```
