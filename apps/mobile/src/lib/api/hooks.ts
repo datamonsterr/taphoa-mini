@@ -4,6 +4,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
 
@@ -24,7 +25,12 @@ import {
 } from './ledger';
 import { setPin, switchMember } from './auth';
 import { isApiError } from './errors';
-import { createScan, uploadImage, type CreateScanInput } from './images';
+import {
+  createScan,
+  segmentPoints,
+  uploadImage,
+  type CreateScanInput,
+} from './images';
 import { keys } from './keys';
 import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
@@ -49,12 +55,15 @@ import type {
   AlertStatus,
   CreateExpenseRequest,
   ImagePurpose,
+  Product,
+  ProductIndexStatus,
   ProductPatch,
   ReportPeriod,
   ManualLineStatus,
   Page,
   ResolveManualLineInput,
   Sale,
+  SegmentPointsRequest,
   StorePatch,
   UploadFile,
 } from './types';
@@ -100,6 +109,8 @@ export const useProduct = (id: string | undefined) =>
     queryKey: keys.products.detail(id ?? ''),
     queryFn: () => getProduct(id!),
     enabled: Boolean(id),
+    refetchInterval: (query) =>
+      query.state.data?.index_status === 'pending' ? 2000 : false,
   });
 
 export const useSales = (params: Parameters<typeof listSales>[0] = {}) =>
@@ -225,6 +236,12 @@ export function useUploadImage() {
   return useMutation({
     mutationFn: (input: { file: UploadFile; purpose?: ImagePurpose }) =>
       uploadImage(input.file, input.purpose),
+  });
+}
+
+export function useSegmentPoints() {
+  return useMutation({
+    mutationFn: (body: SegmentPointsRequest) => segmentPoints(body),
   });
 }
 
@@ -403,4 +420,55 @@ export function useCreateInvite() {
     mutationFn: createInvite,
     onSuccess: () => invalidate(qc, keys.members()),
   });
+}
+
+// ---- event helpers --------------------------------------------------------
+
+type CachedProductData = Product | InfiniteData<Page<Product>> | Page<Product>;
+
+const withIndexStatus =
+  (id: string, indexStatus: ProductIndexStatus) =>
+  (old: CachedProductData | undefined) => {
+    if (!old) return old;
+    if ('pages' in old) {
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) =>
+            item.id === id ? { ...item, index_status: indexStatus } : item,
+          ),
+        })),
+      };
+    }
+    if ('items' in old) {
+      return {
+        ...old,
+        items: old.items.map((item) =>
+          item.id === id ? { ...item, index_status: indexStatus } : item,
+        ),
+      };
+    }
+    if ('id' in old && old.id === id) {
+      return { ...old, index_status: indexStatus };
+    }
+    return old;
+  };
+
+/**
+ * Pure helper for the `product.indexed` outbox event.
+ * Patches the cached product detail (keys.product(id)) and product lists' item index_status.
+ */
+export function applyProductIndexed(
+  queryClient: QueryClient,
+  data: {
+    product_id: string;
+    index_status: ProductIndexStatus;
+    reference_count?: number;
+  },
+): void {
+  queryClient.setQueriesData<CachedProductData>(
+    { queryKey: keys.products.all() },
+    withIndexStatus(data.product_id, data.index_status),
+  );
 }
