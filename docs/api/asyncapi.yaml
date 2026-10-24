@@ -49,6 +49,7 @@ channels:
       dayClosed: { $ref: '#/components/messages/dayClosed' }
       salePaymentConfirmed:
         { $ref: '#/components/messages/salePaymentConfirmed' }
+      productIndexed: { $ref: '#/components/messages/productIndexed' }
   storeEventBus:
     address: 'store:{storeId}:events'
     title: Store event bus (Redis pub/sub)
@@ -74,6 +75,7 @@ channels:
       dayClosed: { $ref: '#/components/messages/dayClosed' }
       salePaymentConfirmed:
         { $ref: '#/components/messages/salePaymentConfirmed' }
+      productIndexed: { $ref: '#/components/messages/productIndexed' }
   internalEvents:
     address: internal:events
     title: Internal events (Redis pub/sub)
@@ -444,3 +446,24 @@ components:
                 properties:
                   from_model: { type: string }
                   to_model: { type: string }
+    productIndexed:
+      name: product.indexed
+      summary: Multi-angle reference images embedded and prototype updated.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: product.indexed }
+              data:
+                type: object
+                required: [product_id, index_status, reference_count]
+                properties:
+                  product_id: { $ref: '#/components/schemas/Uuid' }
+                  index_status:
+                    type: string
+                    enum: [pending, ready, failed]
+                  reference_count:
+                    type: integer
+                    minimum: 0

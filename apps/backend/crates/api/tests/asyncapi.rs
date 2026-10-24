@@ -78,6 +78,10 @@ fn samples() -> Vec<(&'static str, Value)> {
             "embedding.backfill",
             json!({"from_model":"a@1","to_model":"b@1"}),
         ),
+        (
+            "product.indexed",
+            json!({"product_id":U1,"index_status":"ready","reference_count":3}),
+        ),
     ]
 }
 
