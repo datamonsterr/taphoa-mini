@@ -5,6 +5,9 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
+      // Live suites share the backend's inference slot. Keep latency samples
+      // independent of OCR, segmentation and enrollment in other test files.
+      fileParallelism: false,
       env: {
         BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:8080',
       },

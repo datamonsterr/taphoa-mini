@@ -81,13 +81,13 @@ pub fn build_request(
         let mut criteria: BTreeMap<_, _> = products(catalog, i)
             .iter()
             .enumerate()
-            .map(|(j, p)| (format!("p{j}"), format!("{} — {}đ", p.name, p.price)))
+            .map(|(j, p)| (format!("p{j}"), format!("The purchased item is {}", p.name)))
             .collect();
         criteria.insert("none".into(), "No product matches".into());
         questions.insert(
             format!("match_{i}"),
             Question::Choice {
-                instructions: format!("Match state.line[{i}] (zero-based array index, not OCR position). Target product_name: {:?}; raw_text: {:?}. Choose none for totals, headings or non-products.", candidate.product_name, candidate.raw_text),
+                instructions: format!("Match state.line[{i}] (zero-based array index, not OCR position). Target product_name: {:?}; raw_text: {:?}. Match by product identity (name, brand, size and flavour). Ignore prices: receipt amounts are wholesale costs, not catalog retail selling prices. Choose none only if no catalog product matches, or for totals, headings and non-products.", candidate.product_name, candidate.raw_text),
                 criteria,
             },
         );
@@ -266,10 +266,22 @@ mod tests {
                 "state":{"line":[l],"all_lines":["Coca-Cola lon 330ml"]},
                 "questions":{
                     "role_0":{"type":"choice","instructions":"Classify state.line[0] (zero-based array index, not OCR position). Target raw_text: \"Coca-Cola lon 330ml\". Choose total for totals, payment, tax or discounts (tổng, cộng, thanh toán, chiết khấu); item only for an actual purchased product.","criteria":{"item":"Product being purchased","total":"Total, payment, tax or discount","header":"Receipt heading or column names","other":"Any other non-item text"}},
-                    "match_0":{"type":"choice","instructions":"Match state.line[0] (zero-based array index, not OCR position). Target product_name: \"Coca-Cola lon 330ml\"; raw_text: \"Coca-Cola lon 330ml\". Choose none for totals, headings or non-products.","criteria":{"p0":"Coca-Cola lon 330ml — 8500đ","p1":"Pepsi — 9000đ","none":"No product matches"}}
+                    "match_0":{"type":"choice","instructions":"Match state.line[0] (zero-based array index, not OCR position). Target product_name: \"Coca-Cola lon 330ml\"; raw_text: \"Coca-Cola lon 330ml\". Match by product identity (name, brand, size and flavour). Ignore prices: receipt amounts are wholesale costs, not catalog retail selling prices. Choose none only if no catalog product matches, or for totals, headings and non-products.","criteria":{"p0":"The purchased item is Coca-Cola lon 330ml","p1":"The purchased item is Pepsi","none":"No product matches"}}
                 }
             })
         );
+    }
+    #[test]
+    fn matching_uses_product_identity_instead_of_retail_price() {
+        let mut products = catalog();
+        products[0].price = 15000;
+        let request = build_request("model", &[line("Coca-Cola lon 330ml")], &[products]);
+        let crate::decisions::Question::Choice {
+            instructions,
+            criteria,
+        } = &request.questions["match_0"];
+        assert!(instructions.contains("Ignore prices"), "{instructions}");
+        assert_eq!(criteria["p0"], "The purchased item is Coca-Cola lon 330ml");
     }
     #[test]
     fn request_targets_array_index_and_raw_text_instead_of_ocr_position() {

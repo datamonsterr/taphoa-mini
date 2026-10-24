@@ -4,7 +4,9 @@ FROM rust:1-slim-bookworm AS chef
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates g++ pkg-config \
     && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --locked
-ENV CARGO_BUILD_JOBS=2
+# Two workers took 19m19s for dependencies alone and hit Railway's build deadline.
+# Four workers also pass the local release gate; keep the cook and source build aligned.
+ENV CARGO_BUILD_JOBS=4
 WORKDIR /app
 
 FROM chef AS planner

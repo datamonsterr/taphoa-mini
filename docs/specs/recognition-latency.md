@@ -122,3 +122,133 @@ BACKEND_URL=https://<railway-test-api-domain> SEGMENT_POINTS_BUDGET_MS=3000 \
   pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts \
   tests/segment-points.test.ts --silent=false --reporter=verbose
 ```
+
+## Receipt OCR
+
+Measured 2026-10-25 with the real checksum-pinned OCR models, `OCR_THREADS=4`,
+`inception/mercury-decide:free` through OpenRouter, and the document detector enabled
+in checkout scans. Receipt fixture:
+`apps/backend/crates/recognition/tests/fixtures/receipts/receipt-1.jpg` plus its
+expected JSON (four products, total 456,000đ). Catalog products use the fixture
+names and a retail price of 15,000đ, deliberately different from wholesale costs.
+The integration check exposed and fixed a mapping prompt that compared those
+prices: matching now uses product identity and explicitly ignores prices.
+
+Five sequential `POST /v1/receipts` requests reuse the checkout scan's image ID
+with a fresh idempotency key each time. No receipt warm-up or successful-request
+retry is excluded. OCR, decisions and server total come from `Receipt.timings`;
+wall time includes the HTTP response body. Nearest-rank p50 is the third sorted
+sample and p95 is the maximum of five. Live e2e files run sequentially so other
+suites do not compete for the inference slot. All receipt lines and mappings,
+confirmation replay, expense/purchase lines, receipt movements, and a sale
+crossing a per-product stock threshold are asserted through the real API.
+
+Local release API: shared Ryzen 5 2600 host (6 cores / 12 logical CPUs),
+`SAM_THREADS=4`, loopback HTTP and isolated Compose pgvector/Redis/RustFS.
+
+| Local run | OCR ms | Decisions ms | Server total ms | Wall ms |
+| --------- | ------ | ------------ | --------------- | ------- |
+| 1         | 3837   | 1703         | 5546            | 5564.0  |
+| 2         | 1401   | 560          | 1968            | 1980.3  |
+| 3         | 1190   | 574          | 1770            | 1784.4  |
+| 4         | 1011   | 548          | 1568            | 1580.6  |
+| 5         | 986    | 580          | 1571            | 1581.2  |
+
+| Environment    | OCR p50 / p95 ms | Decisions p50 / p95 ms | Server total p50 / p95 ms | Wall p50 / p95 ms   | Scan p95 ms |
+| -------------- | ---------------- | ---------------------- | ------------------------- | ------------------- | ----------- |
+| Local release  | 1190 / 3837      | 574 / 1703             | 1770 / 5546               | 1784.4 / **5564.0** | **2430**    |
+| Railway `test` | 443 / 491        | 335 / 461              | 892 / 1049                | 1225.1 / **1349.4** | **1575**    |
+
+Railway `test` deployment `f46da787-fe59-447f-bee7-57aa00719044` reached
+`SUCCESS`; `/readyz` returned 200 with storage configured. The client was in
+Vietnam and the running origin was `railway/us-west2` (SFO). All five receipt
+requests used the decision model, with no fallback or skip.
+
+| Railway run | OCR ms | Decisions ms | Server total ms | Wall ms |
+| ----------- | ------ | ------------ | --------------- | ------- |
+| 1           | 416    | 461          | 1010            | 1225.1  |
+| 2           | 430    | 424          | 892             | 1102.7  |
+| 3           | 491    | 335          | 871             | 1089.3  |
+| 4           | 455    | 290          | 783             | 1349.4  |
+| 5           | 443    | 286          | 1049            | 1265.1  |
+
+Railway scan samples with document detection were 1301, 1575, 1188, 1249,
+1170 ms; segmentation p95 was 874 ms. The complete API suite had **65 passed,
+one failed, one existing TODO**, with no OCR skips. Its only failure was the
+unchanged hot-endpoint 200 ms client p95 gate (details below). A verbose receipt
+and recognition measurement run passed six tests with the same existing TODO.
+The web suites against this backend passed **7/7** Chromium tests (36.8 s).
+The existing receipt web spec exercises empty history; it does not yet exercise
+the camera-to-review-to-confirm flow from E2.
+
+The first Docker build (`9e311a23-f6d7-443d-9a3b-b48047df1e39`) finished dependency
+compilation in 19m19s, then failed with `DeadlineExceeded: context deadline
+exceeded` before the application build. Raising `CARGO_BUILD_JOBS` from 2 to 4
+reduced dependency compilation to 5m42s; application compilation took 1m22s and
+the retry deployed successfully. Startup runs `MIGRATOR` automatically. No
+Railway services were removed, and only the `test` environment was changed.
+
+The local scan samples with document detection were 2246, 2430, 2339, 2222,
+2308 ms; segmentation p95 was 2535 ms. An earlier local run under concurrent
+host load failed scan/segmentation budgets at 6278/4467 ms; these measurements
+are sensitive to shared CPU load. The final local release checks passed seven
+tests with one pre-existing recognition TODO. Both document-positive receipt and
+document-negative shelf photos passed. A separate debug real-model DB acceptance
+also passed at 4193 ms wall (OCR 3133 ms, decisions 762 ms); it is not included in
+the release statistics.
+
+Reproduce after starting the release API with models, storage and decision
+configuration (the fixture product photo lives in `apps/backend/tests/fixtures`):
+
+```sh
+BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run \
+  --config vitest.e2e.config.ts tests/receipts.test.ts tests/stock.test.ts \
+  tests/recognition.test.ts --reporter verbose
+BACKEND_URL=https://backend-test-70c2.up.railway.app pnpm --filter @taphoa/e2e test:e2e
+```
+
+### Hot-endpoint gate follow-up
+
+The full API run failed only `latency.test.ts`: `/v1/store` 205 ms,
+`/v1/members` 205 ms, `/v1/products` 204 ms, `/v1/alerts` 210 ms and
+`/v1/sync/changes` 218 ms exceeded the existing 200 ms client p95 budget.
+The test was rerun twice sequentially without changing its budget or samples.
+
+Railway HTTP logs expose `upstreamRqDuration` in milliseconds, the time the
+application took to respond ([timing field definitions](https://docs.railway.com/deployments/troubleshooting/slow-deployments)).
+There was no `Server-Timing` response header. Each rerun's UTC start/end window
+was captured, then its HTTP GET records were fetched for the deployed ID and
+Node client. Every endpoint had exactly 31 records: the first warm-up was
+dropped, leaving the same 30 requests as the client measurement. These are
+application/upstream elapsed times, including authentication and database work,
+not isolated CPU profiles. Values below are rounded to integer milliseconds;
+the gate compares unrounded client measurements.
+
+| Endpoint            | Rerun 1 client p95 | Rerun 1 upstream p95 | Rerun 2 client p95 | Rerun 2 upstream p95 |
+| ------------------- | ------------------ | -------------------- | ------------------ | -------------------- |
+| `/v1/me`            | 215                | 21                   | 215                | 24                   |
+| `/v1/store`         | 215                | 9                    | 206                | 22                   |
+| `/v1/members`       | 198                | 9                    | 210                | 20                   |
+| `/v1/products`      | 201                | 10                   | 208                | 17                   |
+| `/v1/categories`    | 207                | 12                   | 204                | 17                   |
+| `/v1/reports/today` | 219                | 16                   | 209                | 23                   |
+| `/v1/alerts`        | 207                | 17                   | 207                | 20                   |
+| `/v1/sync/changes`  | 223                | 37                   | 205                | 18                   |
+
+Rerun 1: `2026-10-24T19:22:42Z`–`19:23:32Z`; rerun 2:
+`19:23:32Z`–`19:24:23Z`. Both failed the unchanged client gate. The slowest
+individual upstream request was 44 ms in rerun 1 and 36 ms in rerun 2, well
+below 200 ms. A warmed unauthenticated `/healthz` control independently measured
+client times 191.7, 190.1, 185.4, 194.1, 181.7 ms while the exact request IDs in
+Railway logs measured 1, 2, 3, 4, 1 ms upstream. Debug headers identified origin
+`railway/us-west2` and edge `hkg1`.
+
+This is an environmental WAN/edge latency miss from this machine to the test
+region; the measurements do not show a handler-budget regression. The stock
+change adds a primary-key store-threshold lookup to product projection. The
+latency test creates a fresh empty store, so that per-product lookup is not
+executed, and sync skips product loading when there are no product changes.
+Store reads add the threshold column to their existing query, with no extra
+join or database round trip. No speculative handler change or gate relaxation
+was made. The complete API suite therefore remains reported as failed, despite
+all receipt/stock/recognition acceptance checks passing.
