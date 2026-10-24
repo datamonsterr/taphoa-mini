@@ -57,3 +57,13 @@ export type ScanPurpose = Scan['purpose'];
 
 /** A React Native file part (`{ uri, name, type }`) or a web Blob/File. */
 export type UploadFile = { uri: string; name: string; type: string } | Blob;
+
+export type StockItem = Schemas['StockItem'];
+export type StockMovement = Schemas['StockMovement'];
+export type StockAdjustment = Schemas['StockAdjustment'];
+export type Receipt = Schemas['Receipt'];
+export type ReceiptLine = Schemas['ReceiptLine'];
+export type ReceiptSummary = Schemas['ReceiptSummary'];
+export type ReceiptCreate = Schemas['ReceiptCreate'];
+export type ReceiptConfirm = Schemas['ReceiptConfirm'];
+export type ScanDocument = Schemas['ScanDocument'];

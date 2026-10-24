@@ -13,4 +13,16 @@ export function getMockScenario(): MockScenario {
 
 export function resetMockScenario(): void {
   scenario = 'auto';
+  nextScanDocument = false;
+}
+
+let nextScanDocument = false;
+/** Marks only the next scan as a supplier document. */
+export function setNextScanDocument(): void {
+  nextScanDocument = true;
+}
+export function consumeNextScanDocument(): boolean {
+  const result = nextScanDocument;
+  nextScanDocument = false;
+  return result;
 }

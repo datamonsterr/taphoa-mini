@@ -111,6 +111,8 @@ export function parseStorePatch(body: unknown): StorePatch {
   const o = asObject(body);
   const patch: StorePatch = {};
   if (has(o, 'name')) patch.name = text(o, 'name', 80, 1);
+  if (has(o, 'low_stock_threshold'))
+    patch.low_stock_threshold = intIn(o, 'low_stock_threshold', 0, 100000);
   if (has(o, 'bank_account')) {
     patch.bank_account =
       o.bank_account === null ? null : bankAccount(o.bank_account);
@@ -282,6 +284,11 @@ export function parseSegmentPoints(body: unknown): SegmentPointsRequest {
 export function parseProductPatch(body: unknown): ProductPatch {
   const o = asObject(body);
   const patch: ProductPatch = {};
+  if (has(o, 'low_stock_threshold'))
+    patch.low_stock_threshold =
+      o.low_stock_threshold === null
+        ? null
+        : intIn(o, 'low_stock_threshold', 0, 100000);
   if (has(o, 'name'))
     patch.name = o.name === null ? null : text(o, 'name', 120);
   if (has(o, 'price')) patch.price = money(o, 'price');

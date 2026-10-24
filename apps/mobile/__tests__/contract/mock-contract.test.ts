@@ -638,6 +638,120 @@ describe('manual lines (sold without catalog)', () => {
   });
 });
 
+describe('stock and receipts', () => {
+  test('tracked stock filters, adjustments, movements and thresholds', async () => {
+    const page = await call(() => api.listStock({ limit: 1 }), 200);
+    expect(page.data.items).toHaveLength(1);
+    expect(page.data.items[0]!.status).toBe('out');
+    expect(page.data.next_cursor).not.toBeNull();
+    await call(
+      () => api.listStock({ cursor: page.data.next_cursor, limit: 1 }),
+      200,
+    );
+    const low = await call(() => api.listStock({ status: 'low' }), 200);
+    expect(low.data.items.some((p) => p.status === 'low')).toBe(true);
+    await call(() => api.listStock({ status: 'out' }), 200);
+    await call(() => api.patchStore({ low_stock_threshold: 8 }), 200);
+    await call(
+      () => api.patchProduct(PRODUCT_IDS.coca, { low_stock_threshold: 3 }),
+      200,
+    );
+    expect((await api.getProduct(PRODUCT_IDS.coca)).low_stock_threshold).toBe(
+      3,
+    );
+    const key = newUuid();
+    const adjusted = await call(
+      () =>
+        api.adjustStock(PRODUCT_IDS.coca, { count: 10, note: 'Count' }, key),
+      200,
+    );
+    const replay = await call(
+      () =>
+        api.adjustStock(PRODUCT_IDS.coca, { count: 10, note: 'Count' }, key),
+      200,
+    );
+    expect(replay.data.id).toBe(adjusted.data.id);
+    const movements = await call(
+      () => api.listStockMovements(PRODUCT_IDS.coca),
+      200,
+    );
+    expect(movements.data.items[0]).toMatchObject({
+      quantity_after: 10,
+      reason: 'adjustment',
+    });
+    await call(
+      () => api.adjustStock(PRODUCT_IDS.coca, { count: 1, delta: 1 }),
+      422,
+    );
+    await call(() => api.listStockMovements(newUuid()), 404);
+  });
+
+  test('draft fixture, confirm exactly once into stock and expense, history and discard', async () => {
+    const image = await api.uploadImage(jpeg(), 'expense_receipt');
+    const key = newUuid();
+    const draft = (
+      await call(() => api.createReceipt({ image_id: image.id }, key), 201)
+    ).data;
+    expect(
+      draft.lines.map((l) => [l.product_name, l.quantity, l.cost]),
+    ).toEqual([
+      ['Coca-Cola lon 330ml', 24, 204000],
+      ['Mì Hảo Hảo tôm chua cay', 30, 126000],
+      ['Nước suối Aquafina 500ml', 12, 60000],
+      ['Bánh Chocopie hộp', 5, 66000],
+    ]);
+    expect(draft.lines[3]).toMatchObject({ product_id: null });
+    expect(draft.lines[3]!.candidates).toHaveLength(2);
+    expect(
+      (await call(() => api.createReceipt({ image_id: image.id }, key), 201))
+        .data.id,
+    ).toBe(draft.id);
+    await call(() => api.getReceipt(draft.id), 200);
+    await call(() => api.listReceipts({ status: 'draft', limit: 1 }), 200);
+    const input = {
+      lines: draft.lines.slice(0, 3).map((l) => ({
+        line_id: l.id,
+        product_id: l.product_id!,
+        quantity: l.quantity,
+        cost: l.cost,
+      })),
+      paid_with: 'cash_box' as const,
+    };
+    const confirmKey = newUuid();
+    const confirmed = (
+      await call(() => api.confirmReceipt(draft.id, input, confirmKey), 200)
+    ).data;
+    expect(confirmed).toMatchObject({
+      status: 'confirmed',
+      total: 390000,
+      expense_id: expect.any(String),
+    });
+    expect(
+      (await call(() => api.confirmReceipt(draft.id, input, confirmKey), 200))
+        .data.expense_id,
+    ).toBe(confirmed.expense_id);
+    expect(
+      (await api.listExpenses()).items.filter(
+        (e) => e.id === confirmed.expense_id,
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await api.listStockMovements(PRODUCT_IDS.coca)).items[0],
+    ).toMatchObject({ delta: 24, reason: 'receipt' });
+    await call(() => api.confirmReceipt(draft.id, input), 409);
+    await call(() => api.discardReceipt(draft.id), 409);
+    const another = await api.createReceipt({ image_id: image.id });
+    await call(
+      () => api.confirmReceipt(another.id, { ...input, lines: [] }),
+      422,
+    );
+    await call(() => api.discardReceipt(another.id), 204);
+    expect((await api.getReceipt(another.id)).status).toBe('discarded');
+    await call(() => api.createReceipt({ image_id: newUuid() }), 404);
+    await call(() => api.getReceipt(newUuid()), 404);
+  });
+});
+
 test('the contract suite called every mocked operation', () => {
   const missing = MOCK_ROUTES.map((r) => `${r.method} ${r.path}`).filter(
     (key) => !covered.has(key),

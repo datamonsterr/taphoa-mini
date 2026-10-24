@@ -17,3 +17,7 @@ export * from './products';
 export * from './review';
 export * from './store';
 export type * from './types';
+
+export * from './stock';
+export * from './receipts';
+export * from './events';

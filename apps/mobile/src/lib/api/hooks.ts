@@ -1,3 +1,6 @@
+import { useRef } from 'react';
+
+import { newUuid } from '@/lib/uuid';
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -32,6 +35,20 @@ import {
   type CreateScanInput,
 } from './images';
 import { keys } from './keys';
+import {
+  adjustStock,
+  listStock,
+  listStockMovements,
+  type StockStatus,
+} from './stock';
+import {
+  createReceipt,
+  listReceipts,
+  getReceipt,
+  confirmReceipt,
+  discardReceipt,
+  type ReceiptStatus,
+} from './receipts';
 import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
 import { listManualLines, resolveManualLine } from './review';
@@ -53,6 +70,9 @@ import {
 } from './store';
 import type {
   AlertStatus,
+  ReceiptCreate,
+  ReceiptConfirm,
+  StockAdjustment,
   CreateExpenseRequest,
   ImagePurpose,
   Product,
@@ -224,6 +244,120 @@ export const useDayClose = (date: string) =>
     },
   });
 
+/** Cursor lists expose flattened items, like useProducts. */
+export const useStock = (status: StockStatus = 'all') =>
+  useInfiniteQuery({
+    queryKey: keys.stock.list(status),
+    queryFn: ({ pageParam }) => listStock({ status, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
+
+export const useStockMovements = (productId: string | undefined) =>
+  useInfiniteQuery({
+    queryKey: keys.stockMovements(productId ?? ''),
+    queryFn: ({ pageParam }) =>
+      listStockMovements(productId!, { cursor: pageParam }),
+    enabled: Boolean(productId),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
+
+export const useReceipts = (status?: ReceiptStatus) =>
+  useInfiniteQuery({
+    queryKey: keys.receipts.list(status),
+    queryFn: ({ pageParam }) => listReceipts({ status, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
+
+export const useReceipt = (id: string | undefined) =>
+  useQuery({
+    queryKey: keys.receipts.detail(id ?? ''),
+    queryFn: () => getReceipt(id!),
+    enabled: Boolean(id),
+  });
+
+/** Optional key lets callers retain an operation identity across an explicit retry. */
+type Idempotent<T> = T & { idempotencyKey?: string };
+
+/** React Query retries with the same variables object after a lost response. */
+function useOperationKey() {
+  const operationKeys = useRef(new WeakMap<object, string>());
+  return (input: { idempotencyKey?: string }) => {
+    if (input.idempotencyKey) return input.idempotencyKey;
+    let key = operationKeys.current.get(input);
+    if (!key) {
+      key = newUuid();
+      operationKeys.current.set(input, key);
+    }
+    return key;
+  };
+}
+
+export function useAdjustStock(productId: string) {
+  const qc = useQueryClient();
+  const operationKey = useOperationKey();
+  return useMutation({
+    mutationFn: (input: Idempotent<StockAdjustment>) => {
+      const { idempotencyKey: _key, ...body } = input;
+      return adjustStock(productId, body, operationKey(input));
+    },
+    onSuccess: () =>
+      invalidate(
+        qc,
+        keys.stock.all(),
+        keys.products.all(),
+        keys.stockMovements(productId),
+      ),
+  });
+}
+
+export function useCreateReceipt() {
+  const qc = useQueryClient();
+  const operationKey = useOperationKey();
+  return useMutation({
+    mutationFn: (input: Idempotent<ReceiptCreate>) => {
+      const { idempotencyKey: _key, ...body } = input;
+      return createReceipt(body, operationKey(input));
+    },
+    onSuccess: () => invalidate(qc, keys.receipts.all()),
+  });
+}
+
+export function useConfirmReceipt(id: string) {
+  const qc = useQueryClient();
+  const operationKey = useOperationKey();
+  return useMutation({
+    mutationFn: (input: Idempotent<ReceiptConfirm>) => {
+      const { idempotencyKey: _key, ...body } = input;
+      return confirmReceipt(id, body, operationKey(input));
+    },
+    onSuccess: () =>
+      invalidate(
+        qc,
+        keys.receipts.all(),
+        keys.stock.all(),
+        keys.products.all(),
+        keys.expenses.all(),
+        keys.reports.all(),
+        keys.alerts.all(),
+        [...keys.all, 'stock-movements'],
+      ),
+  });
+}
+
+export function useDiscardReceipt(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => discardReceipt(id),
+    onSuccess: () => invalidate(qc, keys.receipts.all()),
+  });
+}
+
 // ---- mutations ------------------------------------------------------------
 
 export function useCreateScan() {
@@ -280,7 +414,8 @@ export function usePatchProduct() {
             ),
           },
     onError: (_error, _input, context) => context?.rollback?.(),
-    onSettled: () => invalidate(qc, keys.products.all(), keys.alerts.all()),
+    onSettled: () =>
+      invalidate(qc, keys.products.all(), keys.alerts.all(), keys.stock.all()),
   });
 }
 
@@ -309,6 +444,8 @@ export function useCreateSale() {
       invalidate(
         qc,
         keys.sales.all(),
+        keys.stock.all(),
+        [...keys.all, 'stock-movements'],
         keys.manualLines.all(),
         keys.reports.all(),
         keys.products.all(),
@@ -392,7 +529,15 @@ export function usePatchStore() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (patch: StorePatch) => patchStore(patch),
-    onSuccess: () => invalidate(qc, keys.store(), keys.me(), keys.alerts.all()),
+    onSuccess: () =>
+      invalidate(
+        qc,
+        keys.store(),
+        keys.me(),
+        keys.alerts.all(),
+        keys.stock.all(),
+        keys.products.all(),
+      ),
   });
 }
 
