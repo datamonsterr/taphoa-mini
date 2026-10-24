@@ -15,6 +15,13 @@ import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { useCartStore } from '@/stores/cart';
+import {
+  selectSession,
+  selectSignedIn,
+  useSessionStore,
+} from '@/stores/session';
+
 void SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = { anchor: 'index' };
@@ -28,7 +35,23 @@ export default function RootLayout() {
     BeVietnamPro_700Bold,
     BeVietnamPro_800ExtraBold,
   });
-  const ready = fontsLoaded || fontError !== null;
+  const hydrated = useSessionStore((s) => s.hydrated);
+  const session = useSessionStore(selectSession);
+  const signedIn = useSessionStore(selectSignedIn);
+  const hydrate = useSessionStore((s) => s.hydrate);
+  const ready = (fontsLoaded || fontError !== null) && hydrated;
+
+  useEffect(() => {
+    void hydrate();
+  }, [hydrate]);
+
+  // Signing out (or a refused refresh) must not leave the previous store's data behind.
+  useEffect(() => {
+    if (hydrated && !session) {
+      queryClient.clear();
+      useCartStore.getState().clear();
+    }
+  }, [hydrated, session, queryClient]);
 
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -42,41 +65,46 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <StatusBar style="dark" />
           <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen
-              name="(shop)"
-              options={{ animation: 'slide_from_bottom' }}
-            />
-            <Stack.Screen name="product/[id]" />
-            <Stack.Screen name="pay" />
-            <Stack.Screen
-              name="cart"
-              options={{
-                presentation: 'transparentModal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="enroll"
-              options={{
-                presentation: 'transparentModal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="expense"
-              options={{
-                presentation: 'transparentModal',
-                animation: 'slide_from_bottom',
-              }}
-            />
-            <Stack.Screen
-              name="close"
-              options={{
-                presentation: 'transparentModal',
-                animation: 'slide_from_bottom',
-              }}
-            />
+            <Stack.Protected guard={signedIn} redirectTo="/welcome">
+              <Stack.Screen name="index" />
+              <Stack.Screen
+                name="(shop)"
+                options={{ animation: 'slide_from_bottom' }}
+              />
+              <Stack.Screen name="product/[id]" />
+              <Stack.Screen name="pay" />
+              <Stack.Screen
+                name="cart"
+                options={{
+                  presentation: 'transparentModal',
+                  animation: 'slide_from_bottom',
+                }}
+              />
+              <Stack.Screen
+                name="enroll"
+                options={{
+                  presentation: 'transparentModal',
+                  animation: 'slide_from_bottom',
+                }}
+              />
+              <Stack.Screen
+                name="expense"
+                options={{
+                  presentation: 'transparentModal',
+                  animation: 'slide_from_bottom',
+                }}
+              />
+              <Stack.Screen
+                name="close"
+                options={{
+                  presentation: 'transparentModal',
+                  animation: 'slide_from_bottom',
+                }}
+              />
+            </Stack.Protected>
+            <Stack.Protected guard={!signedIn}>
+              <Stack.Screen name="(onboarding)" />
+            </Stack.Protected>
           </Stack>
         </QueryClientProvider>
       </SafeAreaProvider>

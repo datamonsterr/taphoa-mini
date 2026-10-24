@@ -32,6 +32,7 @@ export const strings: Dict = {
     smaller: 'Chữ nhỏ hơn',
     bigger: 'Chữ to hơn',
     language: 'Ngôn ngữ',
+    logout: 'Đăng xuất',
   },
   en: {
     title: 'Account',
@@ -64,6 +65,7 @@ export const strings: Dict = {
     smaller: 'Smaller text',
     bigger: 'Larger text',
     language: 'Language',
+    logout: 'Sign out',
   },
 };
 

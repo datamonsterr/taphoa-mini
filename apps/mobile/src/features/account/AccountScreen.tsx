@@ -5,6 +5,7 @@ import {
   Eye,
   Globe,
   Landmark,
+  LogOut,
   User,
 } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useState } from 'react';
@@ -18,7 +19,13 @@ import {
   Switch,
   Text,
 } from '@/components/ui';
-import { useMe, useMembers, useStore, type BankAccount } from '@/lib/api';
+import {
+  logout,
+  useMe,
+  useMembers,
+  useStore,
+  type BankAccount,
+} from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useChromeStore } from '@/stores/chrome';
 import { useSettingsStore, type Language } from '@/stores/settings';
@@ -182,6 +189,32 @@ const LanguageRow = memo(function LanguageRow() {
   );
 });
 
+const SignOutRow = memo(function SignOutRow() {
+  const t = useT(strings);
+  const [busy, setBusy] = useState(false);
+  const signOut = useCallback(() => {
+    setBusy(true);
+    // The session is cleared inside `logout`, which unmounts this screen.
+    void logout();
+  }, []);
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={t('logout')}
+      accessibilityState={{ disabled: busy, busy }}
+      disabled={busy}
+      pressedScale={0.98}
+      onPress={signOut}
+      style={[styles.row, styles.rowRight16, busy && styles.disabled]}
+    >
+      <Icon icon={LogOut} color={colors.danger} />
+      <ScaledText variant="label" style={[styles.grow, styles.error]}>
+        {t('logout')}
+      </ScaledText>
+    </PressableScale>
+  );
+});
+
 type ActiveSheet = 'invite' | 'bank' | null;
 
 export function AccountScreen() {
@@ -331,6 +364,7 @@ export function AccountScreen() {
         <ElderRow />
         <TextSizeRow />
         <LanguageRow />
+        <SignOutRow />
       </ScrollView>
 
       {sheet === 'invite' ? <InviteSheet onClose={closeSheet} /> : null}
