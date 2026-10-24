@@ -600,3 +600,247 @@ async fn agrees_with_in_memory_index_on_random_data() {
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn prototype_wins_when_references_are_noisy() {
+    use taphoa_api::recognition::classify::{
+        DEFAULT_MATCH_FLOOR, DEFAULT_MATCH_MARGIN, DEFAULT_MATCH_THRESHOLD, MatchClass, classify,
+    };
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let store = new_store(&pool).await;
+    let a = new_product(&pool, store).await;
+    let b = new_product(&pool, store).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let query = axis(0);
+    let noise = 0.42_f32.sqrt();
+    let mut mean = vec![0.; DIM];
+    for angle in [
+        0.,
+        std::f32::consts::TAU / 3.,
+        2. * std::f32::consts::TAU / 3.,
+    ] {
+        let mut reference = vec![0.; DIM];
+        reference[..4].copy_from_slice(&[0.7, 0.3, noise * angle.cos(), noise * angle.sin()]);
+        assert!(best_similarity(&query, &reference) < DEFAULT_MATCH_THRESHOLD);
+        for (sum, value) in mean.iter_mut().zip(&reference) {
+            *sum += value / 3.;
+        }
+        index
+            .upsert(store, a, new_image(&pool, store).await, MODEL, reference)
+            .await
+            .unwrap();
+    }
+    let magnitude = mean.iter().map(|v| v * v).sum::<f32>().sqrt();
+    mean.iter_mut().for_each(|v| *v /= magnitude);
+    let proto_score = best_similarity(&query, &mean);
+    assert!(proto_score > DEFAULT_MATCH_THRESHOLD);
+    sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 3)")
+        .bind(store).bind(a).bind(MODEL).bind(pgvector::Vector::from(mean)).execute(&pool).await.unwrap();
+    let hits = index.search(store, MODEL, &query, 5).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].product_id, a);
+    assert!(
+        (hits[0].similarity - proto_score).abs() < 1e-6,
+        "prototype must beat references: {hits:?}"
+    );
+    assert_eq!(
+        (
+            DEFAULT_MATCH_THRESHOLD,
+            DEFAULT_MATCH_MARGIN,
+            DEFAULT_MATCH_FLOOR
+        ),
+        (0.80, 0.05, 0.60)
+    );
+    assert_eq!(
+        classify(
+            Some(hits[0].similarity),
+            None,
+            DEFAULT_MATCH_THRESHOLD,
+            DEFAULT_MATCH_MARGIN,
+            DEFAULT_MATCH_FLOOR
+        ),
+        MatchClass::Matched
+    );
+    let mut strong = axis(0);
+    strong[0] = 0.98;
+    strong[1] = (1. - 0.98_f32.powi(2)).sqrt();
+    index
+        .upsert(store, b, new_image(&pool, store).await, MODEL, strong)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
+        .bind(store).bind(b).bind(MODEL).bind(pgvector::Vector::from(axis(1))).execute(&pool).await.unwrap();
+    let hits = index.search(store, MODEL, &query, 2).await.unwrap();
+    assert_eq!(
+        hits.iter().map(|h| h.product_id).collect::<Vec<_>>(),
+        vec![b, a]
+    );
+    assert!((hits[0].similarity - 0.98).abs() < 1e-6);
+    assert!((hits[1].similarity - proto_score).abs() < 1e-6);
+    assert_eq!(
+        classify(
+            Some(hits[0].similarity),
+            Some(hits[1].similarity),
+            DEFAULT_MATCH_THRESHOLD,
+            DEFAULT_MATCH_MARGIN,
+            DEFAULT_MATCH_FLOOR
+        ),
+        MatchClass::Matched
+    );
+}
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn prototype_only_scope_archive_cutout_and_removal() {
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let store = new_store(&pool).await;
+    let other = new_store(&pool).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let prototype_only = new_product(&pool, store).await;
+    let cutout_only = new_product(&pool, store).await;
+    let archived = new_product(&pool, store).await;
+    let foreign = new_product(&pool, other).await;
+    let wrong_model = new_product(&pool, store).await;
+    for (s, p, m) in [
+        (store, prototype_only, MODEL),
+        (store, archived, MODEL),
+        (other, foreign, MODEL),
+        (store, wrong_model, OTHER_MODEL),
+    ] {
+        sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
+            .bind(s).bind(p).bind(m).bind(pgvector::Vector::from(axis(0))).execute(&pool).await.unwrap();
+    }
+    index
+        .upsert(
+            store,
+            archived,
+            new_image(&pool, store).await,
+            MODEL,
+            axis(0),
+        )
+        .await
+        .unwrap();
+    sqlx::query("UPDATE products SET archived = true WHERE id = $1")
+        .bind(archived)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_embeddings (store_id, product_id, image_id, model, embedding, kind) VALUES ($1, $2, $3, $4, $5, 'cutout')")
+        .bind(store).bind(cutout_only).bind(new_image(&pool, store).await).bind(MODEL).bind(pgvector::Vector::from(axis(1))).execute(&pool).await.unwrap();
+    let hits = index.search(store, MODEL, &axis(0), 10).await.unwrap();
+    assert_eq!(hits.len(), 2, "scope and archive filtering: {hits:?}");
+    assert_eq!(hits[0].product_id, prototype_only);
+    assert_eq!(hits[0].similarity, 1.);
+    assert_eq!(hits[1].product_id, cutout_only);
+    assert_eq!(hits[1].similarity, 0.);
+    assert!(
+        index
+            .search(store, MODEL, &axis(0), 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    index.remove_product(store, prototype_only).await.unwrap();
+    assert_eq!(
+        index
+            .search(store, MODEL, &axis(0), 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn in_memory_prototypes_take_max_and_preserve_scope_and_validation() {
+    let index = InMemoryVectorIndex::default();
+    let store = Uuid::new_v4();
+    let product = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    index
+        .upsert(
+            store,
+            product,
+            Uuid::new_v4(),
+            MODEL,
+            vec![0.7, 0.3, 0.42_f32.sqrt()],
+        )
+        .await
+        .unwrap();
+    index
+        .upsert_prototype(store, product, MODEL, vec![0.7, 0.3, 0.])
+        .unwrap();
+    index
+        .upsert_prototype(store, other, OTHER_MODEL, vec![1., 0., 0.])
+        .unwrap();
+    index
+        .upsert_prototype(other, other, MODEL, vec![1., 0., 0.])
+        .unwrap();
+    let hits = index.search(store, MODEL, &[1., 0., 0.], 5).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!((hits[0].similarity - best_similarity(&[1., 0., 0.], &[0.7, 0.3, 0.])).abs() < 1e-6);
+    index
+        .upsert(store, product, Uuid::new_v4(), MODEL, vec![1., 0., 0.])
+        .await
+        .unwrap();
+    assert_eq!(
+        index.search(store, MODEL, &[1., 0., 0.], 5).await.unwrap()[0].similarity,
+        1.
+    );
+    index
+        .upsert_prototype(store, product, MODEL, vec![0., 1., 0.])
+        .unwrap();
+    assert_eq!(
+        index.search(store, MODEL, &[1., 0., 0.], 5).await.unwrap()[0].similarity,
+        1.
+    );
+    assert!(
+        index
+            .upsert_prototype(store, product, MODEL, vec![1.])
+            .is_err()
+    );
+    assert!(
+        index
+            .upsert_prototype(store, product, MODEL, vec![0.; 3])
+            .is_err()
+    );
+    assert!(
+        index
+            .upsert_prototype(store, product, MODEL, vec![f32::NAN; 3])
+            .is_err()
+    );
+    index.remove_product(store, product).await.unwrap();
+    assert!(
+        index
+            .search(store, MODEL, &[1., 0., 0.], 5)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        index
+            .search(store, OTHER_MODEL, &[1., 0., 0.], 5)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        index
+            .search(other, MODEL, &[1., 0., 0.], 5)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        index
+            .search(store, MODEL, &[1., 0., 0.], 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

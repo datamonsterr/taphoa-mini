@@ -26,10 +26,46 @@ pub trait VectorIndex: Send + Sync {
     ) -> anyhow::Result<Vec<VectorHit>>;
     async fn remove_product(&self, store_id: Uuid, product_id: Uuid) -> anyhow::Result<()>;
 }
-type ReferenceKey = (Uuid, Uuid, Uuid, String);
+// None is an explicitly supplied prototype; Some(image) is a reference.
+type ReferenceKey = (Uuid, Uuid, Option<Uuid>, String);
 #[derive(Default)]
 pub struct InMemoryVectorIndex {
     entries: RwLock<HashMap<ReferenceKey, Vec<f32>>>,
+}
+impl InMemoryVectorIndex {
+    /// Supply a worker-computed prototype without changing the VectorIndex trait.
+    pub fn upsert_prototype(
+        &self,
+        store_id: Uuid,
+        product_id: Uuid,
+        model: &str,
+        embedding: Vec<f32>,
+    ) -> anyhow::Result<()> {
+        self.store_embedding(store_id, product_id, None, model, embedding)
+    }
+
+    fn store_embedding(
+        &self,
+        store_id: Uuid,
+        product_id: Uuid,
+        image_id: Option<Uuid>,
+        model: &str,
+        embedding: Vec<f32>,
+    ) -> anyhow::Result<()> {
+        norm(&embedding)?;
+        let mut entries = self
+            .entries
+            .write()
+            .map_err(|_| anyhow::anyhow!("vector index lock poisoned"))?;
+        anyhow::ensure!(
+            entries
+                .iter()
+                .all(|((_, _, _, m), v)| m != model || v.len() == embedding.len()),
+            "model embedding dimension mismatch"
+        );
+        entries.insert((store_id, product_id, image_id, model.into()), embedding);
+        Ok(())
+    }
 }
 fn norm(embedding: &[f32]) -> anyhow::Result<f64> {
     anyhow::ensure!(
@@ -54,20 +90,9 @@ impl VectorIndex for InMemoryVectorIndex {
         model: &str,
         embedding: Vec<f32>,
     ) -> anyhow::Result<()> {
-        norm(&embedding)?;
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|_| anyhow::anyhow!("vector index lock poisoned"))?;
-        anyhow::ensure!(
-            entries
-                .iter()
-                .all(|((_, _, _, m), v)| m != model || v.len() == embedding.len()),
-            "model embedding dimension mismatch"
-        );
-        entries.insert((store_id, product_id, image_id, model.into()), embedding);
-        Ok(())
+        self.store_embedding(store_id, product_id, Some(image_id), model, embedding)
     }
+
     async fn search(
         &self,
         store_id: Uuid,
