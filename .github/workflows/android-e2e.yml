@@ -78,7 +78,6 @@ jobs:
       - name: Build release APK
         env:
           EXPO_PUBLIC_API_URL: http://10.0.2.2:8080
-          EXPO_PUBLIC_API_MODE: live
         working-directory: apps/mobile/android
         run: >-
           ./gradlew assembleRelease

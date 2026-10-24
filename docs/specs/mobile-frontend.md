@@ -5,21 +5,24 @@ Status: Accepted · Date: 2026-10-23 · Design: [docs/design/DESIGN.md](../desig
 ## 1. Goal
 
 Build every screen in `docs/design` (boards 01–13) as a working Expo app in `apps/mobile`.
-All data goes through a typed client for `docs/api/openapi.yaml`. By default the client talks to an
-**in-app mock API** whose responses conform to the OpenAPI schemas, so the app runs with no backend.
+All data goes through a typed client for `docs/api/openapi.yaml` to the **real backend** at
+`EXPO_PUBLIC_API_URL`. The app has no mock mode. Jest uses a schema-valid in-memory fake that lives
+under `src/test/mock`; E2E runs use the real backend (`scripts/e2e/stack.sh`).
 
 ## 2. Acceptance criteria
 
 1. **Camera.** Screen 01 shows a live `expo-camera` preview. The shutter captures a real photo. The
-   frozen photo fills the viewfinder and the mock `createScan` returns detections. Each detection's
+   frozen photo fills the viewfinder and `POST /v1/recognition/scans` returns detections. Each detection's
    bounding box (`[x, y, width, height]` in image pixels) is drawn over the photo, scaled correctly
    to the viewfinder. Single mode gives one box (match or low match). Multi mode gives 2–4 boxes.
 2. **API.** Every call uses an operation and schema from `docs/api/openapi.yaml`. A contract test
-   validates every mock response against the OpenAPI response schema for that operation and status.
+   validates every response of the jest fake against the OpenAPI response schema for that
+   operation and status, so the fake cannot drift from the spec.
 3. **Design match.** Layout, sizes, colours, type, radius and states come from the boards in
    `docs/design/canvas/*.dc.html`, `tokens.css` and `DESIGN.md` §2–§6. Each icon-only control has the
    Vietnamese `accessibilityLabel` that the board uses as `aria-label`.
-4. **Every control works** with the mock API along the flow in `DESIGN.md` §5:
+4. **Every control works** against the real backend along the flow in `DESIGN.md` §5:
+   onboarding (create a store, join, recover) →
    camera → box/price → `+` → cart pill → cart → QR → pay → received (sale created, cart cleared);
    low match → enroll → product created and line added to cart;
    swipe up → shop (Kho / Báo cáo / Tài khoản) → product detail / expense sheet / Chốt sổ sheet.
@@ -33,8 +36,7 @@ All data goes through a typed client for `docs/api/openapi.yaml`. By default the
 
 ## 3. Out of scope
 
-`DESIGN.md` §8 items (duplicate prompt, grid-mode add, barcode, TTS, void, onboarding, CSV export).
-Real auth flow: the mock client starts signed in as the Lead of a demo store. Offline sync, `/v1/events`.
+`DESIGN.md` §8 items (grid-mode add, barcode, TTS, void, CSV export). Offline sync, `/v1/events`.
 Native modules outside Expo Go. Backend changes. Changing `docs/api/openapi.yaml`.
 
 ## 4. Stack
@@ -79,49 +81,53 @@ components/camera/           camera-surface components (DESIGN.md §6 camera tab
 features/<feature>/          screen component, hooks, pure logic, strings.ts
   camera/ enroll/ checkout/ pay/ inventory/ product/ dashboard/ expense/ close/ account/
 lib/api/                     client factory, typed calls per operation, React Query hooks + keys
-lib/mock/                    mock fetch, in-memory DB seeded from fixtures, scenario control
+(onboarding)/                welcome, create, join, recover, recovery-code (no session yet)
+stores/session.ts            token pair, member, store; Keychain / Keystore, localStorage on the web
 lib/format.ts                VND money (`12.000đ`), dates
 lib/i18n.ts                  `t()` + VI/EN; each feature owns its strings in features/<x>/strings.ts
 stores/                      zustand stores
 test/                        render helpers (providers, router), jest setup, mocks for native modules
+test/mock/                   jest-only fake of the API: fetch, in-memory DB, scenario control
 ```
 
 Path alias `@/*` → `src/*`.
 
 ## 6. Tests (pyramid)
 
-| Layer      | Where                           | What                                                                 |
-| ---------- | ------------------------------- | -------------------------------------------------------------------- |
-| Unit       | `src/**/X.test.ts` next to code | stores, money, bbox scaling, keypad reducer, mock DB, i18n           |
-| Component  | `src/components/**/X.test.tsx`  | every component and every state in DESIGN.md §6; a11y labels; press  |
-| Screen     | `src/features/**/X.test.tsx`    | screen with mock API: loading, data, error, every button             |
-| Contract   | `__tests__/contract/*.test.ts`  | each mock response validates against OpenAPI schema                  |
-| Flow       | `__tests__/flows/*.test.tsx`    | `expo-router/testing-library` `renderRouter`: §2.4 flows end to end  |
-| E2E device | `.maestro/*.yaml`               | same flows on a device (run by EAS workflow `e2e.yml`, not in PR CI) |
+| Layer      | Where                           | What                                                                        |
+| ---------- | ------------------------------- | --------------------------------------------------------------------------- |
+| Unit       | `src/**/X.test.ts` next to code | stores, money, bbox scaling, keypad reducer, fake DB, i18n                  |
+| Component  | `src/components/**/X.test.tsx`  | every component and every state in DESIGN.md §6; a11y labels; press         |
+| Screen     | `src/features/**/X.test.tsx`    | screen with the fake API: loading, data, error, every button                |
+| Contract   | `__tests__/contract/*.test.ts`  | each fake response validates against OpenAPI schema                         |
+| Flow       | `__tests__/flows/*.test.tsx`    | `expo-router/testing-library` `renderRouter`: §2.4 flows end to end         |
+| E2E web    | `e2e-web/*.spec.ts`             | Playwright on the web export, real backend and models, no API mocks         |
+| E2E device | `.maestro/*.yaml`               | smoke, onboarding, inventory, checkout on an Android emulator, real backend |
 
 TDD: write the failing test first, then code. Use `@testing-library/react-native` queries by role
 and label. Mock native modules (`expo-camera`, `expo-haptics`, Reanimated) in `src/test/setup.ts`.
 Coverage thresholds live in the jest config so CI fails below them.
 
-## 7. Mock API rules
+## 7. API access and test doubles
 
-- `getApiClient()` returns a client for `EXPO_PUBLIC_API_URL` when `EXPO_PUBLIC_API_MODE=live`;
-  otherwise it injects `createMockFetch()` into `createApiClient({ fetch })`.
-- The mock routes by method + path, reads multipart / JSON bodies, mutates an in-memory DB and
-  returns JSON typed with `components['schemas'][...]`. Simulated latency 120–350 ms (0 in tests).
-- `createScan` reads the uploaded image size when given (else 1080×1440) and returns **dummy boxes
-  in image pixels**: single mode one central box; multi mode 3 boxes. Scenario control
-  (`setMockScenario('match' | 'multi' | 'unknown')`, default: follow `mode`, and every 3rd single scan
-  is `unknown`) makes the low-match state reachable in the app and deterministic in tests.
-- Seed: a demo store, 12 products with Vietnamese names, prices, stock, cost, 1–2 images each
-  (bundled placeholder images), sales and expenses for 7 days, alerts, a bank account.
-- Proposed API extension: Product.stock_quantity (pending spec). The mock adds an optional integer
-  `stock_quantity` (base units) to every Product response for the stock badges (Inventory, Product
-  detail, Dashboard low-stock alert; low means `<= LOW_STOCK_THRESHOLD`, 5). Sales decrement it and
-  purchase lines on expenses increase it. It is the only property beyond `docs/api/openapi.yaml`;
-  the contract test fails if the mock serves any other. The real API does not return it yet.
-- "Sold without catalog" uses `GET /v1/review/manual-lines` and `POST .../{lineId}/resolve`. The mock
-  seeds 3 open lines and `createSale` lines with `source: manual` add more.
+- `getApiClient()` returns a client for `EXPO_PUBLIC_API_URL` (default `http://localhost:8080`;
+  the Android emulator reaches the host as `http://10.0.2.2:8080`). There is no `EXPO_PUBLIC_API_MODE`
+  and no mock mode. The client wraps `fetch` with `createAuthFetch`: bearer token from the session
+  store, one refresh-token rotation on a 401, the session cleared when the server refuses it.
+- The root layout shows the onboarding screens until a session exists and its recovery code (if
+  any) has been acknowledged; signing out returns there and clears the cache and the cart.
+- Jest injects the fake of `src/test/mock` through `setApiTransport`. It routes by method + path,
+  reads multipart / JSON bodies, mutates an in-memory DB and returns JSON typed with
+  `components['schemas'][...]`. `createScan` returns dummy boxes in image pixels (scenario control:
+  `setMockScenario('match' | 'multi' | 'unknown')`). It adds an optional `stock_quantity` to
+  products for the stock badges: the **real API does not return it yet**, so against the backend
+  stock badges and the low-stock alert stay hidden.
+- The report summary lists only the buckets that have activity; the app fills the missing days,
+  weeks and months with zeros (`src/lib/api/summary.ts`) so the chart has its 7 / 6 / 6 columns and
+  the newest column is always today, this week or this month.
+- "Sold without catalog" uses `GET /v1/review/manual-lines`. Enrolling from a line sends
+  `from_manual_line_id` with `POST /v1/products`, which resolves the line as `enrolled`.
+- The E2E suites never fake an API call: see `apps/mobile/README.md` "Web E2E against the real backend".
 
 ## 8. Tasks and dependencies
 

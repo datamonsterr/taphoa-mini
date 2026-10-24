@@ -682,7 +682,11 @@ jobs:
         env:
           BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
         run: scripts/e2e/stack.sh up
+      # The export embeds EXPO_PUBLIC_API_URL: the app and the specs talk to the backend that
+      # stack.sh started on :8080. PLAYWRIGHT_FAKE_VIDEO (set above) is the fake camera's clip.
       - name: Playwright web E2E
+        env:
+          EXPO_PUBLIC_API_URL: http://localhost:8080
         run: pnpm --filter @taphoa/mobile test:e2e:web
       - name: Backend log
         if: failure()

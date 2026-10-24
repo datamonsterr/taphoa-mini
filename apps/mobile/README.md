@@ -103,10 +103,12 @@ PATH:
 pnpm --filter @taphoa/mobile test:e2e
 ```
 
-The Maestro flows in `.maestro/` (smoke, journey, camera, checkout, shop, reports,
-account) launch `com.datamonsterr.taphoamini` and drive the same paths as the jest
-flow tests.
-Shared cold start (fresh state, camera permission, wait for the first screen) lives
+The Maestro flows in `.maestro/` (smoke, onboarding, inventory, checkout) launch
+`com.datamonsterr.taphoamini` against the real backend (`scripts/e2e/stack.sh up`; the
+emulator reaches it as `http://10.0.2.2:8080`). Each flow creates a store of its own
+(`subflows/create-store.yaml`), so none depends on another's data or on what recognition makes
+of the emulator's virtual camera: products are added by hand (`subflows/enroll-product.yaml`).
+Shared cold start (fresh state, camera permission, wait for the welcome screen) lives
 in `.maestro/subflows/launch.yaml`; flows call it with `runFlow` and take a
 `takeScreenshot` at each screen. `maestro check-syntax <file>` validates a flow
 without a device.
@@ -138,7 +140,7 @@ Smoothness on real hardware is gated by the web perf spec (60 fps, 0 % of frames
 pre-warms the Android bundle, then `scripts/e2e-expo-go.sh` installs the official Expo Go
 APK for the project's SDK (the URL comes from the same `api.expo.dev/v2/versions/latest`
 lookup the Expo CLI uses), opens `exp://10.0.2.2:8081`, and runs
-`.maestro/expo-go/preview.yaml`: camera screen, capture, add to cart, cart pill. Artifacts:
+`.maestro/expo-go/preview.yaml`: the app's welcome screen (no backend runs in that job). Artifacts:
 `expo-go-debug` (screenshots, JUnit XML) and `expo-go-metro-log`.
 
 ### EAS
@@ -184,28 +186,28 @@ See the current official docs for [Expo monorepos](https://docs.expo.dev/guides/
 
 ## Performance budgets
 
-CI enforces three kinds of budget. Numbers are medians of 3 local runs (Chromium, software rendering, mock API with 120–350 ms latency).
+CI enforces three kinds of budget. Numbers are medians of local runs (Chromium, software rendering, fake webcam, the real backend with the SAM and DINO models on the same 12-core machine, every API call a real HTTP request).
 
 **Web interactions** (`e2e-web/perf.spec.ts`, budgets in `e2e-web/perf-budgets.ts`, results in `e2e-web/perf-results.json` and the Playwright report). Each input event is timed to the first frame that shows the result; route chunks are warmed first.
 
-| Interaction                           | Median | Budget  |
-| ------------------------------------- | ------ | ------- |
-| shutter → first detection box, single | 245 ms | 700 ms  |
-| shutter → first detection box, multi  | 228 ms | 700 ms  |
-| `+` → cart pill updated               | 12 ms  | 300 ms  |
-| cart pill → first cart row            | 329 ms | 500 ms  |
-| QR button → VietQR svg                | 579 ms | 1000 ms |
-| tab Kho → Báo cáo                     | 178 ms | 1000 ms |
-| tab Báo cáo → Tài khoản               | 328 ms | 1000 ms |
-| tab Tài khoản → Kho                   | 28 ms  | 300 ms  |
-| search keystroke → filtered grid      | 387 ms | 700 ms  |
-| search clear → full grid              | 262 ms | 700 ms  |
+| Interaction                           | Median  | Budget  |
+| ------------------------------------- | ------- | ------- |
+| shutter → first detection box, single | 1520 ms | 3500 ms |
+| shutter → first detection box, multi  | 1596 ms | 3500 ms |
+| `+` → cart pill updated               | 12 ms   | 300 ms  |
+| cart pill → first cart row            | 328 ms  | 500 ms  |
+| QR button → VietQR svg                | 329 ms  | 1000 ms |
+| tab Kho → Báo cáo                     | 178 ms  | 1000 ms |
+| tab Báo cáo → Tài khoản               | 180 ms  | 1000 ms |
+| tab Tài khoản → Kho                   | 29 ms   | 300 ms  |
+| search keystroke → filtered grid      | 274 ms  | 700 ms  |
+| search clear → full grid              | 261 ms  | 700 ms  |
 
-Scan, search, QR and the data tabs include the mock API latency (search also the 250 ms debounce). The cart sheet is bound by its 280 ms slide.
+A scan is the real recognition pipeline: upload, SAM segmentation (about 1.3 s here), DINO embedding, vector search. A CI runner's CPU needs about 2 s, so its budget is 3500 ms: room for a slower runner, not for a model twice as slow. The scan budgets used to be 700 ms against the in-app mock. Search is the 250 ms debounce plus one local round trip. The cart sheet is bound by its 280 ms slide.
 
 **Animations** (cart sheet open, mode toggle): 60 fps average, longest frame gap 16.8 ms, 0% frames over 34 ms. Budget: average ≥ 50 fps, ≤ 5% frames over 34 ms. No long task (> 50 ms) occurred; budget: none over 200 ms.
 
-**Throttled** (CDP CPU rate 4, a mid-range phone approximation, separate looser budgets): latencies stay within ±20% of unthrottled, animations 60 fps, longest task 53 ms. Budget: latency ≤ 2× the above, ≥ 30 fps, ≤ 20% frames over 34 ms, no task over 500 ms.
+**Throttled** (CDP CPU rate 4, a mid-range phone approximation, separate looser budgets): latencies stay within about 10% of unthrottled (the scan is backend time), animations 60 fps, longest task 93 ms. Budget: latency ≤ 2× the above, ≥ 30 fps, ≤ 20% frames over 34 ms, no task over 500 ms.
 
 **Bundle size** (`pnpm --filter @taphoa/mobile check:bundle` after `build:all`, budgets in `scripts/bundle-budget.mjs`): android Hermes bundle 7.17 MiB (budget 8.25 MiB), web JS 887 KiB gzip (budget 1020 KiB). Each budget is the measured size plus about 15%.
 
@@ -232,12 +234,34 @@ stacks can run beside it: override `E2E_BACKEND_PORT` (8080), `E2E_POSTGRES_PORT
 `E2E_REDIS_PORT` (56579) and `E2E_STORAGE_PORT` (9100); set `EXPO_PUBLIC_API_URL` to match a
 non-default backend port. `E2E_SKIP_MODELS=1` skips the models (recognition then returns 503).
 
-To feed a real photo to the fake camera, generate a clip and point Playwright at it:
+Every test drives the real UI against that backend: a tap makes a real HTTP request, the backend
+answers, the screen shows the answer. Nothing intercepts or fakes an API call
+(`page.route` on the API is not used); the specs only observe calls (`callApi` / `waitForApi` in
+`e2e-web/fixtures.ts`) and compare the screen with the response. Each test gets its own store: the
+`store` fixture creates it with `POST /v1/stores` and starts the browser signed in (the session is
+written to `localStorage` in the shape `src/stores/session.ts` stores it), so tests are parallel safe.
+`onboarding.spec.ts` creates its stores through the UI instead.
+
+The fake camera plays one product photo. Generate the clip and the still once:
 
 ```sh
-apps/mobile/e2e-web/fixtures/make-video.sh            # ffmpeg: shelf-1600.jpg -> fixtures/product.mjpeg
-PLAYWRIGHT_FAKE_VIDEO=$PWD/apps/mobile/e2e-web/fixtures/product.mjpeg pnpm --filter @taphoa/mobile test:e2e:web
+apps/mobile/e2e-web/fixtures/make-video.sh   # ffmpeg: one red pack from shelf-1600.jpg -> fixtures/product.mjpeg + product.jpg
+EXPO_PUBLIC_API_URL=http://localhost:8080 pnpm --filter @taphoa/mobile test:e2e:web
 ```
+
+`playwright.config.ts` plays `fixtures/product.mjpeg` when it exists (or the clip named by
+`PLAYWRIGHT_FAKE_VIDEO`) and serves the export on `E2E_WEB_PORT` (8099). Seeded products are
+enrolled with `product.jpg`, so a scan of the camera matches them; an empty store sees the same
+picture as unknown, and enrolling it makes the next shot a match.
+
+The backend has one inference slot: a scan that finds it taken answers 503 "segmenter busy". The
+parallel workers therefore take turns for anything that runs the models (scans, enrolling), through
+a lock directory under `e2e-web/test-results/`.
+
+What the suite cannot cover yet: the backend reports no `stock_quantity`, so stock badges and the
+low-stock alert never show; the price history has an endpoint but no screen (the edit-price spec
+reads it from the API); there is no UI path that sells a loose item at a typed price (the
+dashboard review list is exercised with a line sold through the API).
 
 In CI the `web-e2e` job runs the same steps using the `backend-binary` artifact. The Android
 Maestro workflow starts the stack too and builds the APK for `http://10.0.2.2:8080`.
