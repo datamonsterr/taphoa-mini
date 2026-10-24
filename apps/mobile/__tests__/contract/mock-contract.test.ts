@@ -275,6 +275,16 @@ describe('success responses match the documented schema', () => {
       201,
     );
     expect(byId.data.image.id).toBe(up.data.id);
+
+    const seg = await call(
+      () =>
+        api.segmentPoints({
+          image_id: up.data.id,
+          points: [{ x: 100, y: 100, label: 1 }],
+        }),
+      200,
+    );
+    expect(seg.data.cutout_image_id).toBeDefined();
   });
 
   test('catalog: list, search, get, create, patch, add image, categories', async () => {

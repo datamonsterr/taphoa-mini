@@ -1,15 +1,21 @@
-import { QueryClientProvider } from '@tanstack/react-query';
+import {
+  QueryClientProvider,
+  environmentManager,
+  focusManager,
+} from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 
 import { createTestQueryClient } from '@/test/render';
 import { resetMockDb, setMockScenario, PRODUCT_IDS } from '@/test/mock';
+import { registerImage } from '@/test/mock/db';
 import { addDays, businessDate } from '@/lib/date';
 import { newUuid } from '@/lib/uuid';
 
 import { resetApiClient } from './client';
 import * as productsApi from './products';
 import {
+  applyProductIndexed,
   summaryRange,
   useAcceptAlert,
   useAddProductImage,
@@ -34,11 +40,13 @@ import {
   useProducts,
   useReportSummary,
   useSales,
+  useSegmentPoints,
   useStore,
   useTodayReport,
   useUploadImage,
 } from './hooks';
 import { keys } from './keys';
+import type { Product } from './types';
 
 beforeEach(() => {
   resetMockDb();
@@ -461,5 +469,190 @@ describe('usePatchProduct', () => {
     );
     expect((await productsApi.getProduct(PRODUCT_IDS.coca)).price).toBe(12000);
     expect(price(queryClient)).not.toBe(10000);
+  });
+});
+
+describe('quick enroll: useSegmentPoints, useCreateProduct references, polling, applyProductIndexed', () => {
+  test('useSegmentPoints happy path returns mask & cutout; 422 on invalid points', async () => {
+    const { wrapper } = setup();
+    const img = registerImage({
+      contentType: 'image/jpeg',
+      byteSize: 1000,
+      purpose: 'enrollment',
+    });
+
+    const { result } = await renderHook(() => useSegmentPoints(), { wrapper });
+
+    // happy path
+    const seg = await run(() =>
+      result.current.mutateAsync({
+        image_id: img.id,
+        points: [{ x: 500, y: 400, label: 1 }],
+      }),
+    );
+    expect(seg.bbox).toHaveLength(4);
+    expect(seg.mask.png_base64).toBeTruthy();
+    expect(seg.cutout_image_id).toBeDefined();
+
+    // 422 with empty points
+    await expect(
+      run(() =>
+        result.current.mutateAsync({
+          image_id: img.id,
+          points: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  test('useCreateProduct with references returns product with pending index_status', async () => {
+    const { wrapper } = setup();
+    const refs = [1, 2, 3].map(() => {
+      const orig = registerImage({
+        contentType: 'image/jpeg',
+        byteSize: 1000,
+        purpose: 'enrollment',
+      });
+      const cutout = registerImage({
+        contentType: 'image/png',
+        byteSize: 500,
+        purpose: 'crop',
+      });
+      return {
+        image_id: orig.id,
+        cutout_image_id: cutout.id,
+        bbox: [0, 0, 100, 100],
+      };
+    });
+
+    const { result } = await renderHook(() => useCreateProduct(), { wrapper });
+    const product = await run(() =>
+      result.current.mutateAsync({
+        id: newUuid(),
+        price: 25000,
+        name: 'Sản phẩm mới',
+        force_new: false,
+        references: refs,
+      }),
+    );
+
+    expect(product.index_status).toBe('pending');
+  });
+
+  test('useProduct refetches while index_status is pending and stops when ready', async () => {
+    environmentManager.setIsServer(() => false);
+    focusManager.setFocused(true);
+    jest.useFakeTimers();
+    try {
+      const { wrapper } = setup();
+      const mockProductPending: Product = {
+        id: PRODUCT_IDS.coca,
+        name: 'Coca-Cola lon 330ml',
+        price: 10000,
+        base_unit: 'lon',
+        cost_price: 7500,
+        barcode: null,
+        category_id: null,
+        units: [],
+        images: [],
+        index_status: 'pending',
+        archived: false,
+        version: 1,
+        updated_at: new Date().toISOString(),
+      };
+      const mockProductReady: Product = {
+        ...mockProductPending,
+        index_status: 'ready',
+      };
+
+      let callCount = 0;
+      jest.spyOn(productsApi, 'getProduct').mockImplementation(async () => {
+        callCount++;
+        return callCount === 1 ? mockProductPending : mockProductReady;
+      });
+
+      const { result } = await renderHook(() => useProduct(PRODUCT_IDS.coca), {
+        wrapper,
+      });
+
+      // Let initial fetch resolve
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(result.current.data?.index_status).toBe('pending');
+      expect(callCount).toBe(1);
+
+      // Advance by 2 seconds: should trigger refetch
+      await jest.advanceTimersByTimeAsync(2000);
+      await waitFor(() => {
+        expect(result.current.data?.index_status).toBe('ready');
+      });
+      expect(callCount).toBe(2);
+
+      // Advance by another 4 seconds: should NOT refetch again because status is ready
+      await jest.advanceTimersByTimeAsync(4000);
+
+      expect(callCount).toBe(2);
+    } finally {
+      environmentManager.setIsServer(() => true);
+      focusManager.setFocused(undefined);
+      jest.useRealTimers();
+    }
+  });
+
+  test('applyProductIndexed patches cached detail and lists', async () => {
+    const { queryClient } = setup();
+    const id = newUuid();
+
+    const product: Product = {
+      id,
+      name: 'Bánh mì',
+      price: 15000,
+      base_unit: 'ổ',
+      cost_price: 10000,
+      barcode: null,
+      category_id: null,
+      units: [],
+      images: [],
+      index_status: 'pending',
+      archived: false,
+      version: 1,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Cache detail
+    queryClient.setQueryData(keys.products.detail(id), product);
+
+    // Cache page list
+    queryClient.setQueryData(keys.products.list(), {
+      items: [product],
+      next_cursor: null,
+    });
+
+    // Cache infinite list
+    queryClient.setQueryData(keys.products.list({ q: 'banh' }), {
+      pages: [{ items: [product], next_cursor: null }],
+      pageParams: [null],
+    });
+
+    applyProductIndexed(queryClient, {
+      product_id: id,
+      index_status: 'ready',
+      reference_count: 3,
+    });
+
+    const cachedDetail = queryClient.getQueryData<Product>(
+      keys.products.detail(id),
+    );
+    expect(cachedDetail?.index_status).toBe('ready');
+
+    const cachedList = queryClient.getQueryData<{ items: Product[] }>(
+      keys.products.list(),
+    );
+    expect(cachedList?.items[0]?.index_status).toBe('ready');
+
+    const cachedInfinite = queryClient.getQueryData<{
+      pages: { items: Product[] }[];
+    }>(keys.products.list({ q: 'banh' }));
+    expect(cachedInfinite?.pages[0]?.items[0]?.index_status).toBe('ready');
   });
 });

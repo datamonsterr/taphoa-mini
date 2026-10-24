@@ -332,6 +332,7 @@ export function buildSeed(now: Date = new Date()): MockState {
           ]
         : [],
       images: productImages,
+      index_status: 'ready',
       archived: false,
       version: 1,
       created_by: LEAD_ID,
