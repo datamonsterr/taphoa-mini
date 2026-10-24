@@ -202,3 +202,32 @@ new dates or resetting credentials. The output still shows the original hints;
 a consumed/expired invite or rotated recovery code is not made valid again. A
 failure rolls back that store completely, and a rerun can finish the other store.
 Use a fresh disposable database to regenerate a new 30-day window.
+
+### Receipt OCR and confirmation
+
+`POST /v1/receipts` reads a stored image into a draft; `GET /v1/receipts`
+provides newest-first history with status/cursor filters. All receipt routes require
+a Lead or `can_enroll`. Creation and confirmation require `Idempotency-Key`.
+
+| Variable                                                                 | Default                                     | Purpose                                                               |
+| ------------------------------------------------------------------------ | ------------------------------------------- | --------------------------------------------------------------------- |
+| `OCR_DET_PATH`, `OCR_ENCODER_PATH`, `OCR_DECODER_PATH`, `OCR_VOCAB_PATH` | unset                                       | Set all four to enable receipt OCR and the shared scan text detector. |
+| `OCR_THREADS`                                                            | `4`                                         | OCR inference workers.                                                |
+| `OPENROUTER_API_KEY`                                                     | empty                                       | Decisions API key; absence uses rule fallback.                        |
+| `DECISIONS_MODEL`                                                        | `inception/mercury-decide:free`             | Product mapping model.                                                |
+| `DECISIONS_URL`                                                          | `https://openrouter.ai/api/alpha/decisions` | Decisions endpoint.                                                   |
+| `DECISIONS_TIMEOUT_MS`                                                   | `2500`                                      | Decision request timeout before rule fallback.                        |
+
+Confirm submits the full retained line set: omitted draft lines are deleted, existing
+`line_id` values preserve their OCR metadata, and omitted IDs create new lines. Costs
+are line totals; expense amount is their sum while purchase unit costs round up.
+Zero-cost supplier items and zero-total receipts are supported; the public expense
+create/patch validators still require a positive amount.
+Expense, purchase costs and margin alerts, stock movements, and `receipt.confirmed`
+share one transaction. ImageRepository has no update-purpose port, so receipt photos
+retain their existing image purpose. Presigned URLs are generated on read.
+
+Scan text detection overlaps segmentation and can add at most 50 ms of waiting after
+inference. A detector failure or timeout returns the default absent signal. Blocking
+work retains the inference admission permit until both jobs complete, including
+after request cancellation. The signal is retained in the scan timing snapshot for GET.

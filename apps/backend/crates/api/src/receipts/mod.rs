@@ -1,4 +1,6 @@
 //! Pure receipt parsing and catalog mapping; transport and persistence are composed by callers.
+mod http;
+pub use http::router;
 pub mod mapping;
 pub mod parse;
 

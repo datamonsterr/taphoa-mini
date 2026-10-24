@@ -315,6 +315,17 @@ async fn create_scan(
             }
         }
     };
+    // Both blocking jobs retain the admission permit, including after cancellation or
+    // detector timeout. Slow OCR cannot create an unbounded background inference queue.
+    let permit = Arc::new(permit);
+    let detector_permit = Arc::clone(&permit);
+    let document_task = state.text_detector.clone().map(|detector| {
+        let bytes = image_bytes.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = detector_permit;
+            detector.document_signal(&bytes)
+        })
+    });
     let inference = tokio::task::spawn_blocking(move || {
         let _permit = permit; // Held even if the HTTP request is cancelled.
         pipeline::block_pipeline(
@@ -346,6 +357,17 @@ async fn create_scan(
             tracing::error!(%error, "scan task failed");
             return Err(ApiError::internal());
         }
+    };
+    // Detection overlaps SAM. Bound any tail latency, degrading to the absent signal
+    // on detector failure/overload rather than delaying a checkout scan.
+    let document = match document_task {
+        Some(task) => {
+            match tokio::time::timeout(std::time::Duration::from_millis(50), task).await {
+                Ok(Ok(Ok(signal))) => signal,
+                _ => pipeline::no_document(),
+            }
+        }
+        None => pipeline::no_document(),
     };
     // Concurrent vector searches, then a single metadata query for all hits.
     let search_wall = Instant::now();
@@ -456,12 +478,15 @@ async fn create_scan(
         .iter()
         .map(|detection| detection.id)
         .collect();
-    let timings_ms = pipeline::timings_value(
+    let mut timings_ms = pipeline::timings_value(
         work.segment_ms,
         work.embed_ms,
         search_ms,
         wall.elapsed().as_secs_f64() * 1000.0,
     );
+    // Keep the signal in the existing scan snapshot; render_scan exposes it at the
+    // contract's top level and removes this internal timing entry.
+    timings_ms["document"] = serde_json::to_value(document).map_err(|_| ApiError::internal())?;
     let persist_started = Instant::now();
     let (scan_id, created_at, catalog_version) = match pipeline::persist_scan(
         &pool,

@@ -32,6 +32,14 @@ async fn main() -> anyhow::Result<()> {
     let point_segmenter = sam.map(|s| s as Arc<dyn taphoa_recognition::PointSegmenter>);
     let mut state = AppState::connect_with_config(&config, segmenter).await?;
     state.point_segmenter = point_segmenter;
+    if let Some(ocr) = config.ocr()? {
+        state.text_detector = Some(ocr.detector());
+        state.receipt_ocr = Some(ocr);
+    }
+    state.decisions = taphoa_api::decisions::DecisionsConfig::from_env()?
+        .map(taphoa_api::decisions::OpenRouterDecisions::new)
+        .transpose()?
+        .map(|client| Arc::new(client) as Arc<dyn taphoa_api::decisions::DecisionClient>);
     state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {

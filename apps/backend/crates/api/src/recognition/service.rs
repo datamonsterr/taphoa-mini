@@ -352,6 +352,14 @@ pub(crate) struct DetectionDisplay {
     pub candidates: Vec<CandidateDisplay>,
 }
 
+pub(crate) fn no_document() -> taphoa_recognition::ocr::DocumentSignal {
+    taphoa_recognition::ocr::DocumentSignal {
+        detected: false,
+        score: 0.,
+        text_lines: 0,
+    }
+}
+
 #[derive(Serialize)]
 pub(crate) struct ScanResponse {
     id: Uuid,
@@ -360,6 +368,7 @@ pub(crate) struct ScanResponse {
     purpose: ScanPurpose,
     pipeline: PipelineJson,
     timings_ms: serde_json::Value,
+    document: taphoa_recognition::ocr::DocumentSignal,
     pub(crate) detections: Vec<DetectionJson>,
     created_at: DateTime<Utc>,
 }
@@ -424,7 +433,7 @@ pub(crate) fn database_failure(error: impl std::fmt::Display + 'static) -> ApiEr
 pub(crate) async fn render_scan(
     storage: &dyn crate::storage::ObjectStore,
     ttl: Duration,
-    scan: ScanDisplay,
+    mut scan: ScanDisplay,
 ) -> Result<ScanResponse, ApiError> {
     let signed = |key: String| async move {
         storage
@@ -463,6 +472,12 @@ pub(crate) async fn render_scan(
             candidates,
         });
     }
+    let document = scan
+        .timings_ms
+        .as_object_mut()
+        .and_then(|timings| timings.remove("document"))
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_else(no_document);
     Ok(ScanResponse {
         id: scan.id,
         image: ImageJson {
@@ -482,6 +497,7 @@ pub(crate) async fn render_scan(
             catalog_version: scan.catalog_version,
         },
         timings_ms: scan.timings_ms,
+        document,
         detections: answer,
         created_at: scan.created_at,
     })
