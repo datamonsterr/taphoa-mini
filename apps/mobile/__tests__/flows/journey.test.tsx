@@ -13,7 +13,7 @@ import {
 import * as images from '@/lib/api/images';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
-import { PRODUCT_IDS, setMockScenario } from '@/lib/mock';
+import { PRODUCT_IDS, setMockScenario } from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
 import { act, fireEvent, renderApp, screen, waitFor } from '@/test/router';
 

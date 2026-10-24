@@ -42,7 +42,8 @@ export type ResolveManualLineInput = {
 
 /**
  * Proposed API extension: Product.stock_quantity (pending spec).
- * The mock returns it on every Product response; the real API does not yet.
+ * The backend does not return it yet, so stock badges and the low-stock alert stay hidden
+ * against the real API. Only the Jest test double fills it in.
  */
 export type ProductWithStock = Product & { stock_quantity?: number };
 

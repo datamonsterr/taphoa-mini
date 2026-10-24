@@ -16,7 +16,7 @@ import * as images from '@/lib/api/images';
 import * as ledger from '@/lib/api/ledger';
 import { mapBox } from '@/lib/bbox';
 import { formatVnd } from '@/lib/format';
-import { setMockScenario } from '@/lib/mock';
+import { setMockScenario } from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
 
 const IMAGE = { width: 1080, height: 1440 };

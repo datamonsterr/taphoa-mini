@@ -6,7 +6,7 @@ import { resetApiClient } from '@/lib/api';
 import * as ledger from '@/lib/api/ledger';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
-import { resetMockDb } from '@/lib/mock';
+import { resetMockDb } from '@/test/mock';
 import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
 

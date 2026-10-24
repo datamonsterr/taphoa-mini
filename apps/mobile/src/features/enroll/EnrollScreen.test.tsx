@@ -6,7 +6,7 @@ import { listProducts } from '@/lib/api';
 import * as imagesApi from '@/lib/api/images';
 import * as productsApi from '@/lib/api/products';
 import * as reviewApi from '@/lib/api/review';
-import { resetMockDb } from '@/lib/mock/db';
+import { resetMockDb } from '@/test/mock/db';
 import { useCartStore } from '@/stores/cart';
 import { renderWithProviders } from '@/test/render';
 

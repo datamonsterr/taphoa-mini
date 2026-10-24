@@ -153,16 +153,21 @@ export const useExpenses = (params: Parameters<typeof listExpenses>[0] = {}) =>
     queryFn: () => listExpenses(params),
   });
 
-export const useManualLines = (status: ManualLineStatus = 'open') =>
+export const useManualLines = (
+  status: ManualLineStatus = 'open',
+  enabled = true,
+) =>
   useQuery({
     queryKey: keys.manualLines.list(status),
     queryFn: () => listManualLines({ status }),
+    enabled,
   });
 
-export const useAlerts = (status: AlertStatus = 'open') =>
+export const useAlerts = (status: AlertStatus = 'open', enabled = true) =>
   useQuery({
     queryKey: keys.alerts.list(status),
     queryFn: () => listAlerts(status),
+    enabled,
   });
 
 export const useTodayReport = (date?: string) =>

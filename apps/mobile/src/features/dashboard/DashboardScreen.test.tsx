@@ -10,7 +10,7 @@ import * as ledger from '@/lib/api/ledger';
 import * as review from '@/lib/api/review';
 import { resetApiClient } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { resetMockDb } from '@/lib/mock';
+import { resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';

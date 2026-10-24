@@ -24,8 +24,14 @@ const cursorQuery = ({ cursor, ...rest }: PageParams) => ({
   ...(cursor ? { cursor } : {}),
 });
 
+/** The sale `id` is the idempotency key: a replay of the same id and body answers 200 with the stored sale. */
 export const createSale = (body: CreateSaleRequest): Promise<Sale> =>
-  unwrap(getApiClient().raw.POST('/v1/sales', { body }));
+  unwrap(
+    getApiClient().raw.POST('/v1/sales', {
+      body,
+      headers: { 'Idempotency-Key': body.id },
+    }),
+  );
 
 export function listSales(
   params: DateRange &

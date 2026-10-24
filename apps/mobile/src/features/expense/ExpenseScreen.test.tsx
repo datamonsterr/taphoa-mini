@@ -6,7 +6,7 @@ import { Linking } from 'react-native';
 import { resetApiClient } from '@/lib/api';
 import * as images from '@/lib/api/images';
 import * as ledger from '@/lib/api/ledger';
-import { resetMockDb } from '@/lib/mock';
+import { resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
 
 import { ExpenseScreen } from './ExpenseScreen';

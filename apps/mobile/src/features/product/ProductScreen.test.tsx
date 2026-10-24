@@ -6,7 +6,7 @@ import { Dimensions } from 'react-native';
 import * as productsApi from '@/lib/api/products';
 import { keys } from '@/lib/api/keys';
 import type { ProductWithStock } from '@/lib/api/types';
-import { PRODUCT_IDS, resetMockDb } from '@/lib/mock';
+import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { holdNext } from '@/test/hold';
 import { createTestQueryClient, renderWithProviders } from '@/test/render';
 import { colors, radius } from '@/theme';

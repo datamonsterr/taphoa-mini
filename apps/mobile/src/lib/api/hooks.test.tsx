@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 
 import { createTestQueryClient } from '@/test/render';
-import { resetMockDb, setMockScenario, PRODUCT_IDS } from '@/lib/mock';
+import { resetMockDb, setMockScenario, PRODUCT_IDS } from '@/test/mock';
 import { addDays, businessDate } from '@/lib/date';
 import { newUuid } from '@/lib/uuid';
 

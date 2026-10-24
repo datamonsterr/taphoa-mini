@@ -7,7 +7,7 @@ import { CloseScreen } from '@/features/close/CloseScreen';
 import { EnrollScreen } from '@/features/enroll/EnrollScreen';
 import { ExpenseScreen } from '@/features/expense/ExpenseScreen';
 import { resetApiClient } from '@/lib/api';
-import { resetMockDb } from '@/lib/mock';
+import { resetMockDb } from '@/test/mock';
 import { renderWithProviders, type TestMetrics } from '@/test/render';
 
 jest.mock('expo-router', () => ({

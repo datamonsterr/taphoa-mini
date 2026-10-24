@@ -4,7 +4,7 @@ import { configure } from '@testing-library/react-native';
 
 import { freezeDate } from './clock';
 
-// Explicit, generous async timeouts: the mock API has no latency in tests, but coverage
+// Explicit, generous async timeouts: the test double has no latency, but coverage
 // instrumentation and the real route tree make a render slow on a busy CI worker.
 configure({ asyncUtilTimeout: 5000 });
 
@@ -14,13 +14,22 @@ beforeEach(() => {
   // TEST_NOW (ISO instant) pins `Date` for the whole suite; see the `test:tz` script.
   if (process.env.TEST_NOW) freezeDate(process.env.TEST_NOW);
   const { useCaptureModeStore } = require('@/features/camera/modeStore');
-  const { resetApiClient } = require('@/lib/api/client');
-  const { resetMockDb } = require('@/lib/mock/db');
+  const { setApiTransport } = require('@/lib/api/client');
+  const { createMockFetch } = require('@/test/mock/fetch');
+  const { resetMockDb } = require('@/test/mock/db');
+  const { initialSession, useSessionStore } = require('@/stores/session');
+  const { testSession } = require('./session');
   const { initialChrome, useChromeStore } = require('@/stores/chrome');
   const { useCartStore } = require('@/stores/cart');
   const { initialSettings, useSettingsStore } = require('@/stores/settings');
   resetMockDb();
-  resetApiClient();
+  // The app only ever talks to the real backend; tests put the in-memory double underneath it.
+  setApiTransport(createMockFetch());
+  useSessionStore.setState({
+    ...initialSession,
+    session: testSession(),
+    hydrated: true,
+  });
   useChromeStore.setState(initialChrome);
   useCartStore.setState({ lines: [] });
   useCaptureModeStore.setState({ mode: 'one' });

@@ -1,4 +1,4 @@
-import { PRODUCT_IDS } from '@/lib/mock';
+import { PRODUCT_IDS } from '@/test/mock';
 import {
   fireEvent,
   renderApp,

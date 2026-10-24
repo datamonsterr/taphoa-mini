@@ -82,6 +82,21 @@ jest.mock('expo-camera', () => {
   };
 });
 
+// The Keychain / Keystore is absent under Jest: an in-memory map stands in for it.
+jest.mock('expo-secure-store', () => {
+  const values = new Map<string, string>();
+  return {
+    __values: values,
+    getItemAsync: jest.fn(async (key: string) => values.get(key) ?? null),
+    setItemAsync: jest.fn(async (key: string, value: string) => {
+      values.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key: string) => {
+      values.delete(key);
+    }),
+  };
+});
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );

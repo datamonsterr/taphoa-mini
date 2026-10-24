@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from 'react';
 
 import type { Sale } from '@/lib/api';
 import * as ledger from '@/lib/api/ledger';
-import { resetMockDb } from '@/lib/mock';
+import { resetMockDb } from '@/test/mock';
 import { createTestQueryClient } from '@/test/render';
 
 import { currentRange, useDashboardData } from './useDashboardData';

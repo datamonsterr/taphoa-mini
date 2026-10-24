@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 
 const SUITES = [
   'src/lib/date.test.ts',
-  'src/lib/mock',
+  'src/test/mock',
   'src/lib/api',
   'src/features/expense',
   'src/features/dashboard',

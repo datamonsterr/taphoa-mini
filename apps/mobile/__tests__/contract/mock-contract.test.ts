@@ -7,16 +7,16 @@ import { parse } from 'yaml';
 
 import * as api from '../../src/lib/api';
 import { newUuid } from '../../src/lib/uuid';
-import { PRODUCT_IDS } from '../../src/lib/mock/fixtures';
-import { resetMockDb } from '../../src/lib/mock/db';
-import { MOCK_ROUTES } from '../../src/lib/mock/routes';
-import { setMockScenario } from '../../src/lib/mock/scenario';
+import { PRODUCT_IDS } from '../../src/test/mock/fixtures';
+import { resetMockDb } from '../../src/test/mock/db';
+import { MOCK_ROUTES } from '../../src/test/mock/routes';
+import { setMockScenario } from '../../src/test/mock/scenario';
 
 type Recorded = { method: string; path: string; status: number; body: unknown };
 const recorded: Recorded[] = [];
 
-jest.mock('../../src/lib/mock/fetch', () => {
-  const actual = jest.requireActual('../../src/lib/mock/fetch');
+jest.mock('../../src/test/mock/fetch', () => {
+  const actual = jest.requireActual('../../src/test/mock/fetch');
   return {
     ...actual,
     createMockFetch: (options?: unknown) => {

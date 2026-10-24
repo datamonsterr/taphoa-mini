@@ -8,9 +8,10 @@ account. See [the implementation spec](../../docs/specs/mobile-frontend.md) and
 
 ## Preview in Expo Go
 
-The app runs without a backend: by default every request goes to an in-app mock of
-`docs/api/openapi.yaml` (`src/lib/mock`), so all buttons work. Only libraries bundled
-in Expo Go are used.
+The app talks only to the real backend (`apps/backend`), at `EXPO_PUBLIC_API_URL`
+(default `http://localhost:8080`, the `docker compose up` stack). Start the backend first.
+Without a session the app opens on the onboarding screens (create a store, join with an
+invite code, recover with the recovery code). Only libraries bundled in Expo Go are used.
 
 ```sh
 pnpm install
@@ -22,10 +23,13 @@ Scan the QR code with Expo Go (Android) or the Camera app (iOS) on the same netw
 installed. `pnpm --filter @taphoa/mobile web` runs it in a browser; the camera uses
 the webcam there.
 
-The camera captures a real photo; the mock `createScan` returns dummy bounding boxes
-in image pixels (one box in single mode, three in multi mode; every third single scan
-is a low match, to show the enroll path). Set `EXPO_PUBLIC_API_MODE=live` with
-`EXPO_PUBLIC_API_URL` to use the real API instead.
+The camera captures a real photo and uploads it to `POST /v1/recognition/scans`. Recognition
+and enrollment need the model files on the backend; without them the API answers `503` and the
+camera shows its scan error. `EMBEDDER=mock` (backend env) lets enrollment work without the
+models. Set `EXPO_PUBLIC_API_URL` to the machine the backend runs on: your LAN address for a
+physical phone, `http://10.0.2.2:8080` for the Android emulator. Product photos are presigned
+URLs from the API; the bucket's public endpoint (`S3_PUBLIC_ENDPOINT_URL`) must be reachable
+from the phone too. Tokens are kept in `expo-secure-store` (`localStorage` on the web).
 
 ## Deploy the web app (EAS Hosting)
 
@@ -48,8 +52,8 @@ This exports the web build to `apps/mobile/dist-web` (`dist` holds the Android
 export) and runs `eas deploy --export-dir dist-web`, which prints a preview URL.
 `pnpm deploy:web:prod` also promotes it to the production URL. Pushes to `main`
 deploy to production through `.eas/workflows/deploy-web.yml` once the GitHub
-repository is linked to the EAS project. The deployed site uses the in-app mock
-API unless `EXPO_PUBLIC_API_MODE=live` is set at export time.
+repository is linked to the EAS project. Set `EXPO_PUBLIC_API_URL` to the deployed backend
+at export time; the backend answers CORS for any origin.
 
 Use Node 24 (`nvm use` from the repository root) and pnpm 11.5.0. All commands below
 run from the repository root unless noted.
@@ -84,9 +88,10 @@ Root `lint`, `typecheck`, `test`, `test:integration`, `test:e2e`, and `build` sc
 run workspace tasks through Turborepo. Missing package scripts are skipped; mobile
 has no separate integration suite. Jest uses `jest-expo` and React Native Testing
 Library. Tests form a pyramid: unit tests next to logic, component tests in
-`src/components`, screen tests in `src/features` against the mock API, a contract
-test (`__tests__/contract`) that validates every mock response against the OpenAPI
-schemas, and flow tests (`__tests__/flows`) that drive the real routes with
+`src/components`, screen tests in `src/features` against an in-memory fake of the API
+(`src/test/mock`, a Jest double that no runtime file may import; `__tests__/no-test-double-in-runtime.test.ts`
+enforces it), a contract test (`__tests__/contract`) that validates every fake response
+against the OpenAPI schemas, and flow tests (`__tests__/flows`) that drive the real routes with
 `expo-router/testing-library`.
 
 ## Android smoke test and EAS

@@ -13,7 +13,7 @@ import {
 
 import * as productsApi from '@/lib/api/products';
 import { holdNext } from '@/test/hold';
-import { PRODUCT_IDS, resetMockDb } from '@/lib/mock';
+import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
 
 import { InventoryScreen, HANDLE_PAN_TEST_ID } from './InventoryScreen';

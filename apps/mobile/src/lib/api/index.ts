@@ -1,4 +1,11 @@
-export { getApiClient, resetApiClient } from './client';
+export * from './auth';
+export {
+  apiBaseUrl,
+  DEFAULT_API_URL,
+  getApiClient,
+  resetApiClient,
+  setApiTransport,
+} from './client';
 export { ApiError, isApiError } from './errors';
 export { getHealth, type HealthResponse } from './health';
 export * from './hooks';

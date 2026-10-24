@@ -1,5 +1,5 @@
 import { listSales } from '@/lib/api';
-import { PRODUCT_IDS } from '@/lib/mock';
+import { PRODUCT_IDS } from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
 import {
   fireEvent,
