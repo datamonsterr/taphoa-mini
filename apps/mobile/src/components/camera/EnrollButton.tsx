@@ -59,6 +59,7 @@ export const EnrollButton = memo(function EnrollButton({
         accessibilityRole="button"
         accessibilityLabel="Thêm vào kho với giá"
         accessibilityState={{ selected: active, disabled: !!disabled }}
+        aria-selected={active}
         accessibilityHint={disabled ? DISABLED_HINT : undefined}
         disabled={disabled}
         onPress={onPress}

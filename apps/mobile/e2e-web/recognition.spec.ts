@@ -36,6 +36,17 @@ async function addAngle(page: Page) {
   await expect(dialog).toHaveCount(0);
 }
 
+/** Another checkout scan can become stale while this device enrolls the item. */
+async function duplicateEnroll(camera: Page) {
+  const page = await camera.context().newPage();
+  await openCamera(page);
+  await shoot(page);
+  await unknownPill(page).click();
+  await fillEnroll(page, { name: 'Bản sao', price: 9000 });
+  const { product } = await enrollFromCamera(camera, PRODUCT);
+  return { page, product };
+}
+
 test.describe('recognition and enroll (real models)', () => {
   test('an empty store sees the item as unknown; enrolling it makes the next shot a match that goes to the cart', async ({
     page,
@@ -172,18 +183,12 @@ test.describe('recognition and enroll (real models)', () => {
   });
 
   test('enrolling the same item again: the server suspects a duplicate; merge adds a photo to the existing product', async ({
-    page,
+    page: camera,
     store,
   }) => {
-    await openCamera(page);
-    const { product } = await enrollFromCamera(page, PRODUCT);
+    await openCamera(camera);
+    const { page, product } = await duplicateEnroll(camera);
 
-    // the whole photo, enrolled as a new product, looks like the one we have
-    await backToLive(page);
-    await shoot(page);
-    await button(page, 'Thêm vào kho với giá').click();
-    await expect(page).toHaveURL(/\/enroll\?.*photoUri=/);
-    await fillEnroll(page, { name: 'Bản sao', price: 9000 });
     const duplicate = await callInference(
       page,
       'POST',
@@ -212,15 +217,11 @@ test.describe('recognition and enroll (real models)', () => {
   });
 
   test('enrolling the same item again: "create anyway" sends force_new and makes a second product', async ({
-    page,
+    page: camera,
     store,
   }) => {
-    await openCamera(page);
-    await enrollFromCamera(page, PRODUCT);
-    await backToLive(page);
-    await shoot(page);
-    await button(page, 'Thêm vào kho với giá').click();
-    await fillEnroll(page, { name: 'Bản sao', price: 9000 });
+    await openCamera(camera);
+    const { page } = await duplicateEnroll(camera);
     await callInference(
       page,
       'POST',
