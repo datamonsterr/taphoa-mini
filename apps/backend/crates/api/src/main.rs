@@ -24,7 +24,13 @@ async fn main() -> anyhow::Result<()> {
     }
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
-    let mut state = AppState::connect_with_config(&config, config.segmenter()?).await?;
+    let sam = config.sam_segmenter()?;
+    let segmenter = sam
+        .as_ref()
+        .map(|s| Arc::clone(s) as Arc<dyn taphoa_recognition::Segmenter>);
+    let point_segmenter = sam.map(|s| s as Arc<dyn taphoa_recognition::PointSegmenter>);
+    let mut state = AppState::connect_with_config(&config, segmenter).await?;
+    state.point_segmenter = point_segmenter;
     state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {
