@@ -53,4 +53,4 @@ The GitHub repo is linked to the Expo project, so every file in `.eas/workflows/
 
 ## Finishing a task
 
-A task is done when its PR is merged. Then clean up the worktree it ran in. Follow the repo-root `CLAUDE.md` section "Finishing a task".
+A task is done when its PR is merged. Then clean up the worktree it ran in. Follow the repo-root `AGENTS.md` section "Finishing a task".
