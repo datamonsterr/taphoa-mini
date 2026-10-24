@@ -1,0 +1,47 @@
+appId: com.datamonsterr.taphoamini
+---
+# Sell a product added by hand (so the flow does not depend on what recognition makes of the
+# emulator's virtual camera): cart -> cash payment -> the sale counts in the day's report.
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Bán hàng'
+      OWNER_NAME: 'Cô Ba'
+- runFlow:
+    file: subflows/enroll-product.yaml
+    env:
+      PRODUCT_NAME: 'Kẹo dừa'
+# cart: the product enrolled and added itself
+- tapOn: 'Giỏ hàng:.*'
+- extendedWaitUntil:
+    visible: 'Hiện mã QR thanh toán'
+    timeout: 20000
+- assertVisible: 'Kẹo dừa'
+- takeScreenshot: checkout-01-cart
+- tapOn: 'Hiện mã QR thanh toán'
+# pay in cash: 100.000 handed over for 15.000 -> 85.000 back
+- extendedWaitUntil:
+    visible: 'Tiền mặt'
+    timeout: 20000
+- tapOn: 'Tiền mặt'
+- tapOn: '100.000'
+- extendedWaitUntil:
+    visible: 'Tiền thối'
+    timeout: 20000
+- assertVisible: '85.000đ'
+- takeScreenshot: checkout-02-pay-cash
+- tapOn: 'Đã nhận tiền'
+# back at the camera with an empty cart
+- extendedWaitUntil:
+    visible: 'Giỏ hàng trống'
+    timeout: 30000
+# the sale is in the day's report, as the server computed it
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- extendedWaitUntil:
+    visible: 'Doanh thu 15.000đ, 1 đơn'
+    timeout: 30000
+- takeScreenshot: checkout-03-report

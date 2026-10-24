@@ -67,6 +67,8 @@ services:
       S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:${STORAGE_PORT:-9000}}
       IMAGE_URL_TTL_SECONDS: ${IMAGE_URL_TTL_SECONDS:-900}
       RUST_LOG: ${RUST_LOG:-info}
+      # `mock` stands in for the DINO model so enrollment works without model files (local only).
+      EMBEDDER: ${EMBEDDER:-}
     depends_on:
       postgres:
         condition: service_healthy

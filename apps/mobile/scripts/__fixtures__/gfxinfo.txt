@@ -1,0 +1,27 @@
+Applications Graphics Acceleration Info:
+Uptime: 12345678 Realtime: 12345678
+
+** Graphics info for pid 4321 [com.datamonsterr.taphoamini] **
+
+Stats since: 11111111222333ns
+Total frames rendered: 1204
+Janky frames: 187 (15.53%)
+Janky frames (legacy): 301 (25.00%)
+50th percentile: 12ms
+90th percentile: 28ms
+95th percentile: 36ms
+99th percentile: 85ms
+Number Missed Vsync: 40
+Number High input latency: 3
+Number Slow UI thread: 90
+Number Slow bitmap uploads: 2
+Number Slow issue draw commands: 55
+Number Frame deadline missed: 187
+Number Frame deadline missed (legacy): 301
+HISTOGRAM: 5ms=10 6ms=20 7ms=30
+50th gpu percentile: 4ms
+90th gpu percentile: 9ms
+
+Caches:
+Current memory usage / total memory usage (bytes):
+  TextureCache          1000 / 58720256

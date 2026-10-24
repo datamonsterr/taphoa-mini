@@ -1,12 +1,7 @@
-import { render, screen } from '@testing-library/react-native';
+import { CameraScreen } from '@/features/camera/CameraScreen';
 
-import HomeScreen from '../src/app';
+import Index from '../src/app';
 
-test('renders the Vietnamese home screen and placeholder sales button', async () => {
-  await render(<HomeScreen />);
-
-  expect(
-    screen.getByRole('header', { name: 'Tạp Hóa Mini' }),
-  ).toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: 'Bán hàng' })).toBeDisabled();
+test('index route is the camera screen', () => {
+  expect(Index).toBe(CameraScreen);
 });

@@ -1,0 +1,15 @@
+# Deploys the web build to EAS Hosting. It calls the backend at EXPO_PUBLIC_API_URL (EAS environment variable).
+# Docs: https://docs.expo.dev/eas/hosting/workflows/
+name: Deploy web
+
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  deploy:
+    type: deploy
+    name: Deploy web to EAS Hosting
+    environment: production
+    params:
+      prod: true

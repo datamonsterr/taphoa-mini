@@ -255,6 +255,10 @@ pub(crate) async fn create(
     actor.require(Action::EnrollProduct)?;
     let request = model::CreateProductRequest::parse(value.clone())?;
     request.validate()?;
+    if request.from_manual_line_id.is_some() {
+        // Resolving a flagged line is the Lead's review work.
+        actor.require(Action::ReviewQueue)?;
+    }
     let hash = crate::idempotency::request_hash(&value);
 
     let embedder = state.embedder.clone().ok_or_else(ApiError::unavailable)?;
@@ -377,6 +381,9 @@ pub(crate) async fn create(
     .bind(actor.member_id)
     .execute(&mut *tx)
     .await?;
+    if let Some(line_id) = request.from_manual_line_id {
+        resolve_manual_line(&mut tx, &actor, line_id, request.id).await?;
+    }
     if let Some(cost) = request.cost_price {
         sqlx::query(
             "INSERT INTO price_history (store_id, product_id, field, old_value, new_value, source, \
@@ -415,6 +422,58 @@ pub(crate) async fn create(
         ),
     )
         .into_response())
+}
+
+/// `from_manual_line_id`: the flagged sale line this product was enrolled from is resolved in
+/// the same transaction, exactly as `POST /v1/review/manual-lines/{id}/resolve` with `enrolled`.
+async fn resolve_manual_line(
+    conn: &mut PgConnection,
+    actor: &Actor,
+    line_id: Uuid,
+    product_id: Uuid,
+) -> ApiResult<()> {
+    let status: Option<String> = sqlx::query_scalar(
+        "SELECT review_status FROM sale_lines \
+         WHERE store_id = $1 AND id = $2 AND review_status IS NOT NULL FOR UPDATE",
+    )
+    .bind(actor.store_id)
+    .bind(line_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match status.as_deref() {
+        None => return Err(ApiError::not_found()),
+        Some("open") => {}
+        Some(_) => {
+            return Err(ApiError::conflict(
+                "already_resolved",
+                "line already resolved",
+            ));
+        }
+    }
+    sqlx::query(
+        "UPDATE sale_lines SET review_status = 'resolved', review_action = 'enrolled', \
+         review_product_id = $3, reviewed_by = $4, reviewed_at = now() \
+         WHERE store_id = $1 AND id = $2",
+    )
+    .bind(actor.store_id)
+    .bind(line_id)
+    .bind(product_id)
+    .bind(actor.member_id)
+    .execute(&mut *conn)
+    .await?;
+    crate::events::emit(
+        conn,
+        crate::events::Event {
+            store_id: actor.store_id,
+            actor: Some((actor.member_id, actor.session_id)),
+            typ: "review.line_resolved",
+            version: 1,
+            data: json!({"line_id": line_id, "action": "enrolled", "product_id": product_id}),
+            change: None,
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 fn plan_required_action(plan: &model::PatchPlan) -> Option<crate::auth::Action> {

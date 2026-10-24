@@ -1,0 +1,31 @@
+appId: com.datamonsterr.taphoamini
+---
+# Shared cold start: fresh state (no session, so the app opens on the welcome screen), camera
+# permission pre-granted.
+# On the CI emulator, Android sometimes kills the freshly started process while it is still
+# removing the previous task ("Destroy timeout of remove-task ... Killing <new pid>"), which
+# leaves a dead splash screen. Stop the app first and retry the launch when that happens.
+- stopApp
+- retry:
+    maxRetries: 2
+    commands:
+      - launchApp:
+          clearState: true
+          permissions:
+            camera: allow
+      # Fallback when the OS still shows the runtime permission dialog.
+      - runFlow:
+          when:
+            visible: '(While using the app|Only this time|Allow|Chỉ khi dùng ứng dụng|Cho phép).*'
+          commands:
+            - tapOn: '(While using the app|Only this time|Allow|Chỉ khi dùng ứng dụng|Cho phép).*'
+      # A slow CI emulator can show a system ANR dialog (e.g. for the launcher) over the app.
+      - runFlow:
+          when:
+            visible: ".*isn't responding.*"
+          commands:
+            - tapOn: 'Wait'
+      # First load of the JS bundle on a cold emulator can be slow.
+      - extendedWaitUntil:
+          visible: 'Khôi phục cửa hàng'
+          timeout: 60000

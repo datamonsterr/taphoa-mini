@@ -1,0 +1,51 @@
+appId: host.exp.exponent
+---
+# Expo Go preview check: Expo Go opens exp://10.0.2.2:8081 (Metro on the runner) and the app
+# reaches its first screen. A fresh install has no session, so that is the welcome screen; this
+# job starts no backend, so it stops there (the Android E2E job drives the real backend). Run by
+# scripts/e2e-expo-go.sh only; the main suite does not recurse into this folder.
+# Expo Go may show its onboarding / dev-menu prompts on first launch: dismiss them if present.
+- runFlow:
+    when:
+      visible: 'Continue'
+    commands:
+      - tapOn: 'Continue'
+- runFlow:
+    when:
+      visible: 'Got it'
+    commands:
+      - tapOn: 'Got it'
+- runFlow:
+    when:
+      visible: ".*isn't responding.*"
+    commands:
+      - tapOn: 'Wait'
+# Cold bundle download + Hermes load in Expo Go on a software-GPU emulator is slow.
+# On first launch Expo Go opens its developer-menu sheet (app name, Reload / Go home, TOOLS)
+# over the app. The sheet is a modal, so the app's own views are hidden from Maestro until
+# it closes: wait for the sheet first, then close it with its X (top right of the sheet).
+- extendedWaitUntil:
+    visible: '(Go home|Tạo cửa hàng)'
+    timeout: 180000
+- repeat:
+    while:
+      visible: 'Go home'
+    times: 3
+    commands:
+      - tapOn:
+          point: '90%,45%'
+      - waitForAnimationToEnd:
+          timeout: 3000
+      - runFlow:
+          when:
+            visible: 'Go home'
+          commands:
+            - back
+            - waitForAnimationToEnd:
+                timeout: 3000
+- extendedWaitUntil:
+    visible: 'Tạo cửa hàng'
+    timeout: 60000
+- assertVisible: 'Tham gia cửa hàng'
+- assertVisible: 'Khôi phục cửa hàng'
+- takeScreenshot: expo-go-01-welcome

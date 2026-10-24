@@ -16,6 +16,8 @@
     "test:e2e": "turbo run test:e2e",
     "build": "turbo run build",
     "prepare": "node scripts/install-hooks.mjs",
+    "deploy:web": "pnpm --filter @taphoa/mobile deploy:web",
+    "deploy:web:prod": "pnpm --filter @taphoa/mobile deploy:web:prod",
     "api:generate": "pnpm --filter @taphoa/api-client generate",
     "lint:api": "redocly lint docs/api/openapi.yaml",
     "lint:api:async": "pnpm dlx @asyncapi/cli@6.2.1 validate docs/api/asyncapi.yaml",

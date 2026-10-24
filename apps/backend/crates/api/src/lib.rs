@@ -32,7 +32,11 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{sync::Arc, time::Duration};
 use taphoa_recognition::{Embedder, Segment, SegmentError, Segmenter};
 use tokio::sync::Semaphore;
-use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
+use tower_http::{
+    cors::{AllowHeaders, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    trace::TraceLayer,
+};
 
 use crate::recognition::classify::RecognitionConfig;
 pub use crate::vector::{InMemoryVectorIndex, VectorIndex};
@@ -155,6 +159,13 @@ impl AppState {
     }
 }
 
+/// Any origin, method and exposed header, like `CorsLayer::permissive`, but the allowed request
+/// headers echo the preflight. A browser never lets `*` cover `Authorization`, so the web app's
+/// bearer calls (and `Idempotency-Key`) would fail their preflight otherwise.
+fn cors() -> CorsLayer {
+    CorsLayer::permissive().allow_headers(AllowHeaders::mirror_request())
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
@@ -183,7 +194,7 @@ pub fn router(state: AppState) -> Router {
         .merge(expenses::router())
         .merge(reports::router())
         .merge(sync::router())
-        .layer(CorsLayer::permissive())
+        .layer(cors())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -410,6 +421,30 @@ mod tests {
         assert_eq!(
             json_body(response).await,
             json!([{"bbox":[1.,2.,3.,4.],"score":0.95,"area":12}])
+        );
+    }
+    #[tokio::test]
+    async fn preflight_allows_the_authorization_header_explicitly() {
+        let response = router(AppState::default())
+            .oneshot(
+                Request::options("/v1/sales")
+                    .header("origin", "http://localhost:8099")
+                    .header("access-control-request-method", "POST")
+                    .header(
+                        "access-control-request-headers",
+                        "authorization,content-type,idempotency-key",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let headers = response.headers();
+        assert_eq!(headers["access-control-allow-origin"], "*");
+        assert_eq!(
+            headers["access-control-allow-headers"],
+            "authorization,content-type,idempotency-key"
         );
     }
     #[tokio::test]

@@ -1,4 +1,14 @@
 appId: com.datamonsterr.taphoamini
 ---
-- launchApp
-- assertVisible: 'Tạp Hóa Mini'
+# The app boots to the welcome screen, and a new store (real backend) opens the camera.
+- runFlow: subflows/launch.yaml
+- assertVisible: 'Tạo cửa hàng'
+- assertVisible: 'Tham gia cửa hàng'
+- takeScreenshot: smoke-01-welcome
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Smoke'
+      OWNER_NAME: 'Cô Ba'
+- assertVisible: 'Giỏ hàng trống'
+- takeScreenshot: smoke-02-camera

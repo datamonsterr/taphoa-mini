@@ -1,0 +1,55 @@
+appId: com.datamonsterr.taphoamini
+---
+# A new store has an empty stock; a product added by hand shows in it and its price can change.
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Kho'
+      OWNER_NAME: 'Cô Ba'
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Chưa có sản phẩm'
+    timeout: 20000
+- takeScreenshot: inventory-01-empty
+- tapOn: 'Mở camera'
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 20000
+- runFlow:
+    file: subflows/enroll-product.yaml
+    env:
+      PRODUCT_NAME: 'Kẹo dừa'
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Kẹo dừa, 15.000đ'
+    timeout: 20000
+- takeScreenshot: inventory-02-product-in-stock
+# Search is answered by the server.
+- tapOn: 'Tìm'
+- inputText: 'dừa'
+- extendedWaitUntil:
+    visible: 'Kẹo dừa, 15.000đ'
+    timeout: 20000
+- hideKeyboard
+- tapOn: 'Kẹo dừa, 15.000đ'
+- extendedWaitUntil:
+    visible: 'Sửa giá'
+    timeout: 20000
+- tapOn: 'Sửa giá'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: 'Xóa'
+- tapOn: '1'
+- tapOn: '2'
+- tapOn: '000'
+- tapOn: 'Lưu giá'
+- extendedWaitUntil:
+    visible: '12.000đ'
+    timeout: 20000
+- takeScreenshot: inventory-03-price-edited
+- tapOn: 'Quay lại'
+- extendedWaitUntil:
+    visible: 'Kẹo dừa, 12.000đ'
+    timeout: 20000
