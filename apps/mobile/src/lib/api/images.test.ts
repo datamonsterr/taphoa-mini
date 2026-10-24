@@ -18,7 +18,15 @@ const transportOf = (...responses: (() => Response)[]) => {
   bodies.length = 0;
   const queue = [...responses];
   const fn = jest.fn(async (req: Request) => {
-    bodies.push(String((await req.formData()).get('image_id')));
+    bodies.push(
+      String(
+        (
+          (await req.formData()) as unknown as globalThis.FormData & {
+            get(k: string): unknown;
+          }
+        ).get('image_id'),
+      ),
+    );
     return queue.shift()!();
   });
   setApiTransport(fn as unknown as typeof fetch);
