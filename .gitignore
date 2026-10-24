@@ -21,3 +21,10 @@ playwright-report/
 apps/mobile/e2e-web/perf-results.json
 test-results/
 apps/mobile/e2e-web/screenshots/
+
+# E2E stack state (pid, logs)
+.e2e-stack/
+
+# Generated fake-camera clip
+apps/mobile/e2e-web/fixtures/*.mjpeg
+apps/mobile/e2e-web/fixtures/*.y4m
