@@ -1,10 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 8099;
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+const PORT = Number(process.env.E2E_WEB_PORT ?? 8099);
 const isCi = !!process.env.CI;
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
-// Optional .y4m/.mjpeg clip the fake camera plays (see e2e-web/fixtures/make-video.sh).
-const FAKE_VIDEO = process.env.PLAYWRIGHT_FAKE_VIDEO;
+// The .y4m/.mjpeg clip the fake camera plays (see e2e-web/fixtures/make-video.sh). The product
+// photo is the default when the script has been run; without a clip Chromium's own test pattern
+// plays and the recognition specs fail on purpose.
+const DEFAULT_VIDEO = path.join(__dirname, 'e2e-web/fixtures/product.mjpeg');
+const FAKE_VIDEO =
+  process.env.PLAYWRIGHT_FAKE_VIDEO ??
+  (existsSync(DEFAULT_VIDEO) ? DEFAULT_VIDEO : undefined);
 
 export default defineConfig({
   testDir: './e2e-web',
@@ -63,6 +71,6 @@ export default defineConfig({
     reuseExistingServer: !isCi,
     timeout: 300_000,
     // The export embeds EXPO_PUBLIC_* values: the app talks to the real backend at API_URL.
-    env: { EXPO_PUBLIC_API_URL: API_URL, EXPO_PUBLIC_API_MODE: 'live' },
+    env: { EXPO_PUBLIC_API_URL: API_URL },
   },
 });

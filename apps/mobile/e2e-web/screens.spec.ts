@@ -1,19 +1,28 @@
 import path from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';
 import {
-  addButton,
-  addCocaAndOpenCart,
   button,
+  cartPill,
   expect,
+  fillEnroll,
+  hydrate,
   keypad,
   openCamera,
-  openEnrollFromUnknown,
   openShop,
-  reshoot,
+  pricePill,
+  scanAndAdd,
+  seedScannableProduct,
+  seedTradingDay,
   shoot,
   test,
+  typeAmount,
+  unknownPill,
 } from './fixtures';
 
+/**
+ * One screenshot per board, taken against the real backend (real recognition, real data). The
+ * pictures are build artifacts for review, not pixel baselines: nothing is compared.
+ */
 const DIR = path.join(__dirname, 'screenshots');
 
 /** Waits for every image to finish loading and animations to start settling, then saves the page. */
@@ -37,53 +46,55 @@ test.describe('board screenshots', () => {
     await capture(page, testInfo, 'Main');
   });
 
-  test('Match: one item recognised', async ({ page }, testInfo) => {
+  test('Match: one item recognised', async ({ page, store }, testInfo) => {
+    await seedScannableProduct(store.api);
     await openCamera(page);
     await shoot(page);
-    await expect(
-      page.getByRole('button', { name: /xem món khác$/ }),
-    ).toBeVisible();
+    await expect(pricePill(page)).toBeVisible();
     await capture(page, testInfo, 'Match');
   });
 
-  test('Multi: three items selected', async ({ page }, testInfo) => {
+  test('Multi: every detection boxed', async ({ page, store }, testInfo) => {
+    await seedScannableProduct(store.api);
     await openCamera(page);
     await button(page, 'Nhiều món').click();
-    await shoot(page);
-    await expect(page.getByTestId('box-badge')).toHaveCount(3);
+    await shoot(page, 'multi');
     await capture(page, testInfo, 'Multi');
   });
 
-  test('Unknown: low match', async ({ page }, testInfo) => {
+  test('Unknown: nothing in the catalog matches', async ({
+    page,
+  }, testInfo) => {
     await openCamera(page);
     await shoot(page);
-    await reshoot(page).click();
-    await shoot(page);
-    await reshoot(page).click();
-    await button(page, 'Chụp').click();
-    await expect(button(page, 'Chưa có trong kho, nhập giá')).toBeVisible();
-    await expect(addButton(page)).toBeDisabled();
+    await expect(unknownPill(page)).toBeVisible();
     await capture(page, testInfo, 'Unknown');
   });
 
   test('Enroll: price a new product', async ({ page }, testInfo) => {
-    await openEnrollFromUnknown(page);
-    await keypad(page, ['1', '5', '000']);
-    await expect(page.getByLabel('Giá bán', { exact: true })).toHaveText(
-      '15.000đ',
-    );
+    await openCamera(page);
+    await shoot(page);
+    await unknownPill(page).click();
+    await fillEnroll(page, { name: 'Kẹo dừa', price: 15_000 });
     await capture(page, testInfo, 'Enroll');
   });
 
-  test('Cart: lines and QR button', async ({ page }, testInfo) => {
-    await addCocaAndOpenCart(page);
+  test('Cart: lines and QR button', async ({ page, store }, testInfo) => {
+    const coca = await seedScannableProduct(store.api);
+    await openCamera(page);
+    await scanAndAdd(page, coca);
+    await cartPill(page).click();
     await button(page, 'Thêm một').click();
     await expect(page.getByLabel('Số lượng 2')).toBeVisible();
     await capture(page, testInfo, 'Cart');
   });
 
-  test('Pay: VietQR', async ({ page }, testInfo) => {
-    await addCocaAndOpenCart(page);
+  test('Pay: VietQR', async ({ page, store }, testInfo) => {
+    await store.api.setBank();
+    const coca = await seedScannableProduct(store.api);
+    await openCamera(page);
+    await scanAndAdd(page, coca);
+    await cartPill(page).click();
     await button(page, 'Hiện mã QR thanh toán').click();
     await expect(
       page.getByRole('img', { name: /Mã VietQR/ }).locator('svg'),
@@ -91,29 +102,30 @@ test.describe('board screenshots', () => {
     await capture(page, testInfo, 'Pay');
   });
 
-  test('Inventory: stock grid', async ({ page }, testInfo) => {
+  test('Inventory: stock grid', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
     await openShop(page, '/inventory');
-    await expect(
-      page.getByRole('button', { name: /, (còn|sắp hết)/ }),
-    ).toHaveCount(12);
+    await expect(button(page, /^Coca-Cola lon 330ml, /)).toBeVisible();
     await capture(page, testInfo, 'Inventory');
   });
 
-  test('Product: detail', async ({ page }, testInfo) => {
+  test('Product: detail', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
     await openShop(page, '/inventory');
-    await page
-      .getByRole('button', { name: /^Coca-Cola lon 330ml, 10\.000đ/ })
-      .click();
-    await expect(page.getByLabel('Ảnh 1 trên 2')).toBeVisible();
+    await button(page, /^Coca-Cola lon 330ml, /).click();
+    await expect(
+      page.getByRole('heading', { name: 'Coca-Cola lon 330ml' }),
+    ).toBeVisible();
     await capture(page, testInfo, 'Product');
   });
 
-  test('Dashboard: reports (390x1080)', async ({ page }, testInfo) => {
+  test('Dashboard: reports (390x1080)', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
     await page.setViewportSize({ width: 390, height: 1080 });
     await openShop(page, '/dashboard');
     await expect(
-      page.getByRole('button', { name: /món sắp hết$/ }),
-    ).toBeVisible();
+      page.getByRole('button', { name: /dưới giá nhập$/ }),
+    ).toHaveText('1');
     await expect(
       page.getByRole('img', { name: /^Doanh thu và chi/ }),
     ).toBeVisible();
@@ -129,17 +141,34 @@ test.describe('board screenshots', () => {
     await capture(page, testInfo, 'Expense');
   });
 
-  test('Account: members and settings', async ({ page }, testInfo) => {
+  test('Account: members and settings', async ({ page, store }, testInfo) => {
+    await store.api.setBank();
     await openShop(page, '/account');
-    await expect(page.getByLabel('3 thành viên')).toBeVisible();
+    await expect(page.getByLabel('1 thành viên')).toBeVisible();
     await capture(page, testInfo, 'Account');
   });
 
-  test('Close: close the day', async ({ page }, testInfo) => {
+  test('Close: close the day', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
     await openShop(page, '/dashboard');
     await button(page, 'Chốt sổ').click();
-    await keypad(page, ['1', '0', '000']);
+    await typeAmount(page, 10_000);
     await expect(page.getByLabel(/^Thiếu |^Dư |^Khớp/)).toBeVisible();
     await capture(page, testInfo, 'Close');
+  });
+});
+
+test.describe('onboarding screenshots', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('Welcome and the create form', async ({ page }, testInfo) => {
+    await page.goto('/');
+    await hydrate(page, button(page, 'Tạo cửa hàng'));
+    await capture(page, testInfo, 'Welcome');
+    await button(page, 'Tạo cửa hàng').click();
+    await expect(
+      page.getByRole('textbox', { name: 'Tên cửa hàng' }),
+    ).toBeVisible();
+    await capture(page, testInfo, 'Create');
   });
 });

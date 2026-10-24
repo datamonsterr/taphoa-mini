@@ -19,9 +19,9 @@ jest.mock('expo-camera', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
-    CameraView: React.forwardRef((props: object) =>
-      React.createElement(View, props),
-    ),
+    CameraView: React.forwardRef(function CameraView(props: object) {
+      return React.createElement(View, props);
+    }),
     useCameraPermissions: () => [{ granted: true }, jest.fn()],
   };
 });

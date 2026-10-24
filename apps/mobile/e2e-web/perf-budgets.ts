@@ -1,23 +1,32 @@
 /**
  * Performance budgets for e2e-web/perf.spec.ts, the only place the numbers live.
  * Each one sits above the median measured locally (Chromium, software rendering, fake webcam,
- * mock API) with headroom for a slower CI runner, yet low enough that a real regression trips it.
- * The measured medians are in README.md "Performance budgets".
+ * the REAL backend with the SAM + DINO models on the same machine) with headroom for a slower CI
+ * runner, yet low enough that a real regression trips it. Every API call is a real HTTP request
+ * to a local backend, so the budgets include its latency. The measured medians are in README.md
+ * "Performance budgets".
  */
 
 /** A tap that only updates local state and re-renders: the "feels instant" threshold. */
 const INSTANT_MS = 300;
 /** A stack or sheet transition (slide_from_bottom, 280 ms) must finish before the content shows. */
 const NAVIGATION_MS = 500;
-/** Scan and search include the mock API latency (120-350 ms), and search the 250 ms debounce. */
+/** Search is the 250 ms debounce plus one local API round trip (about 280 ms measured). */
 const WITH_NETWORK_MS = 700;
-/** A screen that mounts and then waits on one or two mock API calls (shop, bank, members). */
+/** A screen that mounts and then waits on one or two API calls (reports, account, bank). */
 const SCREEN_DATA_MS = 1000;
+/**
+ * A scan runs the real models on the backend: upload, SAM segmentation (about 1.3 s on a 12-core
+ * desktop CPU), DINO embedding, vector search. Measured about 1.5 s locally; a CI runner's CPU
+ * needs about 2 s, so the budget leaves room for a slower runner without hiding a model that got
+ * twice as slow.
+ */
+const RECOGNITION_MS = 3500;
 
 /** Latency from the input event to the first frame that shows the result. */
 export const interactionBudgetMs: Record<string, number> = {
-  'scan-single': WITH_NETWORK_MS,
-  'scan-multi': WITH_NETWORK_MS,
+  'scan-single': RECOGNITION_MS,
+  'scan-multi': RECOGNITION_MS,
   'add-to-cart': INSTANT_MS,
   'cart-open': NAVIGATION_MS,
   'qr-open': SCREEN_DATA_MS,

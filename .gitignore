@@ -28,4 +28,5 @@ apps/mobile/e2e-web/screenshots/
 
 # Generated fake-camera clip
 apps/mobile/e2e-web/fixtures/*.mjpeg
+apps/mobile/e2e-web/fixtures/product.jpg
 apps/mobile/e2e-web/fixtures/*.y4m

@@ -11,8 +11,10 @@ import {
   goShop,
   openCamera,
   openShop,
+  seedScannableProduct,
   shutter,
   test,
+  type Api,
 } from './fixtures';
 import {
   animationBudget,
@@ -153,7 +155,8 @@ function frameStats(stamps: number[]): Frames {
 const box =
   '[aria-label$=", đã chọn"],[aria-label$=", bỏ chọn"],[aria-label$=", chưa có trong kho"]';
 const pillLabel = (page: Page) => cartPill(page).getAttribute('aria-label');
-const tiles = '[aria-label*=", còn"],[aria-label*=", sắp hết"]';
+/** Grid tiles are named "<name>, <price>"; the camera's cart pill ("Giỏ hàng: ...đ") is not one. */
+const tiles = '[role="button"][aria-label$="đ"]:not([aria-label^="Giỏ hàng"])';
 /** The tab is selected and its screen's own heading is laid out (inactive screens stay mounted). */
 const tabShown = (tab: string, screenHeading: string) =>
   `document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('aria-label') === ${JSON.stringify(tab)} && __perf.visible('[role="heading"]', ${JSON.stringify(screenHeading)})`;
@@ -191,8 +194,30 @@ class Recorder {
   }
 }
 
+/** What the flow needs to know about the store it runs against. */
+type Shop = { name: string; products: number };
+
+/**
+ * A store like a small shop's: one product the fake camera shows (a scan matches it), five more
+ * for the stock grid and its search, and a bank account for the QR.
+ */
+async function seedShop(api: Api, name: string): Promise<Shop> {
+  await seedScannableProduct(api);
+  const others = [
+    ['Pepsi lon 330ml', 9_000],
+    ['Pocari Sweat 500ml', 15_000],
+    ['7Up lon 330ml', 9_000],
+    ['Nước mắm Nam Ngư 500ml', 35_000],
+    ['Mì Hảo Hảo gói', 4_500],
+  ] as const;
+  for (const [productName, price] of others)
+    await api.createProduct({ name: productName, price });
+  await api.setBank();
+  return { name, products: others.length + 1 };
+}
+
 /** One pass over every measured interaction on a fresh page. */
-async function runFlow(page: Page, cpuRate: number): Promise<Run> {
+async function runFlow(page: Page, cpuRate: number, shop: Shop): Promise<Run> {
   await openCamera(page);
   if (cpuRate > 1) {
     const cdp = await page.context().newCDPSession(page);
@@ -246,7 +271,7 @@ async function runFlow(page: Page, cpuRate: number): Promise<Run> {
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
   const tabs = [
     ['tab-kho-to-bao-cao', 'Báo cáo', 'Hôm nay'],
-    ['tab-bao-cao-to-tai-khoan', 'Tài khoản', 'Tạp hóa Cô Ba'],
+    ['tab-bao-cao-to-tai-khoan', 'Tài khoản', shop.name],
     ['tab-tai-khoan-to-kho', 'Kho', 'Kho'],
   ] as const;
   for (let round = 0; round < 2; round++) {
@@ -267,13 +292,13 @@ async function runFlow(page: Page, cpuRate: number): Promise<Run> {
     await rec.measure(
       'search-filter',
       () => page.keyboard.press('P'),
-      `${count} > 0 && ${count} < 12`,
+      `${count} > 0 && ${count} < ${shop.products}`,
       { start: 'keydown' },
     );
     await rec.measure(
       'search-clear',
       () => page.keyboard.press('Backspace'),
-      `${count} === 12`,
+      `${count} === ${shop.products}`,
       { start: 'keydown' },
     );
   }
@@ -284,10 +309,14 @@ async function runFlow(page: Page, cpuRate: number): Promise<Run> {
  * Route chunks load lazily on the web export, a cost the native app does not have. A discarded
  * first pass loads and caches them, so the measured pass times the interactions themselves.
  */
-async function warmThenMeasure(page: Page, cpuRate: number): Promise<Run> {
+async function warmThenMeasure(
+  page: Page,
+  cpuRate: number,
+  shop: Shop,
+): Promise<Run> {
   await page.addInitScript(installProbe);
-  await runFlow(page, 1);
-  return runFlow(page, cpuRate);
+  await runFlow(page, 1, shop);
+  return runFlow(page, cpuRate, shop);
 }
 
 const results: { unthrottled?: Run; throttled?: Run } = {};
@@ -306,6 +335,7 @@ const summarise = (run: Run) => ({
 test.describe.configure({ mode: 'serial' });
 
 test.describe('performance budgets', () => {
+  // eslint-disable-next-line no-empty-pattern -- Playwright needs the destructuring to pick fixtures
   test.afterAll(async ({}, testInfo) => {
     const body = JSON.stringify(
       {
@@ -328,8 +358,10 @@ test.describe('performance budgets', () => {
 
   test('unthrottled: interactions, animations and long tasks stay in budget', async ({
     page,
+    store,
   }) => {
-    const run = (results.unthrottled = await warmThenMeasure(page, 1));
+    const shop = await seedShop(store.api, store.session.store.name);
+    const run = (results.unthrottled = await warmThenMeasure(page, 1, shop));
     for (const [name, samples] of Object.entries(run.interactions)) {
       const budget = interactionBudgetMs[name];
       if (budget === undefined) continue;
@@ -350,10 +382,12 @@ test.describe('performance budgets', () => {
       );
   });
 
-  test('throttled 4x CPU: looser budgets hold', async ({ page }) => {
+  test('throttled 4x CPU: looser budgets hold', async ({ page, store }) => {
+    const shop = await seedShop(store.api, store.session.store.name);
     const run = (results.throttled = await warmThenMeasure(
       page,
       throttled.cpuRate,
+      shop,
     ));
     for (const [name, samples] of Object.entries(run.interactions)) {
       const budget = interactionBudgetMs[name];
