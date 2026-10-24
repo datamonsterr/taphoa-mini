@@ -5,6 +5,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: ApiErrorBody,
+    /** `Retry-After` header in milliseconds, when the server sent one. */
+    readonly retryAfterMs?: number,
   ) {
     super(body.error);
     this.name = 'ApiError';
@@ -31,11 +33,22 @@ function toBody(error: unknown, response: Response): ApiErrorBody {
   return { error: response.statusText || `HTTP ${response.status}` };
 }
 
+function retryAfterMs(response: Response): number | undefined {
+  const raw = response.headers?.get('retry-after');
+  if (raw == null || raw.trim() === '') return undefined;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
+}
+
 /** Returns `data` of an openapi-fetch result or throws `ApiError` on a non-2xx response. */
 export async function unwrap<T>(request: Promise<Result<T>>): Promise<T> {
   const { data, error, response } = await request;
   if (error !== undefined || !response.ok) {
-    throw new ApiError(response.status, toBody(error, response));
+    throw new ApiError(
+      response.status,
+      toBody(error, response),
+      retryAfterMs(response),
+    );
   }
   return data as T;
 }

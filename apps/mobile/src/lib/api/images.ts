@@ -1,5 +1,5 @@
 import { getApiClient } from './client';
-import { unwrap } from './errors';
+import { isApiError, unwrap, type ApiError } from './errors';
 import { appendFile, resolveUpload } from './multipart';
 import type {
   Image,
@@ -19,9 +19,41 @@ export type CreateScanInput = {
   top_k?: number;
 };
 
+/** Wait before the one retry when the server sent no `Retry-After`. */
+export const BUSY_RETRY_DELAY_MS = 500;
+/** A `Retry-After` longer than this is not worth holding the shutter for. */
+const BUSY_RETRY_MAX_MS = 3000;
+
+/**
+ * The backend has one inference slot: while it is held, scans answer 503 `segmenter busy`
+ * (with `Retry-After`). "No model loaded" is also a 503 but retrying cannot help.
+ */
+export const isSegmenterBusy = (error: unknown): boolean =>
+  isApiError(error) &&
+  error.status === 503 &&
+  /segmenter busy/i.test(error.body.error);
+
 /** POST /v1/recognition/scans (multipart: image file + mode + purpose + top_k). */
 export async function createScan(input: CreateScanInput): Promise<Scan> {
   const image = input.image ? await resolveUpload(input.image) : undefined;
+  try {
+    return await postScan(input, image);
+  } catch (error) {
+    if (!isSegmenterBusy(error)) throw error;
+    const wait = Math.min(
+      (error as ApiError).retryAfterMs ?? BUSY_RETRY_DELAY_MS,
+      BUSY_RETRY_MAX_MS,
+    );
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    // Exactly one retry: same image / image_id, so the server sees the same scan again.
+    return postScan(input, image);
+  }
+}
+
+function postScan(
+  input: CreateScanInput,
+  image: Awaited<ReturnType<typeof resolveUpload>> | undefined,
+): Promise<Scan> {
   return unwrap(
     getApiClient().raw.POST('/v1/recognition/scans', {
       body: {

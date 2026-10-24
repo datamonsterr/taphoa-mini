@@ -42,3 +42,23 @@ test('unwrap builds an Error body when the server sent none', async () => {
 test('isApiError rejects other errors', () => {
   expect(isApiError(new Error('x'))).toBe(false);
 });
+
+test('unwrap carries Retry-After as milliseconds', async () => {
+  const withHeader = (value: string | null) =>
+    ({
+      status: 503,
+      statusText: '',
+      ok: false,
+      headers: new Headers(value === null ? {} : { 'retry-after': value }),
+    }) as Response;
+  const get = (value: string | null) =>
+    unwrap(
+      Promise.resolve({
+        error: { error: 'busy' },
+        response: withHeader(value),
+      }),
+    ).catch((e: unknown) => (e as ApiError).retryAfterMs);
+  expect(await get('2')).toBe(2000);
+  expect(await get(null)).toBeUndefined();
+  expect(await get('soon')).toBeUndefined();
+});
