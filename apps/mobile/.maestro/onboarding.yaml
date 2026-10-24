@@ -16,6 +16,8 @@ appId: com.datamonsterr.taphoamini
     timeout: 20000
 - assertVisible: 'Chủ'
 - assertVisible: '1 thành viên'
+- assertVisible: 'Đang dùng: Cô Ba'
+- assertVisible: 'Đặt mã PIN'
 - takeScreenshot: onboarding-01-account
 # Sign out: back to the welcome screen with no session.
 - scrollUntilVisible:
