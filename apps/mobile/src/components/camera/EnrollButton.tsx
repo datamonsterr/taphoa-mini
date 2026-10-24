@@ -13,6 +13,7 @@ import { Icon } from '@/components/ui/Icon';
 import { camera, colors, radius, size } from '@/theme';
 
 type Props = {
+  active?: boolean;
   /** Low match: amber fill with a looping halo. */
   pulse?: boolean;
   onPress: () => void;
@@ -23,13 +24,14 @@ type Props = {
 export const DISABLED_HINT =
   'Chỉ Chủ tiệm hoặc người được cấp quyền mới thêm hàng mới';
 
-/** Tag circle that opens enroll. */
+/** Toggles quick enrollment; purple when active, amber for a low checkout match. */
 export const EnrollButton = memo(function EnrollButton({
+  active = false,
   pulse: wantsPulse,
   onPress,
   disabled,
 }: Props) {
-  const pulse = wantsPulse && !disabled;
+  const pulse = wantsPulse && !disabled && !active;
   const phase = useSharedValue(0);
   useEffect(() => {
     if (pulse) {
@@ -56,13 +58,14 @@ export const EnrollButton = memo(function EnrollButton({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Thêm vào kho với giá"
-        accessibilityState={{ disabled: !!disabled }}
+        accessibilityState={{ selected: active, disabled: !!disabled }}
         accessibilityHint={disabled ? DISABLED_HINT : undefined}
         disabled={disabled}
         onPress={onPress}
         style={[
           styles.button,
           pulse && styles.pulse,
+          active && styles.active,
           disabled && styles.disabled,
         ]}
       >
@@ -92,6 +95,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: camera.glass,
   },
+  active: { backgroundColor: colors.accent },
   pulse: { backgroundColor: colors.warningSoft },
   disabled: { opacity: 0.4 },
 });

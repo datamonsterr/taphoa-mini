@@ -6,10 +6,12 @@ import { ArrowDown } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   type LayoutChangeEvent,
   Linking,
   Pressable,
   StyleSheet,
+  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -27,6 +29,9 @@ import {
   Viewfinder,
 } from '@/components/camera';
 import { Icon } from '@/components/ui/Icon';
+import { useUploadImage } from '@/lib/api';
+import { downsizeForUpload } from '@/lib/api/downsize';
+import { newUuid } from '@/lib/uuid';
 import { useT } from '@/lib/i18n';
 import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
@@ -40,6 +45,12 @@ import {
   measuredFlyVector,
   type Layout,
 } from './AddFeedback';
+import { takePhoto } from './capture';
+import {
+  MIN_SHOTS,
+  selectCanCapture,
+  useQuickEnrollStore,
+} from './quickEnroll';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import {
   confidencePercent,
@@ -121,10 +132,33 @@ export function CameraScreen() {
   const { phase, photo, scan, selected, chosen, openId } = state;
   const [addCount, setAddCount] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
+  const quickActive = useQuickEnrollStore((s) => s.active);
+  const shots = useQuickEnrollStore((s) => s.shots);
+  const canQuickCapture = useQuickEnrollStore(selectCanCapture);
+  const dispatch = useQuickEnrollStore((s) => s.dispatch);
+  const { mutateAsync: uploadImage } = useUploadImage();
+  const [quickCapturing, setQuickCapturing] = useState(false);
+  const quickCaptureToken = useRef(0);
+  const quickCapturePending = useRef(false);
+
+  // Invalidate unfinished captures when this screen unmounts.
+  useEffect(
+    () => () => {
+      quickCaptureToken.current += 1;
+    },
+    [],
+  );
 
   // A frozen result means nothing once the seller leaves the screen.
   useEffect(() => {
-    if (!focused) reset();
+    if (!focused) {
+      reset();
+      quickCaptureToken.current += 1;
+      quickCapturePending.current = false;
+      // Focus loss cancels camera work and releases its local busy indicator.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setQuickCapturing(false);
+    }
   }, [focused, reset]);
 
   const finder = Math.max(
@@ -194,9 +228,21 @@ export function CameraScreen() {
     [router, photo, scan, imageSize, canEnroll],
   );
   const onEnrollPress = useCallback(() => {
-    const unknown = scan?.detections.find(isLowMatch);
-    goEnroll(unknown?.id);
-  }, [scan, goEnroll]);
+    if (!canEnroll) return;
+    const toggleMode = () => {
+      quickCaptureToken.current += 1;
+      quickCapturePending.current = false;
+      setQuickCapturing(false);
+      if (!useQuickEnrollStore.getState().active) reset();
+      dispatch({ type: 'toggle' });
+    };
+    if (quickActive && shots.length > 0) {
+      Alert.alert('Bỏ các ảnh đã chụp?', '', [
+        { text: 'Hủy', style: 'cancel' },
+        { text: 'Bỏ ảnh', style: 'destructive', onPress: toggleMode },
+      ]);
+    } else toggleMode();
+  }, [canEnroll, quickActive, shots.length, dispatch, reset]);
 
   const onPricePress = useCallback(
     (id: string) => {
@@ -223,10 +269,55 @@ export function CameraScreen() {
     [requestPermission],
   );
   const openSettings = useCallback(() => void Linking.openSettings(), []);
+  const captureQuickPhoto = useCallback(async () => {
+    if (
+      !canEnroll ||
+      !cameraReady ||
+      !focused ||
+      quickCapturePending.current ||
+      !selectCanCapture(useQuickEnrollStore.getState())
+    )
+      return;
+    quickCapturePending.current = true;
+    setQuickCapturing(true);
+    const token = ++quickCaptureToken.current;
+    const id = newUuid();
+    try {
+      const photo = await takePhoto(cameraRef.current);
+      const downsized = await downsizeForUpload(
+        photo.uri,
+        photo.width,
+        photo.height,
+      );
+      if (token !== quickCaptureToken.current) return;
+      dispatch({ type: 'captured', id, ...downsized });
+      const image = await uploadImage({
+        file: {
+          uri: downsized.uri,
+          name: 'enrollment.jpg',
+          type: 'image/jpeg',
+        },
+        purpose: 'enrollment',
+      });
+      if (token !== quickCaptureToken.current) return;
+      dispatch({ type: 'uploaded', id, imageId: image.id });
+    } catch (error) {
+      if (token !== quickCaptureToken.current) return;
+      const message = error instanceof Error ? error.message : String(error);
+      dispatch({ type: 'failed', id, error: message });
+      Alert.alert('Chưa tải được ảnh', message);
+    } finally {
+      if (token === quickCaptureToken.current) {
+        quickCapturePending.current = false;
+        setQuickCapturing(false);
+      }
+    }
+  }, [canEnroll, cameraReady, focused, dispatch, uploadImage]);
   const onShutter = useCallback(() => {
-    if (phase === 'idle') void capture();
+    if (quickActive) void captureQuickPhoto();
+    else if (phase === 'idle') void capture();
     else reset();
-  }, [phase, capture, reset]);
+  }, [quickActive, captureQuickPhoto, phase, capture, reset]);
   const onRetry = useCallback(() => void retry(), [retry]);
 
   const [rects, setRects] = useState<{
@@ -358,6 +449,11 @@ export function CameraScreen() {
       </View>
 
       <View style={styles.stripSlot}>
+        {quickActive ? (
+          <Text style={styles.quickHint}>
+            Thêm hàng nhanh · {shots.length}/{MIN_SHOTS}
+          </Text>
+        ) : null}
         {hasResult && mode === 'one' && openDetection?.alternatives ? (
           <AlternativesStrip
             items={openDetection.alternatives}
@@ -375,6 +471,7 @@ export function CameraScreen() {
       >
         <View>
           <EnrollButton
+            active={quickActive}
             pulse={hasResult && anyLow}
             disabled={!canEnroll}
             onPress={onEnrollPress}
@@ -396,7 +493,11 @@ export function CameraScreen() {
         </View>
         <Shutter
           label={phase === 'idle' ? t('shutter') : t('reshoot')}
-          busy={busy || (phase === 'idle' && !cameraReady)}
+          busy={
+            quickActive
+              ? !canQuickCapture || quickCapturing || !cameraReady || !canEnroll
+              : busy || (phase === 'idle' && !cameraReady)
+          }
           onPress={onShutter}
         />
         <View testID="camera-add-slot" onLayout={onAddLayout}>
@@ -436,6 +537,7 @@ const styles = StyleSheet.create({
     marginTop: space[2],
     justifyContent: 'center',
   },
+  quickHint: { color: colors.accent, textAlign: 'center' },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',

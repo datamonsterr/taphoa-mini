@@ -1,6 +1,6 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 
-import { colors } from '@/theme';
+import { camera, colors } from '@/theme';
 import { renderWithProviders } from '@/test/render';
 
 import { EnrollButton } from './EnrollButton';
@@ -12,7 +12,17 @@ describe('EnrollButton', () => {
     await renderWithProviders(<EnrollButton onPress={jest.fn()} />);
     const button = screen.getByRole('button', { name: label });
     expect(button).toHaveStyle({ width: 64, height: 64 });
-    expect(button).not.toHaveStyle({ backgroundColor: colors.warningSoft });
+    expect(button).toHaveStyle({ backgroundColor: camera.glass });
+    expect(button).not.toBeSelected();
+  });
+
+  it('active: purple toggle with selected state, even with a low-match pulse', async () => {
+    await renderWithProviders(
+      <EnrollButton active pulse onPress={jest.fn()} />,
+    );
+    const button = screen.getByRole('button', { name: label });
+    expect(button).toHaveStyle({ backgroundColor: colors.accent });
+    expect(button).toBeSelected();
   });
 
   it('pulse: amber soft fill', async () => {
