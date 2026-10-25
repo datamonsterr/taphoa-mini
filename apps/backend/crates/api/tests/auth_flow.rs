@@ -116,10 +116,16 @@ async fn join_conflict_consumption_and_reactivation() {
     let joined = w.call("POST", "/v1/auth/join", &token, body.clone()).await;
     assert_eq!(joined.status, StatusCode::CREATED, "{}", joined.body);
     Contract::load().assert_conforms("/v1/auth/join", "post", joined.status, &joined.body);
-    assert_eq!(
-        w.call("POST", "/v1/auth/join", &token, body).await.body["code"],
-        "invite_unavailable"
-    );
+    // A retried join (lost response, double tap) by the now-active member is a conflict,
+    // not "invite unavailable", even though the invite is used.
+    let retried = w.call("POST", "/v1/auth/join", &token, body.clone()).await;
+    assert_eq!(retried.status, StatusCode::CONFLICT, "{}", retried.body);
+    assert_eq!(retried.body["code"], "already_member");
+    let stranger = w
+        .call("POST", "/v1/auth/join", &clerk::token(), body.clone())
+        .await;
+    assert_eq!(stranger.status, StatusCode::GONE);
+    assert_eq!(stranger.body["code"], "invite_unavailable");
     let invite = w
         .call(
             "POST",
