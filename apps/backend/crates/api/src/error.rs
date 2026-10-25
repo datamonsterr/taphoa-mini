@@ -93,6 +93,9 @@ impl IntoResponse for ApiError {
             body["details"] = details;
         }
         let mut response = (self.status, Json(body)).into_response();
+        response
+            .extensions_mut()
+            .insert(crate::telemetry::ErrorCode(self.code));
         if let Some(seconds) = self.retry_after_secs {
             response.headers_mut().insert(RETRY_AFTER, seconds.into());
         }

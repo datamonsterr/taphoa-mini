@@ -20,6 +20,8 @@ COPY apps/backend/migrations/ migrations/
 # Ordinary layers work on Railway without service-specific cache mount IDs.
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY apps/backend/ .
+# Stage an optional CI version stamp; the runtime COPY also works for unstamped local builds.
+RUN mkdir -p /runtime-version && if [ -f .service-version ]; then cp .service-version /runtime-version/.service-version; fi
 # COPY keeps old mtimes, which cargo would treat as fresh against the dependency-skeleton build.
 RUN find crates -name "*.rs" -exec touch {} + && cargo build --locked --release --bin taphoa-api && cp target/release/taphoa-api /taphoa-api
 
@@ -37,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --system --uid 10001 --create-home app
 WORKDIR /app
 COPY --from=builder /taphoa-api /usr/local/bin/taphoa-api
+COPY --from=builder /runtime-version/ /app/
 COPY --from=assets /opt/onnxruntime/lib/ /opt/onnxruntime/lib/
 COPY --from=assets /opt/onnxruntime/LICENSE /opt/onnxruntime/LICENSE
 COPY --from=assets /opt/onnxruntime/ThirdPartyNotices.txt /opt/onnxruntime/ThirdPartyNotices.txt

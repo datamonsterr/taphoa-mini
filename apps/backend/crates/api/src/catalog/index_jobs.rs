@@ -192,10 +192,21 @@ pub async fn process_next(
     .fetch_optional(pool)
     .await?;
     let Some(job) = job else { return Ok(false) };
-    if let Err(error) = run_job(pool, embedder, storage, inference_slots, &job).await {
-        tracing::warn!(job_id=%job.id, %error, attempts=job.attempts, "index job failed");
-        schedule_retry(pool, &job, format!("{error:#}"), config).await?;
+    use tracing::Instrument;
+    let span = crate::telemetry::job_span("index_job", i64::from(job.attempts));
+    let mut outcome = crate::telemetry::Outcome::new(&span, "taphoa.job.outcome");
+    async {
+        let result = run_job(pool, embedder, storage, inference_slots, &job).await;
+        outcome.finish(result.is_ok());
+        if let Err(error) = result {
+            tracing::warn!(job_id=%job.id, %error, attempts=job.attempts, "index job failed");
+            schedule_retry(pool, &job, format!("{error:#}"), config).await?;
+        }
+        Ok::<_, anyhow::Error>(())
     }
+    .instrument(span)
+    .await?;
+
     Ok(true)
 }
 

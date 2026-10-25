@@ -9,20 +9,17 @@ use taphoa_api::{
     storage::{S3Store, StorageConfig},
     vector::VectorIndex,
 };
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("taphoa_api=info,tower_http=info"));
-    if std::env::var("LOG_FORMAT").as_deref() == Ok("json") {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .json()
-            .init();
-    } else {
-        tracing_subscriber::fmt().with_env_filter(filter).init();
-    }
+    let telemetry = taphoa_api::telemetry::init(taphoa_api::telemetry::TelemetryConfig::from_env());
+    let result = serve().await;
+    // Flush on startup/server errors as well as after graceful task shutdown.
+    telemetry.shutdown();
+    result
+}
+
+async fn serve() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
     let sam = config.sam_segmenter()?;
@@ -58,6 +55,8 @@ async fn main() -> anyhow::Result<()> {
     if std::env::var("EMBEDDER").as_deref() == Ok("mock") {
         state.embedder = Some(Arc::new(taphoa_recognition::MockEmbedder));
     }
+    let address = SocketAddr::from(([0, 0, 0, 0], config.port));
+    let listener = tokio::net::TcpListener::bind(address).await?;
     let pool = state.postgres.clone();
     let (stop, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut background = events::spawn_background(&state, shutdown_rx.clone());
@@ -75,24 +74,29 @@ async fn main() -> anyhow::Result<()> {
             ));
         }
     }
-    let address = SocketAddr::from(([0, 0, 0, 0], config.port));
-    let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "API listening");
-    axum::serve(
+    let shutdown_stop = stop.clone();
+    let server_result = axum::serve(
         listener,
         router(state).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         shutdown().await;
-        let _ = stop.send(true);
+        let _ = shutdown_stop.send(true);
     })
-    .await?;
+    .await;
+    let _ = stop.send(true);
+    let mut task_result = Ok(());
     for task in background {
-        task.await?;
+        if let Err(error) = task.await {
+            task_result = Err(error);
+        }
     }
     if let Some(pool) = pool {
         pool.close().await;
     }
+    server_result?;
+    task_result?;
     Ok(())
 }
 

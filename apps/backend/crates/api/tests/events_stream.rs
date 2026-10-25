@@ -192,6 +192,7 @@ struct Server {
     tasks: Vec<JoinHandle<()>>,
 }
 async fn start() -> (Server, AppState) {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = Config::from_lookup(|key| match key {
         "JWT_SECRET" => Some("stream-test-secret-at-least-32-bytes".into()),
         "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("100000".into()),

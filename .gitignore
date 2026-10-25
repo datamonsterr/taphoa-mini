@@ -30,3 +30,6 @@ apps/mobile/e2e-web/screenshots/
 apps/mobile/e2e-web/fixtures/*.mjpeg
 apps/mobile/e2e-web/fixtures/product.jpg
 apps/mobile/e2e-web/fixtures/*.y4m
+
+# Deployment stamp, written by CI and copied into the backend runtime image.
+apps/backend/.service-version

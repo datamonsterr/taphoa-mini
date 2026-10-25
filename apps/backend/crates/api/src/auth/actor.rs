@@ -65,6 +65,7 @@ impl FromRequestParts<AppState> for Actor {
             actor.role = role.parse()?;
             actor.can_enroll = actor.role == Role::Lead || enroll;
         }
+        crate::telemetry::record_identity(&actor);
         Ok(actor)
     }
 }

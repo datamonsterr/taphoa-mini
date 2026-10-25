@@ -103,6 +103,8 @@ pub struct S3Store {
     client: Client,
     signing_client: Client,
     bucket: String,
+    server_address: String,
+    signing_address: String,
 }
 impl S3Store {
     pub async fn new(config: &StorageConfig) -> Self {
@@ -135,97 +137,119 @@ impl S3Store {
             client,
             signing_client,
             bucket: config.bucket.clone(),
+            server_address: crate::telemetry::server_address(&config.endpoint),
+            signing_address: crate::telemetry::server_address(
+                config.public_endpoint.as_ref().unwrap_or(&config.endpoint),
+            ),
         }
     }
 
     pub async fn ensure_bucket(&self) -> anyhow::Result<()> {
-        match self.client.head_bucket().bucket(&self.bucket).send().await {
-            Ok(_) => Ok(()),
-            Err(error)
-                if error
-                    .raw_response()
-                    .is_some_and(|response| response.status().as_u16() == 404) =>
-            {
-                match self
-                    .client
-                    .create_bucket()
-                    .bucket(&self.bucket)
-                    .send()
-                    .await
+        crate::telemetry::client("s3 EnsureBucket", &self.server_address, async {
+            match self.client.head_bucket().bucket(&self.bucket).send().await {
+                Ok(_) => Ok(()),
+                Err(error)
+                    if error
+                        .raw_response()
+                        .is_some_and(|response| response.status().as_u16() == 404) =>
                 {
-                    Ok(_) => Ok(()),
-                    // Concurrent API starts may both observe a missing bucket.
-                    Err(error)
-                        if error
-                            .as_service_error()
-                            .is_some_and(|error| error.is_bucket_already_owned_by_you()) =>
+                    match self
+                        .client
+                        .create_bucket()
+                        .bucket(&self.bucket)
+                        .send()
+                        .await
                     {
-                        Ok(())
+                        Ok(_) => Ok(()),
+                        // Concurrent API starts may both observe a missing bucket.
+                        Err(error)
+                            if error
+                                .as_service_error()
+                                .is_some_and(|error| error.is_bucket_already_owned_by_you()) =>
+                        {
+                            Ok(())
+                        }
+                        Err(error) => Err(error.into()),
                     }
-                    Err(error) => Err(error.into()),
                 }
+                Err(error) => Err(error.into()),
             }
-            Err(error) => Err(error.into()),
-        }
+        })
+        .await
     }
 }
 #[async_trait]
 impl ObjectStore for S3Store {
     async fn put(&self, key: &str, content_type: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .content_type(content_type)
-            .body(ByteStream::from(bytes))
-            .send()
-            .await?;
-        Ok(())
+        crate::telemetry::client("s3 PutObject", &self.server_address, async {
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .content_type(content_type)
+                .body(ByteStream::from(bytes))
+                .send()
+                .await?;
+            Ok(())
+        })
+        .await
     }
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
-        let object = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await?;
-        Ok(object.body.collect().await?.into_bytes().to_vec())
+        crate::telemetry::client("s3 GetObject", &self.server_address, async {
+            let object = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .send()
+                .await?;
+            Ok(object.body.collect().await?.into_bytes().to_vec())
+        })
+        .await
     }
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
-        self.client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await?;
-        Ok(())
+        crate::telemetry::client("s3 DeleteObject", &self.server_address, async {
+            self.client
+                .delete_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .send()
+                .await?;
+            Ok(())
+        })
+        .await
     }
     async fn head_bucket(&self) -> anyhow::Result<()> {
-        self.client
-            .head_bucket()
-            .bucket(&self.bucket)
-            .send()
-            .await?;
-        Ok(())
+        crate::telemetry::client("s3 HeadBucket", &self.server_address, async {
+            self.client
+                .head_bucket()
+                .bucket(&self.bucket)
+                .send()
+                .await?;
+            Ok(())
+        })
+        .await
     }
     async fn presign_get(&self, key: &str, ttl: Duration) -> anyhow::Result<SignedUrl> {
-        let start = SystemTime::now();
-        let presigning = PresigningConfig::builder()
-            .start_time(start)
-            .expires_in(ttl)
-            .build()?;
-        let signed = self
-            .signing_client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .presigned(presigning)
-            .await?;
-        Ok(SignedUrl {
-            url: signed.uri().to_owned(),
-            expires_at: (start + ttl).into(),
+        crate::telemetry::client("s3 PresignGetObject", &self.signing_address, async {
+            let start = SystemTime::now();
+            let presigning = PresigningConfig::builder()
+                .start_time(start)
+                .expires_in(ttl)
+                .build()?;
+            let signed = self
+                .signing_client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .presigned(presigning)
+                .await?;
+            Ok(SignedUrl {
+                url: signed.uri().to_owned(),
+                expires_at: (start + ttl).into(),
+            })
         })
+        .await
     }
 }
 

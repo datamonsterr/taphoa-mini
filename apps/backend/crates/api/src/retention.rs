@@ -10,11 +10,13 @@ pub struct RetentionReport {
 }
 
 pub async fn run_once(pool: &PgPool) -> anyhow::Result<RetentionReport> {
-    let mut tx = pool.begin().await?;
-    // Deletions and their cursor floors must become visible together. The highest
-    // sequence, rather than timestamp, determines the newest row for an entity.
-    let change_log_deleted: i64 = sqlx::query_scalar(
-        "
+    crate::telemetry::job("retention", 1, async {
+        let result = async {
+            let mut tx = pool.begin().await?;
+            // Deletions and their cursor floors must become visible together. The highest
+            // sequence, rather than timestamp, determines the newest row for an entity.
+            let change_log_deleted: i64 = sqlx::query_scalar(
+                "
         WITH deleted AS (
             DELETE FROM change_log old
             WHERE old.created_at < now() - interval '30 days'
@@ -31,19 +33,28 @@ pub async fn run_once(pool: &PgPool) -> anyhow::Result<RetentionReport> {
             SET floor_seq=GREATEST(change_log_floor.floor_seq, EXCLUDED.floor_seq)
         )
         SELECT count(*) FROM deleted",
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    let outbox_deleted =
-        sqlx::query("DELETE FROM outbox_events WHERE published_at < now() - interval '7 days'")
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            let outbox_deleted = sqlx::query(
+                "DELETE FROM outbox_events WHERE published_at < now() - interval '7 days'",
+            )
             .execute(&mut *tx)
             .await?
             .rows_affected();
-    tx.commit().await?;
-    Ok(RetentionReport {
-        change_log_deleted: change_log_deleted as u64,
-        outbox_deleted,
+            tx.commit().await?;
+            Ok(RetentionReport {
+                change_log_deleted: change_log_deleted as u64,
+                outbox_deleted,
+            })
+        }
+        .await;
+        if let Err(error) = &result {
+            tracing::error!(%error, "retention job failed");
+        }
+        result
     })
+    .await
 }
 
 pub fn spawn(pool: PgPool, mut shutdown: watch::Receiver<bool>) -> JoinHandle<()> {
@@ -63,9 +74,7 @@ pub fn spawn(pool: PgPool, mut shutdown: watch::Receiver<bool>) -> JoinHandle<()
                 loop {
                     // The first tick is immediate; subsequent ticks are daily.
                     interval.tick().await;
-                    if let Err(error) = run_once(&pool).await {
-                        tracing::error!(%error, "retention job failed");
-                    }
+                    let _ = run_once(&pool).await;
                 }
             } => {},
         }

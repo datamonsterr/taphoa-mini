@@ -4,6 +4,7 @@ use serde_json::Value;
 use sqlx::{PgPool, postgres::PgListener};
 use std::time::Duration;
 use tokio::{sync::watch, task::JoinHandle};
+use tracing::Instrument;
 use uuid::Uuid;
 
 use super::{Backoff, stopped};
@@ -60,7 +61,12 @@ async fn run(pool: PgPool, redis_url: String) {
                 _ => tracing::warn!("outbox LISTEN unavailable; polling until reconnect"),
             }
         }
-        let result = publish_batch(&pool, connection.as_mut().expect("connected above")).await;
+        let result = publish_batch(
+            &pool,
+            connection.as_mut().expect("connected above"),
+            &crate::telemetry::server_address(&redis_url),
+        )
+        .await;
         match result {
             Ok((count, true)) => {
                 if count > 0 {
@@ -101,33 +107,78 @@ async fn run(pool: PgPool, redis_url: String) {
 async fn publish_batch(
     pool: &PgPool,
     connection: &mut ConnectionManager,
+    address: &str,
 ) -> Result<(usize, bool), sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    let started = std::time::Instant::now();
+    let result = prepare_batch(pool, connection, address).await;
+    if let Err((_, false)) = &result {
+        // Errors before rows can be loaded still get a job span; successful empty polls do not.
+        let span = crate::telemetry::job_span("outbox_relay", 1);
+        span.record("taphoa.job.outcome", "error");
+        span.in_scope(|| {
+            tracing::warn!(
+                duration_ms = started.elapsed().as_secs_f64() * 1000.0,
+                "outbox batch failed"
+            )
+        });
+    }
+    result.map_err(|(error, _)| error)
+}
+
+async fn prepare_batch(
+    pool: &PgPool,
+    connection: &mut ConnectionManager,
+    address: &str,
+) -> Result<(usize, bool), (sqlx::Error, bool)> {
+    let mut tx = pool.begin().await.map_err(|e| (e, false))?;
     let rows: Vec<(i64, Uuid, Value)> = sqlx::query_as(
         "SELECT id, store_id, payload FROM outbox_events WHERE published_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED",
     )
     .fetch_all(&mut *tx)
-    .await?;
-    let mut published = Vec::with_capacity(rows.len());
-    let mut failed = false;
-    for (id, store_id, payload) in rows {
-        let result = redis::cmd("PUBLISH")
-            .arg(format!("store:{store_id}:events"))
-            .arg(payload.to_string())
-            .query_async::<i64>(connection)
-            .await;
-        if result.is_err() {
-            failed = true;
-            break;
+    .await.map_err(|e| (e, false))?;
+    if rows.is_empty() {
+        tx.commit().await.map_err(|e| (e, false))?;
+        return Ok((0, false));
+    }
+    let span = crate::telemetry::job_span("outbox_relay", 1);
+    let mut outcome = crate::telemetry::Outcome::new(&span, "taphoa.job.outcome");
+    async {
+        let result = async {
+            let mut published = Vec::with_capacity(rows.len());
+            let mut failed = false;
+            for (id, store_id, payload) in rows {
+                let result = crate::telemetry::client("redis PUBLISH", address, async {
+                    redis::cmd("PUBLISH")
+                        .arg(format!("store:{store_id}:events"))
+                        .arg(payload.to_string())
+                        .query_async::<i64>(connection)
+                        .await
+                })
+                .await;
+                if result.is_err() {
+                    failed = true;
+                    break;
+                }
+                published.push(id);
+            }
+            if !published.is_empty() {
+                sqlx::query("UPDATE outbox_events SET published_at=now() WHERE id = ANY($1)")
+                    .bind(&published)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            tx.commit().await?;
+            Ok((published.len(), failed))
         }
-        published.push(id);
+        .await;
+        let failed = !matches!(result, Ok((_, false)));
+        outcome.finish(!failed);
+        if failed {
+            tracing::warn!("outbox batch failed");
+        }
+        result
     }
-    if !published.is_empty() {
-        sqlx::query("UPDATE outbox_events SET published_at=now() WHERE id = ANY($1)")
-            .bind(&published)
-            .execute(&mut *tx)
-            .await?;
-    }
-    tx.commit().await?;
-    Ok((published.len(), failed))
+    .instrument(span)
+    .await
+    .map_err(|e| (e, true))
 }

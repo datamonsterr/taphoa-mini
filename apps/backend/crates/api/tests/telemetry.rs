@@ -58,7 +58,9 @@ impl Capture {
         let spans = InMemorySpanExporter::default();
         let logs = InMemoryLogExporter::default();
         let resource = config().resource();
-        let captured_resource = std::sync::Arc::new(std::sync::Mutex::new(resource.clone()));
+        let captured_resource = std::sync::Arc::new(std::sync::Mutex::new(
+            opentelemetry_sdk::Resource::builder_empty().build(),
+        ));
         let exporter = ResourceCapture {
             inner: spans.clone(),
             resource: captured_resource.clone(),
@@ -103,6 +105,25 @@ fn config_precedence_and_disabled_export() {
     assert_eq!(railway.version, "railway-sha");
     let file = TelemetryConfig::from_lookup(|_| None, || Some("file-sha\nignored".into()));
     assert_eq!(file.version, "file-sha");
+    let override_config = TelemetryConfig::from_lookup(
+        |name| match name {
+            "SERVICE_VERSION" => Some("override-sha".into()),
+            "TELEMETRY_ENVIRONMENT" => Some("eval".into()),
+            "OTEL_SERVICE_NAME" => Some("custom-api".into()),
+            _ => values(name),
+        },
+        || panic!("version file must be read lazily"),
+    );
+    assert_eq!(override_config.version, "override-sha");
+    assert_eq!(override_config.environment, "eval");
+    assert_eq!(override_config.service_name, "custom-api");
+    assert!(
+        !TelemetryConfig::from_lookup(
+            |name| (name == "OTEL_EXPORTER_OTLP_ENDPOINT").then(|| "  ".into()),
+            || None
+        )
+        .enabled()
+    );
     let disabled = TelemetryConfig::from_lookup(
         |name| {
             if name == "OTEL_SDK_DISABLED" {
@@ -179,6 +200,24 @@ async fn health_span_access_log_resource_and_remote_parent() {
     assert_eq!(
         log.record.target().map(|s| s.as_ref()),
         Some("taphoa_api::telemetry")
+    );
+    for (key, expected) in [
+        ("http.route", AnyValue::String("/healthz".into())),
+        ("http.response.status_code", AnyValue::Int(200)),
+        ("posthog.session_id", AnyValue::String("session-123".into())),
+    ] {
+        assert!(
+            log.record
+                .attributes_iter()
+                .any(|(k, v)| k.as_str() == key && *v == expected),
+            "{key}"
+        );
+    }
+    assert!(
+        log.record
+            .attributes_iter()
+            .any(|(k, v)| k.as_str() == "duration_ms"
+                && matches!(v, AnyValue::Double(value) if *value >= 0.0))
     );
     for (key, value) in [
         ("service.name", "contract-api"),
@@ -265,11 +304,13 @@ async fn identity_child_logs_db_events_and_job_contract() {
         tracing::info!("authenticated handler");
         tracing::debug!("local debug only");
         tracing::debug!(target: "sqlx::query", summary = "SELECT private", db.statement = "SELECT secret FROM members WHERE token='never-export'", rows_affected = 0_u64, rows_returned = 1_u64, elapsed_secs = 0.025_f64);
+        tracing::warn!(target: "sqlx::query", summary = "UPDATE private", db.statement = "UPDATE members SET token='never-export'", rows_affected = 1_u64, rows_returned = 0_u64, elapsed_secs = 0.1_f64);
     })).layer(axum::middleware::from_fn(telemetry::http_span)).with_state(state);
     assert_eq!(
         app.oneshot(
             Request::get("/actor")
                 .header("authorization", format!("Bearer {token}"))
+                .header("x-posthog-session-id", "posthog-auth")
                 .body(Body::empty())
                 .unwrap()
         )
@@ -315,8 +356,19 @@ async fn identity_child_logs_db_events_and_job_contract() {
                 .any(|kv| matches!(kv.key.as_str(), "summary" | "db.statement"))
         );
     }
+    assert!(!format!("{spans:?}").contains("never-export"));
+    assert!(spans.iter().any(|s| s.name == "db UPDATE members"));
     let logs = capture.logs.get_emitted_logs().unwrap();
+    assert!(!format!("{logs:?}").contains("never-export"));
     assert_eq!(logs.len(), 2, "handler plus access; debug and SQL stay out");
+    assert_eq!(
+        logs[0].record.trace_context().unwrap().span_id,
+        child.span_context.span_id()
+    );
+    assert_eq!(
+        logs[1].record.trace_context().unwrap().span_id,
+        server.span_context.span_id()
+    );
     for log in &logs {
         assert!(
             log.record
@@ -333,6 +385,11 @@ async fn identity_child_logs_db_events_and_job_contract() {
     assert!(result.is_ok());
     let spans = capture.spans.get_finished_spans().unwrap();
     let job = spans.iter().find(|s| s.name == "job retention").unwrap();
+    assert_eq!(
+        attr(job, "taphoa.store.id"),
+        None,
+        "request identity must not leak into jobs"
+    );
     assert_eq!(attr(job, "taphoa.job.name"), Some("retention".into()));
     assert_eq!(attr(job, "taphoa.job.attempt"), Some(1_i64.into()));
     assert_eq!(attr(job, "taphoa.job.outcome"), Some("ok".into()));
@@ -382,6 +439,11 @@ async fn failed_retention_and_client_spans_record_outcome_without_secrets() {
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
     assert!(taphoa_api::retention::run_once(&pool).await.is_err());
+    assert!(capture.logs.get_emitted_logs().unwrap().iter().any(|log| {
+        log.record.attributes_iter().any(|(key, value)| {
+            key.as_str() == "taphoa.job.name" && *value == AnyValue::String("retention".into())
+        })
+    }));
     let address =
         telemetry::server_address("https://user:secret@storage.example/private?key=secret");
     assert_eq!(address, "storage.example");
@@ -399,6 +461,44 @@ async fn failed_retention_and_client_spans_record_outcome_without_secrets() {
         Some("storage.example".into())
     );
     assert_eq!(attr(client, "taphoa.outcome"), Some("error".into()));
-    assert!(!format!("{spans:?}").contains("secret"));
+    assert!(!format!("{spans:?}").contains("user:secret"));
     pool.close().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancelled_jobs_and_clients_record_error_once() {
+    let capture = Capture::new();
+    let _default = tracing::subscriber::set_default(capture.subscriber());
+    let pending = || std::future::pending::<Result<(), ()>>();
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(1),
+            telemetry::job("cancelled", 2, pending())
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(1),
+            telemetry::client("redis GET", "redis.example", pending())
+        )
+        .await
+        .is_err()
+    );
+    let spans = capture.spans.get_finished_spans().unwrap();
+    for (name, key) in [
+        ("job cancelled", "taphoa.job.outcome"),
+        ("redis GET", "taphoa.outcome"),
+    ] {
+        let span = spans.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(attr(span, key), Some("error".into()));
+        assert_eq!(
+            span.attributes
+                .iter()
+                .filter(|kv| kv.key.as_str() == key)
+                .count(),
+            1
+        );
+    }
 }
