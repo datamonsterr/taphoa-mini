@@ -58,3 +58,12 @@ export type CaseScore = {
   scorer: ScorerName;
   value: number;
 };
+/** Oracle output for one case. `facts` and `denied` align by index with
+ * `expect_facts` and `denied_facts`. `actionOracles` keys are
+ * `actionOracleKey(oracle, args)`. */
+export type ResolvedCase = {
+  facts: OracleValue[];
+  denied: OracleValue[];
+  refs: Record<string, string>;
+  actionOracles: Record<string, OracleValue>;
+};
