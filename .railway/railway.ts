@@ -2,7 +2,6 @@ import {
   bucket,
   defineRailway,
   image,
-  postgres,
   preserve,
   project,
   redis,
@@ -118,171 +117,8 @@ export default defineRailway((ctx) => {
     images,
   ];
 
-  // One shared telemetry stack: test exports through the production collector's public domain.
+  // One shared telemetry collector: test exports through the production collector's public domain.
   if (ctx.isEnvironment('production')) {
-    const langfusePostgres = postgres('langfuse-postgres', { region: 'sfo' });
-    langfusePostgres.deploy = {
-      ...langfusePostgres.deploy,
-      requiredMountPath: '/var/lib/postgresql/data',
-    };
-    langfusePostgres.networking = { privateNetworkEndpoint: 'postgres-4xnr' };
-    langfusePostgres.variables = {
-      DATABASE_URL: preserve(),
-      PGDATA: preserve(),
-      PGDATABASE: preserve(),
-      PGHOST: preserve(),
-      PGPASSWORD: preserve(),
-      PGPORT: preserve(),
-      PGUSER: preserve(),
-      POSTGRES_DB: preserve(),
-      POSTGRES_PASSWORD: preserve(),
-      POSTGRES_USER: preserve(),
-      RAILWAY_DEPLOYMENT_DRAINING_SECONDS: preserve(),
-      SSL_CERT_DAYS: preserve(),
-    };
-    const langfuseRedis = redis('langfuse-redis', { region: 'sfo' });
-    langfuseRedis.image = 'redis:8.2';
-    langfuseRedis.source = image('redis:8.2');
-    langfuseRedis.defaultMountPath = '/data';
-    langfuseRedis.deploy = {
-      ...langfuseRedis.deploy,
-      startCommand:
-        '/bin/sh -c "rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH"',
-    };
-    langfuseRedis.variables = {
-      REDISHOST: preserve(),
-      REDISPASSWORD: preserve(),
-      REDISPORT: preserve(),
-      REDISUSER: preserve(),
-      REDIS_PASSWORD: preserve(),
-      REDIS_URL: preserve(),
-    };
-    const langfusePostgresVolume = volume('postgres-volume-wZbV', {
-      alerts: { usage: { '100': {}, '80': {}, '95': {} } },
-      allowOnlineResize: true,
-      region: 'sfo',
-      sizeMB: 5000,
-    });
-    const langfuseRedisVolume = volume('redis-volume-53l7', {
-      alerts: { usage: { '100': {}, '80': {}, '95': {} } },
-      allowOnlineResize: true,
-      region: 'sfo',
-      sizeMB: 5000,
-    });
-    const clickhouseVolume = volume('langfuse-clickhouse-volume', {
-      alerts: { usage: { '100': {}, '80': {}, '95': {} } },
-      allowOnlineResize: true,
-      region: 'sfo',
-      sizeMB: 5000,
-    });
-
-    const clickhouse = service('langfuse-clickhouse', {
-      source: image('clickhouse/clickhouse-server:26.4.5'),
-      replicas: { sfo: 1 },
-      volumeMounts: { '/var/lib/clickhouse': clickhouseVolume },
-      env: {
-        CLICKHOUSE_DB: preserve(),
-        CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: preserve(),
-        CLICKHOUSE_PASSWORD: preserve(),
-        CLICKHOUSE_USER: preserve(),
-      },
-    });
-
-    // Generated public domains (web: 3000, collector: 4318) stay managed in Railway.
-    const langfuseWeb = service('langfuse-web', {
-      source: image('langfuse/langfuse:4.70.0'),
-      replicas: { sfo: 1 },
-      env: {
-        AUTH_DISABLE_SIGNUP: preserve(),
-        CLICKHOUSE_CLUSTER_ENABLED: preserve(),
-        CLICKHOUSE_MIGRATION_URL: preserve(),
-        CLICKHOUSE_PASSWORD: preserve(),
-        CLICKHOUSE_URL: preserve(),
-        CLICKHOUSE_USER: preserve(),
-        DATABASE_URL: preserve(),
-        ENCRYPTION_KEY: preserve(),
-        HOSTNAME: preserve(),
-        LANGFUSE_INIT_ORG_ID: preserve(),
-        LANGFUSE_INIT_ORG_NAME: preserve(),
-        LANGFUSE_INIT_PROJECT_ID: preserve(),
-        LANGFUSE_INIT_PROJECT_NAME: preserve(),
-        LANGFUSE_INIT_PROJECT_PUBLIC_KEY: preserve(),
-        LANGFUSE_INIT_PROJECT_SECRET_KEY: preserve(),
-        LANGFUSE_INIT_USER_EMAIL: preserve(),
-        LANGFUSE_INIT_USER_NAME: preserve(),
-        LANGFUSE_INIT_USER_PASSWORD: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_BUCKET: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_ENABLED: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_PREFIX: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_REGION: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_BUCKET: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_PREFIX: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_REGION: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_REGION: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: preserve(),
-        NEXTAUTH_SECRET: preserve(),
-        NEXTAUTH_URL: preserve(),
-        PORT: preserve(),
-        REDIS_CONNECTION_STRING: preserve(),
-        SALT: preserve(),
-        TELEMETRY_ENABLED: preserve(),
-      },
-    });
-    const langfuseWorker = service('langfuse-worker', {
-      source: image('langfuse/langfuse-worker:4.70.0'),
-      replicas: { sfo: 1 },
-      env: {
-        CLICKHOUSE_CLUSTER_ENABLED: preserve(),
-        CLICKHOUSE_MIGRATION_URL: preserve(),
-        CLICKHOUSE_PASSWORD: preserve(),
-        CLICKHOUSE_URL: preserve(),
-        CLICKHOUSE_USER: preserve(),
-        DATABASE_URL: preserve(),
-        ENCRYPTION_KEY: preserve(),
-        HOSTNAME: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_BUCKET: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_ENABLED: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_PREFIX: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_REGION: preserve(),
-        LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_BUCKET: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_PREFIX: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_REGION: preserve(),
-        LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_REGION: preserve(),
-        LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: preserve(),
-        NEXTAUTH_SECRET: preserve(),
-        NEXTAUTH_URL: preserve(),
-        PORT: preserve(),
-        REDIS_CONNECTION_STRING: preserve(),
-        SALT: preserve(),
-        TELEMETRY_ENABLED: preserve(),
-      },
-    });
     const collector = service('otel-collector', {
       build: {
         builder: 'DOCKERFILE',
@@ -294,25 +130,11 @@ export default defineRailway((ctx) => {
       deploy: { restartPolicyMaxRetries: 5 },
       env: {
         COLLECTOR_BEARER_TOKEN: preserve(),
-        LANGFUSE_OTLP_ENDPOINT: preserve(),
-        LANGFUSE_PUBLIC_KEY: preserve(),
-        LANGFUSE_SECRET_KEY: preserve(),
         POSTHOG_HOST: preserve(),
         POSTHOG_PROJECT_TOKEN: preserve(),
       },
     });
-    resources.push(
-      langfusePostgres,
-      langfuseRedis,
-      langfusePostgresVolume,
-      langfuseRedisVolume,
-      clickhouseVolume,
-      clickhouse,
-      langfuseWeb,
-      langfuseWorker,
-      collector,
-      bucket('langfuse', { region: 'sin' }),
-    );
+    resources.push(collector);
   }
 
   return project('taphoa-mini', {

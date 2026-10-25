@@ -1,6 +1,5 @@
 """Exercise the real pinned Collector against local OTLP/HTTP recording sinks."""
 
-import base64
 import copy
 import http.server
 import json
@@ -90,9 +89,6 @@ class RoutingTest(unittest.TestCase):
         ]
         for key, value in {
             "COLLECTOR_BEARER_TOKEN": TOKEN,
-            "LANGFUSE_OTLP_ENDPOINT": sink_url + "/api/public/otel",
-            "LANGFUSE_PUBLIC_KEY": "public",
-            "LANGFUSE_SECRET_KEY": "secret",
             "POSTHOG_HOST": sink_url,
             "POSTHOG_PROJECT_TOKEN": "posthog-test-token",
         }.items():
@@ -112,32 +108,27 @@ class RoutingTest(unittest.TestCase):
         else:
             raise AssertionError("Collector did not become ready")
         cls.trace_id = "11" * 16
-        cls.invoke_id = "22" * 8
-        cls.http_id = "33" * 8
+        cls.http_id = "22" * 8
+        cls.agent_id = "33" * 8
         cls.chat_id = "44" * 8
+        cls.tool_id = "55" * 8
         spans = []
-        for name, span_id, parent, operation in [
-            ("invoke", cls.invoke_id, cls.http_id, "invoke_agent"),
-            ("chat", cls.chat_id, cls.invoke_id, "chat"),
-            ("scope-only", "55" * 8, cls.invoke_id, None),
-            ("http", cls.http_id, None, None),
-            ("genai-other-scope", "66" * 8, cls.invoke_id, "execute_tool"),
+        for name, span_id, parent, scope in [
+            ("http", cls.http_id, None, "taphoa.http"),
+            ("agent", cls.agent_id, cls.http_id, "taphoa.assistant"),
+            ("chat", cls.chat_id, cls.agent_id, "taphoa.assistant"),
+            ("tool", cls.tool_id, cls.agent_id, "taphoa.tools"),
         ]:
             span = {"name": name, "traceId": cls.trace_id, "spanId": span_id,
                     "startTimeUnixNano": "1800000000000000000", "endTimeUnixNano": "1800000000001000000",
                     "attributes": sensitive_attributes()}
             if parent:
                 span["parentSpanId"] = parent
-            if operation:
-                span["attributes"] += attributes({"gen_ai.operation.name": operation})
-            if name == "scope-only":
-                span["attributes"] += attributes({"langfuse.environment": "explicit"})
-            scope = "taphoa.assistant" if name in ("invoke", "chat", "scope-only") else "taphoa.http"
             spans.append({"scope": {"name": scope}, "spans": [span]})
         cls.trace_payload = {"resourceSpans": [
             {"resource": {"attributes": sensitive_attributes() + attributes({"deployment.environment.name": "test"})}, "scopeSpans": spans},
             {"resource": {"attributes": sensitive_attributes()}, "scopeSpans": [
-                {"scope": {"name": "taphoa.assistant"}, "spans": [dict(copy.deepcopy(spans[0]["spans"][0]), name="unknown-env", spanId="77" * 8)]}
+                {"scope": {"name": "taphoa.assistant"}, "spans": [dict(copy.deepcopy(spans[1]["spans"][0]), name="unknown-env", spanId="77" * 8)]}
             ]},
         ]}
         cls.log_payload = {"resourceLogs": [
@@ -153,7 +144,7 @@ class RoutingTest(unittest.TestCase):
                 raise AssertionError(f"Authenticated {signal} were rejected")
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            if len(cls.items("/i/v1/traces", "resourceSpans", "scopeSpans", "spans")) == 6 and len(cls.items("/api/public/otel/v1/traces", "resourceSpans", "scopeSpans", "spans")) == 5 and len(cls.items("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords")) == 4:
+            if len(cls.items("/i/v1/traces", "resourceSpans", "scopeSpans", "spans")) == 5 and len(cls.items("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords")) == 4:
                 return
             time.sleep(0.1)
         diagnostics = subprocess.run(["docker", "logs", cls.container], capture_output=True, text=True)
@@ -191,34 +182,34 @@ class RoutingTest(unittest.TestCase):
             self.assertEqual(self.send(signal, {}, "wrong"), 401)
             self.assertEqual(self.send(signal, {}, TOKEN), 200)
 
-    def test_routing_and_langfuse_roots(self):
+    def test_all_spans_reach_posthog_with_parents(self):
         posthog = {s["name"]: s for _, s in self.items("/i/v1/traces", "resourceSpans", "scopeSpans", "spans")}
-        langfuse = {s["name"]: s for _, s in self.items("/api/public/otel/v1/traces", "resourceSpans", "scopeSpans", "spans")}
-        self.assertEqual(set(posthog), {"invoke", "chat", "scope-only", "http", "genai-other-scope", "unknown-env"})
-        self.assertEqual(set(langfuse), set(posthog) - {"http"})
-        self.assertIn(langfuse["invoke"].get("parentSpanId", ""), ("", "0000000000000000"))
-        self.assertEqual(langfuse["chat"]["parentSpanId"], self.invoke_id)
-        self.assertEqual(posthog["invoke"]["parentSpanId"], self.http_id)
-        self.assertEqual(langfuse["invoke"]["traceId"], posthog["invoke"]["traceId"])
-        for name, span in langfuse.items():
-            expected = "explicit" if name == "scope-only" else "unknown" if name == "unknown-env" else "test"
-            self.assertEqual(values(span["attributes"])["langfuse.environment"], {"stringValue": expected})
+        self.assertEqual(set(posthog), {"http", "agent", "chat", "tool", "unknown-env"})
+        self.assertNotIn("parentSpanId", posthog["http"])
+        self.assertEqual(posthog["agent"]["parentSpanId"], self.http_id)
+        self.assertEqual(posthog["chat"]["parentSpanId"], self.agent_id)
+        self.assertEqual(posthog["tool"]["parentSpanId"], self.agent_id)
+        self.assertEqual(posthog["unknown-env"]["parentSpanId"], self.http_id)
+        for span in posthog.values():
+            self.assertEqual(span["traceId"], self.trace_id)
 
-    def test_vendor_headers_and_retry(self):
-        expected = {"/api/public/otel/v1/traces", "/i/v1/traces", "/i/v1/logs"}
-        self.assertEqual(self.failures, expected)
-        for path, headers, _body in self.requests:
+    def test_logs_reach_posthog(self):
+        logs = self.items("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords")
+        self.assertEqual(len(logs), 4)
+
+    def test_only_posthog_receives_requests(self):
+        self.assertEqual({path for path, _headers, _body in self.requests}, {"/i/v1/traces", "/i/v1/logs"})
+
+    def test_posthog_headers_and_retry(self):
+        self.assertEqual(self.failures, {"/i/v1/traces", "/i/v1/logs"})
+        self.assertTrue(self.requests)
+        for _path, headers, _body in self.requests:
             headers = {key.lower(): value for key, value in headers.items()}
-            if path.startswith("/api"):
-                self.assertEqual(headers["authorization"], "Basic " + base64.b64encode(b"public:secret").decode())
-                self.assertEqual(headers["x-langfuse-ingestion-version"], "4")
-            else:
-                self.assertEqual(headers["authorization"], "Bearer posthog-test-token")
+            self.assertEqual(headers["authorization"], "Bearer posthog-test-token")
 
     def test_redaction_on_all_pipelines(self):
         for path, resources, scopes, records in (
             ("/i/v1/traces", "resourceSpans", "scopeSpans", "spans"),
-            ("/api/public/otel/v1/traces", "resourceSpans", "scopeSpans", "spans"),
             ("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords"),
         ):
             for resource, record in self.items(path, resources, scopes, records):
@@ -235,7 +226,6 @@ class RoutingTest(unittest.TestCase):
     def test_resource_defaults(self):
         for path, resources, scopes, records, expected in (
             ("/i/v1/traces", "resourceSpans", "scopeSpans", "spans", {"test", "unknown"}),
-            ("/api/public/otel/v1/traces", "resourceSpans", "scopeSpans", "spans", {"test", "unknown"}),
             ("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords", {"production", "unknown"}),
         ):
             actual = {values(r["attributes"])["deployment.environment.name"]["stringValue"] for r, _ in self.items(path, resources, scopes, records)}
