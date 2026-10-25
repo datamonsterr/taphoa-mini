@@ -364,7 +364,19 @@ export function parseCreateSale(body: unknown): CreateSaleRequest {
   return {
     id: uuid(o, 'id'),
     sold_at: dateTime(o, 'sold_at'),
-    payment_method: oneOf(o, 'payment_method', ['cash', 'transfer'] as const),
+    payment_method: oneOf(o, 'payment_method', [
+      'cash',
+      'transfer',
+      'credit',
+    ] as const),
+    ...(has(o, 'credit')
+      ? {
+          credit: {
+            customer_id: uuid(asObject(o.credit), 'customer_id'),
+            amount: money(asObject(o.credit), 'amount'),
+          },
+        }
+      : {}),
     total: money(o, 'total'),
     lines: (o.lines as unknown[]).map(saleLine),
     ...(has(o, 'cash_received')

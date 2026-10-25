@@ -3,6 +3,7 @@ pub mod assistant;
 pub mod auth;
 pub mod catalog;
 pub mod config;
+pub mod debts;
 pub mod decisions;
 pub mod error;
 pub mod events;
@@ -221,6 +222,7 @@ pub fn router(state: AppState) -> Router {
         .merge(catalog::router())
         .merge(recognition::router())
         .merge(sales::router())
+        .merge(debts::router())
         .merge(stock::router())
         .merge(expenses::router())
         .merge(receipts::router())

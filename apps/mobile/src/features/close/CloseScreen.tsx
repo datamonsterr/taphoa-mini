@@ -44,6 +44,21 @@ const keypadLabels = (t: (key: string) => string) => ({
   delete: t('keypad.delete'),
 });
 
+/** One line of the day's debt movements; a day without that movement leaves it out. */
+function DebtLine({ label, amount }: { label: string; amount: number }) {
+  if (amount <= 0) return null;
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label} ${formatVnd(amount)}`}
+      style={styles.debtLine}
+    >
+      <Text style={styles.debtLabel}>{label}</Text>
+      <MoneyText amount={amount} variant="label" />
+    </View>
+  );
+}
+
 export function CloseScreen() {
   const t = useT(closeStrings);
   const diffLabels = useLabels(closeStrings, differenceLabels);
@@ -60,6 +75,13 @@ export function CloseScreen() {
   const closed = dayClose.data ?? null;
   const expected = closed?.expected_cash ?? report.data?.expected_cash;
   const counted = closed ? closed.counted_cash : countedFromDigits(digits);
+  // Before closing the lines come from today's report; after, from the stored close.
+  const cashRepayments = closed
+    ? (closed.cash_repayments ?? 0)
+    : (report.data?.cash_repayments ?? 0);
+  const creditSales = closed
+    ? (closed.credit_sales ?? 0)
+    : (report.data?.credit_sales ?? 0);
 
   const onKey = useCallback(
     (key: KeypadKeyId) =>
@@ -181,16 +203,13 @@ export function CloseScreen() {
               labels={diffLabels}
             />
 
+            <DebtLine label={t('cashRepayments')} amount={cashRepayments} />
+            <DebtLine label={t('creditSales')} amount={creditSales} />
+
             {closed ? (
               <Text style={styles.closedNote}>{t('closed')}</Text>
             ) : (
-              <>
-                <Keypad
-                  onKey={onKey}
-                  diameter={keyDiameter}
-                  labels={padLabels}
-                />
-              </>
+              <Keypad onKey={onKey} diameter={keyDiameter} labels={padLabels} />
             )}
           </>
         ) : null}
@@ -233,6 +252,14 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontVariant: ['tabular-nums'],
   },
+  debtLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space[3],
+    paddingHorizontal: 20,
+  },
+  debtLabel: { ...typography.caption, color: colors.inkMuted },
   closedNote: {
     ...typography.label,
     textAlign: 'center',
