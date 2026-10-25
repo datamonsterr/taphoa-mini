@@ -61,3 +61,36 @@ The backend must run with `ASSISTANT_ALLOW_EVAL_HEADERS=1`. The runner sends
 Live runs need the pg oracle provider. Until task T3 adds it, `src/oracle/live.ts`
 (`createLiveOracle`) refuses with a message naming `EVAL_DATABASE_URL`. Clerk-minted tokens
 (task T7) plug into `CachedAuth` in `src/runner/auth.ts`.
+
+## CI
+
+Both workflows start the same local stack with `scripts/ci/eval-ci.sh`: compose Postgres and
+Redis, `taphoa-seed --profile eval`, and the backend with `ASSISTANT_ALLOW_EVAL_HEADERS=1`. The
+OpenRouter key (secret `OPENROUTER_API_KEY`) goes to the backend as `OPENROUTER_API_KEY` and to
+the harness as `OPENROUTER_EVAL_API_KEY`.
+
+- **Smoke job** (`assistant-eval-smoke` in `ci.yml`). Runs when `packages/eval`, the assistant,
+  the seed or `ci.yml` change, and `ci-ok` waits for it. It runs live
+  (`smoke --concurrency 1 --no-posthog` against the local stack) when
+  `apps/backend/crates/api/src/assistant/` exists in the checkout and the secrets are available,
+  that is, not on a pull request from a fork. Otherwise it runs the dry run
+  (`smoke --stub`). A newer push cancels a running smoke job, which spares the shared free
+  OpenRouter quota. Results are the artifact `eval-smoke-results` and the job summary. Pull
+  requests send nothing to PostHog.
+- **Nightly workflow** (`eval.yml`). Runs at 00:30 UTC, just after the OpenRouter quota resets,
+  and on demand. A guard job skips a full run when another `eval full` run already succeeded
+  or is running today (UTC), unless `force` is set, and skips the schedule until the assistant
+  is on `main`. The run job builds the binaries, starts the stack, runs the set and sends the
+  `eval_*` events to PostHog.
+- **Manual run.** `gh workflow run eval.yml -f set=smoke`. More inputs: `-f set=full`,
+  `-f model=<id>` (sent as `X-Taphoa-Eval-Model`), `-f force=true`, and
+  `-f compare_models=a,b,c` (runs `compare` instead of a set).
+- **Results.** The run uploads `packages/eval/results/*.md` as the artifact `eval-results` and
+  appends them to the job summary. A publish job then commits them to the branch
+  `eval/results` (made from `main`, or merged with `main` when it exists) and keeps one pull
+  request titled `chore(eval): nightly results` open. The workflow never pushes to `main`. A
+  pull request opened with `GITHUB_TOKEN` starts no CI; close and reopen it once to run the
+  checks.
+- **Not wired yet.** Both live paths stop at a marked placeholder step until task T7 mints the
+  Clerk tokens (`EVAL_LEAD_TOKEN`, `EVAL_SELLER_TOKEN`, `EVAL_STORE_ID`) and the pg oracle
+  provider exists.
