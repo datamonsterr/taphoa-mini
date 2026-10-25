@@ -9,6 +9,7 @@ import { DeviceSessions } from '@/features/account/DeviceSessions';
 import { SwitchPinSheet } from '@/features/account/SwitchPinSheet';
 import { useSwitchSession } from '@/features/account/useSwitchSession';
 import { useT } from '@/lib/i18n';
+import { useDeviceLock } from '@/stores/deviceLock';
 import {
   Frame,
   Field,
@@ -88,12 +89,14 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
           path: paths.callback,
         }),
       });
-      if (result.createdSessionId && result.setActive)
+      if (result.createdSessionId && result.setActive) {
         await result.setActive({
           session: result.createdSessionId,
           navigate: async () => {},
         });
-      else if (
+        // A fresh sign-in proves who is holding the phone, so it lifts the device lock.
+        useDeviceLock.getState().unlock();
+      } else if (
         result.authSessionResult?.type !== 'cancel' &&
         result.authSessionResult?.type !== 'dismiss'
       )

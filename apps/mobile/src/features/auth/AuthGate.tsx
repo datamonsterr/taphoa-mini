@@ -1,6 +1,6 @@
 import { useGlobalSearchParams, usePathname } from 'expo-router';
 import { useInviteIntent } from '@/features/onboarding/inviteIntent';
-import { useAuth } from '@clerk/expo';
+import { useAuth, useSessionList } from '@clerk/expo';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useLayoutEffect,
@@ -22,9 +22,11 @@ import { keys } from '@/lib/api/keys';
 import type { Me } from '@/lib/api/store';
 import { useCartStore } from '@/stores/cart';
 import { useLowStockAlerts } from '@/stores/lowStockAlerts';
+import { useDeviceLock } from '@/stores/deviceLock';
 import { resolveMembership, useCurrentStore } from '@/stores/currentStore';
 import { useT } from '@/lib/i18n';
 import { Frame, FormError, ActionButton } from '@/features/onboarding/kit';
+import { signedInSessions } from './deviceSessions';
 import { strings } from './strings';
 
 type GateState = { signedIn: boolean; hasMembership: boolean };
@@ -33,7 +35,16 @@ export function AuthGate({
 }: {
   children: (state: GateState) => ReactNode;
 }) {
-  const { isLoaded, isSignedIn, userId, getToken } = useAuth();
+  const auth = useAuth();
+  const { isLoaded, getToken } = auth;
+  const { sessions } = useSessionList();
+  const signedInCount = signedInSessions(sessions).length;
+  const locked = useDeviceLock((s) => s.locked);
+  const lockHydrated = useDeviceLock((s) => s.hydrated);
+  // While the device is locked, whoever Clerk has active (clerk-js picks one by itself on a cold
+  // start) is not let in: for the app nobody is signed in until a person is picked.
+  const isSignedIn = !!auth.isSignedIn && !locked;
+  const userId = locked ? null : auth.userId;
   const qc = useQueryClient();
   const t = useT(strings);
   const { token: incomingToken } = useGlobalSearchParams<{
@@ -50,7 +61,7 @@ export function AuthGate({
     serverBridgeUserId,
   );
   const hydrated = useCurrentStore((s) => s.hydrated);
-  const me = useMe(bridgeUser === userId);
+  const me = useMe(isSignedIn && bridgeUser === userId);
   const storedId = useCurrentStore((s) =>
     userId ? s.storeIds[userId] : undefined,
   );
@@ -80,6 +91,16 @@ export function AuthGate({
     return unregister;
   }, [getToken, userId, qc]);
 
+  // Clerk has nobody active but others stay signed in: the phone goes to the person picker and
+  // stays locked there, also across a restart. With nobody signed in any more there is nobody to
+  // protect, so a stale lock is dropped.
+  useEffect(() => {
+    if (!isLoaded || !lockHydrated || auth.isSignedIn) return;
+    const lock = useDeviceLock.getState();
+    if (signedInCount > 0 && !lock.locked) lock.lock();
+    else if (signedInCount === 0 && lock.locked) lock.unlock();
+  }, [isLoaded, lockHydrated, auth.isSignedIn, signedInCount]);
+
   // A different person or store must never inherit a cart, alerts or cached shop data.
   useLayoutEffect(() => {
     if (!isLoaded || !hydrated || previous.current === identity) return;
@@ -97,6 +118,7 @@ export function AuthGate({
   if (
     !isLoaded ||
     !hydrated ||
+    !lockHydrated ||
     bridgeUser !== userId ||
     settledIdentity !== identity ||
     (isSignedIn && !me.data && !me.isError)
@@ -119,9 +141,9 @@ export function AuthGate({
         />
       </Frame>
     );
-  // `signedIn` follows the *active* Clerk session only. After "Đăng xuất" Clerk has none even when
-  // other people are still signed in on this phone, so the gate keeps sending to /sign-in, which
-  // lists them and asks for their PIN before activating one.
+  // `signedIn` follows the *active* Clerk session that the lock lets in. After "Đăng xuất" Clerk
+  // has none even when other people are still signed in on this phone, so the gate keeps sending
+  // to /sign-in, which lists them and asks for their PIN before activating one.
   return children({
     signedIn: !!isSignedIn,
     hasMembership: !!isSignedIn && membership !== null,

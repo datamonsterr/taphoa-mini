@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react-native';
 
 import { useCurrentStore } from '@/stores/currentStore';
+import { useDeviceLock } from '@/stores/deviceLock';
 import { useSettingsStore } from '@/stores/settings';
 import { addClerkSession, clerkMock, getClerkState } from '@/test/clerk';
 import { buildMe, installPeople, type PersonScript } from '@/test/people';
@@ -59,6 +60,8 @@ async function sharedPhone(extra: Record<string, PersonScript> = {}) {
     ...extra,
   });
   await clerkMock.signOut({ sessionId: 'sess_test' });
+  // What the sign-out hook does when others stay signed in.
+  useDeviceLock.getState().lock();
   return people;
 }
 
@@ -320,6 +323,7 @@ describe('picking a person', () => {
     expect(clerkMock.setActive).not.toHaveBeenCalled();
     expect(people.verifies()).toHaveLength(0);
     expect(getClerkState().isSignedIn).toBe(false);
+    expect(useDeviceLock.getState().locked).toBe(true);
   });
 
   test('a person with a PIN can only be reached through it, even with several taps', async () => {
@@ -350,5 +354,109 @@ describe('picking a person', () => {
     expect(clerkMock.setActive).not.toHaveBeenCalled();
     await fireEvent.press(row(1));
     await waitFor(() => expect(clerkMock.setActive).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('the device lock', () => {
+  const locked = () => useDeviceLock.getState().locked;
+
+  test('lifts after setActive for a person without a PIN, not before', async () => {
+    await sharedPhone();
+    const lockedAtActivation: boolean[] = [];
+    clerkMock.setActive.mockImplementation(async () => {
+      lockedAtActivation.push(locked());
+    });
+    await open();
+    expect(locked()).toBe(true);
+    await fireEvent.press(row(1));
+    await waitFor(() => expect(locked()).toBe(false));
+    expect(lockedAtActivation).toEqual([true]);
+  });
+
+  test('lifts after the right PIN and setActive, not before', async () => {
+    await sharedPhone();
+    const lockedAtActivation: boolean[] = [];
+    clerkMock.setActive.mockImplementation(async () => {
+      lockedAtActivation.push(locked());
+    });
+    await openPinFor(0);
+    expect(locked()).toBe(true);
+    await submitPin(UT_PIN);
+    await waitFor(() => expect(locked()).toBe(false));
+    expect(lockedAtActivation).toEqual([true]);
+  });
+
+  test('stays locked after a wrong PIN, a failed activation and a lockout', async () => {
+    await sharedPhone({
+      token_sess_hai: {
+        me: buildMe({
+          userId: 'user_hai',
+          name: 'Hai',
+          memberships: [{ storeId: 'store_hai', hasPin: true }],
+        }),
+        verify: lockout,
+      },
+    });
+    await openPinFor(0);
+    await submitPin('0000');
+    await screen.findByText('Sai mã PIN');
+    expect(locked()).toBe(true);
+    // The right PIN, but Clerk cannot activate: still locked.
+    clerkMock.setActive.mockRejectedValueOnce(new Error('offline'));
+    await submitPin(UT_PIN);
+    await screen.findByText('Không chuyển được người dùng. Vui lòng thử lại.');
+    expect(locked()).toBe(true);
+    await fireEvent.press(row(1));
+    await screen.findByTestId('auth-switch-pin');
+    await submitPin(UT_PIN);
+    await screen.findByText('Thử sai quá nhiều lần. Thử lại sau 5 phút.');
+    expect(locked()).toBe(true);
+    expect(getClerkState().isSignedIn).toBe(false);
+  });
+
+  test('a fresh Google sign-in lifts it', async () => {
+    await sharedPhone();
+    await open();
+    await fireEvent.press(screen.getByTestId('auth-google'));
+    await waitFor(() => expect(locked()).toBe(false));
+    expect(clerkMock.setActive).toHaveBeenCalledWith(
+      expect.objectContaining({ session: 'sess_google' }),
+    );
+  });
+
+  test.each([
+    [
+      'cancelled',
+      () =>
+        clerkMock.startSSOFlow.mockResolvedValueOnce({
+          createdSessionId: null,
+          authSessionResult: { type: 'cancel' },
+        }),
+    ],
+    [
+      'failing',
+      () =>
+        clerkMock.startSSOFlow.mockRejectedValueOnce(new TypeError('offline')),
+    ],
+  ])('a %s Google sign-in keeps it', async (_name, script) => {
+    await sharedPhone();
+    script();
+    await open();
+    await fireEvent.press(screen.getByTestId('auth-google'));
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(locked()).toBe(true);
+    expect(clerkMock.setActive).not.toHaveBeenCalled();
+  });
+
+  test('a lock with nobody signed in is lifted by a normal sign-in', async () => {
+    installPeople({});
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    useDeviceLock.getState().lock();
+    await open();
+    expect(screen.queryByTestId('auth-device-sessions')).toBeNull();
+    await fireEvent.press(screen.getByTestId('auth-google'));
+    await waitFor(() => expect(locked()).toBe(false));
   });
 });

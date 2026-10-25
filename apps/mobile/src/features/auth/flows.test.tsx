@@ -1,9 +1,10 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { SignInScreen } from './SignInScreen';
 import { VerifyCodeScreen } from './VerifyCodeScreen';
 import { useEmailFlow } from './emailFlow';
+import { useDeviceLock } from '@/stores/deviceLock';
 import { clerkMock, setClerkState } from '@/test/clerk';
 import { renderWithProviders } from '@/test/render';
 
@@ -210,4 +211,44 @@ test('web sign-up has the custom-flow CAPTCHA container required by Clerk', asyn
       value: previous,
     });
   }
+});
+
+describe('device lock', () => {
+  const enterCode = async () => {
+    await fireEvent.changeText(screen.getByTestId('auth-code'), '424242');
+    await fireEvent.press(screen.getByTestId('auth-verify-code'));
+  };
+
+  test.each(['signIn', 'signUp'] as const)(
+    'a completed email %s lifts it',
+    async (mode) => {
+      useDeviceLock.getState().lock();
+      await codeScreen(mode);
+      await enterCode();
+      await waitFor(() => expect(useDeviceLock.getState().locked).toBe(false));
+      expect(
+        mode === 'signIn'
+          ? clerkMock.signIn.finalize
+          : clerkMock.signUp.finalize,
+      ).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test('a wrong code, an incomplete verification or a failed finalize keep it', async () => {
+    useDeviceLock.getState().lock();
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: { code: 'form_code_incorrect' },
+    });
+    await codeScreen();
+    await enterCode();
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: null,
+    });
+    await enterCode();
+    clerkMock.signIn.finalize.mockResolvedValueOnce({
+      error: { code: 'network_error' },
+    });
+    await enterCode();
+    expect(useDeviceLock.getState().locked).toBe(true);
+  });
 });

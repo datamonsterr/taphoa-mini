@@ -1,7 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import type { components } from '@taphoa/api-client';
+
+import { preferenceStorage } from './preferenceStorage';
 
 export type Membership = components['schemas']['StoreMembership'];
 
@@ -36,13 +37,7 @@ export const useCurrentStore = create<CurrentStoreState>()(
     }),
     {
       name: 'taphoa-current-store',
-      storage: createJSONStorage(() => ({
-        getItem: (key) => AsyncStorage.getItem(key).catch(() => null),
-        setItem: (key, value) =>
-          AsyncStorage.setItem(key, value).catch(() => undefined),
-        removeItem: (key) =>
-          AsyncStorage.removeItem(key).catch(() => undefined),
-      })),
+      storage: preferenceStorage(),
       partialize: ({ storeIds }) => ({ storeIds }),
       merge: (persisted, current) => {
         const raw = (persisted as { storeIds?: unknown } | null)?.storeIds;

@@ -14,6 +14,7 @@ import * as storeApi from '@/lib/api/store';
 import { useCartStore } from '@/stores/cart';
 import { useChromeStore } from '@/stores/chrome';
 import { useCurrentStore } from '@/stores/currentStore';
+import { useDeviceLock } from '@/stores/deviceLock';
 import { useSettingsStore } from '@/stores/settings';
 import { addClerkSession, clerkMock, getClerkState } from '@/test/clerk';
 import { createMockFetch } from '@/test/mock/fetch';
@@ -567,6 +568,8 @@ describe('sign out', () => {
     });
     // Their PIN guards them: nobody is activated without it.
     expect(clerkMock.setActive).not.toHaveBeenCalled();
+    // And the lock holds the phone on the person picker, even across a restart.
+    expect(useDeviceLock.getState().locked).toBe(true);
     // The others stay signed in on the device, to be picked on the sign-in screen.
     expect(
       clerkMock.sessions.filter(({ status }) => status === 'active'),
@@ -578,6 +581,8 @@ describe('sign out', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
     await waitFor(() => expect(getClerkState().isSignedIn).toBe(false));
     expect(clerkMock.setActive).not.toHaveBeenCalled();
+    // Nobody else is signed in, so there is nobody to protect: a plain sign-in screen.
+    expect(useDeviceLock.getState().locked).toBe(false);
   });
 
   test('a failed sign-out leaves everyone as they were', async () => {
@@ -589,6 +594,7 @@ describe('sign out', () => {
       await screen.findByText('Không đăng xuất được. Vui lòng thử lại.'),
     ).toBeOnTheScreen();
     expect(clerkMock.setActive).not.toHaveBeenCalled();
+    expect(useDeviceLock.getState().locked).toBe(false);
   });
 });
 
