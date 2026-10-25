@@ -408,3 +408,26 @@ async fn stock_receipts_columns_and_checks() {
             .unwrap();
     }
 }
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn migrator_tolerates_missing_versions() {
+    let Some(pool) = pool().await else { return };
+    // Hold the synthetic row in a transaction so concurrent tests cannot observe it.
+    // Rollback also cleans it up if the assertion fails.
+    let mut tx = pool.begin().await.unwrap();
+    let version = 99990001_i64;
+    assert!(!taphoa_api::MIGRATOR.version_exists(version));
+    sqlx::query("INSERT INTO _sqlx_migrations(version, description, success, checksum, execution_time) VALUES ($1, 'X0 T2 missing version regression', true, $2, 0)")
+        .bind(version)
+        .bind(vec![0_u8; 48])
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let result = taphoa_api::MIGRATOR.run(&mut *tx).await;
+    tx.rollback().await.unwrap();
+    assert!(
+        result.is_ok(),
+        "missing version should be tolerated: {result:?}"
+    );
+}

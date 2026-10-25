@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod auth;
 pub mod catalog;
 pub mod config;
@@ -47,10 +48,18 @@ pub use crate::vector::{InMemoryVectorIndex, VectorIndex};
 pub use error::{ApiError, ApiResult};
 
 pub const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
-pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+// Branch deployments can apply versions absent from the next main deployment.
+// Only relax missing-version validation; retain checksum checks and default locking.
+pub static MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
+    std::sync::LazyLock::new(|| {
+        let mut migrator = sqlx::migrate!("../../migrations");
+        migrator.set_ignore_missing(true);
+        migrator
+    });
 
 #[derive(Clone)]
 pub struct AppState {
+    pub analytics: Arc<dyn analytics::Analytics>,
     pub jwt: auth::JwtKeys,
     pub rate_limiter: Arc<dyn ratelimit::RateLimiter>,
     pub rate_limits: ratelimit::RateLimits,
@@ -79,6 +88,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            analytics: Arc::new(analytics::NoopAnalytics),
             jwt: auth::JwtKeys::from_secret(&rand::random::<[u8; 32]>()),
             rate_limiter: Arc::new(ratelimit::MemoryRateLimiter::default()),
             rate_limits: ratelimit::RateLimits::default(),
