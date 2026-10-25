@@ -1,0 +1,91 @@
+appId: com.datamonsterr.taphoamini
+---
+# The assistant on a new store (real backend; CI runs X3's scripted model, so replies are exact).
+# While the backend has no /v1/assistant/* routes (probe below) the flow passes after creating the
+# store: the assistant steps are skipped, not failed.
+#
+# Not covered here: the receipt chat (receipt_lines card, confirm). It needs a camera frame with a
+# document, which the CI emulator's virtual camera cannot produce. Playwright covers it
+# (e2e-web/assistant.spec.ts) by creating the receipt through the API.
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Trợ lý'
+      OWNER_NAME: 'Cô Ba'
+- runScript:
+    file: subflows/assistant-probe.js
+    env:
+      API_URL: 'http://10.0.2.2:8080'
+- runFlow:
+    when:
+      true: ${output.assistant}
+    commands:
+      # the chat button of the camera bottom row opens the chat
+      - tapOn: 'Mở trợ lý'
+      - extendedWaitUntil:
+          visible:
+            id: 'assistant-screen'
+          timeout: 20000
+      # hold-to-talk mic: always present on Android (disabled when the device has no recognizer)
+      - assertVisible: 'Giữ để nói'
+      - takeScreenshot: assistant-01-open
+      # a scripted exchange: anything else gets the fixed greeting
+      - tapOn:
+          id: 'assistant-input'
+      - inputText: 'Xin chào'
+      - hideKeyboard
+      - tapOn:
+          id: 'assistant-send'
+      - extendedWaitUntil:
+          visible: 'Xin chào! Mình là trợ lý của cửa hàng.'
+          timeout: 60000
+      - takeScreenshot: assistant-02-reply
+      # a proposal, when the scripted model makes one (it needs a tracked product): confirm it.
+      # A new chat, so the thumbs below belong to this turn's reply only.
+      - tapOn:
+          id: 'assistant-new-chat'
+      - tapOn:
+          id: 'assistant-input'
+      - inputText: 'Điều chỉnh tồn kho'
+      - hideKeyboard
+      - tapOn:
+          id: 'assistant-send'
+      - extendedWaitUntil:
+          visible:
+            id: 'feedback-up'
+          timeout: 60000
+      - runFlow:
+          when:
+            visible:
+              id: 'action-confirm'
+          commands:
+            - tapOn:
+                id: 'action-confirm'
+            - extendedWaitUntil:
+                visible: 'Đã thực hiện'
+                timeout: 30000
+            - takeScreenshot: assistant-03-confirmed
+      - tapOn:
+          id: 'assistant-close'
+      - extendedWaitUntil:
+          visible: 'Giỏ hàng trống'
+          timeout: 20000
+      # a next-step chip (a new store gets the server's setup chip): it opens the chat and the
+      # prompt is sent
+      - runFlow:
+          when:
+            visible:
+              id: 'next-step-strip'
+          commands:
+            - tapOn:
+                id: 'next-step-chip-.*'
+            - extendedWaitUntil:
+                visible:
+                  id: 'assistant-screen'
+                timeout: 20000
+            # the chip's prompt is a turn like any other: it streams to its end (thumbs show)
+            - extendedWaitUntil:
+                visible:
+                  id: 'feedback-up'
+                timeout: 60000
+            - takeScreenshot: assistant-04-chip
