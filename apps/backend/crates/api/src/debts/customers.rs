@@ -1,5 +1,5 @@
 use super::{
-    db_error, ledger::emit_customer, load_customers, lock_customer, rows::CustomerRow,
+    db_error, ledger::emit_customer, load_customers, lock_customer, parse_id, rows::CustomerRow,
     validate_profile,
 };
 use crate::{
@@ -82,9 +82,10 @@ pub(super) async fn create(
 pub(super) async fn get(
     State(state): State<AppState>,
     actor: Actor,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     actor.require(Action::RecordDebt)?;
+    let id = parse_id(&id)?;
     let mut conn = pool(&state)?.acquire().await.map_err(db_error)?;
     Ok(Json(
         load_customers(&mut conn, actor.store_id, &[id])
@@ -105,10 +106,11 @@ fn optional_string(raw: &Value, key: &str, previous: Option<String>) -> ApiResul
 pub(super) async fn patch(
     State(state): State<AppState>,
     actor: Actor,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     ValidJson(raw): ValidJson<Value>,
 ) -> ApiResult<Json<Value>> {
     actor.require(Action::RecordDebt)?;
+    let id = parse_id(&id)?;
     if !raw.is_object() {
         return Err(ApiError::validation_failed("invalid customer patch"));
     }

@@ -275,7 +275,7 @@ async fn repayment_adjustment_idempotency_validation_and_concurrency() {
             StatusCode::UNPROCESSABLE_ENTITY,
         )
         .await;
-        assert_eq!(invalid["code"], "invalid");
+        assert_eq!(invalid["code"], "validation_failed");
     }
     keyed(
         &w,
@@ -552,4 +552,94 @@ async fn customer_input_validation() {
         )
         .await;
     }
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn malformed_customer_id_is_a_json_not_found() {
+    let w = World::new().await;
+    let id = create(&w, "Real").await;
+    for (method, path, token, body) in [
+        ("GET", "/v1/customers/not-a-uuid", &w.seller, Value::Null),
+        (
+            "PATCH",
+            "/v1/customers/not-a-uuid",
+            &w.seller,
+            json!({"name":"x"}),
+        ),
+        (
+            "GET",
+            "/v1/customers/not-a-uuid/entries",
+            &w.seller,
+            Value::Null,
+        ),
+        (
+            "POST",
+            "/v1/customers/not-a-uuid/repayments",
+            &w.seller,
+            json!({"amount":1,"method":"cash"}),
+        ),
+        (
+            "POST",
+            "/v1/customers/not-a-uuid/adjustments",
+            &w.lead,
+            json!({"amount":1,"reason":"x"}),
+        ),
+    ] {
+        let reply = w.call(method, path, token, body).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{method} {path}");
+        assert_eq!(reply.body["code"], "not_found", "{method} {path}");
+        assert!(
+            reply
+                .headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.starts_with("application/json")),
+            "{method} {path}: {:?}",
+            reply.headers
+        );
+    }
+    // A well-formed id still works.
+    get(&w, id).await;
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sale_customer_reference_is_store_scoped_and_sale_entries_are_unique() {
+    let a = World::new().await;
+    let b = World::new().await;
+    let customer = create(&a, "Scoped").await;
+    let insert = |w: &World, sale: Uuid, customer: Uuid| {
+        let pool = w.pool().clone();
+        let (store, member) = (w.store_id, w.lead_id);
+        async move {
+            sqlx::query("INSERT INTO sales(id,store_id,code,member_id,sold_at,business_date,payment_method,total,credit_amount,customer_id,request_hash) VALUES($1,$2,'FK',$3,now(),current_date,'credit',100,100,$4,'\\x00')")
+                .bind(sale).bind(store).bind(member).bind(customer).execute(&pool).await
+        }
+    };
+    // Store B cannot point a sale at store A's customer.
+    let foreign = insert(&b, Uuid::now_v7(), customer).await.unwrap_err();
+    assert!(
+        foreign
+            .as_database_error()
+            .is_some_and(|e| e.is_foreign_key_violation()),
+        "{foreign}"
+    );
+    let sale = Uuid::now_v7();
+    insert(&a, sale, customer).await.unwrap();
+    let entry = |kind: &'static str, amount: i64| {
+        let pool = a.pool().clone();
+        let (store, member) = (a.store_id, a.lead_id);
+        async move {
+            sqlx::query("INSERT INTO debt_entries(store_id,customer_id,kind,amount,balance_after,sale_id,member_id,business_date) VALUES($1,$2,$3,$4,$4,$5,$6,current_date)")
+                .bind(store).bind(customer).bind(kind).bind(amount).bind(sale).bind(member).execute(&pool).await
+        }
+    };
+    let is_unique = |r: Result<sqlx::postgres::PgQueryResult, sqlx::Error>| {
+        r.unwrap_err()
+            .as_database_error()
+            .is_some_and(|e| e.is_unique_violation())
+    };
+    entry("credit_sale", 100).await.unwrap();
+    assert!(is_unique(entry("credit_sale", 100).await));
+    entry("void", -100).await.unwrap();
+    assert!(is_unique(entry("void", -100).await));
 }

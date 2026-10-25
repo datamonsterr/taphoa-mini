@@ -26,7 +26,16 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 fn invalid(message: impl Into<String>) -> ApiError {
-    ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid", message)
+    ApiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "validation_failed",
+        message,
+    )
+}
+// A malformed id names a record that cannot exist. Path<Uuid> would answer with axum's
+// plain-text rejection and break the JSON error contract.
+fn parse_id(raw: &str) -> ApiResult<Uuid> {
+    raw.parse().map_err(|_| ApiError::not_found())
 }
 // Postgres constraint errors can contain an entire customer row. Log only SQLSTATE.
 fn db_error(error: sqlx::Error) -> ApiError {
@@ -89,21 +98,23 @@ fn device_time<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<DateTime
 async fn repay(
     State(state): State<AppState>,
     actor: Actor,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     headers: HeaderMap,
     body: Result<ValidJson<Value>, ApiError>,
 ) -> ApiResult<Idempotent<Value>> {
     actor.require(Action::RecordDebt)?;
+    let id = parse_id(&id)?;
     entry(&state, &actor, id, &headers, body, "repayment").await
 }
 async fn adjust(
     State(state): State<AppState>,
     actor: Actor,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     headers: HeaderMap,
     body: Result<ValidJson<Value>, ApiError>,
 ) -> ApiResult<Idempotent<Value>> {
     actor.require(Action::AdjustDebt)?;
+    let id = parse_id(&id)?;
     entry(&state, &actor, id, &headers, body, "adjustment").await
 }
 async fn entry(
@@ -193,10 +204,11 @@ async fn entry(
 async fn entries(
     State(state): State<AppState>,
     actor: Actor,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     page: PageParams,
 ) -> ApiResult<Json<Page<Value>>> {
     actor.require(Action::RecordDebt)?;
+    let id = parse_id(&id)?;
     let pool = pool(&state)?;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE store_id=$1 AND id=$2)")

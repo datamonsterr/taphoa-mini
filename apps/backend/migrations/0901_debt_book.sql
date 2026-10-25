@@ -39,10 +39,18 @@ CREATE TABLE debt_entries (
 );
 CREATE INDEX debt_entries_store_customer_created ON debt_entries (store_id, customer_id, created_at);
 CREATE UNIQUE INDEX debt_entries_store_key ON debt_entries (store_id, key_hash) WHERE key_hash IS NOT NULL;
+-- A sale has at most one credit_sale entry and one void entry, so replays and repeated voids
+-- cannot double-count debt even if application checks are bypassed.
+CREATE UNIQUE INDEX debt_entries_sale_kind ON debt_entries (sale_id, kind) WHERE sale_id IS NOT NULL;
+-- Day close sums repayments by business date.
+CREATE INDEX debt_entries_store_date ON debt_entries (store_id, business_date);
 
 ALTER TABLE sales DROP CONSTRAINT sales_payment_method_check;
 ALTER TABLE sales ADD CONSTRAINT sales_payment_method_check CHECK (payment_method IN ('cash', 'transfer', 'credit'));
-ALTER TABLE sales ADD COLUMN customer_id UUID REFERENCES customers;
+-- Composite reference: a sale can only point at a customer of its own store. MATCH SIMPLE leaves
+-- the reference unenforced while customer_id is NULL.
+ALTER TABLE sales ADD COLUMN customer_id UUID;
+ALTER TABLE sales ADD CONSTRAINT sales_customer_fk FOREIGN KEY (store_id, customer_id) REFERENCES customers (store_id, id);
 ALTER TABLE sales ADD COLUMN credit_amount BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE sales ADD CONSTRAINT sales_credit_amount_check CHECK (credit_amount >= 0 AND credit_amount <= total);
 ALTER TABLE sales ADD CONSTRAINT sales_credit_customer_check CHECK ((credit_amount > 0) = (customer_id IS NOT NULL));
