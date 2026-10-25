@@ -3,8 +3,13 @@
 #   BACKEND_URL        required; base URL, no trailing path
 #   E2E_DIR            suite directory (default packages/e2e, created by epic E1)
 #   LATENCY_P95_MS     hot-endpoint p95 budget in ms (default 200)
+#   READYZ_P95_MS      /readyz p95 budget in ms (default 500); it pings Postgres, Redis and the
+#                      bucket, so it is a dependency check, not a hot endpoint
 #   LATENCY_SAMPLES    samples per latency probe (default 20)
-# When the suite exists it runs through pnpm (`pnpm --filter @taphoa/e2e test`); until then a
+#   CLERK_SECRET_KEY   required when the suite exists: the helpers create Clerk users and session
+#                      tokens through the Clerk Backend API. The suite also reads CLERK_API_URL
+#                      (optional); CLERK_PUBLISHABLE_KEY is for the Playwright specs only.
+# When the suite exists it runs through pnpm (`pnpm --filter @taphoa/e2e test:e2e`); until then a
 # notice is emitted and a smoke check plus latency probe runs so the pipeline stays meaningful.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,8 +22,13 @@ base="${BACKEND_URL%/}"
 suite="${E2E_DIR:-$repo/packages/e2e}"
 samples="${LATENCY_SAMPLES:-20}"
 budget="${LATENCY_P95_MS:-200}"
+readyz_budget="${READYZ_P95_MS:-500}"
 
 if [ -f "$suite/package.json" ]; then
+  if [ -z "${CLERK_SECRET_KEY:-}" ]; then
+    echo "CLERK_SECRET_KEY must be set: the e2e suite creates Clerk users and session tokens (GitHub secret CLERK_SECRET_KEY, see docs/deploy.md)" >&2
+    exit 1
+  fi
   echo "Running e2e suite in $suite against $base"
   export BACKEND_URL="$base"
   export LATENCY_P95_MS="$budget"
@@ -29,7 +39,6 @@ else
   WAIT_ATTEMPTS=3 WAIT_INTERVAL=5 bash "$here/wait-healthy.sh" "$base"
 fi
 
-echo "Latency probes (budget p95 <= ${budget}ms)"
-for path in /healthz /readyz; do
-  python3 -I "$here/latency_check.py" "$base" "$path" "$samples" "$budget"
-done
+echo "Latency probes (budget p95 <= ${budget}ms; /readyz <= ${readyz_budget}ms)"
+python3 -I "$here/latency_check.py" "$base" /healthz "$samples" "$budget"
+python3 -I "$here/latency_check.py" "$base" /readyz "$samples" "$readyz_budget"

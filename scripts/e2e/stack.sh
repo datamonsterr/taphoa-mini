@@ -13,9 +13,19 @@
 #   E2E_POSTGRES_PORT    default 55532
 #   E2E_REDIS_PORT       default 56579
 #   E2E_STORAGE_PORT     default 9100
+#   E2E_DATABASE_NAME    Postgres database the backend uses (default taphoa); any other name is
+#                        created with CREATE DATABASE when missing, so parallel sessions that
+#                        share the compose stack never share a schema. `down` removes the
+#                        volumes and with them every database.
+#   E2E_REDIS_DB         Redis logical database number (default 0), appended to REDIS_URL
 #   E2E_PUBLIC_HOST      host in presigned image URLs (default localhost; 10.0.2.2 for the emulator)
 #   E2E_STATE_DIR        pid and log directory (default <repo>/.e2e-stack, gitignored)
 #   E2E_SKIP_MODELS=1    start without SAM/DINO (recognition returns 503)
+#   CLERK_PUBLISHABLE_KEY  Clerk instance whose session JWTs the backend accepts (default: the
+#                        development instance; its publishable key is public by design)
+#   CLERK_SECRET_KEY     optional; handed to the backend when non-empty (profile reads). Other
+#                        exported CLERK_* overrides (CLERK_API_URL, CLERK_AUTHORIZED_PARTIES, ...)
+#                        reach the backend too. The backend no longer reads JWT_SECRET.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,11 +34,15 @@ state_dir="${E2E_STATE_DIR:-$repo/.e2e-stack}"
 pid_file="$state_dir/backend.pid"
 log_file="$state_dir/backend.log"
 project=taphoa-e2e
+# Clerk development instance (Frontend API full-moccasin-5407.clerk.accounts.dev).
+dev_clerk_publishable_key=pk_test_ZnVsbC1tb2NjYXNpbi01NDA3LmNsZXJrLmFjY291bnRzLmRldiQ
 
 backend_port="${E2E_BACKEND_PORT:-8080}"
 export POSTGRES_PORT="${E2E_POSTGRES_PORT:-55532}"
 export REDIS_PORT="${E2E_REDIS_PORT:-56579}"
 export STORAGE_PORT="${E2E_STORAGE_PORT:-9100}"
+db_name="${E2E_DATABASE_NAME:-taphoa}"
+redis_db="${E2E_REDIS_DB:-0}"
 
 compose() { docker compose -p "$project" -f "$repo/docker-compose.yml" "$@"; }
 
@@ -38,9 +52,27 @@ up() {
     echo "backend already running (pid $(cat "$pid_file")); run 'down' first" >&2
     exit 1
   fi
+  if [[ ! "$db_name" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]]; then
+    echo "E2E_DATABASE_NAME must be a plain Postgres identifier (letters, digits, underscore): $db_name" >&2
+    exit 1
+  fi
+  if [[ ! "$redis_db" =~ ^[0-9]+$ ]]; then
+    echo "E2E_REDIS_DB must be a number: $redis_db" >&2
+    exit 1
+  fi
 
   echo "==> postgres, redis, storage (compose project $project)"
   compose up -d --wait --wait-timeout 180 postgres redis storage
+
+  # The compose database is `taphoa`; any other name is created on first use.
+  if [[ "$db_name" != taphoa ]]; then
+    local exists
+    exists="$(compose exec -T postgres psql -U taphoa -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$db_name'")"
+    if [[ "$exists" != 1 ]]; then
+      echo "==> creating database $db_name"
+      compose exec -T postgres psql -U taphoa -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$db_name\"" > /dev/null
+    fi
+  fi
 
   local bin="${BACKEND_BIN:-}"
   if [[ -z "$bin" ]]; then
@@ -73,16 +105,23 @@ up() {
     exit 1
   fi
 
+  # An empty CLERK_SECRET_KEY (a fork run has no secrets) must not reach the backend as "".
+  local clerk_env=(CLERK_PUBLISHABLE_KEY="${CLERK_PUBLISHABLE_KEY:-$dev_clerk_publishable_key}")
+  if [[ -n "${CLERK_SECRET_KEY:-}" ]]; then
+    clerk_env+=(CLERK_SECRET_KEY="$CLERK_SECRET_KEY")
+  else
+    unset CLERK_SECRET_KEY
+  fi
+
   echo "==> backend on :$backend_port ($bin)"
   : > "$log_file"
   env \
     PORT="$backend_port" \
-    DATABASE_URL="postgres://taphoa:taphoa@127.0.0.1:$POSTGRES_PORT/taphoa" \
-    REDIS_URL="redis://127.0.0.1:$REDIS_PORT" \
-    JWT_SECRET="${JWT_SECRET:-e2e-only-jwt-secret-0123456789abcdef0123456789abcdef}" \
+    DATABASE_URL="postgres://taphoa:taphoa@127.0.0.1:$POSTGRES_PORT/$db_name" \
+    REDIS_URL="redis://127.0.0.1:$REDIS_PORT/$redis_db" \
+    "${clerk_env[@]}" \
     RATE_LIMIT_STORE_CREATE_PER_HOUR=100000 \
     RATE_LIMIT_JOIN_PER_HOUR=100000 \
-    RATE_LIMIT_RECOVER_PER_10MIN=100000 \
     AWS_ENDPOINT_URL="http://127.0.0.1:$STORAGE_PORT" \
     AWS_ACCESS_KEY_ID=taphoa-local \
     AWS_SECRET_ACCESS_KEY=taphoa-local-secret \

@@ -128,9 +128,9 @@ railway tcp-proxy create --port 5432 --service Postgres --environment test
 railway tcp-proxy create --port 6379 --service Redis --environment test
 ```
 
-Backend variables were set with the CLI only (values never printed): `JWT_SECRET` is a
-random 48-byte token generated in the terminal and piped through
-`railway variable set --stdin JWT_SECRET`; the five bucket variables come from
+Backend variables were set with the CLI only (values never printed): the Clerk keys
+(see [Clerk identity](#clerk-identity)) come from the local secrets file and are piped through
+`railway variable set --stdin`; the five bucket variables come from
 `railway bucket credentials --bucket images --environment test --json` piped into
 `railway variable set --stdin`. `SKIP_MODELS` is unset, so SAM weights stay in the test
 image. The TCP proxies expose Postgres and Redis publicly (credentials still required) so
@@ -140,6 +140,76 @@ Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys t
 `railway up` whose snapshot has no backend change versus the last deployment ends as
 `SKIPPED`, meaning the running deployment already matches.
 
+## Clerk identity
+
+Identity is Clerk ([ADR 0004](adr/0004-clerk-identity.md), [contract](specs/assistant/auth-clerk.md)).
+Both Railway environments, CI and local development use one Clerk **development instance**
+(Frontend API `full-moccasin-5407.clerk.accounts.dev`) until a domain exists for a production
+instance. The backend no longer signs tokens or reads `JWT_SECRET`.
+
+- **Verification.** Every protected route takes `Authorization: Bearer <Clerk session JWT>`.
+  The backend verifies RS256 against the instance JWKS (cached in memory; an unknown `kid`
+  refetches at most once a minute), checks `exp`/`nbf` with 5 s leeway, `iss`, and `azp` when
+  both the token and `CLERK_AUTHORIZED_PARTIES` carry it, and rejects pending sessions.
+  Verification makes no Clerk call per request.
+- **Store selection.** The `X-Store-Id` header picks the store: required when the Clerk user has
+  more than one membership, optional with exactly one. A store without an active membership
+  gives 403.
+- **Profile.** Display name and email come from the Clerk Backend API (`GET /v1/users/{id}`,
+  needs `CLERK_SECRET_KEY`), cached in Redis for 10 minutes. Without the secret key `profile`
+  is `null`.
+
+| Variable (backend)               | Required | Meaning                                                                             |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`          | yes      | Gives the Frontend API host: issuer `https://<host>`, JWKS `/.well-known/jwks.json` |
+| `CLERK_SECRET_KEY`               | no       | Backend API key for profile reads; a secret                                         |
+| `CLERK_API_URL`                  | no       | Backend API base URL (default `https://api.clerk.com`)                              |
+| `CLERK_AUTHORIZED_PARTIES`       | no       | Comma-separated origins allowed in the token's `azp` claim                          |
+| `CLERK_ISSUER`, `CLERK_JWKS_URL` | no       | Override the values derived from the publishable key (tests point them at a stub)   |
+
+Startup fails when no issuer can be derived. The publishable key is public by design (it ships in
+the app bundle), so Compose, `scripts/e2e/stack.sh` and the backend `.env.example` default to the
+development instance key; the secret key is never committed.
+
+**Where each value lives.**
+
+| Value                                                      | Where                                                                                          |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`             | Railway `backend` variables in `test` and `production` (`preserve()` in `.railway/railway.ts`) |
+| `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                        | EAS environment variables (all environments); the web export and native builds embed it        |
+| GitHub secrets `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` | CI (below); set with `gh secret set` from `~/.config/taphoa-mini/secrets.env`                  |
+| Local copies                                               | `~/.config/taphoa-mini/secrets.env` (never in git, logs, PRs or chat)                          |
+
+Set a Railway variable from the terminal without printing it, per environment:
+
+```sh
+grep '^CLERK_SECRET_KEY=' ~/.config/taphoa-mini/secrets.env | cut -d= -f2- | tr -d '\n' \
+  | railway variable set --stdin CLERK_SECRET_KEY --service backend --environment test --skip-deploys
+```
+
+**CI use of the secrets.** Secrets are unavailable to fork and dependabot runs, so those jobs
+degrade with a `::notice::` instead of failing.
+
+| Workflow / job                         | Secrets and variables                                                                                                                                                     | Without the secrets                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `ci.yml` `docker-e2e`                  | `CLERK_PUBLISHABLE_KEY` to Compose; `CLERK_SECRET_KEY` to `apps/backend/scripts/e2e.sh`, which creates a `+clerk_test` user, mints a 10 minute token and deletes the user | Authenticated checks (store, images) skipped |
+| `ci.yml` `web-e2e`                     | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` (the export embeds it)                                                                   | Job skipped (`clerk-secrets` gate)           |
+| `android-e2e.yml` `maestro`, `expo-go` | Backend stack gets both keys; the app build and Metro get `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                             | Jobs skipped (`clerk-secrets` gate)          |
+| `deploy.yml` `test` (seed and e2e)     | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` for `scripts/ci/seed-test.sh` and `scripts/ci/run-e2e.sh`                                                                     | `run-e2e.sh` fails fast naming the secret    |
+| `railway-integration.yml`              | none: the integration tests run in-process                                                                                                                                | n/a                                          |
+
+The e2e helpers, the seed and `e2e.sh` all call the Clerk Backend API with the one secret key. On
+a development instance that API allows 100 requests per 10 s for every holder of the key (both
+Railway environments, seed, e2e, CI), so the helpers throttle themselves and retry a 429 after
+`Retry-After`. Users created for tests use `e2e-<unique>+clerk_test@example.com` (code `424242`,
+no mail is sent) and are deleted afterwards; `pnpm --filter @taphoa/e2e run clerk:sweep` removes
+leftovers older than 24 h.
+
+**Rollout order.** `JWT_SECRET` stays in `.railway/railway.ts` and on both environments until the
+Clerk release is live; then delete it from the file (and the variable) in a follow-up. Deploying
+the Clerk branch to `test` applies migration `0701`, after which `main` code fails there, so the
+epic branch goes to `test` only when everything else is green and merges right after.
+
 ## CI pipeline
 
 `.github/workflows/ci.yml` splits work into small parallel jobs (target under 3 minutes
@@ -148,7 +218,9 @@ warm). `changes` (dorny/paths-filter) skips unaffected areas. Rust jobs share
 `rust-test` (partitions 1/2 and 2/2) and `rust-integration` (service containers) run
 without recompiling. JS jobs use the pnpm store cache and a Turborepo cache
 (`.github/actions/setup-js`). `docker-build` uses buildx with the GHA cache and shares the
-image as an artifact for `docker-e2e`. Each job appends a summary (JUnit counts through
+image as an artifact for `docker-e2e`, whose smoke script mints a Clerk session token for the
+store and image checks; `web-e2e` signs in through Clerk, and a tiny `clerk-secrets` job gates it
+so fork and dependabot runs (no secrets) skip with a notice. Each job appends a summary (JUnit counts through
 `scripts/ci/junit_summary.py`, duration through `scripts/ci/job-summary.sh`) and uploads
 JUnit or compose logs on failure. `ci-ok` aggregates everything (skipped counts as
 success) and prints a job timing table. The Docker image in CI is a thin wrapper (`apps/backend/Dockerfile.ci`) around a release binary built by `backend-binary` in `rust:1-bookworm` with a persistent cargo/target cache, so backend source changes stay under 3 minutes. The full cargo-chef `apps/backend/Dockerfile` that Railway builds is verified separately in `docker-full.yml` (push to main, nightly, Dockerfile changes), outside the required gate. Make `ci-ok` the only required status check.
@@ -160,9 +232,11 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
 
 1. After CI succeeds for a push to `main`: `railway up --service backend --environment test`,
    wait for `/healthz` and `/readyz`, run `scripts/ci/seed-test.sh` (the `taphoa-seed`
-   binary; skipped with a notice until it exists), then `scripts/ci/run-e2e.sh`
-   (`packages/e2e` against `BACKEND_URL_TEST` plus p95 latency probes; falls back to smoke
-   and latency probes with a notice while the suite is absent).
+   binary, which creates or reuses Clerk test users; skipped with a notice until it exists),
+   then `scripts/ci/run-e2e.sh` (`packages/e2e` against `BACKEND_URL_TEST` plus p95 latency
+   probes; falls back to smoke and latency probes with a notice while the suite is absent).
+   Both steps get `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY` from GitHub secrets, and
+   `run-e2e.sh` fails fast when the suite exists and `CLERK_SECRET_KEY` is empty.
 2. Only when that passes: deploy `production` and smoke it as described below.
 3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
    epic branches can be validated before merge.
@@ -177,11 +251,13 @@ and append-only.
 
 ### GitHub configuration for the test environment
 
-| Kind     | Name                 | Value                                                                        |
-| -------- | -------------------- | ---------------------------------------------------------------------------- |
-| Secret   | `RAILWAY_TOKEN_TEST` | Railway **project token** for environment `test` (dashboard > Tokens)        |
-| Variable | `BACKEND_URL_TEST`   | `https://backend-test-70c2.up.railway.app`                                   |
-| Variable | `LATENCY_P95_MS`     | Optional p95 budget in milliseconds for the e2e latency probes (default 200) |
+| Kind     | Name                    | Value                                                                          |
+| -------- | ----------------------- | ------------------------------------------------------------------------------ |
+| Secret   | `RAILWAY_TOKEN_TEST`    | Railway **project token** for environment `test` (dashboard > Tokens)          |
+| Secret   | `CLERK_SECRET_KEY`      | Clerk Backend API key: seed, e2e helpers and the docker smoke create users     |
+| Secret   | `CLERK_PUBLISHABLE_KEY` | Clerk Frontend API key (public by design); also embedded in web and app builds |
+| Variable | `BACKEND_URL_TEST`      | `https://backend-test-70c2.up.railway.app`                                     |
+| Variable | `LATENCY_P95_MS`        | Optional p95 budget in milliseconds for the e2e latency probes (default 200)   |
 
 Project tokens cannot be minted with the CLI login, so the secret must be created in the
 Railway dashboard (Project settings > Tokens, environment `test`) and added with

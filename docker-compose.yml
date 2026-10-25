@@ -52,7 +52,11 @@ services:
       PORT: '8080'
       DATABASE_URL: postgres://${POSTGRES_USER:-taphoa}:${POSTGRES_PASSWORD:-taphoa}@postgres:5432/${POSTGRES_DB:-taphoa}
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-local-dev-only-jwt-secret-change-me-0123456789}
+      # Clerk session JWTs are verified against the JWKS of this key's Frontend API. The default is
+      # the development instance's publishable key, public by design (it ships in the app bundle).
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-pk_test_ZnVsbC1tb2NjYXNpbi01NDA3LmNsZXJrLmFjY291bnRzLmRldiQ}
+      # Optional (profile reads). No value: passed through only when set in the shell or `.env`.
+      CLERK_SECRET_KEY:
       # Local/e2e only: raise per-IP auth limits so test suites can create many stores.
       RATE_LIMIT_STORE_CREATE_PER_HOUR: ${RATE_LIMIT_STORE_CREATE_PER_HOUR:-100000}
       RATE_LIMIT_JOIN_PER_HOUR: ${RATE_LIMIT_JOIN_PER_HOUR:-100000}
@@ -85,6 +89,8 @@ services:
       dockerfile: apps/mobile/Dockerfile.dev
     environment:
       EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:8080}
+      # Same Clerk instance as the backend service (public key, see above).
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-pk_test_ZnVsbC1tb2NjYXNpbi01NDA3LmNsZXJrLmFjY291bnRzLmRldiQ}}
       REACT_NATIVE_PACKAGER_HOSTNAME: ${REACT_NATIVE_PACKAGER_HOSTNAME:-localhost}
     ports:
       - '8081:8081'

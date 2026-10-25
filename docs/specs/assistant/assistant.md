@@ -149,7 +149,7 @@ proposed ──Confirm──▶ executing ──▶ done (result: entity ids)
 | `POST /v1/assistant/threads/{id}/messages`        | Send `{content, attachments?: [{image_id} or {receipt_id}], language}`; response is `text/event-stream` |
 | `POST /v1/assistant/actions/{id}/confirm`         | Execute a proposed action (`Idempotency-Key`)                                                           |
 | `POST /v1/assistant/actions/{id}/reject`          | Reject a proposed action                                                                                |
-| `POST /v1/assistant/messages/{id}/feedback`       | `{rating: up or down, comment?}`; becomes a Langfuse score                                              |
+| `POST /v1/assistant/messages/{id}/feedback`       | `{rating: up or down, comment?}`; becomes a PostHog LLM feedback event                                  |
 | `GET /v1/assistant/next-steps`                    | Ranked chips for `?screen=camera&document_detected=&unknown_product=`                                   |
 | `GET /v1/assistant/digest`                        | Daily digest for `?business_date=` (X8)                                                                 |
 | `POST /v1/devices` / `DELETE /v1/devices/{token}` | Register / remove an Expo push token (X8)                                                               |

@@ -1,69 +1,70 @@
 # Dashboards and charts
 
-Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · Epics: X6 (PostHog
-dashboards as code), X9 (Langfuse dashboards, verification)
+Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · ADR
+[0007](../../adr/0007-posthog-only-observability.md) · Epics: X6 (product dashboards as code),
+X9 (LLM analytics dashboards, verification)
 
-Every chart below must exist and show real data from `test` and `production` before DoD row 7
+Every chart below must exist and show real data from `test` and `production` before DoD rows 7
 and 8 pass. Each chart names the signal it needs ([telemetry contract](telemetry-contract.md)).
-Build dashboards as code where the vendor has an API (PostHog: `infra/posthog/`; Langfuse:
-check whether the current version exposes a dashboards API; if not, script the UI with
-Playwright and keep the script in `infra/langfuse/`). Scripts are idempotent: rerunning updates
-in place.
+All dashboards live in PostHog Cloud US (project 682994) and are built as code in
+`infra/posthog/` through the PostHog API with the personal API key. Scripts are idempotent:
+rerunning updates in place. Start from PostHog's built-in LLM analytics views and add the custom
+insights below.
 
-## Langfuse (self-hosted, project `taphoa`)
+## PostHog LLM analytics (assistant)
 
 Dashboard **Assistant health**
 
-| Chart                                  | Type         | Data                                            |
-| -------------------------------------- | ------------ | ----------------------------------------------- |
-| Turns per day by environment           | stacked bars | traces `assistant.turn`, `langfuse.environment` |
-| Turn latency p50 / p95                 | line         | trace duration                                  |
-| Time to first token p50 / p95 by model | line         | `chat` generation attribute                     |
-| Model calls per turn                   | histogram    | generations per trace                           |
-| Error and quota rate                   | line         | trace level ERROR, `quota_hit` score            |
-| Fallback rate by model                 | bars         | `taphoa.assistant.fallback_index > 0`           |
+| Chart                                  | Type         | Data                                                   |
+| -------------------------------------- | ------------ | ------------------------------------------------------ |
+| Turns per day by environment           | stacked bars | `$ai_trace` count, breakdown `environment`             |
+| Turn latency p50 / p95                 | line         | `$ai_trace.$ai_latency`                                |
+| Time to first token p50 / p95 by model | line         | `$ai_generation.time_to_first_token_ms` by `$ai_model` |
+| Model calls per turn                   | histogram    | `$ai_generation` per `$ai_trace_id`                    |
+| Error and quota rate                   | line         | `$ai_generation.$ai_is_error`, `assistant_quota_hit`   |
+| Fallback rate by model                 | bars         | `$ai_generation.fallback_index > 0`                    |
 
 Dashboard **Cost and tokens**
 
-| Chart                                  | Type          | Data                                                     |
-| -------------------------------------- | ------------- | -------------------------------------------------------- |
-| Input / output tokens per day by model | stacked bars  | generation usage                                         |
-| Tokens per turn p50 / p95              | line          | trace usage totals                                       |
-| Cost per day by model                  | bars          | generation cost (0 for free models; ready for paid ones) |
-| Requests vs. 1,000/day free quota      | line + target | generations per day                                      |
+| Chart                                  | Type          | Data                                                      |
+| -------------------------------------- | ------------- | --------------------------------------------------------- |
+| Input / output tokens per day by model | stacked bars  | `$ai_input_tokens`, `$ai_output_tokens` by `$ai_model`    |
+| Tokens per turn p50 / p95              | line          | token sums per `$ai_trace_id`                             |
+| Cost per day by model                  | bars          | PostHog LLM cost (0 for free models; ready for paid ones) |
+| Requests vs. 1,000/day free quota      | line + target | `$ai_generation` per day, all environments                |
 
 Dashboard **Tools and actions**
 
-| Chart                              | Type         | Data                                   |
-| ---------------------------------- | ------------ | -------------------------------------- |
-| Tool calls per day by tool         | stacked bars | `execute_tool` observations            |
-| Tool error and denied rate by tool | bars         | `taphoa.tool.ok`, `taphoa.tool.denied` |
-| Tool latency p95 by tool           | bars         | observation duration                   |
-| Use-case mix                       | pie          | trace tags `U1`..`U23`                 |
-| Proposed action outcomes by kind   | stacked bars | `action_outcome` score                 |
-| Next-step chip to turn             | bars         | tags `next_step:<kind>`                |
+| Chart                              | Type         | Data                                                                 |
+| ---------------------------------- | ------------ | -------------------------------------------------------------------- |
+| Tool calls per day by tool         | stacked bars | `$ai_span` by `$ai_span_name`                                        |
+| Tool error and denied rate by tool | bars         | `$ai_span.$ai_is_error`, `denied`                                    |
+| Tool latency p95 by tool           | bars         | `$ai_span.$ai_latency`                                               |
+| Use-case mix                       | pie          | `$ai_trace.use_cases`                                                |
+| Proposed action outcomes by kind   | stacked bars | `assistant_action_decided` by `kind`, `decision`                     |
+| Next-step chip to turn             | bars         | `$ai_trace.next_step_kind`; `next_step_tapped` to `$ai_trace` funnel |
 
 Dashboard **Quality**
 
-| Chart                                   | Type          | Data                                                                                      |
-| --------------------------------------- | ------------- | ----------------------------------------------------------------------------------------- |
-| User feedback (thumbs) over time        | line          | `user_feedback` score                                                                     |
-| Eval scores per run by model            | grouped bars  | dataset runs: `tool_selection`, `facts`, `judge`, `permission_leak`, `injection_resisted` |
-| Eval pass rate by use case              | heatmap/table | dataset run item scores by case tag                                                       |
-| Online judge score on production sample | line          | Langfuse LLM-as-judge evaluator on 10 % of production traces                              |
+| Chart                                   | Type         | Data                                                                                  |
+| --------------------------------------- | ------------ | ------------------------------------------------------------------------------------- |
+| User feedback (thumbs) over time        | line         | LLM feedback event by `rating`                                                        |
+| Eval scores per run by model            | grouped bars | `eval_case_scored` mean `value` by `model`, `scorer`, `eval_run_id`                   |
+| Eval pass rate by use case              | table        | `eval_case_scored` by `use_case`, `scorer`                                            |
+| Online judge score on production sample | line         | PostHog evaluations on 10 % of production generations (or the nightly harness sample) |
 
 Dashboard **Users and stores**
 
 | Chart                             | Type      | Data                             |
 | --------------------------------- | --------- | -------------------------------- |
-| Active assistant users per day    | line      | distinct `langfuse.user.id`      |
-| Top users by turns                | table     | user id, turns, feedback         |
-| Turns per store                   | table     | `store_id` metadata              |
-| Turns per session (thread length) | histogram | traces per `langfuse.session.id` |
+| Active assistant users per day    | line      | unique persons with `$ai_trace`  |
+| Top users by turns                | table     | person, turns, feedback          |
+| Turns per store                   | table     | `$ai_trace` by `store` group     |
+| Turns per session (thread length) | histogram | `$ai_trace` per `$ai_session_id` |
 
-Also configure: Langfuse model definitions for the free models (so token counts and zero costs
-show), the online LLM-as-judge evaluator (OpenRouter connection, free judge model, 10 %
-production sampling, Vietnamese rubric), and saved trace views for errors and rejected actions.
+Also configure: custom model pricing 0 for the free OpenRouter models, a PostHog LLM evaluation
+(LLM-as-judge with the Vietnamese rubric on 10 % of production generations) if the plan offers
+it, and saved LLM trace filters for errors, quota hits and rejected actions.
 
 ## PostHog (Cloud US, project 682994)
 

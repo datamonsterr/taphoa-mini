@@ -225,7 +225,6 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 30
     env:
       RUSTUP_TOOLCHAIN: stable
-      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
       # Many suites create stores from one IP; raise the per-IP auth limits for the run.
       RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
       RATE_LIMIT_JOIN_PER_HOUR: '100000'
@@ -609,8 +608,18 @@ jobs:
           path: ${{ runner.temp }}
       - name: Load the image built by docker-build
         run: zstd -dc "$RUNNER_TEMP/image.tar.zst" | docker load
-      - run: docker compose up -d --wait --wait-timeout 120 --no-build postgres redis storage backend
-      - run: apps/backend/scripts/e2e.sh
+      # The backend verifies Clerk session JWTs against the JWKS of CLERK_PUBLISHABLE_KEY; compose
+      # falls back to the (public) development key when the secret is empty on fork runs.
+      - name: Start the compose stack
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: docker compose up -d --wait --wait-timeout 120 --no-build postgres redis storage backend
+      # Store creation and the image round trip need a Clerk session token minted with the secret
+      # key; without it (forks, dependabot) the script skips those checks with a notice.
+      - name: Smoke checks
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: apps/backend/scripts/e2e.sh
       - name: Compose logs
         if: failure()
         run: docker compose logs --no-color > "$RUNNER_TEMP/compose.log"
@@ -630,12 +639,34 @@ jobs:
 
   # ---------- Web E2E against the real backend ----------
 
+  # Fork and dependabot runs get no repository secrets, and the web E2E signs in through Clerk:
+  # it skips with a notice there instead of failing.
+  clerk-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check for Clerk secrets
+        id: check
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: |
+          if [ -n "$CLERK_SECRET_KEY" ] && [ -n "$CLERK_PUBLISHABLE_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Secrets CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are not available (fork or dependabot run); skipping web-e2e."
+          fi
+
   # Playwright drives the exported web app against the prebuilt backend binary with SAM + DINO
   # models loaded. The binary is built in rust:bookworm (glibc 2.36); ubuntu-latest has a newer
   # glibc, and ONNX Runtime is loaded at run time (ort load-dynamic + ORT_DYLIB_PATH).
   web-e2e:
-    needs: [changes, backend-binary]
-    if: needs.changes.outputs.js == 'true' || needs.changes.outputs.rust == 'true'
+    needs: [changes, backend-binary, clerk-secrets]
+    if: >-
+      (needs.changes.outputs.js == 'true' || needs.changes.outputs.rust == 'true') &&
+      needs.clerk-secrets.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -683,15 +714,25 @@ jobs:
           command -v ffmpeg > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
           apps/mobile/e2e-web/fixtures/make-video.sh
           echo "PLAYWRIGHT_FAKE_VIDEO=$PWD/apps/mobile/e2e-web/fixtures/product.mjpeg" >> "$GITHUB_ENV"
+      # The backend derives the Clerk issuer from CLERK_PUBLISHABLE_KEY and, with the secret key,
+      # reads profiles from the Clerk Backend API.
       - name: Start backend stack (postgres, redis, storage, backend with models)
         env:
           BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/e2e/stack.sh up
-      # The export embeds EXPO_PUBLIC_API_URL: the app and the specs talk to the backend that
-      # stack.sh started on :8080. PLAYWRIGHT_FAKE_VIDEO (set above) is the fake camera's clip.
+      # The export embeds EXPO_PUBLIC_API_URL and EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: the app and
+      # the specs talk to the backend that stack.sh started on :8080, and the app signs in through
+      # the same Clerk instance. The specs create users with the secret key (Backend API) and
+      # CLERK_PUBLISHABLE_KEY (@clerk/testing). PLAYWRIGHT_FAKE_VIDEO (set above) is the fake
+      # camera's clip.
       - name: Playwright web E2E
         env:
           EXPO_PUBLIC_API_URL: http://localhost:8080
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: pnpm --filter @taphoa/mobile test:e2e:web
       - name: Backend log
         if: failure()
@@ -775,6 +816,7 @@ jobs:
       - backend-binary
       - docker-build
       - docker-e2e
+      - clerk-secrets
       - web-e2e
       - actionlint
       - ci-scripts

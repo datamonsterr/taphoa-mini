@@ -63,37 +63,31 @@ change; "Touches" lists agreed integration points it may edit minimally.
 ## X2 · Observability platform and backend OpenTelemetry
 
 - **Branch:** `epic/x2-observability` · **Depends:** none · **Wave:** 1
-- **Spec:** [telemetry-contract.md](telemetry-contract.md), ADR 0006.
-- **Owns:** `infra/otel-collector/**` (config, Dockerfile, README), `infra/langfuse/**` (setup
-  and bootstrap scripts, notes), `apps/backend/crates/api/src/telemetry.rs`, telemetry init in
-  `main.rs`, `TraceLayer` and context extraction in `lib.rs`, OTel crates in `Cargo.toml`,
-  `.railway/railway.ts` variable additions, `.env.example`, a "Telemetry" section in
-  `docs/deploy.md`.
+- **Spec:** [telemetry-contract.md](telemetry-contract.md), ADR 0007 (supersedes 0006: no
+  Langfuse).
+- **Owns:** `infra/otel-collector/**` (config, Dockerfile, README),
+  `apps/backend/crates/api/src/telemetry.rs`, telemetry init in `main.rs`, `TraceLayer` and
+  context extraction in `lib.rs`, OTel crates in `Cargo.toml`, `.railway/railway.ts` variable
+  additions, `.env.example`, a "Telemetry" section in `docs/deploy.md`.
 - **Touches:** `auth/actor.rs` (one call recording identity attributes), DB/Redis/S3 client
   wrappers for client spans, `events/relay.rs` and `retention.rs` job spans.
 - **Tasks:**
-  1. Langfuse v3 stack in Railway `production` (web, worker, ClickHouse with volume, Postgres,
-     Redis, S3-compatible storage; prefer a Railway Bucket over MinIO if Langfuse supports it),
-     headless init (`LANGFUSE_INIT_*`: org, project `taphoa`, API keys, admin user = the account
-     email, generated password kept as a Railway variable), public domain. Check the current
-     Langfuse self-hosting docs and the Railway template before choosing.
-  2. Verify with `railway config plan` that `.railway/railway.ts` does not try to delete the new
-     services in either environment; extend the file or document why not.
-  3. OTel Collector service (contrib image pinned) with OTLP/HTTP receiver, bearer auth,
-     redaction, routing per the contract, exporters to Langfuse and PostHog; private endpoint
-     for production, public domain for `test`.
-  4. Backend telemetry module: tracer and logger providers, OTLP/HTTP exporter, resource
+  1. Remove all Langfuse work from the branch (exporter, `infra/langfuse/**`, variables, docs).
+     The program controller deletes the Langfuse Railway resources.
+  2. OTel Collector service (contrib image pinned) with OTLP/HTTP receiver, bearer auth,
+     redaction, all traces and logs exported to PostHog; private endpoint for production, public
+     domain for `test`. Verify with `railway config plan` that `.railway/railway.ts` does not try
+     to delete the collector in either environment.
+  3. Backend telemetry module: tracer and logger providers, OTLP/HTTP exporter, resource
      attributes, W3C propagation, identity recording, DB/Redis/S3/job spans, graceful flush on
      shutdown, disabled when no endpoint is configured.
-  5. Railway variables for `test` and `production`; put Langfuse keys into
-     `~/.config/taphoa-mini/secrets.env` and GitHub secrets (`LANGFUSE_BASE_URL`,
-     `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`).
+  4. Railway variables for `test` and `production`.
 - **Acceptance:** Rust tests with in-memory exporters assert every required attribute in the
   contract for an HTTP request, an authenticated request, a DB call and a job; collector config
   test (`otelcol validate`) in CI; on Railway `test`, a request produces a PostHog log line with
-  `trace_id` and identity, and a synthetic `gen_ai` span reaches Langfuse (query the Langfuse
-  API); Langfuse UI login works.
-- **Out of scope:** assistant spans (X3), product events and dashboards (X6, X9), OTel metrics.
+  `trace_id` and identity, and its trace is visible in PostHog.
+- **Out of scope:** assistant spans and `$ai_*` events (X3), product events and dashboards (X6,
+  X9), OTel metrics.
 
 ---
 
@@ -133,7 +127,8 @@ change; "Touches" lists agreed integration points it may edit minimally.
   tool calling, streaming and model fallback routing); scripted mock model client for tests;
   tool registry with permission filtering; all tools except debt tools; proposed-action
   lifecycle with idempotent confirm through existing service functions; SSE stream; threads and
-  feedback (feedback and action outcomes become Langfuse scores); next-steps rules (except
+  feedback; PostHog LLM analytics events `$ai_trace`/`$ai_span`/`$ai_generation`, feedback and
+  action-outcome events through the backend PostHog client (per the telemetry contract); next-steps rules (except
   `overdue_debts`, `digest`); quota; eval headers; GenAI spans per the contract; Vietnamese
   prompts and help articles; tax rule table from current regulation with sources.
 - **Acceptance (tests first):** unit tests per tool against seeded fixtures; loop tests with the
@@ -179,12 +174,12 @@ change; "Touches" lists agreed integration points it may edit minimally.
   oracle SQL, a CI job `assistant-eval-smoke` in `ci.yml`, `.github/workflows/eval.yml`
   (nightly + manual), `packages/eval/results/model-choice.md`.
 - **Tasks:** eval store seed; case files (Vietnamese, about 140); oracle queries; scorers and
-  judge with calibration; Langfuse dataset sync, runs and scores (check the current Langfuse JS
-  SDK); quota guard; smoke in CI; nightly workflow; model comparison across current free
+  judge with calibration; scores as `eval_case_scored` / `eval_run_completed` PostHog events plus
+  a results file per run (check current PostHog docs); quota guard; smoke in CI; nightly workflow; model comparison across current free
   tool-capable models; set `ASSISTANT_MODELS` on Railway from the result.
 - **Acceptance:** scorer unit tests (number normalization, tool matching, leak detection) first;
   harness dry run with a stub assistant; after X3 merges, full run meets the pass bars with the
-  chosen model and shows in Langfuse as a dataset run; DoD row 4.
+  chosen model and shows in PostHog insights and `packages/eval/results/`; DoD row 4.
 - **Coordinate:** before X3 merges, build and test everything against the X0 mock contract and
   a stub; then wait for X3 and run. Report misses to the program controller with the failing case
   ids so X3 can fix prompts or tools.
@@ -212,7 +207,7 @@ change; "Touches" lists agreed integration points it may edit minimally.
   forbidden ones; Rust tests for the outbox mapping; script dry-run tests; on `test`, every
   PostHog dashboard in dashboards.md shows data (API query per insight); DoD row 8 except final
   screenshots.
-- **Out of scope:** Langfuse dashboards (X9), marketing site analytics.
+- **Out of scope:** LLM analytics dashboards (X9), marketing site analytics.
 
 ---
 
@@ -241,12 +236,13 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 - **Branch:** `epic/x9-dashboards-dod` · **Depends:** all · **Wave:** 4
 - **Spec:** [dashboards.md](dashboards.md), README "Definition of done".
-- **Owns:** `infra/langfuse/dashboards/**`, Langfuse model definitions, online evaluator setup,
-  `docs/specs/assistant/dod-report.md`, screenshots under `docs/specs/assistant/dod/`.
-- **Tasks:** build every Langfuse dashboard and chart; configure the online judge; drive real
-  traffic on `test` (full e2e, eval smoke, Maestro and Playwright flows) and production smoke;
-  verify every Langfuse and PostHog chart shows data through their APIs; capture screenshots
-  (Claude in Chrome or Playwright); walk DoD rows 1-10 and record evidence; fix small gaps or
-  send them to the owning epic through the program controller; confirm production deploy; clean
-  up all program worktrees per `AGENTS.md`.
+- **Owns:** LLM analytics dashboards in `infra/posthog/llm/**` (same idempotent tooling as X6),
+  PostHog custom model pricing and LLM evaluation setup, `docs/specs/assistant/dod-report.md`,
+  screenshots under `docs/specs/assistant/dod/`.
+- **Tasks:** build every chart in the "PostHog LLM analytics" section of dashboards.md; configure
+  the online judge; drive real traffic on `test` (full e2e, eval smoke, Maestro and Playwright
+  flows) and production smoke; verify every PostHog chart shows data through the API; capture
+  screenshots (Claude in Chrome or Playwright); walk DoD rows 1-10 and record evidence; fix small
+  gaps or send them to the owning epic through the program controller; confirm production
+  deploy; clean up all program worktrees per `AGENTS.md`.
 - **Acceptance:** `dod-report.md` with evidence for every DoD row, no open gap.
