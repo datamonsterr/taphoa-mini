@@ -11,16 +11,19 @@ These settle what golden-set.md leaves open. Changes go through the X7 controlle
 
 - **Where the eval runs.** Primarily against a local stack: compose Postgres and Redis, the
   backend binary with `ASSISTANT_ALLOW_EVAL_HEADERS=1`, and `taphoa-seed --profile eval`. CI
-  smoke and the nightly full run use the same stack inside GitHub Actions. Reason: oracle SQL
-  needs direct database access, and Railway `test` Postgres has no public proxy. A run against
-  Railway `test` works when `EVAL_DATABASE_URL` reaches that database. The harness never
-  needs it otherwise.
-- **Eval-only backend hooks requested from X3** (sent to the program controller on
-  2026-10-25). All of them apply only when `ASSISTANT_ALLOW_EVAL_HEADERS=1`:
-  `X-Taphoa-Today` and `X-Taphoa-Eval-Run` (spec); `X-Taphoa-Eval-Model` overrides
-  `ASSISTANT_MODELS` for one turn (needed by `compare`); eval turns skip the per-store daily
-  cap; `message.completed.model` is the model that answered. The pinned date must reach the
-  tools as well as the system prompt.
+  smoke and the nightly full run use the same stack inside GitHub Actions. Reason: the local
+  stack is isolated and deterministic. One smoke run also targets the deployed Railway `test`
+  backend once X3 is merged (DoD row 4): seed the eval store there, then point
+  `EVAL_DATABASE_URL` at the Postgres public TCP proxy (`scripts/ci/railway_env.py` builds the
+  URL).
+- **Eval-only backend hooks (approved, built by X3).** All of them apply only when
+  `ASSISTANT_ALLOW_EVAL_HEADERS=1`, and only when both `X-Taphoa-Eval-Run` (1-64 chars
+  `[A-Za-z0-9._:-]`) and `X-Taphoa-Today` (`YYYY-MM-DD`) are present; otherwise the backend
+  silently ignores them. The pinned date reaches the prompt and every tool. `X-Taphoa-Eval-Model`
+  overrides `ASSISTANT_MODELS` for one turn, with no fallback (used by `compare`). Eval turns
+  skip the per-store daily cap. `message.completed.model` is the model that produced the final
+  answer. Once OpenRouter returns its free daily-limit 429, every turn ends with SSE error
+  `quota` until the next UTC midnight.
 - **PostHog events.** PostHog's `$ai_evaluation` events come from evaluations that PostHog
   itself runs on `$ai_generation` events. PostHog "offline evals" (`@posthog/ai/evaluations`,
   experiments and scorers) is still rolling out and needs extra personal-key scopes
@@ -180,16 +183,16 @@ name in `packages/eval/STORE.md`:
 
 ## Tasks (tests first in each)
 
-| #   | Task                                                                                                                                                       | Tests written first                                                                                                        | Depends | Worker              |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------- |
-| T0  | Package scaffold, `src/types.ts`, lockfile                                                                                                                 | `pnpm --filter @taphoa/eval typecheck`                                                                                     | none    | haiku (mechanical)  |
-| T1  | Scorers, case loader/validator/coverage                                                                                                                    | `src/scorers/*.test.ts` (number normalization, tool matching, leak detection), `src/cases/*.test.ts`                       | T0      | sonnet              |
-| T2  | Eval seed profile                                                                                                                                          | `tests/seed_eval.rs` (determinism, fixture invariants, rerun, reset)                                                       | none    | sonnet              |
-| T4  | Runner, stub assistant, auth provider, quota guard, judge, PostHog, results, CLI                                                                           | `src/runner/*.test.ts`, `quota.test.ts`, `posthog.test.ts`, `results.test.ts`, `judge/*.test.ts`, dry run against the stub | T0      | sonnet              |
-| T3  | Oracle SQL, refs, `ORACLES.md`                                                                                                                             | `src/oracle/*.test.ts` (catalog), `oracle.integration.test.ts` against a seeded DB                                         | T1, T2  | sonnet              |
-| T5  | 144 Vietnamese cases, 10 calibration answers                                                                                                               | `golden.test.ts` (schema, coverage, smoke = 25, oracle names exist)                                                        | T3      | sonnet              |
-| T6  | CI job `assistant-eval-smoke`, `.github/workflows/eval.yml`                                                                                                | `actionlint`; stub-mode smoke green in CI                                                                                  | T3, T4  | sonnet              |
-| T7  | After X1 and X3 on `main`: rebase, Clerk identity in seed and harness, debt fixtures when X5 lands, live smoke, full, compare, `ASSISTANT_MODELS`, results | live smoke and full meet the pass bars                                                                                     | X1, X3  | controller + sonnet |
+| #   | Task                                                                                                                                                                                         | Tests written first                                                                                                        | Depends | Worker              |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------- |
+| T0  | Package scaffold, `src/types.ts`, lockfile                                                                                                                                                   | `pnpm --filter @taphoa/eval typecheck`                                                                                     | none    | haiku (mechanical)  |
+| T1  | Scorers, case loader/validator/coverage                                                                                                                                                      | `src/scorers/*.test.ts` (number normalization, tool matching, leak detection), `src/cases/*.test.ts`                       | T0      | sonnet              |
+| T2  | Eval seed profile                                                                                                                                                                            | `tests/seed_eval.rs` (determinism, fixture invariants, rerun, reset)                                                       | none    | sonnet              |
+| T4  | Runner, stub assistant, auth provider, quota guard, judge, PostHog, results, CLI                                                                                                             | `src/runner/*.test.ts`, `quota.test.ts`, `posthog.test.ts`, `results.test.ts`, `judge/*.test.ts`, dry run against the stub | T0      | sonnet              |
+| T3  | Oracle SQL, refs, `ORACLES.md`                                                                                                                                                               | `src/oracle/*.test.ts` (catalog), `oracle.integration.test.ts` against a seeded DB                                         | T1, T2  | sonnet              |
+| T5  | 144 Vietnamese cases, 10 calibration answers                                                                                                                                                 | `golden.test.ts` (schema, coverage, smoke = 25, oracle names exist)                                                        | T3      | sonnet              |
+| T6  | CI job `assistant-eval-smoke`, `.github/workflows/eval.yml`                                                                                                                                  | `actionlint`; stub-mode smoke green in CI                                                                                  | T3, T4  | sonnet              |
+| T7  | After X1 and X3 on `main`: rebase, Clerk identity in seed and harness, debt fixtures when X5 lands, live smoke, full, compare, `ASSISTANT_MODELS`, results, one smoke against Railway `test` | live smoke and full meet the pass bars                                                                                     | X1, X3  | controller + sonnet |
 
 Waves: T0, then T1, T2 and T4 in parallel, then T3, then T5 and T6. T7 starts once X1 and
 X3 are on `main`. Superorchestrator codex accounts are in cooldown on 2026-10-25, so workers are
@@ -200,6 +203,7 @@ native background subagents (`claude-sonnet-5-5`, `claude-haiku-5-5`), per the R
 - Scorer unit tests first, then `pnpm --filter @taphoa/eval test typecheck lint` green.
 - `pnpm --filter @taphoa/eval run smoke -- --stub` dry run passes against the stub assistant.
 - `cargo nextest run -p taphoa-api --test seed_eval` green.
+- After X3 merges: one smoke run against the deployed Railway `test` backend passes.
 - After X3 merges: live full run meets every bar in golden-set.md with the chosen model,
   `eval_run_completed` appears in PostHog, and the results file is committed (DoD row 4).
 - `results/model-choice.md` names the winner; Railway `ASSISTANT_MODELS` (test, production)
