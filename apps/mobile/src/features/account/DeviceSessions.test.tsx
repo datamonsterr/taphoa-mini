@@ -299,8 +299,8 @@ describe('switching person', () => {
     await waitFor(() => expect(people.verifies()[0]?.storeId).toBe('store_ut'));
   });
 
-  test('a PIN only guards the store that person has selected', async () => {
-    crowd({
+  test('a PIN in a store the person did not select still guards them, and that store is verified', async () => {
+    const people = crowd({
       token_sess_ut: {
         me: buildMe({
           userId: 'user_ut',
@@ -314,10 +314,12 @@ describe('switching person', () => {
       },
     });
     useCurrentStore.getState().selectStore('user_ut', 'store_ut_2');
-    await open();
-    await fireEvent.press(row(1));
+    await openPinFor(1);
+    expect(clerkMock.setActive).not.toHaveBeenCalled();
+    await submitPin(UT_PIN);
     await waitFor(() => expect(clerkMock.setActive).toHaveBeenCalledTimes(1));
-    expect(screen.queryByTestId('account-switch-pin')).toBeNull();
+    expect(people.verifies()).toHaveLength(1);
+    expect(people.verifies()[0]!.storeId).toBe('store_ut');
   });
 
   test('a wrong PIN says so, stays on the sheet, clears the digits and never activates', async () => {

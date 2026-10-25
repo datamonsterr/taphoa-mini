@@ -5,12 +5,13 @@ import { useCallback, useState } from 'react';
 import {
   deviceMeKey,
   personName,
+  pinMembership,
   type DeviceSession,
 } from '@/features/auth/deviceSessions';
 import { fetchSessionMe, verifySessionPin } from '@/features/auth/sessionApi';
 import { isApiError } from '@/lib/api/errors';
 import { useT } from '@/lib/i18n';
-import { resolveMembership, useCurrentStore } from '@/stores/currentStore';
+import { useCurrentStore } from '@/stores/currentStore';
 import { useDeviceLock } from '@/stores/deviceLock';
 
 import { fill, strings } from './strings';
@@ -19,7 +20,7 @@ export type SwitchTarget = {
   session: DeviceSession;
   /** Name shown in the PIN sheet title. */
   name: string;
-  /** The store whose member PIN is checked: the one that person has selected. */
+  /** The store whose member PIN is checked: their selected one, else any store where they have a PIN. */
   storeId: string;
 };
 
@@ -36,10 +37,11 @@ function waitText(
 }
 
 /**
- * Switching to another person on this phone. Someone with a PIN in the store they last used
- * must enter it first; the PIN is checked with *their* session token and store, and only a 204
- * activates their Clerk session. Anyone else is switched to directly. After `setActive` the
- * device lock is lifted: this is how the sign-in screen's person picker lets somebody in.
+ * Switching to another person on this phone. Someone with a PIN in any of their stores (their
+ * selected one first) must enter it first; the PIN is checked with *their* session token and the
+ * store that holds it, and only a 204 activates their Clerk session. Anyone else is switched to
+ * directly. After `setActive` the device lock is lifted: this is how the sign-in screen's person
+ * picker lets somebody in.
  */
 export function useSwitchSession() {
   const t = useT(strings);
@@ -78,14 +80,14 @@ export function useSwitchSession() {
           queryFn: () => fetchSessionMe(session),
           staleTime: 0,
         });
-        // That person's own selection (else their first store), not the active person's.
-        const membership = resolveMembership(
-          me.memberships,
+        // That person's own selection, not the active person's; a PIN in any of their stores counts.
+        const membership = pinMembership(
+          me,
           useCurrentStore.getState().storeIds[
             session.user?.id ?? me.clerk_user_id
           ],
         );
-        if (membership?.member.has_pin)
+        if (membership)
           setTarget({
             session,
             name: personName(session, me) || t('sessions.unknown'),

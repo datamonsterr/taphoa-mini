@@ -2,6 +2,7 @@ import type { useSessionList } from '@clerk/expo';
 
 import { keys } from '@/lib/api/keys';
 import type { Me } from '@/lib/api/store';
+import { resolveMembership, type Membership } from '@/stores/currentStore';
 
 type LoadedSessionList = Extract<
   ReturnType<typeof useSessionList>,
@@ -35,3 +36,18 @@ export const personName = (session: DeviceSession, me?: Me): string =>
   sessionEmail(session) ||
   me?.profile?.email ||
   '';
+
+/**
+ * The membership whose PIN stands between someone and this phone: the person's selected store
+ * (else their first) when it has a PIN, otherwise any other active membership with one. A PIN in
+ * any of their stores guards them, so having picked a store without one is no way around it.
+ * `/v1/me` lists active memberships only. Null when none has a PIN.
+ */
+export function pinMembership(
+  me: Pick<Me, 'memberships'>,
+  selectedStoreId?: string,
+): Membership | null {
+  const selected = resolveMembership(me.memberships, selectedStoreId);
+  if (selected?.member.has_pin) return selected;
+  return me.memberships.find(({ member }) => member.has_pin) ?? null;
+}

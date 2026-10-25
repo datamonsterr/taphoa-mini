@@ -51,10 +51,15 @@ session's own `session.getToken()` (cached per session with React Query under
 The name is `profile.display_name`, else the Clerk email, else "Người dùng".
 
 Switching: the target's `/me` is re-read on every tap (never trust a cached
-`has_pin`). The target's store is `currentStore.storeIds[<their Clerk user id>]`
-or their first membership. Without a PIN (or without any store) `setActive({ session })`
-runs at once. With a PIN the account PIN sheet opens and `POST /v1/me/pin/verify`
-is sent with the **target** session's token and `X-Store-Id` of that store
+`has_pin`). A PIN is required when **any** active membership of the target has
+`has_pin` (`/v1/me` lists active memberships only), so choosing a store without a PIN
+is no way around the PIN of another. The store that is verified is
+`currentStore.storeIds[<their Clerk user id>]` or their first membership when that one
+has a PIN, else their first membership that does (`pinMembership` in
+`src/features/auth/deviceSessions.ts`). Without a PIN anywhere (or without any store)
+`setActive({ session })` runs at once. With a PIN the account PIN sheet opens and
+`POST /v1/me/pin/verify` is sent with the **target** session's token and `X-Store-Id`
+of that store
 (`src/features/auth/sessionApi.ts`, a one-off client beside the active one; one 401
 replay with `getToken({ skipCache: true })`, never for `invalid_pin`). Only 204 calls
 `setActive`. 401 `invalid_pin` shows "Sai mã PIN" and clears the digits; 429 shows
@@ -85,8 +90,9 @@ routes to `/sign-in`, and `SignInScreen` lists the people still signed in on the
 "Chọn người trên máy này" (`DeviceSessions variant="signIn"`, nobody is current, no "add"
 row), then "Hoặc đăng nhập bằng email khác" and the normal email / Google form. Picking
 someone runs the same `useSwitchSession` as the account tab: their `/me` is re-read with
-their own token; without a PIN in their selected store `setActive` runs at once; with one
-the `auth-switch-pin` sheet verifies it with **their** token and `X-Store-Id`, and only a
+their own token; without a PIN in any of their stores `setActive` runs at once; with one
+the `auth-switch-pin` sheet verifies it with **their** token and `X-Store-Id` of the store
+that holds it, and only a
 204 calls `setActive` (wrong PIN stays and clears, 429 shows the lockout). When nobody is
 left, or only ended / pending sessions, the list is hidden. `flow="add"` (the signed-in
 "add a person" route) never shows it. The welcome screen's "Đăng xuất" uses the same hook,

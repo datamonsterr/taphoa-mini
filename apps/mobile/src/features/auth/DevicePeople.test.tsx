@@ -276,6 +276,54 @@ describe('picking a person', () => {
     expect(people.verifies()[0]!.storeId).toBe('store_ut_2');
   });
 
+  test('a PIN in any membership is required, even when the selected store has none', async () => {
+    const people = await sharedPhone({
+      token_sess_ut: {
+        me: buildMe({
+          userId: 'user_ut',
+          name: 'Bé Út',
+          memberships: [
+            { storeId: 'store_ut', hasPin: false },
+            { storeId: 'store_ut_2', hasPin: true },
+          ],
+        }),
+        pin: UT_PIN,
+      },
+    });
+    // Her selected store has no PIN: choosing it must not be a way around the other one's.
+    useCurrentStore.getState().selectStore('user_ut', 'store_ut');
+    await openPinFor(0);
+    expect(clerkMock.setActive).not.toHaveBeenCalled();
+    await submitPin(UT_PIN);
+    await waitFor(() => expect(clerkMock.setActive).toHaveBeenCalledTimes(1));
+    expect(people.verifies()).toHaveLength(1);
+    expect(people.verifies()[0]).toMatchObject({
+      token: 'token_sess_ut',
+      storeId: 'store_ut_2',
+    });
+  });
+
+  test('with PINs in several stores the selected store is the one verified', async () => {
+    const people = await sharedPhone({
+      token_sess_ut: {
+        me: buildMe({
+          userId: 'user_ut',
+          name: 'Bé Út',
+          memberships: [
+            { storeId: 'store_ut', hasPin: true },
+            { storeId: 'store_ut_2', hasPin: true },
+          ],
+        }),
+        pin: UT_PIN,
+      },
+    });
+    useCurrentStore.getState().selectStore('user_ut', 'store_ut_2');
+    await openPinFor(0);
+    await submitPin(UT_PIN);
+    await waitFor(() => expect(people.verifies()).toHaveLength(1));
+    expect(people.verifies()[0]!.storeId).toBe('store_ut_2');
+  });
+
   test('a wrong PIN says so, stays on the sheet, clears the digits and never activates', async () => {
     const people = await sharedPhone();
     await openPinFor(0);
