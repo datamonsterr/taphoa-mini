@@ -9,7 +9,7 @@ import {
   volume,
 } from 'railway/iac';
 
-export default defineRailway(() => {
+export default defineRailway((ctx) => {
   const Redis = redis('Redis', { region: 'sin' });
   Redis.deploy = {
     startCommand:
@@ -79,6 +79,13 @@ export default defineRailway(() => {
       SAM_DECODERS: '4',
       // OCR paths are inherited from the Dockerfile; cap intra-op workers.
       OCR_THREADS: '4',
+      // Telemetry credentials and routing are managed in Railway in both environments.
+      POSTHOG_PROJECT_TOKEN: preserve(),
+      POSTHOG_HOST: preserve(),
+      OTEL_EXPORTER_OTLP_ENDPOINT: preserve(),
+      OTEL_EXPORTER_OTLP_HEADERS: preserve(),
+      // Set by the deploy workflow to the deployed git SHA.
+      SERVICE_VERSION: preserve(),
       OPENROUTER_API_KEY: preserve(),
       DECISIONS_MODEL: 'inception/mercury-decide:free',
       // Bucket credentials are not referencable from IaC; set once with
@@ -106,8 +113,37 @@ export default defineRailway(() => {
   // this file; plan `test` with care.
   const images = bucket('images-sin', { region: 'sin' });
 
+  const resources = [
+    Redis,
+    Postgres,
+    backend,
+    redisVolume,
+    postgresVolume,
+    images,
+  ];
+
+  // One shared telemetry collector: test exports through the production collector's public domain.
+  if (ctx.isEnvironment('production')) {
+    const collector = service('otel-collector', {
+      build: {
+        builder: 'DOCKERFILE',
+        dockerfilePath: 'infra/otel-collector/Dockerfile',
+        watchPatterns: ['infra/otel-collector/**'],
+      },
+      replicas: { sfo: 1 },
+      // Railway's default restart policy is on failure; retain the pulled unset type.
+      deploy: { restartPolicyMaxRetries: 5 },
+      env: {
+        COLLECTOR_BEARER_TOKEN: preserve(),
+        POSTHOG_HOST: preserve(),
+        POSTHOG_PROJECT_TOKEN: preserve(),
+      },
+    });
+    resources.push(collector);
+  }
+
   return project('taphoa-mini', {
     variables: { managed: true },
-    resources: [Redis, Postgres, backend, redisVolume, postgresVolume, images],
+    resources,
   });
 });

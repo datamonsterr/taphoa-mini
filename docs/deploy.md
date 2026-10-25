@@ -1,15 +1,17 @@
 # Deploying the backend
 
-Railway project `taphoa-mini` has two environments, `production` and `test`, each with
-three services (the `test` environment is a duplicate of production with its own data).
+Railway project `taphoa-mini` has two environments: `production` runs four services,
+and `test` runs the three application services with its own data. The telemetry
+collector runs only in production and receives signals from both environments.
 Mobile native builds and the web deploy stay in `apps/mobile/.eas/workflows/`; mobile is
 not a Railway service.
 
-| Service    | Source and configuration                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| `backend`  | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile` |
-| `Postgres` | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`             |
-| `Redis`    | Railway Redis database with volume at `/data`                                                 |
+| Service          | Source and configuration                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `backend`        | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile`             |
+| `Postgres`       | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`                         |
+| `Redis`          | Railway Redis database with volume at `/data`                                                             |
+| `otel-collector` | Production only; root upload, Dockerfile `infra/otel-collector/Dockerfile`, public/private OTLP port 4318 |
 
 ## Infrastructure as Code
 
@@ -76,6 +78,85 @@ cache mounts. Railway requires mount IDs prefixed `s/<service-id>-` and does not
 allow environment interpolation in those IDs. Ordinary layers work without
 service-specific Dockerfile edits.
 
+## Telemetry
+
+Backend traces and logs travel over OTLP/HTTP to one production OTel Collector.
+It routes all traces (`/i/v1/traces`) and all logs (`/i/v1/logs`) to PostHog Cloud
+US, the only telemetry destination; backend business events use the PostHog project
+configuration.
+Production uses the private base endpoint reference
+`http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318`.
+Test uses `https://otel-collector-production-ce86.up.railway.app` with the same
+collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
+`/v1/traces` and `/v1/logs`. Set bearer authorization for both environments.
+
+| Service   | Variable                      | Purpose                                                                                                                                                                                                              |
+| --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                                                                                                                                       |
+| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<collector-token>` (W3C/OTel env format; space URL-encoded)                                                                                                                                  |
+| Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                                                                                                                                      |
+| Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; by default the backend uses Railway's `RAILWAY_ENVIRONMENT_NAME` (`production`, `test`), else `local`                                                                                             |
+| Backend   | `SERVICE_VERSION`             | Release identifier; the deploy workflow sets it to the deployed SHA before `railway up`; fallback is Railway commit SHA, then an optional local `.service-version` file in the working directory, then crate version |
+| Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                                                                                                                                     |
+| Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                                                                                                                                           |
+| Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                                                                                                                                      |
+| Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                                                                                                                                |
+
+Production backend values are Railway references: the endpoint is
+`http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318` and
+`OTEL_EXPORTER_OTLP_HEADERS` is `Authorization=Bearer%20${{otel-collector.COLLECTOR_BEARER_TOKEN}}`.
+The test backend holds a literal copy of the header set, applied through
+`railway variable set --stdin`. Never commit the token.
+
+The backend also preserves `POSTHOG_HOST` and `POSTHOG_PROJECT_TOKEN` in both
+environments for server-side product events. All four backend PostHog/OTLP
+variables and every X2 service variable use `preserve()`; values and reference
+expressions remain in Railway. Never print variable values while inspecting
+configuration.
+
+`.railway/railway.ts` declares the collector only inside
+`ctx.isEnvironment('production')`. Never duplicate it into test. Review `railway config plan --environment production` and
+`railway config plan --environment test` after every IaC change. **Never apply a
+plan that deletes X2 resources or backend telemetry variables.** A mirror-only
+change must produce no X2 creates, updates or deletes in either plan. Existing
+unrelated drift (Clerk variables, backend source/restart settings, application
+volume regions and image buckets) needs separate review before any apply.
+
+Deploy the collector once its configuration has landed and its three variables
+are set. From the **worktree root**:
+
+```sh
+railway up . --path-as-root --service otel-collector --environment production --ci
+```
+
+From the **main checkout root**, plain `railway up` works:
+
+```sh
+railway up --service otel-collector --environment production --ci
+```
+
+From a Git worktree under `.claude/worktrees/`, the Railway CLI resolves the main
+checkout and its ignore rules drop the worktree, so use the first command from the
+worktree root; it uploads the worktree explicitly with `. --path-as-root`.
+
+Its Dockerfile watches `infra/otel-collector/**`; Railway's default restart policy
+is on failure, with five retries. Verify the submitted deployment reaches
+`SUCCESS`, confirm unauthenticated OTLP requests return 401, then verify an
+authenticated test log and trace reach PostHog.
+
+To rotate the collector token, generate a fresh random token locally and pipe
+it with `railway variable set --stdin` to production collector
+`COLLECTOR_BEARER_TOKEN` and both backend `OTEL_EXPORTER_OTLP_HEADERS` variables.
+Use `--skip-deploys` while staging, and a production reference to the collector
+variable where possible; test needs its own securely supplied value across the
+environment boundary. Redeploy collector and both backends together, allowing
+for a brief authorization interruption, then verify 401 with the old token and
+successful exports with the new one. Never put a token in shell arguments or a
+file.
+
+See the [collector guide](../infra/otel-collector/README.md) for routing,
+redaction and authentication.
+
 ## Image bucket credentials
 
 The private Railway Bucket `images` is S3-compatible and uses region `sin`.
@@ -138,7 +219,10 @@ CI can seed and run integration tests (`scripts/ci/railway_env.py` builds the UR
 
 Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys too: a
 `railway up` whose snapshot has no backend change versus the last deployment ends as
-`SKIPPED`, meaning the running deployment already matches.
+`SKIPPED`, meaning the running deployment already matches. `railway up --ci` never returns after
+a `SKIPPED` upload, so the workflow deploys with `scripts/ci/railway_deploy.py`: it uploads with
+`--detach` and polls `railway deployment list` until the new deployment is `SUCCESS` or `SKIPPED`
+(exit 0) or `FAILED` / `CRASHED` / `REMOVED` (prints the build log, exit 1), with a 30-minute cap.
 
 ## Clerk identity
 
@@ -245,8 +329,12 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
 3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
    epic branches can be validated before merge.
 
-Deploys are serialized per environment (`deploy-railway-test`,
-`deploy-railway-production`, no cancellation). `.github/workflows/railway-integration.yml`
+Deploys are serialized per environment. Production uses the `deploy-railway-production`
+concurrency group. The `test` job uses no group: GitHub keeps one pending run per group and
+cancels older pending runs, which kept cancelling branch validations. Instead its first step,
+`scripts/ci/wait_turn.py`, waits until no `Deploy backend` run with a smaller run id still has its
+`test` job queued or running (a FIFO queue; older runs never wait on newer ones).
+`.github/workflows/railway-integration.yml`
 runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
 (manual, nightly 20:17 UTC and on backend changes to `main`) via
 `scripts/ci/with-railway-test-services.sh`: a throwaway database `it_<run>` is created and
@@ -278,7 +366,7 @@ environment context in a clean checkout; the service is selected explicitly.
 `.github/workflows/deploy.yml` listens for completed `CI` workflows on `main` and
 requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
-`railway up --service backend --ci` in the `production` job, which `needs` the `test`
+`scripts/ci/railway_deploy.py backend` in the `production` job, which `needs` the `test`
 job (deploy, seed, e2e). Production deploys are serialized. Turn off
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
 the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.

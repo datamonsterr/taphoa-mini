@@ -117,14 +117,16 @@ impl FromRequestParts<AppState> for Actor {
             ));
         };
         let role: Role = membership.2.parse()?;
-        Ok(Self {
+        let actor = Self {
             clerk_user_id: identity.user_id,
             clerk_session_id: identity.session_id,
             member_id: membership.0,
             store_id: membership.1,
             role,
             can_enroll: role == Role::Lead || membership.3,
-        })
+        };
+        crate::telemetry::record_identity(&actor);
+        Ok(actor)
     }
 }
 #[cfg(test)]

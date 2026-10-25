@@ -196,6 +196,7 @@ async fn start() -> (Server, AppState) {
     start_with(Hub::with_heartbeat(Duration::from_millis(300))).await
 }
 async fn start_with(hub: Hub) -> (Server, AppState) {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = Config::from_lookup(|key| match key {
         "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
         "CLERK_SECRET_KEY" => None,
