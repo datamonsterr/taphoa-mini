@@ -1299,6 +1299,158 @@ async fn day_close_expected_cash_with_repayments_and_credit() {
     assert_eq!(open["credit_sales"], 0);
 }
 
+/// The transactions export as CSV rows (no value in these tests needs quoting).
+async fn export_rows(w: &World, from: &str, to: &str) -> (String, Vec<Vec<String>>) {
+    let reply = w
+        .call(
+            "GET",
+            &format!("/v1/exports/transactions?from={from}&to={to}&format=csv"),
+            &w.lead,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK);
+    let text = String::from_utf8(reply.raw).unwrap();
+    let rows = text
+        .trim_start_matches('\u{feff}')
+        .split("\r\n")
+        .filter(|line| !line.is_empty())
+        .map(|line| line.split(',').map(str::to_owned).collect())
+        .collect();
+    (text, rows)
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn transactions_export_separates_the_credit_part_and_lists_repayments() {
+    const DAY: &str = "2026-03-05";
+    const AT: &str = "2026-03-05T10:00:00+07:00";
+    const NEXT: &str = "2026-03-06T10:00:00+07:00";
+    let w = World::new().await;
+    let customer = Uuid::now_v7();
+    w.checked(
+        "POST",
+        "/v1/customers",
+        "/v1/customers",
+        &w.seller,
+        json!({"id":customer,"name":"Chị Kín Tiếng","phone":"0909123456"}),
+        StatusCode::CREATED,
+    )
+    .await;
+    // A plain cash sale, a cash sale with 12000 on credit and a full credit sale, each 30000.
+    let plain = credit_body(&w, customer, "cash", None, Some(PRICE), AT).await;
+    let plain = post_sale(&w, &w.seller, plain, StatusCode::CREATED).await;
+    let partial = credit_body(&w, customer, "cash", Some(12_000), Some(20_000), AT).await;
+    let partial = post_sale(&w, &w.seller, partial, StatusCode::CREATED).await;
+    let full = credit_body(&w, customer, "credit", Some(PRICE), None, AT).await;
+    let full = post_sale(&w, &w.seller, full, StatusCode::CREATED).await;
+    w.checked(
+        "POST",
+        "/v1/expenses",
+        "/v1/expenses",
+        &w.lead,
+        json!({"id":Uuid::now_v7(),"spent_at":AT,"amount":5_000,"category":"khac","paid_with":"cash_box"}),
+        StatusCode::CREATED,
+    )
+    .await;
+    // Repayments by method, one on the next day, and an adjustment that is not a repayment.
+    for (key, amount, method, at) in [
+        ("export-cash", 7_000, "cash", AT),
+        ("export-transfer", 4_000, "transfer", AT),
+        ("export-next", 3_000, "cash", NEXT),
+    ] {
+        keyed(
+            &w,
+            customer,
+            "repayments",
+            Some(key),
+            json!({"amount":amount,"method":method,"paid_at":at}),
+            &w.seller,
+            StatusCode::CREATED,
+        )
+        .await;
+    }
+    keyed(
+        &w,
+        customer,
+        "adjustments",
+        Some("export-adjust"),
+        json!({"amount":500,"reason":"opening","adjusted_at":AT}),
+        &w.lead,
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let (text, rows) = export_rows(&w, DAY, DAY).await;
+    assert_eq!(
+        rows[0].join(","),
+        "type,business_date,time,code_or_category,payment_method/paid_with,amount,credit_amount,status,member name"
+    );
+    let sale_row = |sale: &Value| -> Vec<String> {
+        let code = sale["code"].as_str().unwrap();
+        rows.iter()
+            .find(|row| row[0] == "sale" && row[3] == code)
+            .unwrap_or_else(|| panic!("no row for {code}: {text}"))
+            .clone()
+    };
+    // Full total in `amount`, the credit part beside it: a partial credit sale is not a full cash sale.
+    assert_eq!(
+        sale_row(&plain)[4..],
+        ["cash", "30000", "0", "completed", "Seller"]
+    );
+    assert_eq!(
+        sale_row(&partial)[4..],
+        ["cash", "30000", "12000", "completed", "Seller"]
+    );
+    assert_eq!(
+        sale_row(&full)[4..],
+        ["credit", "30000", "30000", "completed", "Seller"]
+    );
+    let expense = rows.iter().find(|row| row[0] == "expense").unwrap();
+    assert_eq!(expense[4..], ["cash_box", "5000", "0", "completed", "Lead"]);
+    // Repayments of the business date, positive, by method; no credit part, no customer.
+    let repayments: Vec<_> = rows.iter().filter(|row| row[0] == "repayment").collect();
+    assert_eq!(repayments.len(), 2, "{text}");
+    for row in &repayments {
+        assert_eq!(row[1], DAY);
+        assert_eq!(row[3], "debt");
+        assert_eq!(row[6], "0");
+        assert_eq!(row[7], "completed");
+        assert_eq!(row[8], "Seller");
+        assert_eq!(row[2].len(), "10:00:00".len(), "{row:?}");
+    }
+    let mut paid: Vec<_> = repayments
+        .iter()
+        .map(|row| (row[4].as_str(), row[5].as_str()))
+        .collect();
+    paid.sort();
+    assert_eq!(paid, [("cash", "7000"), ("transfer", "4000")]);
+    assert!(
+        !text.contains("Kín Tiếng") && !text.contains("0909123456"),
+        "{text}"
+    );
+    assert!(!text.contains("adjustment"), "{text}");
+    // The next day's repayment shows up when the range reaches it.
+    let (_, rows) = export_rows(&w, DAY, "2026-03-06").await;
+    let next: Vec<_> = rows
+        .iter()
+        .filter(|row| row[0] == "repayment" && row[1] == "2026-03-06")
+        .collect();
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0][4..6], ["cash", "3000"]);
+    // The XLSX download carries the same rows.
+    let xlsx = w
+        .call(
+            "GET",
+            &format!("/v1/exports/transactions?from={DAY}&to={DAY}"),
+            &w.lead,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(xlsx.status, StatusCode::OK);
+    assert_eq!(&xlsx.raw[..2], b"PK");
+}
+
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn parallel_credit_sales_serialize_on_the_customer() {
