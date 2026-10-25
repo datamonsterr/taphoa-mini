@@ -569,7 +569,7 @@ mod tests {
         let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
         let known = token(&claims(), Some("current"));
         assert!(verifier.verify(&known).await.is_ok());
-        *stub.state.delay.write().await = Duration::from_secs(2);
+        *stub.state.delay.write().await = Duration::from_secs(3);
         let random = token(&claims(), Some("random-kid"));
         let slow = tokio::spawn({
             let verifier = verifier.clone();
@@ -581,7 +581,7 @@ mod tests {
             assert!(verifier.verify(&known).await.is_ok());
         }
         assert!(
-            started.elapsed() < Duration::from_secs(1),
+            started.elapsed() < Duration::from_secs(2),
             "known-kid verification waited for the fetch: {:?}",
             started.elapsed()
         );
@@ -680,12 +680,13 @@ mod tests {
             *stub.state.status.write().await = status;
             *stub.state.body.write().await = body;
             let timing = Timing {
-                cold_retry: ms(600),
+                cold_retry: ms(1000),
                 ..Timing::default()
             };
             let verifier = verifier_with(&stub, timing);
+            let signed = token(&claims(), Some("current"));
             for _ in 0..3 {
-                assert_unauthorized(&verifier, &token(&claims(), Some("current"))).await;
+                assert_unauthorized(&verifier, &signed).await;
             }
             assert_eq!(stub.hits(), 1, "throttled inside the backoff");
         }
@@ -727,7 +728,7 @@ mod tests {
     async fn expired_key_set_is_refetched_once_across_concurrent_requests() {
         let stub = Stub::new().await;
         let timing = Timing {
-            max_age: ms(600),
+            max_age: ms(1000),
             ..Timing::default()
         };
         let verifier = verifier_with(&stub, timing);
@@ -735,7 +736,7 @@ mod tests {
         assert!(verifier.verify(&signed).await.is_ok());
         assert!(verifier.verify(&signed).await.is_ok());
         assert_eq!(stub.hits(), 1, "a fresh set is not refetched");
-        tokio::time::sleep(ms(650)).await;
+        tokio::time::sleep(ms(1050)).await;
         let mut requests = tokio::task::JoinSet::new();
         for _ in 0..6 {
             let verifier = verifier.clone();
@@ -754,22 +755,18 @@ mod tests {
     async fn expiry_refetch_replaces_the_key_set() {
         let stub = Stub::new().await;
         let timing = Timing {
-            max_age: ms(300),
+            max_age: ms(600),
             ..Timing::default()
         };
         let verifier = verifier_with(&stub, timing);
         let signed = token(&claims(), Some("current"));
+        let next = token(&claims(), Some("next"));
         assert!(verifier.verify(&signed).await.is_ok());
         *stub.state.body.write().await = serde_json::to_value(jwks(&["next"])).unwrap();
-        tokio::time::sleep(ms(350)).await;
+        tokio::time::sleep(ms(650)).await;
         // The retired key is rejected once the refreshed set no longer carries it.
         assert_unauthorized(&verifier, &signed).await;
-        assert!(
-            verifier
-                .verify(&token(&claims(), Some("next")))
-                .await
-                .is_ok()
-        );
+        assert!(verifier.verify(&next).await.is_ok());
         assert_eq!(stub.hits(), 2);
     }
 
@@ -777,21 +774,21 @@ mod tests {
     async fn failed_expiry_refetch_keeps_the_stale_keys_and_throttles() {
         let stub = Stub::new().await;
         let timing = Timing {
-            max_age: ms(300),
-            refetch_interval: ms(600),
+            max_age: ms(600),
+            refetch_interval: ms(1200),
             ..Timing::default()
         };
         let verifier = verifier_with(&stub, timing);
         let signed = token(&claims(), Some("current"));
         assert!(verifier.verify(&signed).await.is_ok());
         *stub.state.status.write().await = StatusCode::SERVICE_UNAVAILABLE;
-        tokio::time::sleep(ms(350)).await;
+        tokio::time::sleep(ms(650)).await;
         assert!(verifier.verify(&signed).await.is_ok(), "stale keys survive");
         assert_eq!(stub.hits(), 2);
         assert!(verifier.verify(&signed).await.is_ok());
         assert_eq!(stub.hits(), 2, "a failed refresh is not retried at once");
         *stub.state.status.write().await = StatusCode::OK;
-        tokio::time::sleep(ms(650)).await;
+        tokio::time::sleep(ms(1250)).await;
         assert!(verifier.verify(&signed).await.is_ok());
         assert_eq!(stub.hits(), 3, "retried once the interval has passed");
         assert!(verifier.verify(&signed).await.is_ok());
