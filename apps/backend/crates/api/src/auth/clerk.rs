@@ -872,6 +872,46 @@ mod tests {
     }
 
     #[test]
+    fn settings_trim_every_clerk_value() {
+        let raw = format!("pk_test_{}", STANDARD.encode("host.example$"));
+        let padded = format!(" \t{raw}\r\n");
+        let s = settings(&[("CLERK_PUBLISHABLE_KEY", &padded)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.issuer, "https://host.example");
+        let s = settings(&[
+            ("CLERK_PUBLISHABLE_KEY", &padded),
+            ("CLERK_ISSUER", "  http://local.test \n"),
+            ("CLERK_JWKS_URL", "\thttp://local.test/keys\r\n"),
+            ("CLERK_API_URL", " http://local.test/api\n"),
+            (
+                "CLERK_AUTHORIZED_PARTIES",
+                "\n https://one.test ,https://two.test\n",
+            ),
+            ("CLERK_SECRET_KEY", "sk_test_secret\n"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.issuer, "http://local.test");
+        assert_eq!(s.jwks_url, "http://local.test/keys");
+        assert_eq!(s.api_url, "http://local.test/api");
+        assert_eq!(
+            s.authorized_parties,
+            ["https://one.test", "https://two.test"]
+        );
+        assert_eq!(s.secret_key.as_deref(), Some("sk_test_secret"));
+        let s = settings(&[("CLERK_ISSUER", " http://local.test \n")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.jwks_url, "http://local.test/.well-known/jwks.json");
+        // Whitespace-only values still count as unset.
+        let s = settings(&[("CLERK_ISSUER", ISSUER), ("CLERK_SECRET_KEY", " \n")])
+            .unwrap()
+            .unwrap();
+        assert!(s.secret_key.is_none());
+    }
+
+    #[test]
     fn settings_none_without_key_or_issuer() {
         assert!(settings(&[]).unwrap().is_none());
         assert!(

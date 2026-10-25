@@ -16,8 +16,14 @@ pub struct ClerkSettings {
 }
 impl ClerkSettings {
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Option<Self>> {
-        // A blank value (an empty `.env` line, a whitespace-only secret) counts as unset.
-        let get = |name: &str| get(name).filter(|value| !value.trim().is_empty());
+        // Values are trimmed, because a trailing newline or padding from a `.env` file or a
+        // secret store breaks a header or an exact issuer match. A blank value (an empty
+        // line, a whitespace-only secret) counts as unset.
+        let get = |name: &str| {
+            get(name)
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        };
         let derived_issuer = get("CLERK_PUBLISHABLE_KEY")
             .map(|key| -> anyhow::Result<String> {
                 let encoded = key
