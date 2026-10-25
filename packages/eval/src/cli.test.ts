@@ -80,6 +80,38 @@ describe('cli validate', () => {
     expect(r.status).toBe(0);
   });
 
+  it('flags oracle names that no query file defines', () => {
+    const cases = mkFullSet().map((c) =>
+      c.id === 'U1-01'
+        ? {
+            ...c,
+            expect_facts: [
+              {
+                oracle: 'sales_revenue',
+                args: { period: 'today' },
+                match: 'number',
+              },
+              { oracle: 'sales_revenu', match: 'number' },
+            ],
+          }
+        : c,
+    );
+    const byFile = new Map<string, string[]>();
+    for (const c of cases) {
+      byFile.set(c.use_case, [
+        ...(byFile.get(c.use_case) ?? []),
+        JSON.stringify(c),
+      ]);
+    }
+    for (const [name, lines] of byFile) {
+      writeFileSync(join(dir, `${name}.jsonl`), lines.join('\n') + '\n');
+    }
+    const r = run('validate', '--dir', dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("unknown oracle 'sales_revenu' used by U1-01");
+    expect(r.stdout).not.toContain("unknown oracle 'sales_revenue'");
+  });
+
   it('prints loader errors with file:line', () => {
     writeFileSync(join(dir, 'U1.jsonl'), '{not json\n');
     const r = run('validate', '--dir', dir);
@@ -279,13 +311,12 @@ describe('cli live runs', () => {
     }
   });
 
-  it('names EVAL_DATABASE_URL and T3 while the pg oracle is missing', () => {
+  it('names EVAL_DATABASE_URL when the oracle database is not set', () => {
     const golden = goldenWithOneCase();
     const r = runWithEnv(live, 'smoke', '--dir', golden, '--out', dir);
     rmSync(golden, { recursive: true, force: true });
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('EVAL_DATABASE_URL');
-    expect(r.stderr).toContain('T3');
   });
 
   it('never prints a secret value', () => {
@@ -318,6 +349,37 @@ describe('cli live runs', () => {
     );
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('OPENROUTER_EVAL_API_KEY');
+  });
+});
+
+describe('cli oracles', () => {
+  it('needs EVAL_DATABASE_URL', () => {
+    for (const args of [
+      ['oracles'],
+      ['oracles', '--md', '--out', join(dir, 'o.md')],
+    ]) {
+      const r = run(...args);
+      expect(r.status, args.join(' ')).toBe(2);
+      expect(r.stderr).toContain('EVAL_DATABASE_URL');
+    }
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('rejects unknown options with usage and exit 2', () => {
+    const r = run('oracles', '--nope');
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('usage');
+    expect(r.stderr).toContain('oracles');
+  });
+
+  it('does not leak the database password when the connection fails', () => {
+    const r = runWithEnv(
+      { EVAL_DATABASE_URL: 'postgres://user:pw-secret@127.0.0.1:1/db' },
+      'oracles',
+    );
+    expect(r.status).toBe(2);
+    expect(r.stdout + r.stderr).not.toContain('pw-secret');
+    expect(r.stderr).toContain('127.0.0.1:1');
   });
 });
 
