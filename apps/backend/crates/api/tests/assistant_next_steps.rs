@@ -11,7 +11,7 @@ async fn flags_contract_and_permissions() {
     let w = World::new().await;
     for (token, expected) in [
         (&w.lead, vec!["receipt_detected", "unknown_product"]),
-        (&w.seller, vec!["receipt_detected"]),
+        (&w.seller, vec![]),
     ] {
         let reply = w
             .call(
@@ -39,7 +39,7 @@ async fn flags_contract_and_permissions() {
                 .all(|p| p[0]["priority"].as_i64() <= p[1]["priority"].as_i64())
         );
         if token == &w.seller {
-            assert_eq!(items.len(), 1);
+            assert!(items.is_empty());
         }
     }
 }
@@ -137,18 +137,20 @@ async fn sql_rules_counts_order_stable_ids_and_store_isolation() {
         body["items"][2]["action"]["context"],
         serde_json::json!({"screen":"camera","next_step_id":"restock"})
     );
-    assert_eq!(
-        kinds(&list(&w, &w.seller, flags).await),
-        ["receipt_detected", "restock"]
-    );
+    assert_eq!(kinds(&list(&w, &w.seller, flags).await), ["restock"]);
     sqlx::query("UPDATE members SET can_enroll=true WHERE id=$1")
         .bind(w.seller_id)
         .execute(w.pool())
         .await
         .unwrap();
     assert_eq!(
-        kinds(&list(&w, &w.seller, "&unknown_product=true").await),
-        ["unknown_product", "restock", "draft_receipts"]
+        kinds(&list(&w, &w.seller, flags).await),
+        [
+            "receipt_detected",
+            "unknown_product",
+            "restock",
+            "draft_receipts"
+        ]
     );
     let other = World::new().await;
     assert_eq!(

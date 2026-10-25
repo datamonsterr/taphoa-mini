@@ -125,7 +125,7 @@ pub async fn list(
         .flatten()
         .collect();
     if params.document_detected {
-        items.push(NextStep::new("receipt_detected", "Nhập hóa đơn", 0, None,
+        items.push(NextStep::new("receipt_detected", "Nhập hóa đơn", 0, Some(Action::EnrollProduct),
             json!({"type":"chat","prompt_vi":"Nhập hàng từ hóa đơn này","context":{"screen":input.screen}})));
     }
     if params.unknown_product {
