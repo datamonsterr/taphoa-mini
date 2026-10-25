@@ -25,9 +25,11 @@ Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X4"
   line in X1's root layout). Params: `threadId?`, `entry` (`button`, `chip`, `receipt`, `digest`,
   `push`), `prompt?`, `screen?`, `nextStepId?`, `receiptId?`. X8 reuses it for push and digest.
 - **Chat button.** `components/assistant/ChatButton` (56 dp accent circle, screen-reader label). In
-  the shop tabs it sits above the right end of `ShopTabBar` (same right inset, one gap above the
-  pill), so it never overlaps the camera FAB or a tab target. On the camera screen it sits at the
-  right end of the bottom row (cart pill left, swipe handle centre), below the shutter row.
+  the shop tabs it sits in the `ShopTabBar` row to the right of the tab pill, so it covers no
+  content and no tab target; when the window is too narrow for the pill to keep its three 56 dp
+  tabs, it moves above the right end of the bar (same right inset, one gap above). On the camera
+  screen it sits at the right end of the bottom row (cart pill left, swipe handle centre), below
+  the shutter row.
 - **Next-step strip.** `components/assistant/NextStepStrip`: one horizontal `ScrollView` of chips
   with snapping, haptic on tap, hidden when empty, inside the existing 80 dp strip slot under the
   viewfinder, so the viewfinder size does not change. It yields the slot to the quick-enroll hints,
@@ -76,8 +78,15 @@ A1 and A2 run in parallel; B1 and B2 run in parallel after A1 (B1 also after A2)
   mock API; the mobile coverage thresholds stay green.
 - Playwright web: open chat from the tab bar, ask, see the streamed answer, confirm an action.
 - Maestro Android: a chip opens the chat, the voice button is visible, the receipt chat confirms.
-- E2E runs against the real backend (local stack in CI, Railway `test` for validation) once X3 is on
-  `main`; until then the specs are written and run locally against X3's branch.
+- E2E runs against the real backend. In CI the local stack runs X3's scripted model mode (no
+  OpenRouter): "nhập hàng" streams a `get_restock_plan` status, a reply and a
+  `propose_reorder_list` card; "điều chỉnh" proposes `propose_stock_adjustment`; a thread with
+  `context.receipt_id` gets a `receipt_lines` card, then a `propose_receipt_confirm` card; anything
+  else gets a fixed short reply (exact strings in `x3-plan.md`). One smoke spec runs only against
+  Railway `test` with the real free model. Until X3 is on `main` the specs run locally against X3's
+  branch.
+- All assistant calls, including the SSE stream, go through the shared API client
+  (`getApiClient()`), so headers added by X1 (`X-Store-Id`) apply without X4 changes.
 - DoD rows 1 and 3; `npx expo lint`, `npx tsc --noEmit`, `ci-ok` green.
 
 ## Version pins
