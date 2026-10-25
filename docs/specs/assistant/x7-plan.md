@@ -218,3 +218,34 @@ native background subagents (`claude-sonnet-5-5`, `claude-haiku-5-5`), per the R
 ## Version pins
 
 Recorded by workers after checking current docs.
+
+T4, checked 2026-10-25. The harness adds no runtime dependency: it uses Node 24 built-ins
+(`fetch`, `node:http`, type stripping), `@taphoa/api-client` (openapi-fetch ^0.17) and `pg`
+(already declared, used from T3).
+
+- **PostHog capture** (<https://posthog.com/docs/api/capture>): `POST https://us.i.posthog.com/batch/`
+  (US Cloud) with `Content-Type: application/json` and body
+  `{api_key, batch: [{event, distinct_id, properties, timestamp}]}`. The batch example puts
+  `distinct_id` in `properties`, the single-event section puts it at the top level and says the
+  top level wins, so the sink sends both. `$process_person_profile: false` makes an event
+  anonymous. The request body must stay under 20 MB; `distinct_id` is cut at 200 characters.
+  PostHog answers `200` even for an event without a name or a `distinct_id` (it drops it), and
+  the page documents no response body, so the sink only treats a non-2xx status or a network
+  error as a failed flush.
+- **OpenRouter chat completions** (<https://openrouter.ai/docs/api/reference/overview>):
+  `POST https://openrouter.ai/api/v1/chat/completions` with `Authorization: Bearer <key>`;
+  `temperature` takes `[0, 2]` (the judge sends 0); `response_format: {"type": "json_object"}`
+  forces valid JSON; the reply text is `choices[0].message.content`; errors are
+  `{code, message, metadata?}`. The optional `X-OpenRouter-Title` header names the app.
+  The default judges `google/gemma-4-31b-it:free` and `nvidia/nemotron-3-super-120b-a12b:free`
+  both exist on OpenRouter and list `temperature` and `response_format` as supported
+  parameters. Nemotron reasons by default (effort medium), so it is the slower judge.
+- **OpenRouter key and limits** (<https://openrouter.ai/docs/api/reference/limits>):
+  `GET https://openrouter.ai/api/v1/key` returns `data.free_model_daily_requests` with `used`,
+  `limit` and `remaining`, counted per UTC day. The page does not name the auth header; the
+  harness sends `Authorization: Bearer <key>`, as for chat completions. The daily free-model
+  limit depends on the credits ever purchased: under 10 credits gives 50 requests a day and
+  20 a minute, 10 or more gives 1000 a day. The guard reads the live `limit`, so an account
+  under 10 credits is refused by the estimate (a 25-case smoke run needs roughly 200
+  remaining).
+  The "about 1000 a day" in the decisions above needs the 10-credit purchase.
