@@ -134,16 +134,16 @@ smoke; run T8 per environment; clean the worktree.
 
 ## Progress
 
-| Task | State   | Notes |
-| ---- | ------- | ----- |
-| T0   | pending |       |
-| T1   | pending |       |
-| T2   | pending |       |
-| T3   | pending |       |
-| T4   | pending |       |
-| T5   | pending |       |
-| T6   | pending |       |
-| T7   | pending |       |
-| T8   | pending |       |
-| T9   | pending |       |
-| T10  | pending |       |
+| Task | State       | Notes                                                                                                                         |
+| ---- | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| T0   | merged      | ecebb2c contract + `getStoreId`                                                                                               |
+| T1   | merged      | 630bf05 verifier, 26 unit tests                                                                                               |
+| T2   | in progress | worker died after quota; native subagent finishing in worktree `x1-t2-backend-identity-b8afa181` (isolated DB `taphoa_x1_t2`) |
+| T3   | merged      | 2ceef10 harness; live run waits for T2                                                                                        |
+| T4   | merged      | 3626585; 991 Jest tests, coverage 97.8/92.7/97.7/98.7; android bundle budget raised to 10.75 MB for Clerk                     |
+| T5   | pending     |                                                                                                                               |
+| T6   | in progress | native subagent, own worktree                                                                                                 |
+| T7   | pending     |                                                                                                                               |
+| T8   | in progress | native subagent finishing worktree `x1-t8-orphan-images-5b51f014`                                                             |
+| T9   | in progress | GitHub secrets `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` set 2026-10-25                                                     |
+| T10  | pending     | multi-session is ON in the dashboard (2026-10-25)                                                                             |
