@@ -138,6 +138,64 @@ class RailwayEnv(unittest.TestCase):
         self.assertNotIn("RUST_LOG", env)
 
 
+FAKE_RAILWAY = textwrap.dedent(
+    """\
+    #!/usr/bin/env python3
+    import json, os, pathlib, sys
+    state = pathlib.Path(os.environ["FAKE_STATE"])
+    calls = int(state.read_text()) if state.exists() else 0
+    args = sys.argv[1:]
+    if args[:2] == ["deployment", "list"]:
+        state.write_text(str(calls + 1))
+        statuses = os.environ["FAKE_STATUSES"].split(",")
+        rows = [{"id": "old", "status": "SUCCESS"}]
+        if calls > 0:
+            rows.insert(0, {"id": "new", "status": statuses[min(calls - 1, len(statuses) - 1)]})
+        print(json.dumps(rows))
+    elif args[:1] == ["logs"]:
+        print("fake build log")
+    """
+)
+
+
+class RailwayDeploy(unittest.TestCase):
+    def deploy(self, statuses, timeout="5"):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "railway")
+            fake.write_text(FAKE_RAILWAY)
+            fake.chmod(0o755)
+            return run(
+                ["python3", "-I", str(HERE / "railway_deploy.py"), "backend", "test"],
+                env={
+                    "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "FAKE_STATE": str(pathlib.Path(tmp, "state")),
+                    "FAKE_STATUSES": statuses,
+                    "RAILWAY_POLL_INTERVAL": "0",
+                    "RAILWAY_DEPLOY_TIMEOUT": timeout,
+                },
+            )
+
+    def test_success_after_building(self):
+        out = self.deploy("BUILDING,DEPLOYING,SUCCESS")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("new SUCCESS", out.stdout)
+
+    def test_skipped_returns_instead_of_hanging(self):
+        out = self.deploy("SKIPPED")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("SKIPPED", out.stdout)
+
+    def test_failed_prints_build_log(self):
+        out = self.deploy("BUILDING,FAILED")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("fake build log", out.stdout)
+
+    def test_times_out_without_terminal_status(self):
+        out = self.deploy("BUILDING", timeout="0.2")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("No terminal deployment status", out.stderr)
+
+
 class WaitHealthy(unittest.TestCase):
     def test_succeeds_against_healthy_server(self):
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)

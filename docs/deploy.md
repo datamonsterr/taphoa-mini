@@ -138,7 +138,10 @@ CI can seed and run integration tests (`scripts/ci/railway_env.py` builds the UR
 
 Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys too: a
 `railway up` whose snapshot has no backend change versus the last deployment ends as
-`SKIPPED`, meaning the running deployment already matches.
+`SKIPPED`, meaning the running deployment already matches. `railway up --ci` never returns after
+a `SKIPPED` upload, so the workflow deploys with `scripts/ci/railway_deploy.py`: it uploads with
+`--detach` and polls `railway deployment list` until the new deployment is `SUCCESS` or `SKIPPED`
+(exit 0) or `FAILED` / `CRASHED` / `REMOVED` (prints the build log, exit 1), with a 30-minute cap.
 
 ## CI pipeline
 
@@ -198,7 +201,7 @@ environment context in a clean checkout; the service is selected explicitly.
 `.github/workflows/deploy.yml` listens for completed `CI` workflows on `main` and
 requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
-`railway up --service backend --ci` in the `production` job, which `needs` the `test`
+`scripts/ci/railway_deploy.py backend` in the `production` job, which `needs` the `test`
 job (deploy, seed, e2e). Production deploys are serialized. Turn off
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
 the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.

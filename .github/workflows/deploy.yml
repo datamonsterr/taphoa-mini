@@ -85,7 +85,8 @@ jobs:
         if: steps.railway.outputs.configured == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
-        run: railway up --service backend --environment test --ci
+        # `railway up --ci` hangs after a SKIPPED upload; the script detaches and polls instead.
+        run: python3 -I scripts/ci/railway_deploy.py backend test
       - name: Wait for healthz and readyz
         if: steps.railway.outputs.configured == 'true'
         env:
@@ -168,7 +169,7 @@ jobs:
         if: steps.railway.outputs.configured == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service backend --ci
+        run: python3 -I scripts/ci/railway_deploy.py backend
       - name: Post-deploy smoke test
         if: steps.railway.outputs.configured == 'true'
         env:
