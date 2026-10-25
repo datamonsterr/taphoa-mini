@@ -2,6 +2,8 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     title: 'Đăng nhập',
+    addTitle: 'Thêm người trên máy này',
+    cancel: 'Hủy',
     email: 'Địa chỉ email',
     send: 'Gửi mã',
     google: 'Tiếp tục với Google',
@@ -27,6 +29,8 @@ export const strings: Dict = {
   },
   en: {
     title: 'Sign in',
+    addTitle: 'Add a person on this device',
+    cancel: 'Cancel',
     email: 'Email address',
     send: 'Send code',
     google: 'Continue with Google',

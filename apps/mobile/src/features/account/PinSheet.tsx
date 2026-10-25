@@ -30,6 +30,10 @@ export type PinSheetProps = {
   /** Shown under the dots, e.g. "Mã PIN không đúng". */
   error?: string | null;
   busy?: boolean;
+  /** Changing it clears the digits typed so far, e.g. after a wrong PIN. */
+  clearKey?: number;
+  /** Root id; the parts are `<id>-dots`, `<id>-error`, `<id>-keypad` and `<id>-submit`. */
+  testID?: string;
   onSubmit: (pin: string) => void;
   onClose: () => void;
 };
@@ -40,12 +44,19 @@ export const PinSheet = memo(function PinSheet({
   confirmLabel,
   error,
   busy = false,
+  clearKey = 0,
+  testID = 'pin-sheet',
   onSubmit,
   onClose,
 }: PinSheetProps) {
   const t = useT(strings);
   const diameter = useKeypadDiameter(68);
   const [pin, setPin] = useState('');
+  const [clearedFor, setClearedFor] = useState(clearKey);
+  if (clearKey !== clearedFor) {
+    setClearedFor(clearKey);
+    setPin('');
+  }
   const onKey = useCallback(
     (key: KeypadKeyId) => setPin((current) => applyPinKey(current, key)),
     [],
@@ -53,7 +64,7 @@ export const PinSheet = memo(function PinSheet({
   const ready = pin.length >= PIN_MIN && !busy;
 
   return (
-    <Sheet onClose={onClose} scrollable={false}>
+    <Sheet onClose={onClose} scrollable={false} testID={testID}>
       <ScaledText
         variant="heading"
         accessibilityRole="header"
@@ -62,6 +73,7 @@ export const PinSheet = memo(function PinSheet({
         {title}
       </ScaledText>
       <ScaledText
+        testID={`${testID}-dots`}
         accessibilityLabel={fill(t('pin.digits'), { n: pin.length })}
         variant="heading"
         style={styles.dots}
@@ -71,6 +83,7 @@ export const PinSheet = memo(function PinSheet({
       <View style={styles.errorSlot}>
         {error ? (
           <ScaledText
+            testID={`${testID}-error`}
             accessibilityRole="alert"
             variant="caption"
             style={styles.error}
@@ -79,19 +92,23 @@ export const PinSheet = memo(function PinSheet({
           </ScaledText>
         ) : null}
       </View>
-      <Keypad
-        onKey={onKey}
-        diameter={diameter}
-        disabled={busy}
-        labels={{ delete: t('pin.delete') }}
-      />
-      <CheckButton
-        variant="ink"
-        block
-        accessibilityLabel={confirmLabel}
-        disabled={!ready}
-        onPress={() => onSubmit(pin)}
-      />
+      <View testID={`${testID}-keypad`}>
+        <Keypad
+          onKey={onKey}
+          diameter={diameter}
+          disabled={busy}
+          labels={{ delete: t('pin.delete') }}
+        />
+      </View>
+      <View testID={`${testID}-submit`}>
+        <CheckButton
+          variant="ink"
+          block
+          accessibilityLabel={confirmLabel}
+          disabled={!ready}
+          onPress={() => onSubmit(pin)}
+        />
+      </View>
     </Sheet>
   );
 });
