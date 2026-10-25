@@ -93,6 +93,8 @@ jobs:
         # `railway up --ci` hangs after a SKIPPED upload; the script detaches and polls instead.
         run: |
           git rev-parse HEAD > apps/backend/.service-version
+          # Include only this ignored build stamp in Railway's upload.
+          printf '\n!apps/backend/.service-version\n' >> .gitignore
           python3 -I scripts/ci/railway_deploy.py backend test
       - name: Wait for healthz and readyz
         if: steps.railway.outputs.configured == 'true'
@@ -178,6 +180,8 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           git rev-parse HEAD > apps/backend/.service-version
+          # Include only this ignored build stamp in Railway's upload.
+          printf '\n!apps/backend/.service-version\n' >> .gitignore
           python3 -I scripts/ci/railway_deploy.py backend
       - name: Post-deploy smoke test
         if: steps.railway.outputs.configured == 'true'
