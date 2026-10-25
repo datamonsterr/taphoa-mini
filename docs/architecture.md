@@ -41,6 +41,7 @@ flowchart LR
     end
 
     backend[Tạp Hóa Mini backend<br/>Railway]
+    clerk[Clerk<br/>sign-in, sessions, JWKS]
     bank[Customer's banking app<br/>NAPAS 247]
     eas[Expo EAS<br/>builds, updates]
     gh[GitHub<br/>repo + Actions]
@@ -51,6 +52,8 @@ flowchart LR
     customer -- scans VietQR --> bank
     app -- shows VietQR with amount --> customer
     app -- HTTPS JSON, SSE --> backend
+    app -- sign in, session token --> clerk
+    backend -- JWKS, profile read --> clerk
     bank -. transfer to store account .-> lead
     gh -- CI deploy --> backend
     gh -- source --> eas
@@ -91,7 +94,7 @@ flowchart TB
         api -- aws-sdk-s3 --> bucket
     end
 
-    sync -- HTTPS REST + Bearer JWT --> api
+    sync -- HTTPS REST + Clerk session JWT + X-Store-Id --> api
     sync -- SSE /v1/events --> api
     ui -- presigned GET --> bucket
 ```
@@ -245,10 +248,15 @@ Every port has an in-memory fake for unit tests, as `MockSegmenter` does today.
 
 ### 5.2 Cross-cutting rules
 
-- **Store scoping.** The `Actor` extractor decodes the JWT and yields
-  `{member_id, store_id, role, can_enroll, session_id}`. Every query takes `store_id`
-  from `Actor`, never from the request. Every table with store data has `store_id`, and
-  every index used by handlers starts with it.
+- **Store scoping.** The `Actor` extractor verifies the Clerk session JWT (RS256 against
+  the cached JWKS), loads the Clerk user's active memberships and picks one with the
+  `X-Store-Id` header (optional with exactly one membership). It yields
+  `{clerk_user_id, member_id, store_id, clerk_session_id, role, can_enroll}`. No membership
+  gives 403 `membership_required`, several and no header 400 `store_required`, a store
+  without an active membership 403. Every query takes `store_id` from `Actor`, never from
+  the request. Every table with store data has `store_id`, and every index used by handlers
+  starts with it. Routes that run before a membership exists (`createStore`, `joinStore`,
+  `getMe`) take `ClerkIdentity {user_id, session_id}` instead.
 - **Authorization** is a function per action (`can(actor, Action)`), tested as a table.
   See the matrix in §8.
 - **Idempotency.** Client-created records use the client UUIDv7 as primary key. The
@@ -266,8 +274,9 @@ Every port has an in-memory fake for unit tests, as `MockSegmenter` does today.
   `request_id`; JSON logs on Railway (`LOG_FORMAT=json`). Scan timings (`segment`,
   `embed`, `search`) are logged and stored on the scan row for the cost/latency metric
   (PRD §6 Cost).
-- **Limits.** 10 MiB body limit (implemented). Rate limits in Redis: store creation,
-  join, recovery, PIN per IP/member; scans per store.
+- **Limits.** 10 MiB body limit (implemented). Rate limits in Redis: store creation and
+  join per client IP, PIN attempts per member; scans per store. There is no recovery
+  endpoint to limit; Clerk owns account recovery.
 
 ### 5.3 Recognition pipeline (phase 1)
 
@@ -412,7 +421,6 @@ in [data-model.md](data-model.md). Summary:
 ```mermaid
 flowchart LR
     store[stores] --> members & products & sales & expenses & day_closes
-    members --> sessions
     products --> product_units & product_images & product_embeddings & price_history
     scans --> detections
     sales --> sale_lines
@@ -466,13 +474,18 @@ Participants: **Phone** (app + SQLite), **API** (taphoa-api), **Rec** (recogniti
 sequenceDiagram
     actor Lead
     participant Phone
+    participant Clerk
     participant API
     participant PG
-    Lead->>Phone: Install, enter store name and own name
-    Phone->>API: POST /v1/stores {store_name, display_name, device}
-    API->>PG: INSERT stores, members(lead), sessions
-    API-->>Phone: 201 {tokens, member, store, recovery_code}
-    Phone->>Phone: Save tokens in secure store, show recovery code
+    Lead->>Phone: Install, enter email (or tap Google)
+    Phone->>Clerk: Sign in or sign up, email code
+    Clerk-->>Phone: Session, token cached in secure store
+    Lead->>Phone: Enter store name and own name
+    Phone->>API: POST /v1/stores {store_name, display_name} + Bearer Clerk JWT
+    API->>Clerk: Verify JWT against cached JWKS (no call per request)
+    API->>PG: INSERT stores, members(lead, clerk_user_id)
+    API-->>Phone: 201 {store, member}
+    Phone->>Phone: Remember store id for X-Store-Id
     Lead->>Phone: Enter bank BIN, account number, account name
     Phone->>Phone: Build VietQR for 1.000đ, show test QR
     Lead->>Phone: Scan test QR with own bank app, confirm details
@@ -491,6 +504,7 @@ sequenceDiagram
     actor Son
     participant LP as Lead phone
     participant SP as Son phone
+    participant Clerk
     participant API
     participant PG
     participant Redis
@@ -499,11 +513,14 @@ sequenceDiagram
     API->>PG: INSERT invites (token hash, expires_at)
     API-->>LP: 201 {join_url, expires_at}
     LP->>LP: Show QR of join_url
-    Son->>SP: Open app, "Tham gia cửa hàng", scan QR
-    SP->>API: POST /v1/auth/join {invite_token, display_name, device}
-    API->>PG: Check hash, unused, unexpired, INSERT members, sessions, mark invite used
+    Son->>SP: Open app, sign in with Clerk (email code or Google)
+    SP->>Clerk: Sign in or sign up
+    Clerk-->>SP: Session, token cached in secure store
+    Son->>SP: "Tham gia cửa hàng", scan QR
+    SP->>API: POST /v1/auth/join {invite_token, display_name} + Bearer Clerk JWT
+    API->>PG: Check hash, unused, unexpired, INSERT members(clerk_user_id), mark invite used
     API->>PG: change_log(member), outbox(member.changed)
-    API-->>SP: 201 {tokens, member, store}
+    API-->>SP: 201 {store, member}
     PG-->>API: relay picks outbox row
     API->>Redis: PUBLISH store:{id}:events member.changed
     Redis-->>API: SSE fan-out
@@ -703,27 +720,38 @@ sequenceDiagram
     API-->>Phone: changes made while offline
 ```
 
-### 9.9 Token refresh and member switch on a shared phone (U3, U4)
+### 9.9 Switch person on a shared phone (U3, U4)
+
+Each person signs in to Clerk once on the phone (multi-session). Clerk refreshes the session
+token in the app; the backend has no refresh endpoint. Switching asks the target person's PIN
+first, then activates their Clerk session.
 
 ```mermaid
 sequenceDiagram
     actor Grandma
     participant Phone
+    participant Clerk
     participant API
     participant PG
     participant Redis
-    Phone->>API: GET /v1/... (expired access token)
+    Phone->>API: GET /v1/... (expired session token)
     API-->>Phone: 401
-    Phone->>API: POST /v1/auth/refresh {refresh_token}
-    API->>PG: Find hash, check not rotated or revoked, rotate
-    API-->>Phone: 200 new pair
+    Phone->>Clerk: getToken({skipCache: true})
+    Clerk-->>Phone: Fresh session token
     Phone->>API: Retry original request
     Grandma->>Phone: Tap avatar "Bà nội", enter PIN
-    Phone->>API: POST /v1/auth/switch {member_id, pin}
+    Phone->>Clerk: getToken() for Bà nội's session
+    Clerk-->>Phone: Her session token
+    Phone->>API: POST /v1/me/pin/verify {pin} + her Bearer JWT + X-Store-Id
     API->>Redis: INCR pin_fail:{member} (check < 5)
-    API->>PG: Verify Argon2id hash, INSERT session for Bà nội on this device
-    API-->>Phone: 200 session, next sales record Bà nội as member
+    API->>PG: Verify Argon2id hash
+    API-->>Phone: 204
+    Phone->>Clerk: setActive({session: Bà nội})
+    Phone->>Phone: Next requests carry her token, sales record Bà nội as member
 ```
+
+Sign-out removes only the current Clerk session. A new person is added with "Thêm người trên
+máy này", which opens sign-in without signing anyone out.
 
 ## 10. Configuration
 

@@ -618,7 +618,6 @@ mod tests {
     #[test]
     fn settings_malformed_publishable_key_is_an_error_even_with_override() {
         for raw in [
-            "",
             "pk_bad_YQ==",
             "pk_test_!",
             "pk_live_",

@@ -28,6 +28,29 @@ or missing runtime with existing models fails startup. `RUST_LOG` controls traci
 requests and closes the Postgres pool. Configuration is environment-only; the binary
 does not automatically read `.env`.
 
+### Authentication (Clerk)
+
+Identity is Clerk ([ADR 0004](../../docs/adr/0004-clerk-identity.md),
+[contract](../../docs/specs/assistant/auth-clerk.md)). Protected routes take
+`Authorization: Bearer <Clerk session JWT>`; the backend verifies it (RS256) against the
+instance JWKS and makes no Clerk call per request. `X-Store-Id` picks the store when the Clerk
+user has several memberships (optional with exactly one). The backend issues no tokens and keeps
+no refresh tokens, recovery codes or sessions; `JWT_SECRET` is no longer read.
+
+| Variable                         | Required | Meaning                                                                             |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`          | yes\*    | Gives the Frontend API host: issuer `https://<host>`, JWKS `/.well-known/jwks.json` |
+| `CLERK_SECRET_KEY`               | no       | Backend API key for profile reads (and `scripts/e2e.sh`, below); a secret           |
+| `CLERK_API_URL`                  | no       | Backend API base URL (default `https://api.clerk.com`)                              |
+| `CLERK_AUTHORIZED_PARTIES`       | no       | Comma-separated origins allowed in the token's `azp` claim                          |
+| `CLERK_ISSUER`, `CLERK_JWKS_URL` | no       | Override the values derived from the publishable key (tests point them at a stub)   |
+
+\*Startup fails unless an issuer can be derived: set `CLERK_PUBLISHABLE_KEY` or `CLERK_ISSUER`.
+An empty or whitespace-only `CLERK_*` value counts as unset. Without `CLERK_SECRET_KEY` the
+profile in `GET /v1/me` is `null`. The publishable key is public by design; `.env.example`
+defaults to the development instance key. Never commit the secret key; see
+[deploy.md](../../docs/deploy.md#clerk-identity) for where each value lives.
+
 | Endpoint              | Result                                                                                                                  |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `GET /healthz`        | 200 `{"status":"ok"}`, without dependency checks                                                                        |
@@ -94,6 +117,18 @@ script checks health/readiness, segmentation and image upload/metadata/download 
 only when intentionally testing a model-free image. Set `EXPECT_IMAGES=0` only for
 intentional storage-less smoke runs; CI always tests image upload/download. Python 3,
 curl and cmp are required by the smoke script. Missing readiness fails the smoke.
+
+The authenticated checks (store creation and the image round trip) need `CLERK_SECRET_KEY`, the
+Clerk Backend API key of the instance the backend trusts. The script creates a throwaway
+`+clerk_test` user, mints a 10 minute session token and deletes the user on exit. Without the
+key it prints a notice and skips only those checks (fork and dependabot runs); health,
+readiness and segmentation still run. `CLERK_API_URL` overrides the Backend API base URL. The
+key and the token are never printed; keep `set -x` off.
+
+```sh
+CLERK_SECRET_KEY="$(grep '^CLERK_SECRET_KEY=' ~/.config/taphoa-mini/secrets.env | cut -d= -f2-)" \
+BASE_URL=http://localhost:8080 ./scripts/e2e.sh
+```
 
 Build **from repository root**, with the Dockerfile-specific ignore file keeping the
 context limited to backend source:
