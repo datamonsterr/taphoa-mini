@@ -1,0 +1,262 @@
+name: Eval
+
+# Nightly and on-demand evaluation of the assistant (epic X7) against a live stack inside
+# Actions: compose postgres + redis, taphoa-seed --profile eval, the backend built from this
+# ref with ASSISTANT_ALLOW_EVAL_HEADERS=1. The free OpenRouter quota (1,000 requests per UTC
+# day) is shared by everything, so the schedule starts at 00:30 UTC, just after the reset, and
+# a full run happens at most once a day (the guard job below; the harness refuses too).
+#
+#   gh workflow run eval.yml -f set=smoke
+#   gh workflow run eval.yml -f set=full -f model=<model id>
+#   gh workflow run eval.yml -f compare_models=<model>,<model>
+#
+# Results land in packages/eval/results/. The run uploads them as an artifact and commits them
+# to the branch eval/results, which has one open pull request into main. This workflow never
+# pushes to main (a push to main deploys production). A pull request opened with GITHUB_TOKEN
+# does not start CI by itself: close and reopen it once to run the checks.
+
+# The run title names the set so the guard can find earlier full runs; compare runs get their
+# own title so they never count as a full run.
+run-name: eval ${{ inputs.compare_models && 'compare' || inputs.set || 'full' }}
+
+on:
+  schedule:
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+    inputs:
+      set:
+        description: Case set to run
+        type: choice
+        options: [full, smoke]
+        default: full
+      model:
+        description: Model id sent as X-Taphoa-Eval-Model (empty = the backend's configured models; not used by compare)
+        type: string
+        required: false
+      compare_models:
+        description: Comma-separated model ids; when set, run compare (the smoke set per model) instead
+        type: string
+        required: false
+      force:
+        description: Run a full run although one already ran today (UTC)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval
+  cancel-in-progress: false
+
+jobs:
+  # Skips the run when it would waste quota or cannot work yet; see scripts/ci/eval_guard.py.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide whether to run
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_SET: ${{ inputs.set || 'full' }}
+          COMPARE_MODELS: ${{ inputs.compare_models }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=(--event "$EVENT" --set "$RUN_SET" --compare-models "$COMPARE_MODELS" --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID")
+          if [ "$FORCE" = true ]; then args+=(--force); fi
+          python3 -I scripts/ci/eval_guard.py "${args[@]}" > "$RUNNER_TEMP/guard.txt"
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/guard.txt"
+      - name: Summary
+        if: always()
+        env:
+          RUN: ${{ steps.decide.outputs.run }}
+          REASON: ${{ steps.decide.outputs.reason }}
+        run: |
+          {
+            echo "### eval guard"
+            echo
+            echo "- run: **${RUN:-unknown}**"
+            echo "- reason: ${REASON:-the guard failed}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  run:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # A full run is about 650 free-tier requests at concurrency 1.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    outputs:
+      results: ${{ steps.collect.outputs.results }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      # Same cache as the backend-binary job in ci.yml: a nightly run on main reuses its build.
+      - uses: actions/cache@v6
+        with:
+          path: .ci-cache
+          key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Build the backend and seed binaries
+        run: scripts/ci/build-backend-binary.sh
+      # Starts compose postgres + redis, runs `taphoa-seed --profile eval`, starts the backend
+      # and waits for /readyz. Appends BACKEND_URL and EVAL_DATABASE_URL to $GITHUB_ENV.
+      - name: Start the eval stack
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: scripts/ci/eval-ci.sh up
+      # ======================================================================================
+      # T7 PLACEHOLDER: identities of the eval store.
+      # Task T7 replaces the body of this step. It must mint Clerk tokens for the lead and the
+      # seller of the eval store (packages/e2e/src/clerk.ts; the seed created their users) and
+      # export EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID with
+      # `echo "NAME=value" >> "$GITHUB_ENV"` (mask each token first: `echo "::add-mask::$token"`).
+      # The same placeholder sits in the assistant-eval-smoke job of ci.yml.
+      # ======================================================================================
+      - name: Mint eval identities (T7 placeholder)
+        run: |
+          echo "::error title=Task T7 is pending::Clerk tokens for the eval store are not wired yet. T7 must export EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID in this step."
+          exit 1
+      # BACKEND_URL and EVAL_DATABASE_URL come from the stack step; EVAL_LEAD_TOKEN,
+      # EVAL_SELLER_TOKEN and EVAL_STORE_ID from the T7 step above. The harness takes its
+      # output directory relative to packages/eval, so pass an absolute one.
+      - name: Run the evaluation
+        env:
+          OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          RUN_SET: ${{ inputs.set || 'full' }}
+          RUN_MODEL: ${{ inputs.model }}
+          COMPARE_MODELS: ${{ inputs.compare_models }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=(--concurrency 1 --out "$GITHUB_WORKSPACE/packages/eval/results")
+          if [ -n "$COMPARE_MODELS" ]; then
+            command=compare
+            args+=(--models "$COMPARE_MODELS")
+          else
+            command="$RUN_SET"
+            if [ -n "$RUN_MODEL" ]; then args+=(--model "$RUN_MODEL"); fi
+            if [ "$FORCE" = true ]; then args+=(--force); fi
+          fi
+          pnpm --filter @taphoa/eval run "$command" -- "${args[@]}"
+      # New and changed files of packages/eval/results (the checkout already holds the old ones).
+      - name: Collect the results of this run
+        id: collect
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/eval-results"
+          count=0
+          while IFS= read -r -d '' file; do
+            cp "$file" "$RUNNER_TEMP/eval-results/"
+            count=$((count + 1))
+          done < <(git ls-files -z --modified --others --exclude-standard -- packages/eval/results)
+          if [ "$count" -gt 0 ]; then
+            echo "results=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "results=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Results to the job summary
+        if: always()
+        run: scripts/ci/eval-ci.sh summary "$RUNNER_TEMP/eval-results"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: eval-results
+          path: ${{ runner.temp }}/eval-results
+          if-no-files-found: ignore
+          retention-days: 30
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: eval-stack-logs
+          path: ${{ runner.temp }}/taphoa-eval-stack/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop the eval stack
+        if: always()
+        run: scripts/ci/eval-ci.sh down
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RUN_SET: ${{ inputs.compare_models && 'compare' || inputs.set || 'full' }}
+        run: scripts/ci/job-summary.sh "eval $RUN_SET" "live stack in Actions (compose postgres + redis, local backend)"
+
+  # Commits the results to eval/results and keeps one pull request into main open. Runs after a
+  # failed run too: a missed pass bar is a result worth keeping.
+  publish:
+    needs: [guard, run]
+    if: ${{ !cancelled() && needs.run.outputs.results == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: eval-results
+          path: ${{ runner.temp }}/eval-results
+      - name: Commit the results and open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          branch=eval/results
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            git fetch origin "$branch"
+            git checkout -B "$branch" "origin/$branch"
+            # Keep earlier unmerged nights; main wins where a file differs on both sides.
+            git merge --no-edit -X theirs -m "chore(eval): merge main into $branch" origin/main
+          else
+            git checkout -B "$branch" origin/main
+          fi
+          mkdir -p packages/eval/results
+          cp "$RUNNER_TEMP"/eval-results/*.md packages/eval/results/
+          git add packages/eval/results
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(eval): results of run $GITHUB_RUN_ID"
+          fi
+          if git diff --quiet origin/main -- packages/eval/results; then
+            echo "The branch holds no results that main lacks; nothing to publish."
+            exit 0
+          fi
+          git push origin "$branch"
+          {
+            echo "Results written by the [eval workflow run]($RUN_URL)."
+            echo
+            echo "Files on this branch that main does not have yet:"
+            echo
+            git diff --name-only origin/main -- packages/eval/results | sed 's/^/- /'
+            echo
+            echo "The workflow never pushes to main. Merge this pull request to keep the results."
+            echo "Checks do not start by themselves for a pull request opened with GITHUB_TOKEN: close and reopen it once to run CI."
+          } > "$RUNNER_TEMP/pr-body.md"
+          pr="$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            if ! gh pr create --base main --head "$branch" --title "chore(eval): nightly results" --body-file "$RUNNER_TEMP/pr-body.md"; then
+              echo "::error title=Pull request not created::The results are pushed to $branch. Allow GitHub Actions to create pull requests (Settings, Actions, General, Workflow permissions), or open the pull request by hand."
+              exit 1
+            fi
+          else
+            gh pr edit "$pr" --body-file "$RUNNER_TEMP/pr-body.md"
+          fi
