@@ -119,6 +119,9 @@ export function AuthGate({
         />
       </Frame>
     );
+  // `signedIn` follows the *active* Clerk session only. After "Đăng xuất" Clerk has none even when
+  // other people are still signed in on this phone, so the gate keeps sending to /sign-in, which
+  // lists them and asks for their PIN before activating one.
   return children({
     signedIn: !!isSignedIn,
     hasMembership: !!isSignedIn && membership !== null,

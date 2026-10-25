@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   screen,
   waitFor,
@@ -544,7 +545,7 @@ describe('sign out', () => {
     expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
   });
 
-  test('the next signed-in person becomes active afterwards (Clerk does not pick one)', async () => {
+  test('leaves nobody active and never hands the phone to the next person', async () => {
     crowd();
     addClerkSession({
       id: 'sess_old',
@@ -554,18 +555,22 @@ describe('sign out', () => {
     });
     await open();
     await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
-    await waitFor(() => expect(clerkMock.setActive).toHaveBeenCalledTimes(1));
-    expect(clerkMock.setActive).toHaveBeenCalledWith(
-      expect.objectContaining({ session: 'sess_ut' }),
-    );
-    expect(clerkMock.signOut.mock.invocationCallOrder[0]).toBeLessThan(
-      clerkMock.setActive.mock.invocationCallOrder[0]!,
-    );
-    expect(getClerkState()).toMatchObject({
-      isSignedIn: true,
-      userId: 'user_ut',
-      sessionId: 'sess_ut',
+    await waitFor(() => expect(getClerkState().isSignedIn).toBe(false));
+    // Let everything the hook does after signOut settle before looking.
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
+    expect(getClerkState()).toMatchObject({
+      isSignedIn: false,
+      userId: null,
+      sessionId: null,
+    });
+    // Their PIN guards them: nobody is activated without it.
+    expect(clerkMock.setActive).not.toHaveBeenCalled();
+    // The others stay signed in on the device, to be picked on the sign-in screen.
+    expect(
+      clerkMock.sessions.filter(({ status }) => status === 'active'),
+    ).toHaveLength(2);
   });
 
   test('the last person signs out of the app and activates nobody', async () => {

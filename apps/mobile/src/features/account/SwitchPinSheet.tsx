@@ -12,23 +12,26 @@ export type SwitchPinSheetProps = {
   busy: boolean;
   /** Counts wrong entries so the digits clear after each one. */
   attempt: number;
+  /** Root id of the sheet (parts: `-dots`, `-error`, `-keypad`, `-submit`). */
+  testID?: string;
   onSubmit: (pin: string) => void;
   onClose: () => void;
 };
 
-/** Asks for the PIN of the person being switched to. */
+/** Asks for the PIN of the person being switched to: in the account tab, or on the sign-in screen. */
 export const SwitchPinSheet = memo(function SwitchPinSheet({
   target,
   error,
   busy,
   attempt,
+  testID = 'account-switch-pin',
   onSubmit,
   onClose,
 }: SwitchPinSheetProps) {
   const t = useT(strings);
   return (
     <PinSheet
-      testID="account-switch-pin"
+      testID={testID}
       title={fill(t('switch.pinTitle'), { name: target.name })}
       confirmLabel={t('pin.confirm')}
       error={error}

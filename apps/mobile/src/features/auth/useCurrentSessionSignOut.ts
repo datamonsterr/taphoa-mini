@@ -1,16 +1,15 @@
-import { useAuth, useClerk, useSessionList } from '@clerk/expo';
+import { useAuth, useClerk } from '@clerk/expo';
 import { useState } from 'react';
-import { signedInSessions } from './deviceSessions';
 import { useEmailFlow } from './emailFlow';
 
 /**
- * Signs out the current Clerk session only. Clerk leaves nobody active after removing it, so
- * the next signed-in person on this phone is activated afterwards.
+ * Signs out the current Clerk session only. Clerk leaves nobody active afterwards, and nobody
+ * is activated here: another person on the phone is guarded by their own PIN, so they are
+ * picked (and asked for it) on the sign-in screen, which lists everyone still signed in.
  */
 export function useCurrentSessionSignOut() {
   const { sessionId } = useAuth();
-  const { signOut, setActive } = useClerk();
-  const { sessions } = useSessionList();
+  const { signOut } = useClerk();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   return {
@@ -21,14 +20,9 @@ export function useCurrentSessionSignOut() {
       if (!sessionId || busy) return;
       setBusy(true);
       setFailed(false);
-      const next = signedInSessions(sessions).find(
-        ({ id }) => id !== sessionId,
-      );
       try {
         await signOut({ sessionId });
         useEmailFlow.getState().reset();
-        if (next)
-          await setActive({ session: next.id, navigate: async () => {} });
       } catch {
         setFailed(true);
       } finally {
