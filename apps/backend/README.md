@@ -28,6 +28,29 @@ or missing runtime with existing models fails startup. `RUST_LOG` controls traci
 requests and closes the Postgres pool. Configuration is environment-only; the binary
 does not automatically read `.env`.
 
+### Authentication (Clerk)
+
+Identity is Clerk ([ADR 0004](../../docs/adr/0004-clerk-identity.md),
+[contract](../../docs/specs/assistant/auth-clerk.md)). Protected routes take
+`Authorization: Bearer <Clerk session JWT>`; the backend verifies it (RS256) against the
+instance JWKS and makes no Clerk call per request. `X-Store-Id` picks the store when the Clerk
+user has several memberships (optional with exactly one). The backend issues no tokens and keeps
+no refresh tokens, recovery codes or sessions; `JWT_SECRET` is no longer read.
+
+| Variable                         | Required | Meaning                                                                             |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `CLERK_PUBLISHABLE_KEY`          | yes\*    | Gives the Frontend API host: issuer `https://<host>`, JWKS `/.well-known/jwks.json` |
+| `CLERK_SECRET_KEY`               | no       | Backend API key for profile reads (and `scripts/e2e.sh`, below); a secret           |
+| `CLERK_API_URL`                  | no       | Backend API base URL (default `https://api.clerk.com`)                              |
+| `CLERK_AUTHORIZED_PARTIES`       | no       | Comma-separated origins allowed in the token's `azp` claim                          |
+| `CLERK_ISSUER`, `CLERK_JWKS_URL` | no       | Override the values derived from the publishable key (tests point them at a stub)   |
+
+\*Startup fails unless an issuer can be derived: set `CLERK_PUBLISHABLE_KEY` or `CLERK_ISSUER`.
+An empty or whitespace-only `CLERK_*` value counts as unset. Without `CLERK_SECRET_KEY` the
+profile in `GET /v1/me` is `null`. The publishable key is public by design; `.env.example`
+defaults to the development instance key. Never commit the secret key; see
+[deploy.md](../../docs/deploy.md#clerk-identity) for where each value lives.
+
 | Endpoint              | Result                                                                                                                  |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `GET /healthz`        | 200 `{"status":"ok"}`, without dependency checks                                                                        |
@@ -94,6 +117,18 @@ script checks health/readiness, segmentation and image upload/metadata/download 
 only when intentionally testing a model-free image. Set `EXPECT_IMAGES=0` only for
 intentional storage-less smoke runs; CI always tests image upload/download. Python 3,
 curl and cmp are required by the smoke script. Missing readiness fails the smoke.
+
+The authenticated checks (store creation and the image round trip) need `CLERK_SECRET_KEY`, the
+Clerk Backend API key of the instance the backend trusts. The script creates a throwaway
+`+clerk_test` user, mints a 10 minute session token and deletes the user on exit. Without the
+key it prints a notice and skips only those checks (fork and dependabot runs); health,
+readiness and segmentation still run. `CLERK_API_URL` overrides the Backend API base URL. The
+key and the token are never printed; keep `set -x` off.
+
+```sh
+CLERK_SECRET_KEY="$(grep '^CLERK_SECRET_KEY=' ~/.config/taphoa-mini/secrets.env | cut -d= -f2-)" \
+BASE_URL=http://localhost:8080 ./scripts/e2e.sh
+```
 
 Build **from repository root**, with the Dockerfile-specific ignore file keeping the
 context limited to backend source:
@@ -168,7 +203,7 @@ DATABASE_URL=postgres://postgres:pw@localhost:11432/w_seed pnpm seed
 ```
 
 The command runs migrations, then creates **Tạp hóa Cô Ba** and **Cửa hàng Minh Khai**.
-Each store has one Lead and three sellers, device sessions, a pending invite and a
+Each store has one Lead and three sellers, a pending invite and a
 used invite, eight categories, 30 branded products with pack/case units, image
 metadata, normalized fake 384-dimensional embeddings, and price history. It also
 creates 30 days of 15–40 sales per store/day ending on the first run's current
@@ -179,27 +214,17 @@ Cô Ba has sample bank details; Minh Khai has no bank profile. Both include
 recorded cash and transfer sales. Image object keys are dummy
 metadata: there are no corresponding storage objects.
 
-The CLI prints store/member IDs, the original deterministic recovery codes, PIN
-hints, and a ready pending invite token. Use the printed recovery code to sign in
-as the Lead through `POST /v1/auth/recover`:
-
-```sh
-curl -X POST http://localhost:8080/v1/auth/recover \
-  -H 'Content-Type: application/json' \
-  -d '{"recovery_code":"REPLACE-WITH-PRINTED-CODE","device":{"name":"Local browser","platform":"web","app_version":"1.0.0"}}'
-```
-
-Recovery rotates the code: save the new code returned by the endpoint. The printed
-code is normalized to uppercase with hyphens/spaces removed for authentication;
-only its Argon2id hash and SHA-256 lookup digest are stored. PINs use Argon2id;
-invite tokens use SHA-256. The printed seller PIN is `2468`.
+The CLI prints store/member IDs, PIN hints, and a ready pending invite token. Members
+get placeholder `clerk_user_id` values (`seed_<member id>`); the seeder does not create
+Clerk users yet, so seeded members cannot sign in through Clerk. PINs use Argon2id; invite
+tokens use SHA-256. The printed seller PIN is `2468`.
 
 IDs, codes, tokens, product vectors, and the PRNG are deterministic. Each store is
 seeded in one transaction, protected by a transaction-scoped advisory lock. If its
 fixed fixture store ID already exists, the entire store is skipped: **same-day and
 later reruns preserve every table's row counts and manual edits**, without adding
 new dates or resetting credentials. The output still shows the original hints;
-a consumed/expired invite or rotated recovery code is not made valid again. A
+a consumed/expired invite is not made valid again. A
 failure rolls back that store completely, and a rerun can finish the other store.
 Use a fresh disposable database to regenerate a new 30-day window.
 
