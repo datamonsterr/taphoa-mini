@@ -9,3 +9,10 @@ export {
 export { LEAD_ID, PRODUCT_IDS, STORE_ID } from './fixtures';
 
 export { getMockEvents } from './events';
+
+export {
+  setNextAssistantReply,
+  quotaReply,
+  proposalReply,
+  type AssistantReplyScript,
+} from './assistant';
