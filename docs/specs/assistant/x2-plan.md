@@ -71,4 +71,25 @@ T4 railway.ts + docs + .env.example (after T3) ────┘
 
 ## Evidence
 
-Filled in as tasks land.
+- **T3 Langfuse (2026-10-25).** Langfuse v4.70.0 runs in Railway `production` at
+  <https://langfuse-web-production-dac5.up.railway.app>: `/api/public/health` returns
+  `{"status":"OK","version":"4.70.0"}`; the admin credentials login returns a session with org
+  `taphoa`; the project API keys list project `taphoa`. Keys are in the local secrets file and
+  GitHub secrets `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`. Services were
+  created with the CLI in `production` only; `test` still has only `backend`, `Postgres`, `Redis`.
+- **T5 collector.** `otel-collector` is deployed (contrib 0.163.2) with private endpoint
+  `otel-collector.railway.internal:4318` and public domain
+  `https://otel-collector-production-ce86.up.railway.app`. OTLP `/v1/logs` returns 401 without
+  a token or with a wrong token, 200 with the collector token.
+- **Synthetic `gen_ai` span.** A synthetic trace (HTTP root, `invoke_agent taphoa-assistant`
+  child, `chat` generation) sent to the public collector domain with environment `test` appears
+  in Langfuse within 6 s through `/api/public/v2/observations?traceId=…`: the `invoke_agent`
+  span is an `AGENT` root observation and `chat` a `GENERATION` child, both with environment
+  `test`; the HTTP span is not sent to Langfuse. The collector logged no export errors to
+  Langfuse or PostHog.
+- **T6 variables.** Backend `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` are
+  set in both environments (production through references to the collector, test as a literal
+  public URL and header); collector variables reference `langfuse-web` keys and the backend
+  PostHog variables.
+- **Deploy note.** From a worktree under `.claude/worktrees/`, `railway up` resolves the main
+  checkout and its ignore rules drop the worktree; use `railway up . --path-as-root`.
