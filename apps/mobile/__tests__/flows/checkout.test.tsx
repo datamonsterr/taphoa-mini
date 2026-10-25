@@ -9,15 +9,16 @@ import {
   waitFor,
 } from '@/test/router';
 
-beforeEach(() => {
+const seedCart = () => {
   const { add } = useCartStore.getState();
   add({ productId: PRODUCT_IDS.coca, name: 'Coca', price: 10000 });
   add({ productId: PRODUCT_IDS.coca, name: 'Coca', price: 10000 });
   add({ productId: PRODUCT_IDS.pepsi, name: 'Pepsi', price: 9000 });
-});
+};
 
 it('cart -> qr -> cash change -> received creates the sale and returns to camera', async () => {
   await renderApp('/');
+  seedCart();
   expect(screen).toHavePathname('/');
 
   await testRouter.push('/cart');

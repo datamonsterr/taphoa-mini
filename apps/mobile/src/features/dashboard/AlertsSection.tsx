@@ -6,7 +6,7 @@ import { StyleSheet, View } from 'react-native';
 import { AlertPill, PressableScale, Text } from '@/components/ui';
 import { useAlerts, useManualLines, type ManualLine } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { selectIsLead, useSessionStore } from '@/stores/session';
+import { useIsLead } from '@/features/auth/useMembership';
 import { useT } from '@/lib/i18n';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
@@ -20,7 +20,7 @@ const LeadAlerts = memo(function LeadAlerts() {
   const t = useT(dashboardStrings);
   const [open, setOpen] = useState<Open>(null);
   // Margin alerts and the review queue are Lead-only: a Seller's request would answer 403.
-  const isLead = useSessionStore(selectIsLead);
+  const isLead = useIsLead();
   const margin = useAlerts('open', isLead);
   const manual = useManualLines('open', isLead);
 

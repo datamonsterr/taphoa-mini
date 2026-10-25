@@ -20,17 +20,10 @@ import {
   Switch,
   Text,
 } from '@/components/ui';
-import {
-  isApiError,
-  logout,
-  useMe,
-  useMembers,
-  useStore,
-  useSwitchMember,
-  type BankAccount,
-  type Member,
-} from '@/lib/api';
+import { useMe, useMembers, useStore, type BankAccount } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { useMembership } from '@/features/auth/useMembership';
+import { useCurrentSessionSignOut } from '@/features/auth/useCurrentSessionSignOut';
 import { useChromeStore } from '@/stores/chrome';
 import { useSettingsStore, type Language } from '@/stores/settings';
 import {
@@ -49,7 +42,6 @@ import { StockThresholdRow } from './StockThresholdRow';
 import { BankSheet } from './BankSheet';
 import { InviteSheet } from './InviteSheet';
 import { MemberRow } from './MemberRow';
-import { PinSheet } from './PinSheet';
 import { SetPinSheet } from './SetPinSheet';
 import { fill, strings } from './strings';
 import { formatAccountNumber, initialOf } from './utils';
@@ -198,54 +190,39 @@ const LanguageRow = memo(function LanguageRow() {
 
 const SignOutRow = memo(function SignOutRow() {
   const t = useT(strings);
-  const [busy, setBusy] = useState(false);
-  const signOut = useCallback(() => {
-    setBusy(true);
-    // The session is cleared inside `logout`, which unmounts this screen.
-    void logout();
-  }, []);
+  const { busy, failed, available, signOut } = useCurrentSessionSignOut();
   return (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={t('logout')}
       accessibilityState={{ disabled: busy, busy }}
-      disabled={busy}
+      testID="account-sign-out"
+      disabled={busy || !available}
       pressedScale={0.98}
-      onPress={signOut}
+      onPress={() => {
+        void signOut();
+      }}
       style={[styles.row, styles.rowRight16, busy && styles.disabled]}
     >
       <Icon icon={LogOut} color={colors.danger} />
       <ScaledText variant="label" style={[styles.grow, styles.error]}>
-        {t('logout')}
+        {failed ? t('logoutError') : t('logout')}
       </ScaledText>
     </PressableScale>
   );
 });
 
-type ActiveSheet = 'invite' | 'bank' | 'switch' | 'setPin' | null;
-
-/** The server answers 401 for a wrong PIN and 429 (with Retry-After) once the member is locked. */
-const switchErrorKey = (error: unknown): { key: string; minutes?: number } => {
-  if (isApiError(error) && error.status === 401) return { key: 'pin.wrong' };
-  if (isApiError(error) && error.status === 429) {
-    return {
-      key: 'pin.locked',
-      minutes: Math.max(1, Math.ceil((error.retryAfterMs ?? 300_000) / 60_000)),
-    };
-  }
-  return { key: 'switch.error' };
-};
+type ActiveSheet = 'invite' | 'bank' | 'setPin' | null;
 
 export function AccountScreen() {
   const t = useT(strings);
   const insets = useSafeAreaInsets();
   const me = useMe();
+  const membership = useMembership();
   const store = useStore();
   const members = useMembers();
   const [sheet, setSheet] = useState<ActiveSheet>(null);
-  const [target, setTarget] = useState<Member | null>(null);
   const [pinSaved, setPinSaved] = useState(false);
-  const switcher = useSwitchMember();
   const setTabBarHidden = useChromeStore((s) => s.setTabBarHidden);
   const sheetOpen = sheet !== null;
   // The floating tab bar sits above this tab's content, so hide it while a sheet is open.
@@ -256,11 +233,6 @@ export function AccountScreen() {
   const closeSheet = useCallback(() => setSheet(null), []);
   const openInvite = useCallback(() => setSheet('invite'), []);
   const openBank = useCallback(() => setSheet('bank'), []);
-  const closeSwitch = useCallback(() => {
-    setSheet(null);
-    setTarget(null);
-    switcher.reset();
-  }, [switcher]);
   const openSetPin = useCallback(() => {
     setPinSaved(false);
     setSheet('setPin');
@@ -269,35 +241,6 @@ export function AccountScreen() {
     setSheet(null);
     setPinSaved(true);
   }, []);
-  const onSwitch = useCallback(
-    (member: Member) => {
-      switcher.reset();
-      // A member with a PIN is asked for it; without one the switch happens at once.
-      if (member.has_pin) {
-        setTarget(member);
-        setSheet('switch');
-      } else {
-        switcher.mutate({ member_id: member.id });
-      }
-    },
-    [switcher],
-  );
-  const submitPin = useCallback(
-    (pin: string) => {
-      if (!target) return;
-      switcher.mutate(
-        { member_id: target.id, pin },
-        { onSuccess: closeSwitch },
-      );
-    },
-    [switcher, target, closeSwitch],
-  );
-  const switchError = switcher.isError
-    ? (() => {
-        const { key, minutes } = switchErrorKey(switcher.error);
-        return fill(t(key), { n: minutes ?? 0 });
-      })()
-    : null;
   const roleLabel = useCallback(
     (role: 'lead' | 'seller') => t(`role.${role}`),
     [t],
@@ -343,7 +286,7 @@ export function AccountScreen() {
     );
   }
 
-  if (!me.data || !store.data) {
+  if (!me.data || !membership || !store.data) {
     return (
       <View style={styles.screen}>
         <ScrollView
@@ -363,7 +306,7 @@ export function AccountScreen() {
     );
   }
 
-  const role = me.data.member.role;
+  const role = membership.member.role;
   const isLead = role === 'lead';
   const bank = store.data.bank_account;
 
@@ -394,7 +337,7 @@ export function AccountScreen() {
         </View>
 
         <ScaledText variant="caption" style={styles.acting}>
-          {fill(t('acting'), { name: me.data.member.display_name })}
+          {fill(t('acting'), { name: membership.member.display_name })}
         </ScaledText>
 
         <MemberRow
@@ -407,12 +350,6 @@ export function AccountScreen() {
           errorLabel={t('members.error')}
           inviteLabel={isLead ? t('invite.open') : null}
           onInvite={openInvite}
-          currentMemberId={me.data.member.id}
-          switchLabel={(member) =>
-            fill(t('switch.to'), { name: member.display_name })
-          }
-          onSwitch={onSwitch}
-          switchError={sheet === 'switch' ? null : switchError}
         />
 
         <PressableScale
@@ -464,20 +401,12 @@ export function AccountScreen() {
         <ElderRow />
         <TextSizeRow />
         <LanguageRow />
+        {/* T6: Clerk device sessions and PIN switcher belong here. */}
+        <View testID="account-sessions" />
         <SignOutRow />
       </ScrollView>
 
       {sheet === 'invite' ? <InviteSheet onClose={closeSheet} /> : null}
-      {sheet === 'switch' && target ? (
-        <PinSheet
-          title={fill(t('pin.enterTitle'), { name: target.display_name })}
-          confirmLabel={t('pin.confirm')}
-          error={switchError}
-          busy={switcher.isPending}
-          onSubmit={submitPin}
-          onClose={closeSwitch}
-        />
-      ) : null}
       {sheet === 'setPin' ? (
         <SetPinSheet onClose={closeSheet} onSaved={pinSavedDone} />
       ) : null}
