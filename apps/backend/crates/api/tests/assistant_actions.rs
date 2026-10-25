@@ -753,3 +753,207 @@ async fn assistant_member_foreign_keys_allow_data_reset() {
         .unwrap();
     assert_eq!(remaining, 0);
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn regression_stock_delta_remains_valid_after_a_sale() {
+    let (w, _) = world().await;
+    let ctx = context(&w, false).await;
+    let product = w.product("Sữa", 15000, None).await;
+    sqlx::query("UPDATE products SET stock_quantity=10 WHERE id=$1")
+        .bind(product)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let action = propose(
+        &ctx,
+        "propose_stock_adjustment",
+        json!({
+            "product_id":product,"delta":3,"reason":"Nhập bổ sung"
+        }),
+    )
+    .await;
+    assert_eq!(action["payload"]["current_stock"], 10);
+    w.checked(
+        "POST",
+        "/v1/sales",
+        "/v1/sales",
+        &w.seller,
+        common::world::sale_body(
+            Uuid::now_v7(),
+            &common::world::now_iso(),
+            "cash",
+            &[(product, 2, 15000)],
+        ),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(values(&w, product).await.2, Some(8));
+    let done = confirm(&w, &action).await;
+    assert_eq!(values(&w, product).await.2, Some(11));
+    assert_eq!(
+        done["payload"]["current_stock"], 10,
+        "snapshot is for display"
+    );
+    assert_eq!(
+        decide(&w, &action, &w.lead, "confirm", Some("confirm-1"))
+            .await
+            .body,
+        done
+    );
+    assert_eq!(count(&w, "stock_movements").await, 2);
+}
+
+struct CommittedDecisions {
+    pool: sqlx::PgPool,
+    events: Mutex<Vec<(CaptureEvent, bool)>>,
+    ready: tokio::sync::Notify,
+}
+#[async_trait::async_trait]
+impl Analytics for CommittedDecisions {
+    async fn capture_event(&self, event: CaptureEvent) -> anyhow::Result<()> {
+        if event.event != "assistant_action_decided" {
+            return Ok(());
+        }
+        let status = match event.properties["decision"].as_str() {
+            Some("confirmed") => "done",
+            Some("rejected") => "rejected",
+            Some("failed") => "failed",
+            Some("expired") => "expired",
+            _ => anyhow::bail!("unexpected assistant decision"),
+        };
+        let committed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM assistant_actions WHERE store_id=$1 AND kind=$2 AND status=$3)")
+            .bind(event.groups["store"].as_str().unwrap().parse::<Uuid>()?)
+            .bind(event.properties["kind"].as_str().unwrap()).bind(status)
+            .fetch_one(&self.pool).await?;
+        self.events.lock().unwrap().push((event, committed));
+        self.ready.notify_one();
+        Ok(())
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn regression_every_decision_captures_its_committed_status_once() {
+    for scenario in [
+        "handler_failure",
+        "invite_unknown",
+        "confirm_changed",
+        "confirm_elapsed",
+        "reject_changed",
+        "reject_elapsed",
+        "confirmed",
+        "rejected",
+    ] {
+        let (mut w, _) = world().await;
+        let recording = Arc::new(CommittedDecisions {
+            pool: w.pool().clone(),
+            events: Mutex::new(Vec::new()),
+            ready: tokio::sync::Notify::new(),
+        });
+        w.state.analytics = recording.clone();
+        w.app = taphoa_api::router(w.state.clone());
+        let ctx = context(&w, false).await;
+        let product = w.product("Sữa", 15000, None).await;
+        let (tool, args) = match scenario {
+            "handler_failure" => {
+                sqlx::query("UPDATE products SET stock_quantity=2147483647 WHERE id=$1")
+                    .bind(product)
+                    .execute(w.pool())
+                    .await
+                    .unwrap();
+                (
+                    "propose_stock_adjustment",
+                    json!({"product_id":product,"delta":1,"reason":"Kiểm kê"}),
+                )
+            }
+            "invite_unknown" => (
+                "propose_invite",
+                json!({"role":"seller","can_enroll":false}),
+            ),
+            "confirm_changed" | "reject_changed" => (
+                "propose_price_change",
+                json!({"product_id":product,"new_price":17000}),
+            ),
+            _ => (
+                "propose_expense",
+                json!({"amount":1000,"category":"khac","note":"Chi","paid_with":"other"}),
+            ),
+        };
+        let action = propose(&ctx, tool, args).await;
+        if scenario == "invite_unknown" {
+            sqlx::query("UPDATE assistant_actions SET status='executing',decided_by=$2,decided_at=now(),idempotency_key_hash=$3 WHERE id=$1")
+                .bind(id(&action)).bind(w.lead_id)
+                .bind(taphoa_api::idempotency::request_hash(&json!("decision")).as_slice())
+                .execute(w.pool()).await.unwrap();
+        } else if scenario.ends_with("changed") {
+            sqlx::query("UPDATE products SET price=16000 WHERE id=$1")
+                .bind(product)
+                .execute(w.pool())
+                .await
+                .unwrap();
+        } else if scenario.ends_with("elapsed") {
+            sqlx::query(
+                "UPDATE assistant_actions SET expires_at=now()-interval '1 second' WHERE id=$1",
+            )
+            .bind(id(&action))
+            .execute(w.pool())
+            .await
+            .unwrap();
+        }
+        let decision = if scenario.starts_with("reject") {
+            "reject"
+        } else {
+            "confirm"
+        };
+        let expected = match scenario {
+            "handler_failure" | "invite_unknown" => "failed",
+            "confirmed" => "confirmed",
+            "rejected" => "rejected",
+            _ => "expired",
+        };
+        let reply = decide(&w, &action, &w.lead, decision, Some("decision")).await;
+        if expected == "expired" {
+            assert_eq!(
+                reply.status,
+                StatusCode::CONFLICT,
+                "{scenario}: {}",
+                reply.body
+            );
+            assert_eq!(reply.body["code"], "action_stale");
+        } else {
+            assert_eq!(reply.status, StatusCode::OK, "{scenario}: {}", reply.body);
+            assert_eq!(
+                reply.body["status"],
+                if expected == "confirmed" {
+                    "done"
+                } else {
+                    expected
+                }
+            );
+        }
+        tokio::time::timeout(Duration::from_secs(2), recording.ready.notified())
+            .await
+            .unwrap_or_else(|_| panic!("missing {expected} product event for {scenario}"));
+        let replay = decide(&w, &action, &w.lead, decision, Some("decision")).await;
+        if expected == "expired" {
+            assert_eq!(replay.body["code"], "action_stale");
+        } else if expected == "rejected" {
+            assert_eq!(replay.body["code"], "already_decided");
+        } else {
+            assert_eq!(replay.body, reply.body);
+        }
+        let events = recording.events.lock().unwrap();
+        assert_eq!(events.len(), 1, "{scenario}");
+        assert_eq!(events[0].0.properties["decision"], expected, "{scenario}");
+        assert_eq!(
+            events[0].0.properties["kind"],
+            tool.trim_start_matches("propose_")
+        );
+        assert_eq!(events[0].0.distinct_id, w.lead_id.to_string());
+        assert!(
+            events[0].1,
+            "decision must be committed before analytics capture: {scenario}"
+        );
+    }
+}

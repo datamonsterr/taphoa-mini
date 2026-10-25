@@ -74,15 +74,15 @@ fn payload_id(payload: &Value, field: &str) -> ApiResult<Uuid> {
 async fn changed(conn: &mut PgConnection, actor: &Actor, row: &ActionRow) -> ApiResult<bool> {
     let p = &row.payload;
     match row.kind.as_str() {
-        "stock_adjustment" | "price_change" | "threshold_update" => {
-            let current: Option<(bool,i64,Option<i32>,Option<i32>)> = sqlx::query_as("SELECT archived,price,low_stock_threshold,stock_quantity FROM products WHERE store_id=$1 AND id=$2")
+        "stock_adjustment" => Ok(!active_product(conn, actor, payload_id(p, "product_id")?).await?),
+        "price_change" | "threshold_update" => {
+            let current: Option<(bool,i64,Option<i32>)> = sqlx::query_as("SELECT archived,price,low_stock_threshold FROM products WHERE store_id=$1 AND id=$2")
                 .bind(actor.store_id).bind(payload_id(p,"product_id")?).fetch_optional(conn).await?;
-            Ok(current.is_none_or(|(archived, price, threshold, stock)| {
+            Ok(current.is_none_or(|(archived, price, threshold)| {
                 archived
                     || match row.kind.as_str() {
                         "price_change" => json!(price) != p["old_price"],
-                        "threshold_update" => json!(threshold) != p["old_threshold"],
-                        _ => json!(stock) != p["current_stock"],
+                        _ => json!(threshold) != p["old_threshold"],
                     }
             }))
         }
@@ -148,12 +148,14 @@ async fn active_product(conn: &mut PgConnection, actor: &Actor, id: Uuid) -> Api
     .fetch_one(conn)
     .await?)
 }
-async fn expire(conn: &mut PgConnection, id: Uuid) -> ApiResult<()> {
-    sqlx::query("UPDATE assistant_actions SET status='expired' WHERE id=$1")
-        .bind(id)
-        .execute(conn)
-        .await?;
-    Ok(())
+async fn expire(conn: &mut PgConnection, id: Uuid) -> ApiResult<ActionRow> {
+    Ok(sqlx::query_as(concat!(
+        "UPDATE assistant_actions SET status='expired' WHERE id=$1 RETURNING ",
+        action_columns!()
+    ))
+    .bind(id)
+    .fetch_one(conn)
+    .await?)
 }
 
 pub(crate) async fn confirm(
@@ -194,8 +196,9 @@ pub(crate) async fn confirm(
         }
     } else {
         if row.expires_at < chrono::Utc::now() || changed(&mut tx, &actor, &row).await? {
-            expire(&mut tx, id).await?;
+            let updated = expire(&mut tx, id).await?;
             tx.commit().await?;
+            after_decision(&state, &actor, &updated, ActionDecision::Expired);
             return Err(stale());
         }
         row = sqlx::query_as(concat!("UPDATE assistant_actions SET status='executing',decided_by=$2,decided_at=clock_timestamp(),idempotency_key_hash=$3 WHERE id=$1 RETURNING ",action_columns!()))
@@ -216,7 +219,7 @@ pub(crate) async fn confirm(
             Ok(result) => {
                 let updated = finish(&mut tx, &actor, id, Ok(result)).await?;
                 tx.commit().await?;
-                after_decision(&state, &actor, &updated, "confirmed");
+                after_decision(&state, &actor, &updated, ActionDecision::Confirmed);
                 return Ok(Json(action_json(&updated)));
             }
             Err(error) => {
@@ -239,9 +242,12 @@ pub(crate) async fn confirm(
     }
     let updated = finish(&mut tx, &actor, id, execution).await?;
     tx.commit().await?;
-    if updated.status == "done" {
-        after_decision(&state, &actor, &updated, "confirmed");
-    }
+    let decision = if updated.status == "done" {
+        ActionDecision::Confirmed
+    } else {
+        ActionDecision::Failed
+    };
+    after_decision(&state, &actor, &updated, decision);
     Ok(Json(action_json(&updated)))
 }
 
@@ -515,14 +521,15 @@ pub(crate) async fn reject(
         return Err(decided());
     }
     if row.expires_at < chrono::Utc::now() || changed(&mut tx, &actor, &row).await? {
-        expire(&mut tx, id).await?;
+        let updated = expire(&mut tx, id).await?;
         tx.commit().await?;
+        after_decision(&state, &actor, &updated, ActionDecision::Expired);
         return Err(stale());
     }
     let updated:ActionRow=sqlx::query_as(concat!("UPDATE assistant_actions SET status='rejected',decided_by=$2,decided_at=clock_timestamp() WHERE id=$1 RETURNING ",action_columns!())).bind(id).bind(actor.member_id).fetch_one(&mut *tx).await?;
     emit_decision(&mut tx, &actor, &updated, "rejected").await?;
     tx.commit().await?;
-    after_decision(&state, &actor, &updated, "rejected");
+    after_decision(&state, &actor, &updated, ActionDecision::Rejected);
     Ok(Json(action_json(&updated)))
 }
 pub(crate) fn capture(state: &AppState, actor: &Actor, event: ProductEvent) {
@@ -539,21 +546,20 @@ pub(crate) fn capture(state: &AppState, actor: &Actor, event: ProductEvent) {
         }
     });
 }
-fn after_decision(state: &AppState, actor: &Actor, row: &ActionRow, decision: &str) {
+fn after_decision(state: &AppState, actor: &Actor, row: &ActionRow, decision: ActionDecision) {
     if let Some(kind) = analytics_kind(&row.kind) {
         capture(
             state,
             actor,
-            ProductEvent::AssistantActionDecided {
-                kind,
-                decision: if decision == "confirmed" {
-                    ActionDecision::Confirmed
-                } else {
-                    ActionDecision::Rejected
-                },
-            },
+            ProductEvent::AssistantActionDecided { kind, decision },
         );
     }
+    let decision = match decision {
+        ActionDecision::Confirmed => "confirmed",
+        ActionDecision::Rejected => "rejected",
+        ActionDecision::Expired => "expired",
+        ActionDecision::Failed => "failed",
+    };
     action_decided(state, actor, row, decision);
 }
 /// T8 attaches the assistant trace and LLM analytics here.
