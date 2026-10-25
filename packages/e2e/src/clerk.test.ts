@@ -47,6 +47,34 @@ describe('Clerk Backend API', () => {
       expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(125);
   });
 
+  it('honors a configured lower request rate', async () => {
+    vi.stubEnv('CLERK_BAPI_RPS', '2');
+    const times: number[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        times.push(Date.now());
+        return Promise.resolve(reply({ id: 'session_1' }));
+      }),
+    );
+    const clerk = await import('./clerk.js');
+    const calls = [
+      clerk.createSession('user_1'),
+      clerk.createSession('user_2'),
+    ];
+    await vi.runAllTimersAsync();
+    await Promise.all(calls);
+    expect(times[1] - times[0]).toBe(500);
+  });
+
+  it('rejects an invalid request rate', async () => {
+    vi.stubEnv('CLERK_BAPI_RPS', '0');
+    const clerk = await import('./clerk.js');
+    await expect(clerk.createSession('user_1')).rejects.toThrow(
+      'CLERK_BAPI_RPS',
+    );
+  });
+
   it.each([
     ['3', 3000],
     [null, 2000],
@@ -127,5 +155,8 @@ describe('Clerk Backend API', () => {
       { expires_in_seconds: 3600 },
     ]);
     expect(fetch.mock.calls[4][1].method).toBe('DELETE');
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe(
+      'Bearer test-secret',
+    );
   });
 });
