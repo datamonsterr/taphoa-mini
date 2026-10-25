@@ -475,6 +475,7 @@ export function buildSeed(now: Date = new Date()): MockState {
         business_date: date,
         member_id: memberId,
         payment_method: method,
+        credit_amount: 0,
         cash_received: cashReceived,
         change_given: cashReceived === null ? null : cashReceived - total,
         total,

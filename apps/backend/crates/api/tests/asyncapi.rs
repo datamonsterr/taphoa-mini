@@ -36,7 +36,27 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "sale.created",
-            json!({"sale_id":U1,"code":"TH0042","total":24500,"payment_method":"transfer","member_id":U2,"business_date":"2026-10-23","line_count":3}),
+            json!({"sale_id":U1,"code":"TH0042","total":24500,"payment_method":"transfer","member_id":U2,"business_date":"2026-10-23","line_count":3,"credit_amount":5000,"customer_id":U2}),
+        ),
+        (
+            "customer.created",
+            json!({"customer_id":U1,"balance":0,"archived":false}),
+        ),
+        (
+            "customer.updated",
+            json!({"customer_id":U1,"balance":-5000,"archived":true}),
+        ),
+        (
+            "debt.recorded",
+            json!({"entry_id":U1,"customer_id":U2,"kind":"credit_sale","amount":10000,"sale_id":U1,"balance":10000,"business_date":"2026-10-23"}),
+        ),
+        (
+            "debt.repaid",
+            json!({"entry_id":U1,"customer_id":U2,"amount":15000,"method":"cash","balance":-5000,"business_date":"2026-10-23"}),
+        ),
+        (
+            "debt.adjusted",
+            json!({"entry_id":U1,"customer_id":U2,"amount":-5000,"balance":-10000,"business_date":"2026-10-23"}),
         ),
         (
             "sale.voided",
@@ -186,4 +206,54 @@ fn openapi_store_event_enum_matches_the_store_channel_messages() {
         })
         .collect();
     assert_eq!(from_openapi, from_channel);
+}
+
+#[test]
+fn debt_events_preserve_signed_balances_and_exclude_customer_details() {
+    let doc = load("asyncapi.yaml");
+    for (kind, data) in samples()
+        .into_iter()
+        .filter(|(kind, _)| kind.starts_with("customer.") || kind.starts_with("debt."))
+    {
+        let v = validator(&doc, message_for(&doc, kind));
+        for field in ["name", "phone", "note"] {
+            let mut private = data.clone();
+            private[field] = json!("private customer detail");
+            assert!(
+                !v.is_valid(&envelope(kind, private)),
+                "{kind} rejects {field}"
+            );
+        }
+    }
+    let repaid = validator(&doc, message_for(&doc, "debt.repaid"));
+    for amount in [0, -1] {
+        assert!(!repaid.is_valid(&envelope(
+            "debt.repaid",
+            json!({
+                "entry_id":U1,"customer_id":U2,"amount":amount,"method":"cash",
+                "balance":-5000,"business_date":"2026-10-23"
+            })
+        )));
+    }
+    let recorded = validator(&doc, message_for(&doc, "debt.recorded"));
+    assert!(recorded.is_valid(&envelope(
+        "debt.recorded",
+        json!({
+            "entry_id":U1,"customer_id":U2,"kind":"void","amount":-10000,
+            "sale_id":U1,"balance":-5000,"business_date":"2026-10-23"
+        })
+    )));
+    let sale = validator(&doc, message_for(&doc, "sale.created"));
+    let mut credit_sale = samples()
+        .into_iter()
+        .find(|(kind, _)| *kind == "sale.created")
+        .unwrap()
+        .1;
+    credit_sale["payment_method"] = json!("credit");
+    credit_sale["credit_amount"] = credit_sale["total"].clone();
+    assert!(sale.is_valid(&envelope("sale.created", credit_sale.clone())));
+    credit_sale["credit_amount"] = json!(0);
+    credit_sale["customer_id"] = Value::Null;
+    credit_sale["payment_method"] = json!("cash");
+    assert!(sale.is_valid(&envelope("sale.created", credit_sale)));
 }

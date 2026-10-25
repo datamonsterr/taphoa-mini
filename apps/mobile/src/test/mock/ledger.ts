@@ -107,6 +107,7 @@ export function createSale(req: CreateSaleRequest): {
     business_date: businessDate(req.sold_at),
     member_id: getCurrentMember().id,
     payment_method: req.payment_method,
+    credit_amount: 0,
     cash_received: cashReceived,
     change_given: cashReceived === null ? null : cashReceived - total,
     total,
