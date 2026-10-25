@@ -31,10 +31,13 @@ These refine [auth-clerk.md](auth-clerk.md); they do not change it.
    `CLERK_AUTHORIZED_PARTIES` (comma-separated origins). `CLERK_SECRET_KEY` is optional for the
    verifier; without it profile reads return `null`. Startup fails when no issuer can be
    derived. `JWT_SECRET` is no longer read.
-2. **Verifier.** RS256 only; JWKS cached in memory; unknown `kid` refetches at most once per
-   60 s; `exp`/`nbf` with 5 s leeway; `iss` exact; `azp` must be in `CLERK_AUTHORIZED_PARTIES`
-   when both are present; `sts == "pending"` is rejected; `sub` and `sid` required. Every
-   failure is `401 unauthorized`.
+2. **Verifier.** RS256 only; JWKS cached in memory behind a read lock, so verifying a known
+   `kid` never waits on a fetch; one single-flight fetch at a time, 5 s timeout; unknown `kid`
+   refetches at most once per 60 s once keys are loaded, and a cold start with nothing loaded
+   retries after 2 s; a loaded set expires after 1 h and the next verify refetches it (a failed
+   refetch keeps the stale set); `exp`/`nbf` with 5 s leeway; `iss` exact; `azp` must be in
+   `CLERK_AUTHORIZED_PARTIES` when both are present; `sts == "pending"` is rejected; `sub` and
+   `sid` required. Every failure is `401 unauthorized`.
 3. **Extractors.** `ClerkIdentity { user_id, session_id }` (token only, no membership) guards
    `createStore`, `joinStore` and `getMe`. `Actor { clerk_user_id, member_id, store_id,
 clerk_session_id, role, can_enroll }` guards every store route: active memberships of the
@@ -55,13 +58,18 @@ memberships: [{store, member}]}` (active memberships only, ordered by join time)
    schema.
 5. **Profile.** `GET {CLERK_API_URL}/v1/users/{id}` with the secret key, cached in Redis as
    `clerk:user:<id>` for 600 s; display name = first + last name, else username, else null;
-   email = primary email. Any Clerk failure gives `profile: null`, never an error. Never in
-   span or log attributes.
+   email = primary email. Any Clerk failure gives `profile: null`, never an error, and is
+   remembered for 60 s (Redis `clerk:user-fail:<id>`, plus in memory) so a Clerk outage, a bad
+   secret or a 429 does not spend the shared Backend API budget on every `GET /v1/me`; one
+   `warn` per failed fetch carries the status code only. The profile never appears in span or
+   log attributes.
 6. **Events.** The envelope `actor` becomes `{member_id, session_id}` where `session_id` is the
    Clerk session id string. `session.revoked` is removed from AsyncAPI and code. The event
    stream of a member closes when `member.changed` arrives with `{member_id: <self>, change:
 "deactivated"}`; removed members get `403` on the next request because the extractor reads
-   active memberships every time.
+   active memberships every time. The token is checked once at connect, so every stream also
+   ends cleanly after 15 minutes (`MAX_STREAM_AGE`); clients reconnect with a fresh token and
+   resume with `Last-Event-ID`.
 7. **Migration `0701_clerk_identity.sql`.** Truncate every store-scoped table (stores cascade
    plus any table without a foreign key to `stores`, for example outbox, images, idempotency
    rows), then: `members.clerk_user_id TEXT NOT NULL`, unique `(store_id, clerk_user_id)`,

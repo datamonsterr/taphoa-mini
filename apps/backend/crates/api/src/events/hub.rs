@@ -12,7 +12,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use super::{Backoff, parse_event_id, stopped};
+use super::{Backoff, MAX_STREAM_AGE, parse_event_id, stopped};
 
 #[derive(Debug)]
 pub struct HubMessage {
@@ -29,6 +29,7 @@ struct Inner {
     // Keep the default signal open when no background tasks are configured.
     _default_shutdown: watch::Sender<bool>,
     heartbeat: Duration,
+    max_stream_age: Duration,
 }
 
 #[derive(Clone)]
@@ -46,17 +47,27 @@ impl Hub {
     }
 
     pub fn with_heartbeat(heartbeat: Duration) -> Self {
+        Self::with_limits(heartbeat, MAX_STREAM_AGE)
+    }
+
+    /// `max_stream_age` bounds every SSE connection; tests inject a short one.
+    pub fn with_limits(heartbeat: Duration, max_stream_age: Duration) -> Self {
         let (sender, receiver) = watch::channel(false);
         Self(Arc::new(Inner {
             channels: Mutex::new(HashMap::new()),
             shutdown: Mutex::new(receiver),
             _default_shutdown: sender,
             heartbeat,
+            max_stream_age,
         }))
     }
 
     pub(crate) fn heartbeat(&self) -> Duration {
         self.0.heartbeat
+    }
+
+    pub(crate) fn max_stream_age(&self) -> Duration {
+        self.0.max_stream_age
     }
 
     pub(crate) fn shutdown_signal(&self) -> watch::Receiver<bool> {
@@ -197,6 +208,13 @@ mod tests {
             event_type: "store.changed".into(),
             payload: "{}".into(),
         }
+    }
+
+    #[test]
+    fn streams_default_to_a_fifteen_minute_lifetime() {
+        assert_eq!(Hub::new().max_stream_age(), Duration::from_secs(15 * 60));
+        let hub = Hub::with_limits(Duration::from_secs(1), Duration::from_secs(2));
+        assert_eq!(hub.max_stream_age(), Duration::from_secs(2));
     }
 
     #[tokio::test]

@@ -3,10 +3,35 @@ pub use crate::config::ClerkSettings;
 use crate::error::{ApiError, ApiResult};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
 use serde::Deserialize;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, PoisonError, RwLock},
+    time::Duration,
+};
 use tokio::{sync::Mutex, time::Instant};
 
-const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
+/// Timing contract of the JWKS cache; tests inject shorter values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Timing {
+    /// A loaded key set older than this is refetched by the next verification.
+    max_age: Duration,
+    /// Minimum gap between fetch attempts while no key set was ever loaded.
+    cold_retry: Duration,
+    /// Minimum gap between fetch attempts once a key set is loaded: unknown-`kid`
+    /// refetches and retries of a failed expiry refresh.
+    refetch_interval: Duration,
+    /// Bound on one JWKS request, body included.
+    fetch_timeout: Duration,
+}
+impl Default for Timing {
+    fn default() -> Self {
+        Self {
+            max_age: Duration::from_secs(60 * 60),
+            cold_retry: Duration::from_secs(2),
+            refetch_interval: Duration::from_secs(60),
+            fetch_timeout: Duration::from_secs(5),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClerkClaims {
@@ -33,7 +58,12 @@ struct VerifierInner {
     issuer: String,
     authorized_parties: Vec<String>,
     source: Option<HttpSource>,
-    cache: Mutex<KeyCache>,
+    timing: Timing,
+    /// Lookups clone the `Arc` and release the lock at once, so verifying a known `kid`
+    /// never waits on a fetch; only the pointer swap after a fetch takes the write lock.
+    keys: RwLock<Option<Arc<KeySet>>>,
+    /// Single-flight: whoever holds this lock is the only caller fetching.
+    fetch: Mutex<FetchState>,
 }
 
 struct HttpSource {
@@ -41,14 +71,23 @@ struct HttpSource {
     url: String,
 }
 
-struct KeyCache {
-    jwks: Option<JwkSet>,
-    last_refresh: Option<Instant>,
+struct KeySet {
+    jwks: JwkSet,
+    loaded_at: Instant,
+}
+
+#[derive(Default)]
+struct FetchState {
+    last_attempt: Option<Instant>,
 }
 
 impl ClerkVerifier {
     /// Keys are fetched on first verification; construction performs no I/O.
     pub fn new(settings: &ClerkSettings, http: reqwest::Client) -> Self {
+        Self::with_timing(settings, http, Timing::default())
+    }
+
+    fn with_timing(settings: &ClerkSettings, http: reqwest::Client, timing: Timing) -> Self {
         Self {
             inner: Arc::new(VerifierInner {
                 issuer: settings.issuer.clone(),
@@ -57,15 +96,15 @@ impl ClerkVerifier {
                     client: http,
                     url: settings.jwks_url.clone(),
                 }),
-                cache: Mutex::new(KeyCache {
-                    jwks: None,
-                    last_refresh: None,
-                }),
+                timing,
+                keys: RwLock::new(None),
+                fetch: Mutex::new(FetchState::default()),
             }),
         }
     }
 
-    /// A static verifier never attempts an HTTP fetch, including for unknown keys.
+    /// A static verifier never attempts an HTTP fetch, including for unknown keys,
+    /// and its keys never expire.
     pub fn from_jwks(
         issuer: impl Into<String>,
         authorized_parties: Vec<String>,
@@ -76,10 +115,12 @@ impl ClerkVerifier {
                 issuer: issuer.into(),
                 authorized_parties,
                 source: None,
-                cache: Mutex::new(KeyCache {
-                    jwks: Some(jwks),
-                    last_refresh: None,
-                }),
+                timing: Timing::default(),
+                keys: RwLock::new(Some(Arc::new(KeySet {
+                    jwks,
+                    loaded_at: Instant::now(),
+                }))),
+                fetch: Mutex::new(FetchState::default()),
             }),
         }
     }
@@ -121,46 +162,84 @@ impl ClerkVerifier {
         })
     }
 
-    async fn key(&self, kid: &str) -> ApiResult<DecodingKey> {
-        // Serialize refreshes (including in-flight requests) across every clone.
-        // The async mutex permits waiting callers to yield without blocking a thread.
-        let mut cache = self.inner.cache.lock().await;
-        if cache.jwks.is_none() {
-            self.refresh(&mut cache).await?;
-            // The initial successful load is separate from an unknown-kid refetch.
-            cache.last_refresh = None;
-        }
-        if let Some(jwk) = cache.jwks.as_ref().and_then(|jwks| jwks.find(kid)) {
-            return DecodingKey::from_jwk(jwk).map_err(|_| ApiError::unauthorized());
-        }
-        self.refresh(&mut cache).await?;
-        let jwk = cache
-            .jwks
-            .as_ref()
-            .and_then(|jwks| jwks.find(kid))
-            .ok_or_else(ApiError::unauthorized)?;
-        DecodingKey::from_jwk(jwk).map_err(|_| ApiError::unauthorized())
+    fn loaded(&self) -> Option<Arc<KeySet>> {
+        self.inner
+            .keys
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
-    async fn refresh(&self, cache: &mut KeyCache) -> ApiResult<()> {
+    fn expired(&self, set: &KeySet) -> bool {
+        self.inner.source.is_some() && set.loaded_at.elapsed() >= self.inner.timing.max_age
+    }
+
+    fn lookup(&self, kid: &str) -> Option<ApiResult<DecodingKey>> {
+        let set = self.loaded()?;
+        let jwk = set.jwks.find(kid)?;
+        Some(DecodingKey::from_jwk(jwk).map_err(|_| ApiError::unauthorized()))
+    }
+
+    async fn key(&self, kid: &str) -> ApiResult<DecodingKey> {
+        if let Some(set) = self.loaded()
+            && set.jwks.find(kid).is_some()
+        {
+            // Expired: exactly one caller revalidates; the others keep verifying with the
+            // stale set instead of queueing behind the fetch. A failed refresh keeps it.
+            if self.expired(&set)
+                && let Ok(mut state) = self.inner.fetch.try_lock()
+                && self.loaded().is_some_and(|set| self.expired(&set))
+            {
+                let _ = self.refetch(&mut state, true).await;
+            }
+            return self
+                .lookup(kid)
+                .unwrap_or_else(|| Err(ApiError::unauthorized()));
+        }
+        // Unknown `kid`, or nothing loaded yet: queue behind the single in-flight fetch.
+        let mut state = self.inner.fetch.lock().await;
+        if let Some(key) = self.lookup(kid) {
+            return key; // Loaded by the fetch this caller waited for.
+        }
+        if self.loaded().is_none() {
+            self.refetch(&mut state, true).await?;
+            if let Some(key) = self.lookup(kid) {
+                return key;
+            }
+        }
+        self.refetch(&mut state, false).await?;
+        self.lookup(kid)
+            .unwrap_or_else(|| Err(ApiError::unauthorized()))
+    }
+
+    /// Fetch and swap the key set; the caller holds the single-flight lock. A failure
+    /// leaves any loaded set in place. `fresh_load` marks a cold or expiry load, which
+    /// does not count against the unknown-`kid` throttle.
+    async fn refetch(&self, state: &mut FetchState, fresh_load: bool) -> ApiResult<()> {
         let source = self
             .inner
             .source
             .as_ref()
             .ok_or_else(ApiError::unauthorized)?;
-        if cache
-            .last_refresh
-            .is_some_and(|last| last.elapsed() < REFRESH_INTERVAL)
-        {
+        let timing = self.inner.timing;
+        // With no key set at all, every request is rejected until a fetch succeeds, so
+        // retry soon. Once keys are loaded, throttle so a stream of random `kid`s cannot
+        // turn into a stream of fetches.
+        let gap = if self.loaded().is_some() {
+            timing.refetch_interval
+        } else {
+            timing.cold_retry
+        };
+        if state.last_attempt.is_some_and(|last| last.elapsed() < gap) {
             return Err(ApiError::unauthorized());
         }
         // Record the attempt before awaiting: failures and cancellation are throttled too.
-        cache.last_refresh = Some(Instant::now());
-        let result = async {
+        state.last_attempt = Some(Instant::now());
+        let fetched = async {
             source
                 .client
                 .get(&source.url)
-                .timeout(Duration::from_secs(10))
+                .timeout(timing.fetch_timeout)
                 .send()
                 .await?
                 .error_for_status()?
@@ -168,9 +247,20 @@ impl ClerkVerifier {
                 .await
         }
         .await;
-        match result {
+        match fetched {
             Ok(jwks) => {
-                cache.jwks = Some(jwks);
+                let set = Arc::new(KeySet {
+                    jwks,
+                    loaded_at: Instant::now(),
+                });
+                *self
+                    .inner
+                    .keys
+                    .write()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(set);
+                if fresh_load {
+                    state.last_attempt = None;
+                }
                 Ok(())
             }
             Err(error) => {
@@ -405,6 +495,7 @@ mod tests {
         hits: Arc<AtomicUsize>,
         body: Arc<RwLock<Value>>,
         status: Arc<RwLock<StatusCode>>,
+        delay: Arc<RwLock<Duration>>,
     }
     struct Stub {
         state: StubState,
@@ -424,12 +515,15 @@ mod tests {
                     serde_json::to_value(jwks(&["current"])).unwrap(),
                 )),
                 status: Arc::new(RwLock::new(StatusCode::OK)),
+                delay: Arc::new(RwLock::new(Duration::ZERO)),
             };
             let router = Router::new()
                 .route(
                     "/jwks",
                     get(|State(state): State<StubState>| async move {
                         state.hits.fetch_add(1, Ordering::SeqCst);
+                        let delay = *state.delay.read().await;
+                        tokio::time::sleep(delay).await;
                         (
                             *state.status.read().await,
                             Json(state.body.read().await.clone()),
@@ -458,6 +552,43 @@ mod tests {
         fn hits(&self) -> usize {
             self.state.hits.load(Ordering::SeqCst)
         }
+        async fn wait_for_hits(&self, hits: usize) {
+            for _ in 0..200 {
+                if self.hits() >= hits {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            panic!("the stub never reached {hits} requests");
+        }
+    }
+
+    #[tokio::test]
+    async fn known_kid_verification_never_waits_on_a_jwks_fetch() {
+        let stub = Stub::new().await;
+        let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+        let known = token(&claims(), Some("current"));
+        assert!(verifier.verify(&known).await.is_ok());
+        *stub.state.delay.write().await = Duration::from_secs(3);
+        let random = token(&claims(), Some("random-kid"));
+        let slow = tokio::spawn({
+            let verifier = verifier.clone();
+            async move { verifier.verify(&random).await }
+        });
+        stub.wait_for_hits(2).await; // The unknown-kid refetch is now in flight.
+        let started = std::time::Instant::now();
+        for _ in 0..3 {
+            assert!(verifier.verify(&known).await.is_ok());
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "known-kid verification waited for the fetch: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            slow.await.unwrap().unwrap_err().status,
+            StatusCode::UNAUTHORIZED
+        );
     }
 
     #[tokio::test]
@@ -523,6 +654,22 @@ mod tests {
         assert_eq!(stub.hits(), 2);
     }
 
+    fn ms(millis: u64) -> Duration {
+        Duration::from_millis(millis)
+    }
+    fn verifier_with(stub: &Stub, timing: Timing) -> ClerkVerifier {
+        ClerkVerifier::with_timing(&stub.settings, reqwest::Client::new(), timing)
+    }
+
+    #[test]
+    fn timing_defaults_match_the_contract() {
+        let timing = Timing::default();
+        assert_eq!(timing.max_age, Duration::from_secs(3600));
+        assert_eq!(timing.cold_retry, Duration::from_secs(2));
+        assert_eq!(timing.refetch_interval, Duration::from_secs(60));
+        assert_eq!(timing.fetch_timeout, Duration::from_secs(5));
+    }
+
     #[tokio::test]
     async fn failed_jwks_fetches_are_unauthorized_and_throttled() {
         for (status, body) in [
@@ -532,11 +679,16 @@ mod tests {
             let stub = Stub::new().await;
             *stub.state.status.write().await = status;
             *stub.state.body.write().await = body;
-            let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+            let timing = Timing {
+                cold_retry: ms(1000),
+                ..Timing::default()
+            };
+            let verifier = verifier_with(&stub, timing);
+            let signed = token(&claims(), Some("current"));
             for _ in 0..3 {
-                assert_unauthorized(&verifier, &token(&claims(), Some("current"))).await;
+                assert_unauthorized(&verifier, &signed).await;
             }
-            assert_eq!(stub.hits(), 1);
+            assert_eq!(stub.hits(), 1, "throttled inside the backoff");
         }
         let mut settings = Stub::new().await.settings.clone(); // Server drops immediately.
         settings.jwks_url = "http://127.0.0.1:0/jwks".into();
@@ -545,6 +697,120 @@ mod tests {
             &token(&claims(), Some("current")),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn cold_start_failure_retries_after_a_short_backoff_not_a_minute() {
+        let stub = Stub::new().await;
+        *stub.state.status.write().await = StatusCode::SERVICE_UNAVAILABLE;
+        let timing = Timing {
+            cold_retry: ms(300),
+            ..Timing::default()
+        };
+        let verifier = verifier_with(&stub, timing);
+        let signed = token(&claims(), Some("current"));
+        for _ in 0..3 {
+            assert_unauthorized(&verifier, &signed).await;
+        }
+        assert_eq!(stub.hits(), 1);
+        // The upstream recovers; the next verification after the backoff loads the keys.
+        *stub.state.status.write().await = StatusCode::OK;
+        tokio::time::sleep(ms(350)).await;
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert_eq!(stub.hits(), 2);
+        // A loaded key set keeps the 60 s unknown-kid throttle.
+        assert_unauthorized(&verifier, &token(&claims(), Some("unknown"))).await;
+        assert_unauthorized(&verifier, &token(&claims(), Some("unknown"))).await;
+        assert_eq!(stub.hits(), 3);
+    }
+
+    #[tokio::test]
+    async fn expired_key_set_is_refetched_once_across_concurrent_requests() {
+        let stub = Stub::new().await;
+        let timing = Timing {
+            max_age: ms(1000),
+            ..Timing::default()
+        };
+        let verifier = verifier_with(&stub, timing);
+        let signed = token(&claims(), Some("current"));
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert_eq!(stub.hits(), 1, "a fresh set is not refetched");
+        tokio::time::sleep(ms(1050)).await;
+        let mut requests = tokio::task::JoinSet::new();
+        for _ in 0..6 {
+            let verifier = verifier.clone();
+            let signed = signed.clone();
+            requests.spawn(async move { verifier.verify(&signed).await });
+        }
+        while let Some(result) = requests.join_next().await {
+            assert!(result.unwrap().is_ok());
+        }
+        assert_eq!(stub.hits(), 2, "single-flight refetch after expiry");
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert_eq!(stub.hits(), 2, "the refetched set is fresh again");
+    }
+
+    #[tokio::test]
+    async fn expiry_refetch_replaces_the_key_set() {
+        let stub = Stub::new().await;
+        let timing = Timing {
+            max_age: ms(600),
+            ..Timing::default()
+        };
+        let verifier = verifier_with(&stub, timing);
+        let signed = token(&claims(), Some("current"));
+        let next = token(&claims(), Some("next"));
+        assert!(verifier.verify(&signed).await.is_ok());
+        *stub.state.body.write().await = serde_json::to_value(jwks(&["next"])).unwrap();
+        tokio::time::sleep(ms(650)).await;
+        // The retired key is rejected once the refreshed set no longer carries it.
+        assert_unauthorized(&verifier, &signed).await;
+        assert!(verifier.verify(&next).await.is_ok());
+        assert_eq!(stub.hits(), 2);
+    }
+
+    #[tokio::test]
+    async fn failed_expiry_refetch_keeps_the_stale_keys_and_throttles() {
+        let stub = Stub::new().await;
+        let timing = Timing {
+            max_age: ms(600),
+            refetch_interval: ms(1200),
+            ..Timing::default()
+        };
+        let verifier = verifier_with(&stub, timing);
+        let signed = token(&claims(), Some("current"));
+        assert!(verifier.verify(&signed).await.is_ok());
+        *stub.state.status.write().await = StatusCode::SERVICE_UNAVAILABLE;
+        tokio::time::sleep(ms(650)).await;
+        assert!(verifier.verify(&signed).await.is_ok(), "stale keys survive");
+        assert_eq!(stub.hits(), 2);
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert_eq!(stub.hits(), 2, "a failed refresh is not retried at once");
+        *stub.state.status.write().await = StatusCode::OK;
+        tokio::time::sleep(ms(1250)).await;
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert_eq!(stub.hits(), 3, "retried once the interval has passed");
+        assert!(verifier.verify(&signed).await.is_ok());
+        assert_eq!(stub.hits(), 3, "and the set is fresh again");
+    }
+
+    #[tokio::test]
+    async fn hanging_jwks_fetch_times_out() {
+        let stub = Stub::new().await;
+        *stub.state.delay.write().await = Duration::from_secs(5);
+        let timing = Timing {
+            fetch_timeout: ms(200),
+            ..Timing::default()
+        };
+        let verifier = verifier_with(&stub, timing);
+        let started = std::time::Instant::now();
+        assert_unauthorized(&verifier, &token(&claims(), Some("current"))).await;
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     fn settings(values: &[(&str, &str)]) -> anyhow::Result<Option<ClerkSettings>> {
@@ -600,6 +866,46 @@ mod tests {
         assert_eq!(s.secret_key.as_deref(), Some("sk_test_secret"));
         let s = settings(&[("CLERK_ISSUER", ISSUER)]).unwrap().unwrap();
         assert_eq!(s.jwks_url, format!("{ISSUER}/.well-known/jwks.json"));
+    }
+
+    #[test]
+    fn settings_trim_every_clerk_value() {
+        let raw = format!("pk_test_{}", STANDARD.encode("host.example$"));
+        let padded = format!(" \t{raw}\r\n");
+        let s = settings(&[("CLERK_PUBLISHABLE_KEY", &padded)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.issuer, "https://host.example");
+        let s = settings(&[
+            ("CLERK_PUBLISHABLE_KEY", &padded),
+            ("CLERK_ISSUER", "  http://local.test \n"),
+            ("CLERK_JWKS_URL", "\thttp://local.test/keys\r\n"),
+            ("CLERK_API_URL", " http://local.test/api\n"),
+            (
+                "CLERK_AUTHORIZED_PARTIES",
+                "\n https://one.test ,https://two.test\n",
+            ),
+            ("CLERK_SECRET_KEY", "sk_test_secret\n"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.issuer, "http://local.test");
+        assert_eq!(s.jwks_url, "http://local.test/keys");
+        assert_eq!(s.api_url, "http://local.test/api");
+        assert_eq!(
+            s.authorized_parties,
+            ["https://one.test", "https://two.test"]
+        );
+        assert_eq!(s.secret_key.as_deref(), Some("sk_test_secret"));
+        let s = settings(&[("CLERK_ISSUER", " http://local.test \n")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.jwks_url, "http://local.test/.well-known/jwks.json");
+        // Whitespace-only values still count as unset.
+        let s = settings(&[("CLERK_ISSUER", ISSUER), ("CLERK_SECRET_KEY", " \n")])
+            .unwrap()
+            .unwrap();
+        assert!(s.secret_key.is_none());
     }
 
     #[test]

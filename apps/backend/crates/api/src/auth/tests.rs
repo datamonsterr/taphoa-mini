@@ -65,6 +65,89 @@ async fn pin_failure_counter_locks_and_success_resets() {
         .unwrap();
 }
 
+/// Records the order of limiter calls around the real in-memory limiter.
+#[derive(Default)]
+struct Recording {
+    inner: crate::ratelimit::MemoryRateLimiter,
+    log: std::sync::Mutex<Vec<String>>,
+}
+#[async_trait::async_trait]
+impl crate::ratelimit::RateLimiter for Recording {
+    async fn check(&self, key: &str, limit: u32) -> anyhow::Result<crate::ratelimit::RateDecision> {
+        self.log.lock().unwrap().push(format!("check {key}"));
+        self.inner.check(key, limit).await
+    }
+    async fn reset(&self, key: &str) -> anyhow::Result<()> {
+        self.log.lock().unwrap().push(format!("reset {key}"));
+        self.inner.reset(key).await
+    }
+    async fn hit(
+        &self,
+        key: &str,
+        limit: u32,
+        window: std::time::Duration,
+    ) -> anyhow::Result<crate::ratelimit::RateDecision> {
+        self.log.lock().unwrap().push(format!("hit {key}"));
+        self.inner.hit(key, limit, window).await
+    }
+}
+
+#[tokio::test]
+async fn a_pin_attempt_is_counted_before_it_is_verified_and_reset_on_success() {
+    use crate::{AppState, ratelimit::RateLimiter as _};
+    use std::sync::Arc;
+    let limiter = Arc::new(Recording::default());
+    let state = AppState {
+        rate_limiter: limiter.clone(),
+        ..AppState::default()
+    };
+    let id = uuid::Uuid::new_v4();
+    let hash = hash_secret("1234".into()).await.unwrap();
+    super::handlers::verify_pin(&state, id, Some("1234".into()), hash)
+        .await
+        .unwrap();
+    let key = format!("pin_fail:{id}");
+    let log = limiter.log.lock().unwrap().clone();
+    let position = |entry: String| log.iter().position(|logged| *logged == entry);
+    let hit = position(format!("hit {key}")).expect("the attempt is counted");
+    let reset = position(format!("reset {key}")).expect("success resets the counter");
+    assert!(hit < reset, "{log:?}");
+    assert!(limiter.inner.check(&key, 0).await.unwrap().allowed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_pin_attempts_never_exceed_the_cap() {
+    use crate::AppState;
+    let state = AppState::default();
+    let cap = state.rate_limits.pin_attempts as usize;
+    let id = uuid::Uuid::new_v4();
+    let hash = hash_secret("1234".into()).await.unwrap();
+    // Every request passes the lock check before any verification finishes, so the
+    // attempt has to be counted first or all of them would be verified.
+    let mut requests = tokio::task::JoinSet::new();
+    for _ in 0..cap * 3 {
+        let (state, hash) = (state.clone(), hash.clone());
+        requests.spawn(async move {
+            super::handlers::verify_pin(&state, id, Some("1234".into()), hash).await
+        });
+    }
+    let (mut verified, mut limited) = (0, 0);
+    while let Some(result) = requests.join_next().await {
+        match result.unwrap() {
+            Ok(()) => verified += 1,
+            Err(error) => {
+                assert_eq!(error.status, axum::http::StatusCode::TOO_MANY_REQUESTS);
+                limited += 1;
+            }
+        }
+    }
+    assert!(
+        (1..=cap).contains(&verified),
+        "{verified} verified, cap {cap}"
+    );
+    assert_eq!(verified + limited, cap * 3);
+}
+
 #[tokio::test]
 async fn legacy_session_routes_are_removed() {
     use axum::{

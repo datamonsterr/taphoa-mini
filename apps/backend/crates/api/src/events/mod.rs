@@ -35,6 +35,12 @@ pub struct EmittedEvent {
     pub payload: Value,
 }
 
+/// The bearer token is verified once when a stream opens, so a signed-out or expired
+/// session must not keep receiving events: every stream ends after this long. The
+/// server closes it cleanly; clients reconnect with a fresh token and resume with
+/// `Last-Event-ID`.
+pub const MAX_STREAM_AGE: Duration = Duration::from_secs(15 * 60);
+
 pub fn router() -> axum::Router<crate::AppState> {
     axum::Router::new().route("/v1/events", get(stream_events))
 }
@@ -66,6 +72,7 @@ async fn stream_events(
     // Subscribe before the replay query so commits during replay are buffered.
     let subscription = state.hub.subscribe(actor.store_id);
     let mut shutdown = state.hub.shutdown_signal();
+    let deadline = tokio::time::Instant::now() + state.hub.max_stream_age();
     let mut last_id = headers
         .get("last-event-id")
         .and_then(|value| value.to_str().ok())
@@ -136,6 +143,8 @@ async fn stream_events(
                     let message = tokio::select! {
                         biased;
                         () = stopped(&mut shutdown) => return None,
+                        // Ahead of the message branch so a long replay cannot outlive the cap.
+                        () = tokio::time::sleep_until(deadline) => return None,
                         message = async {
                             if let Some(message) = replay.pop_front() {
                                 Ok(message)
