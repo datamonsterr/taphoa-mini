@@ -7,8 +7,7 @@ pub const DEFAULT_MODELS: &str = "thinkingmachines/inkling-small:free,nvidia/nem
 /// `reasoning.effort` values OpenRouter documents (checked 2026-10-25).
 const REASONING_EFFORTS: [&str; 7] = ["max", "xhigh", "high", "medium", "low", "minimal", "none"];
 
-/// Which `ChatModel` main.rs builds: the OpenRouter client, or the scripted mock that a later
-/// task wires for local and e2e runs without network access.
+/// Which `ChatModel` main.rs builds: OpenRouter, or deterministic rules for local/e2e runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ModelProvider {
     #[default]
@@ -26,7 +25,7 @@ impl ModelProvider {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssistantConfig {
-    /// Ordered fallback list; every id ends in `:free` so a fallback never bills.
+    /// Ordered `:free` OpenRouter fallbacks, or `["scripted"]` for local/e2e rules.
     pub models: Vec<String>,
     pub daily_messages_per_store: u32,
     /// Honour `X-Taphoa-Eval-*` headers (test and eval deployments only).
@@ -91,6 +90,14 @@ impl AssistantConfig {
                 "scripted" => ModelProvider::Scripted,
                 _ => bail!("ASSISTANT_MODEL_PROVIDER must be openrouter or scripted"),
             };
+        }
+        if config.model_provider == ModelProvider::Scripted {
+            ensure!(
+                !get("RAILWAY_ENVIRONMENT_NAME")
+                    .is_some_and(|v| v.eq_ignore_ascii_case("production")),
+                "ASSISTANT_MODEL_PROVIDER=scripted is forbidden in production"
+            );
+            config.models = vec!["scripted".into()];
         }
         config.feedback_survey_id = get("ASSISTANT_FEEDBACK_SURVEY_ID");
         config.feedback_question_id = get("ASSISTANT_FEEDBACK_QUESTION_ID");
@@ -165,7 +172,7 @@ mod tests {
             ("ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID", "q-comment"),
         ])
         .unwrap();
-        assert_eq!(parsed.models, ["a/b:free", "c/d:free"]);
+        assert_eq!(parsed.models, ["scripted"]);
         assert_eq!(parsed.daily_messages_per_store, 120);
         assert!(parsed.allow_eval_headers);
         assert_eq!(parsed.reasoning_effort, "medium");

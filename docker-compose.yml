@@ -69,6 +69,9 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
       # `mock` stands in for the DINO model so enrollment works without model files (local only).
       EMBEDDER: ${EMBEDDER:-}
+      # Deterministic assistant and pinned dates for the local/e2e backend.
+      ASSISTANT_MODEL_PROVIDER: ${ASSISTANT_MODEL_PROVIDER:-scripted}
+      ASSISTANT_ALLOW_EVAL_HEADERS: ${ASSISTANT_ALLOW_EVAL_HEADERS:-1}
     depends_on:
       postgres:
         condition: service_healthy

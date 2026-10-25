@@ -1,4 +1,4 @@
-//! A scripted `ChatModel` for tests (and, later, the `scripted` provider). Each call consumes the
+//! A queued `ChatModel` mock for tests. Each call consumes the
 //! next step; every request is recorded. It is public, not `#[cfg(test)]`, so integration tests
 //! in `tests/` can use it.
 use super::{ChatModel, ChatRequest, ChatResponse, ModelError, ToolCall, Usage};
