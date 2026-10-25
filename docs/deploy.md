@@ -99,7 +99,7 @@ collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
 | Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                                           |
 | Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<collector-token>` (W3C/OTel env format; space URL-encoded)                                      |
 | Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                                          |
-| Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; defaults to Railway's `RAILWAY_ENVIRONMENT_NAME` (`production` / `test`), so it is not set on Railway |
+| Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; by default the backend uses Railway's `RAILWAY_ENVIRONMENT_NAME` (`production`, `test`), else `local` |
 | Backend   | `SERVICE_VERSION`             | Release identifier; fallback is Railway commit SHA, `.service-version`, then crate version                               |
 | Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                                         |
 | Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                                               |
@@ -109,9 +109,11 @@ collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
 | Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                                          |
 | Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                                    |
 
-Production `OTEL_EXPORTER_OTLP_HEADERS` is the reference
-`Authorization=Bearer%20${{otel-collector.COLLECTOR_BEARER_TOKEN}}`. Test holds a
-literal copy of the header value, set securely through stdin. Never commit the token.
+Production backend values are Railway references: the endpoint is
+`http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318` and
+`OTEL_EXPORTER_OTLP_HEADERS` is `Authorization=Bearer%20${{otel-collector.COLLECTOR_BEARER_TOKEN}}`.
+The test backend holds a literal copy of the header set, applied through
+`railway variable set --stdin`. Never commit the token.
 
 The backend also preserves `POSTHOG_HOST` and `POSTHOG_PROJECT_TOKEN` in both
 environments for server-side product events. All four backend PostHog/OTLP
@@ -129,9 +131,7 @@ unrelated drift (Clerk variables, backend source/restart settings, application
 volume regions and image buckets) needs separate review before any apply.
 
 Deploy the collector once its configuration has landed and its six variables
-are set. From a Git worktree under `.claude/worktrees/`, the CLI resolves the main
-checkout, whose ignore rules drop the worktree. Run from the **worktree root**
-with an explicit upload path and `--path-as-root`:
+are set. From the **worktree root**:
 
 ```sh
 railway up . --path-as-root --service otel-collector --environment production --ci
@@ -142,6 +142,10 @@ From the **main checkout root**, plain `railway up` works:
 ```sh
 railway up --service otel-collector --environment production --ci
 ```
+
+From a Git worktree under `.claude/worktrees/`, the Railway CLI resolves the main
+checkout and its ignore rules drop the worktree, so use the first command from the
+worktree root; it uploads the worktree explicitly with `. --path-as-root`.
 
 Its Dockerfile watches `infra/otel-collector/**`; Railway's default restart policy
 is on failure, with five retries. Verify the submitted deployment reaches

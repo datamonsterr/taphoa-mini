@@ -73,7 +73,7 @@ settings. Railway holds the values and reference expressions.
 | `LANGFUSE_INIT_PROJECT_PUBLIC_KEY`, `LANGFUSE_INIT_PROJECT_SECRET_KEY`, `LANGFUSE_INIT_USER_PASSWORD` | Locally generated API key pair and admin password, retained in Railway                                                    |
 | `LANGFUSE_S3_{EVENT_UPLOAD,MEDIA_UPLOAD,BATCH_EXPORT}_*`                                              | Bucket API credentials and endpoint/region/name copied securely in memory; prefixes and path-style flag are configuration |
 | Collector `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`                                                | References to web's initial project keys                                                                                  |
-| Collector `LANGFUSE_OTLP_ENDPOINT`                                                                    | `http://${{langfuse-web.RAILWAY_PRIVATE_DOMAIN}}:3000/api/public/otel`                                                    |
+| Collector `LANGFUSE_OTLP_ENDPOINT`                                                                    | Web private-domain reference, `http://${{langfuse-web.RAILWAY_PRIVATE_DOMAIN}}:3000/api/public/otel`                      |
 | Collector `COLLECTOR_BEARER_TOKEN`                                                                    | Locally generated random token                                                                                            |
 | Collector `POSTHOG_HOST`, `POSTHOG_PROJECT_TOKEN`                                                     | References to production backend variables                                                                                |
 
