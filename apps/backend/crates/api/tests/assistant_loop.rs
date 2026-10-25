@@ -691,7 +691,7 @@ async fn attachments_are_store_scoped_and_enter_model_context() {
         user.content
             .as_ref()
             .unwrap()
-            .contains(&format!("[đính kèm hóa đơn {image}]"))
+            .contains(&format!("[đính kèm ảnh {image}]"))
     );
     assert!(
         user.content
@@ -756,4 +756,26 @@ async fn a_tool_preamble_is_not_a_final_answer() {
     assert_eq!(m.requests().len(), 6);
     assert!(f.iter().any(|f| f["event"] == "message.delta"
         && f["data"]["text"].as_str().unwrap().contains("Xin lỗi")));
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn fallback_stays_on_the_model_that_answered_within_a_turn() {
+    let (w, model, _) = setup(
+        vec![
+            Step::error(ModelError::RateLimited {
+                status: 429,
+                message: "busy".into(),
+            }),
+            Step::tool("missing", json!({})),
+            Step::text("Xong"),
+        ],
+        config(),
+    )
+    .await;
+    let id = thread(&w, false).await;
+    let frames = turn(&w, &id, false, false).await;
+    let models: Vec<_> = model.requests().into_iter().map(|r| r.model).collect();
+    assert_eq!(models, ["first/m:free", "second/m:free", "second/m:free"]);
+    assert_eq!(terminal(&frames)["model"], "second/m:free");
 }

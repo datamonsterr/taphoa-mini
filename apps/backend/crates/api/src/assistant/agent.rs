@@ -119,7 +119,7 @@ fn user_text(content: &str, attachments: &[Attachment]) -> String {
                 a.receipt_id
             )),
             Attachment::Image(a) => {
-                text.push_str(&format!("\n[đính kèm hóa đơn {}] (image_id)", a.image_id))
+                text.push_str(&format!("\n[đính kèm ảnh {}] (image_id)", a.image_id))
             }
         }
     }
@@ -307,7 +307,12 @@ fn render_prompt(
     out.push_str(rest);
     for key in ["receipt_id", "image_id"] {
         if let Some(id) = context.and_then(|c| c[key].as_str()) {
-            out.push_str(&format!("\n[đính kèm hóa đơn {id}] ({key})"));
+            let label = if key == "image_id" {
+                "ảnh"
+            } else {
+                "hóa đơn"
+            };
+            out.push_str(&format!("\n[đính kèm {label} {id}] ({key})"));
         }
     }
     out
@@ -482,10 +487,11 @@ pub async fn run_turn(
         return record;
     }
     let max_calls = config.max_model_calls.min(6);
+    let mut first_model_index = 0;
     while record.attempts.len() < max_calls {
         let mut answer = None;
         let mut all_timeouts = true;
-        for (index, id) in models.iter().enumerate() {
+        for (index, id) in models.iter().enumerate().skip(first_model_index) {
             if record.attempts.len() >= max_calls {
                 break;
             }
@@ -556,6 +562,7 @@ pub async fn run_turn(
             });
             match result {
                 Ok(response) => {
+                    first_model_index = index;
                     record.attempts.push(attempt);
                     answer = Some((response, emitted));
                     break;
@@ -766,9 +773,28 @@ mod tests {
                 Role::Lead,
                 NaiveDate::from_ymd_opt(2026, 2, 17).unwrap(),
                 language,
-                Some(&json!({"screen":"camera","receipt_id":Uuid::nil()})),
+                Some(&json!({"screen":"camera","receipt_id":Uuid::nil(),"image_id":Uuid::nil()})),
             );
             assert!(prompt.starts_with(&format!("<!-- prompt-version: {PROMPT_VERSION} -->")));
+            assert!(prompt.contains(&format!("[đính kèm ảnh {}] (image_id)", Uuid::nil())));
+            assert!(prompt.contains(&format!("[đính kèm hóa đơn {}] (receipt_id)", Uuid::nil())));
+            let rules = if language == Language::Vi {
+                [
+                    "Luôn gọi công cụ để lấy số liệu trước khi trả lời câu hỏi về cửa hàng; không trả lời số liệu từ trí nhớ.",
+                    "Tuần bắt đầu từ thứ Hai.",
+                    "Nếu công cụ báo không có quyền, nói lịch sự rằng vai trò của bạn không xem được dữ liệu đó.",
+                ]
+            } else {
+                [
+                    "Always call tools to retrieve figures before answering questions about the store; never answer figures from memory.",
+                    "Weeks start on Monday.",
+                    "If a tool reports permission denied, politely explain that your role cannot view those data.",
+                ]
+            };
+            for rule in rules {
+                assert!(prompt.contains(rule), "{rule}: {prompt}");
+            }
+
             for text in [
                 "2026-02-17",
                 weekday,
