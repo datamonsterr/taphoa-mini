@@ -160,10 +160,8 @@ the transitive `browser-tabs-lock` and `core-js` build scripts.
 `taphoa://join?token=...` remains supported. Invitations opened while signed out
 are kept in memory through sign-in and prefill the join form. `/recover` and
 `/recovery-code` are removed. The Playwright web suite is described in
-[Playwright web e2e](#playwright-web-e2e); the Maestro suite belongs to a later task.
-
-`/recovery-code` are removed. The Maestro Android flows are described under
-Maestro (Android) below.
+[Playwright web e2e](#playwright-web-e2e) and the Maestro Android flows under
+[Maestro (Android)](#maestro-android).
 
 ## Jest support
 
