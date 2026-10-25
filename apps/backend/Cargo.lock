@@ -4025,6 +4025,7 @@ dependencies = [
  "rand 0.10.3",
  "redis",
  "reqwest",
+ "rsa",
  "rust_xlsxwriter",
  "serde",
  "serde_json",
