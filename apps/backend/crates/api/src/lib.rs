@@ -22,6 +22,7 @@ pub mod stock;
 pub mod storage;
 pub mod store;
 pub mod sync;
+pub mod telemetry;
 pub mod time;
 pub mod vector;
 
@@ -40,7 +41,6 @@ use tokio::sync::Semaphore;
 use tower_http::{
     cors::{AllowHeaders, CorsLayer},
     limit::RequestBodyLimitLayer,
-    trace::TraceLayer,
 };
 
 use crate::recognition::classify::RecognitionConfig;
@@ -169,7 +169,10 @@ impl AppState {
             Arc::new(images::PgImageRepository(pool)) as Arc<dyn images::ImageRepository>
         });
         let rate_limiter: Arc<dyn ratelimit::RateLimiter> = match &redis {
-            Some(connection) => Arc::new(ratelimit::RedisRateLimiter(connection.clone())),
+            Some(connection) => Arc::new(ratelimit::RedisRateLimiter::new(
+                connection.clone(),
+                redis_url.unwrap_or_default(),
+            )),
             None => Arc::new(ratelimit::MemoryRateLimiter::default()),
         };
         Ok(Self {
@@ -223,7 +226,7 @@ pub fn router(state: AppState) -> Router {
         .merge(reports::router())
         .merge(sync::router())
         .layer(cors())
-        .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(telemetry::http_span))
         .with_state(state)
 }
 

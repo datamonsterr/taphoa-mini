@@ -123,6 +123,7 @@ impl OpenRouterDecisions {
         headers.insert(AUTHORIZATION, authorization);
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         headers.insert("x-title", HeaderValue::from_static("taphoa-mini"));
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(config.timeout)
@@ -140,29 +141,36 @@ impl OpenRouterDecisions {
 #[async_trait]
 impl DecisionClient for OpenRouterDecisions {
     async fn decide(&self, req: &DecisionRequest) -> Result<DecisionResponse, DecisionError> {
-        let response = self
-            .client
-            .post(self.url.clone())
-            .json(req)
-            .send()
-            .await
-            .map_err(|error| {
-                if error.is_timeout() {
-                    DecisionError::Timeout
-                } else {
-                    DecisionError::Transport
+        crate::telemetry::client(
+            "openrouter decisions",
+            self.url.host_str().unwrap_or("unknown"),
+            async {
+                let response = self
+                    .client
+                    .post(self.url.clone())
+                    .json(req)
+                    .send()
+                    .await
+                    .map_err(|error| {
+                        if error.is_timeout() {
+                            DecisionError::Timeout
+                        } else {
+                            DecisionError::Transport
+                        }
+                    })?;
+                if !response.status().is_success() {
+                    return Err(DecisionError::Http(response.status().as_u16()));
                 }
-            })?;
-        if !response.status().is_success() {
-            return Err(DecisionError::Http(response.status().as_u16()));
-        }
-        response.json().await.map_err(|error| {
-            if error.is_timeout() {
-                DecisionError::Timeout
-            } else {
-                DecisionError::InvalidResponse
-            }
-        })
+                response.json().await.map_err(|error| {
+                    if error.is_timeout() {
+                        DecisionError::Timeout
+                    } else {
+                        DecisionError::InvalidResponse
+                    }
+                })
+            },
+        )
+        .await
     }
     fn model(&self) -> &str {
         &self.model

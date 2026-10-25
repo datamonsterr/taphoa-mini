@@ -1,0 +1,8 @@
+# Merge after config.yaml; routing, authentication and redaction stay production-real.
+processors:
+  batch:
+    timeout: 100ms
+exporters:
+  otlp_http/posthog:
+    encoding: json
+    compression: none

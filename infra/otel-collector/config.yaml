@@ -1,0 +1,70 @@
+extensions:
+  bearertokenauth:
+    scheme: Bearer
+    token: ${env:COLLECTOR_BEARER_TOKEN}
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: '[::]:4318'
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  transform/redact:
+    error_mode: ignore
+    trace_statements:
+      - 'delete_matching_keys(resource.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+      - 'delete_matching_keys(span.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+    log_statements:
+      - 'delete_matching_keys(resource.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+      - 'delete_matching_keys(log.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+      - 'replace_pattern(log.body, "[0-9]{9,15}", "[REDACTED]") where IsString(log.body)'
+  resource/defaults:
+    attributes:
+      - key: deployment.environment.name
+        value: unknown
+        action: insert
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+exporters:
+  otlp_http/posthog:
+    traces_endpoint: ${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/traces
+    logs_endpoint: ${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/logs
+    headers:
+      Authorization: Bearer ${env:POSTHOG_PROJECT_TOKEN}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+
+service:
+  extensions: [bearertokenauth]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: none
+      readers: []
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/redact, resource/defaults, batch]
+      exporters: [otlp_http/posthog]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/redact, resource/defaults, batch]
+      exporters: [otlp_http/posthog]

@@ -424,8 +424,14 @@ pub(crate) fn storage_failure(error: anyhow::Error) -> ApiError {
     )
 }
 
-pub(crate) fn database_failure(error: impl std::fmt::Display + 'static) -> ApiError {
+/// A stored candidate snapshot that no longer deserializes (not a sqlx error).
+fn stored_snapshot_failure(error: serde_json::Error) -> ApiError {
     tracing::error!(%error, "recognition database operation failed");
+    ApiError::internal()
+}
+
+pub(crate) fn database_failure(error: sqlx::Error) -> ApiError {
+    crate::error::log_sqlx_error!(error, &error, "recognition database operation failed");
     ApiError::internal()
 }
 
@@ -726,7 +732,7 @@ pub(crate) async fn load_detections(
             for candidate in candidates.as_array().map(Vec::as_slice).unwrap_or(&[]) {
                 snapshots.push(
                     serde_json::from_value::<CandidateSnapshot>(candidate.clone())
-                        .map_err(database_failure)?,
+                        .map_err(stored_snapshot_failure)?,
                 );
             }
             Ok(StoredDetection {

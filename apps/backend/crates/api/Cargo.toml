@@ -14,7 +14,13 @@ name = "taphoa-seed"
 path = "src/bin/taphoa_seed.rs"
 
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace", "logs"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "logs"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "logs", "http-proto", "reqwest-blocking-client"] }
+opentelemetry-appender-tracing = { version = "0.33", default-features = false, features = ["experimental_span_attributes"] }
+tracing-opentelemetry = { version = "0.34", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 unicode-normalization = "0.1"
 anyhow.workspace = true
 async-trait = "0.1"
@@ -53,6 +59,7 @@ ab_glyph = "0.2.32"
 printpdf = { version = "0.12.8", default-features = false }
 
 [dev-dependencies]
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["testing", "trace", "logs"] }
 futures-util = "0.3"
 tower.workspace = true
 jsonschema = { version = "0.60", default-features = false }
