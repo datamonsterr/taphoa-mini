@@ -67,3 +67,18 @@ export type ReceiptSummary = Schemas['ReceiptSummary'];
 export type ReceiptCreate = Schemas['ReceiptCreate'];
 export type ReceiptConfirm = Schemas['ReceiptConfirm'];
 export type ScanDocument = Schemas['ScanDocument'];
+
+export type Customer = Schemas['Customer'];
+
+export type CreateCustomerRequest = Schemas['CreateCustomerRequest'];
+
+export type UpdateCustomerRequest = Schemas['UpdateCustomerRequest'];
+
+export type DebtEntry = Schemas['DebtEntry'];
+
+export type CreateRepaymentRequest = Schemas['CreateRepaymentRequest'];
+
+export type CreateDebtAdjustmentRequest =
+  Schemas['CreateDebtAdjustmentRequest'];
+
+export type DebtSummary = Schemas['DebtSummary'];

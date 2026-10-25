@@ -1,3 +1,4 @@
+import { DEBT_ROUTES } from './debts';
 import { businessDate } from '@/lib/date';
 import type {
   AlertStatus,
@@ -192,6 +193,13 @@ const optionalDate = (query: URLSearchParams, key: string): string | null => {
 };
 
 export const MOCK_ROUTES: MockRoute[] = [
+  ...DEBT_ROUTES,
+  {
+    method: 'POST',
+    path: '/v1/sales/{saleId}/void',
+    handler: async ({ params, request }) =>
+      ok(ledger.voidSale(params.saleId!, asObject(await readJson(request)))),
+  },
   {
     method: 'GET',
     path: '/v1/stock',
