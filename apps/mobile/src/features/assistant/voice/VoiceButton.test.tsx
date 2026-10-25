@@ -182,3 +182,93 @@ test('disabling mid-hold cancels without onFinal', async () => {
   await act(() => speechMock.emitEnd());
   expect(onFinal).not.toHaveBeenCalled();
 });
+
+describe('with a screen reader on', () => {
+  let onChange: (enabled: boolean) => void;
+  const remove = jest.fn();
+  beforeEach(() => {
+    remove.mockClear();
+    jest
+      .spyOn(AccessibilityInfo, 'isScreenReaderEnabled')
+      .mockResolvedValue(true);
+    jest.spyOn(AccessibilityInfo, 'addEventListener').mockImplementation(((
+      event: string,
+      handler: (v: boolean) => void,
+    ) => {
+      if (event === 'screenReaderChanged') onChange = handler;
+      return { remove };
+    }) as never);
+  });
+
+  async function renderToggle() {
+    const rendered = await renderButton();
+    await act(async () => {});
+    return rendered;
+  }
+
+  test('labels the button as a tap, not a hold', async () => {
+    await renderToggle();
+    expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(
+      'Chạm để nói',
+    );
+  });
+
+  test('a double tap (press in, press out, press) starts and keeps listening; the next tap stops', async () => {
+    const { onFinal } = await renderToggle();
+    const button = screen.getByTestId('voice-button');
+    await fireEvent(button, 'pressIn');
+    await fireEvent(button, 'pressOut');
+    await fireEvent.press(button);
+    await act(async () => {});
+    await act(() => speechMock.emitStart());
+    expect(speechMock.module.start).toHaveBeenCalledTimes(1);
+    expect(speechMock.module.stop).not.toHaveBeenCalled();
+    expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(
+      'Đang nghe, chạm để dừng',
+    );
+    await act(() => speechMock.emitResult('hai chai', true));
+    await fireEvent(button, 'pressIn');
+    await fireEvent(button, 'pressOut');
+    await fireEvent.press(button);
+    expect(speechMock.module.stop).toHaveBeenCalledTimes(1);
+    await act(() => speechMock.emitEnd());
+    expect(onFinal).toHaveBeenCalledWith('hai chai');
+  });
+
+  test('exposes start and stop accessibility actions', async () => {
+    await renderToggle();
+    const action = (actionName: string) =>
+      fireEvent(screen.getByTestId('voice-button'), 'accessibilityAction', {
+        nativeEvent: { actionName },
+      });
+    expect(
+      screen.getByTestId('voice-button').props.accessibilityActions,
+    ).toEqual([expect.objectContaining({ name: 'start' })]);
+    await action('start');
+    await act(async () => {});
+    await act(() => speechMock.emitStart());
+    expect(speechMock.module.start).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByTestId('voice-button').props.accessibilityActions,
+    ).toEqual([expect.objectContaining({ name: 'stop' })]);
+    await action('stop');
+    expect(speechMock.module.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test('follows the screen reader being turned off and on, and unsubscribes', async () => {
+    await renderToggle();
+    await act(() => onChange(false));
+    const button = screen.getByTestId('voice-button');
+    expect(button.props.accessibilityLabel).toBe('Giữ để nói');
+    expect(button.props.accessibilityActions).toBeUndefined();
+    await fireEvent(button, 'pressIn');
+    await act(async () => {});
+    expect(speechMock.module.start).toHaveBeenCalledTimes(1);
+    await act(() => onChange(true));
+    expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(
+      'Chạm để nói',
+    );
+    await screen.unmount();
+    expect(remove).toHaveBeenCalled();
+  });
+});

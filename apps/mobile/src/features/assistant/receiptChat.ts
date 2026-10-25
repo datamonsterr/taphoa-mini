@@ -120,13 +120,27 @@ const actionPhase: Record<AssistantAction['status'], ReceiptChatState> = {
  * right place. The latest `receipt_confirm` action decides; without one, an errored or empty
  * reply fails the stream, a `receipt_lines` card for this receipt means reviewing, and anything
  * still streaming (or not yet answered) means sending. `staleActionIds` are proposals the server
- * has already refused as expired.
+ * has already refused as expired. While `sending` (a retry was sent), only the replies after the
+ * last user message count: the failed action of the earlier turn must not hide the new one.
  */
 export function deriveReceiptPhase(
   messages: ChatMessage[],
   receiptId: string,
-  { staleActionIds }: { staleActionIds?: ReadonlySet<string> } = {},
+  {
+    staleActionIds,
+    retiredActionIds,
+    sending = false,
+  }: {
+    staleActionIds?: ReadonlySet<string>;
+    /** Proposals a retry replaced: they no longer decide the phase. */
+    retiredActionIds?: ReadonlySet<string>;
+    sending?: boolean;
+  } = {},
 ): ReceiptChatState {
+  if (sending)
+    messages = messages.slice(
+      messages.findLastIndex((m) => m.kind === 'user') + 1,
+    );
   let latest: AssistantAction | undefined;
   let lines = false;
   for (const message of messages) {
@@ -137,6 +151,7 @@ export function deriveReceiptPhase(
     for (const action of message.actions)
       if (
         action.kind === 'receipt_confirm' &&
+        !retiredActionIds?.has(action.id) &&
         (action.payload.receipt_id === undefined ||
           action.payload.receipt_id === receiptId)
       )
@@ -179,4 +194,22 @@ export function receiptEventFor(
     default:
       return null;
   }
+}
+
+/** The newest `receipt_confirm` action of this receipt in the chat, if any. */
+export function latestReceiptAction(
+  messages: ChatMessage[],
+  receiptId: string,
+): AssistantAction | undefined {
+  let latest: AssistantAction | undefined;
+  for (const message of messages)
+    if (message.kind === 'assistant')
+      for (const action of message.actions)
+        if (
+          action.kind === 'receipt_confirm' &&
+          (action.payload.receipt_id === undefined ||
+            action.payload.receipt_id === receiptId)
+        )
+          latest = action;
+  return latest;
 }

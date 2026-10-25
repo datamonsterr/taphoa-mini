@@ -21,7 +21,8 @@ import { VoiceButton } from '../voice/VoiceButton';
 
 export type ComposerProps = {
   streaming: boolean;
-  onSend: (content: string, input: 'text' | 'voice') => void;
+  /** Returns whether the turn was accepted; the text is kept when it was not. */
+  onSend: (content: string, input: 'text' | 'voice') => boolean;
   /** Replaces the text whenever `id` changes (for example a tapped receipt line). */
   prefill?: { id: number; text: string };
 };
@@ -53,7 +54,11 @@ export const Composer = memo(function Composer({
 
   const send = () => {
     if (!canSend) return;
-    onSend(text.trim(), voiceText.current === text ? 'voice' : 'text');
+    if (
+      onSend(text.trim(), voiceText.current === text ? 'voice' : 'text') ===
+      false
+    )
+      return;
     voiceText.current = null;
     setText('');
   };

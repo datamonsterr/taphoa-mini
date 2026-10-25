@@ -5,6 +5,7 @@ import { useCallback } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ChatButton } from '@/components/assistant/ChatButton';
+import { useAssistantEnabled } from '@/features/assistant/flags';
 import { BottomBar, type ShopTab } from '@/components/ui/BottomBar';
 import { useT } from '@/lib/i18n';
 import { useChromeStore } from '@/stores/chrome';
@@ -24,6 +25,7 @@ export type ShopTabBarProps = Parameters<
 export function ShopTabBar({ state, navigateToTab, insets }: ShopTabBarProps) {
   const t = useT(strings);
   const { width } = useWindowDimensions();
+  const assistant = useAssistantEnabled();
   const hidden = useChromeStore((s) => s.tabBarHidden);
   const labels = {
     inventory: t('tab.inventory'),
@@ -41,6 +43,14 @@ export function ShopTabBar({ state, navigateToTab, insets }: ShopTabBarProps) {
     [state.routes, navigateToTab],
   );
   const onCameraPress = useCallback(() => router.dismissTo('/'), []);
+  const bottomBar = (
+    <BottomBar
+      current={current}
+      onSelect={onSelect}
+      onCameraPress={onCameraPress}
+      labels={labels}
+    />
+  );
   const beside = chatButtonPlacement(width) === 'beside';
   if (hidden) return null;
   return (
@@ -49,27 +59,29 @@ export function ShopTabBar({ state, navigateToTab, insets }: ShopTabBarProps) {
       pointerEvents="box-none"
       style={[styles.bar, { bottom: space[4] + insets.bottom }]}
     >
-      <View
-        testID="shop-tab-row"
-        pointerEvents="box-none"
-        style={beside ? styles.row : styles.column}
-      >
-        <View pointerEvents="box-none" style={beside ? styles.grow : undefined}>
-          <BottomBar
-            current={current}
-            onSelect={onSelect}
-            onCameraPress={onCameraPress}
-            labels={labels}
-          />
-        </View>
+      {assistant ? (
         <View
-          testID="chat-button-slot"
+          testID="shop-tab-row"
           pointerEvents="box-none"
-          style={beside ? undefined : styles.above}
+          style={beside ? styles.row : styles.column}
         >
-          <ChatButton screen={current} />
+          <View
+            pointerEvents="box-none"
+            style={beside ? styles.grow : undefined}
+          >
+            {bottomBar}
+          </View>
+          <View
+            testID="chat-button-slot"
+            pointerEvents="box-none"
+            style={beside ? undefined : styles.above}
+          >
+            <ChatButton screen={current} />
+          </View>
         </View>
-      </View>
+      ) : (
+        bottomBar
+      )}
     </View>
   );
 }

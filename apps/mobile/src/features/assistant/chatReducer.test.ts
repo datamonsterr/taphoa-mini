@@ -182,7 +182,7 @@ test('events and failures without a streaming reply are ignored', () => {
   expect(last(done).text).toBe('');
 });
 
-test('retry replaces the failed turn instead of stacking it', () => {
+test('retry replaces a turn the server never stored (failed before message.created)', () => {
   let s = chatReducer(sent(), { type: 'failed', error: { code: 'network' } });
   s = chatReducer(s, {
     type: 'send',
@@ -193,6 +193,37 @@ test('retry replaces the failed turn instead of stacking it', () => {
     retry: true,
   });
   expect(s.messages.map((m) => m.id)).toEqual(['u2', 'a2']);
+});
+
+test('retry after a mid-stream error keeps the stored turn and appends a new one', () => {
+  let s = ev(sent(), {
+    event: 'message.created',
+    data: { message_id: 'm-real', thread_id: 't1' },
+  });
+  s = ev(s, { event: 'message.delta', data: { text: 'Một nửa' } });
+  s = chatReducer(s, { type: 'failed', error: { code: 'interrupted' } });
+  s = chatReducer(s, {
+    type: 'send',
+    userId: 'u2',
+    assistantId: 'a2',
+    content: 'Doanh thu?',
+    attachments: [],
+    retry: true,
+  });
+  expect(s.messages.map((m) => m.id)).toEqual([
+    'u-local',
+    'm-real',
+    'u2',
+    'a2',
+  ]);
+  expect(s.messages[0]).toMatchObject({ status: 'sent' });
+  // The failed reply stays as stored, but its Retry button is gone.
+  expect(s.messages[1]).toMatchObject({
+    status: 'error',
+    text: 'Một nửa',
+    retried: true,
+  });
+  expect(s.messages[3]).toMatchObject({ status: 'streaming' });
 });
 
 test('hydrate maps server messages, tool calls and actions', () => {

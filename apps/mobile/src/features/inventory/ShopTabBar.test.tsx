@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { Dimensions } from 'react-native';
 
+import { useAssistantEnabled } from '@/features/assistant/flags';
 import { useChromeStore } from '@/stores/chrome';
 import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
@@ -13,6 +14,10 @@ const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   router: { dismissTo: jest.fn() },
   useRouter: () => ({ push: (...args: unknown[]) => mockPush(...args) }),
+}));
+
+jest.mock('@/features/assistant/flags', () => ({
+  useAssistantEnabled: jest.fn(() => true),
 }));
 
 const routes = [
@@ -35,7 +40,10 @@ const renderBar = async (index: number, bottom = 0) => {
 const flat = (node: { props: { style?: unknown } }) =>
   Object.assign({}, ...[node.props.style].flat(5).filter(Boolean));
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.mocked(useAssistantEnabled).mockReturnValue(true);
+});
 
 test('marks the focused route as the current tab', async () => {
   await renderBar(1);
@@ -168,4 +176,27 @@ describe('chat button', () => {
       screen.getByRole('button', { name: 'Open assistant' }),
     ).toBeOnTheScreen();
   });
+});
+
+describe('assistant flag off', () => {
+  beforeEach(() => jest.mocked(useAssistantEnabled).mockReturnValue(false));
+  afterEach(() => jest.restoreAllMocks());
+
+  test.each([390, MIN_BESIDE_WIDTH - 1])(
+    'renders the bar as before, with no chat slot at width %i',
+    async (width) => {
+      setWidth(width);
+      await renderBar(0);
+      expect(screen.queryByTestId('chat-button-slot')).toBeNull();
+      expect(screen.queryByTestId('shop-tab-row')).toBeNull();
+      expect(screen.queryByTestId('chat-button')).toBeNull();
+      // The pill is the direct child of the bar again, so nothing is reserved beside or above it.
+      const bar = screen.getByTestId('shop-tab-bar');
+      expect(bar.children).toHaveLength(1);
+      expect(within(bar).getByRole('tab', { name: 'Kho' })).toBeOnTheScreen();
+      expect(
+        within(bar).getByRole('button', { name: 'Mở camera' }),
+      ).toBeOnTheScreen();
+    },
+  );
 });

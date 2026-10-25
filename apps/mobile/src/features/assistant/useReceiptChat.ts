@@ -8,6 +8,7 @@ import { useAssistantThread } from './api';
 import type { AssistantChat } from './useAssistantChat';
 import {
   deriveReceiptPhase,
+  latestReceiptAction,
   initialReceiptChatState,
   receiptChatReducer,
   receiptEventFor,
@@ -63,11 +64,18 @@ export function useReceiptChat({
   const receiptId =
     entryReceiptId ?? thread.data?.thread.context?.receipt_id ?? undefined;
   const [state, dispatch] = useReducer(reduce, initialReceiptChatState);
+  // Failed proposals the user retried: a newer reply without a proposal must not read as failed.
+  const [retiredActionIds, setRetiredActionIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const [staleActionIds, setStaleActionIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
   const { messages, loading, send, retry: retryMessage } = chat;
-  const stored = thread.data?.messages.length ?? 0;
+  // Only the stored thread of this visit counts, not what an older visit left in the cache.
+  const stored = thread.isFetchedAfterMount
+    ? (thread.data?.messages.length ?? 0)
+    : 0;
 
   // A different receipt or thread starts the machine over; creating the first thread does not.
   const scope = useRef({ threadId, receiptId });
@@ -80,6 +88,7 @@ export function useReceiptChat({
     ) {
       dispatch('reset');
       setStaleActionIds(new Set());
+      setRetiredActionIds(new Set());
     }
   }, [threadId, receiptId]);
 
@@ -102,7 +111,11 @@ export function useReceiptChat({
   useEffect(() => {
     if (!receiptId) return;
     const derived = () =>
-      deriveReceiptPhase(messages, receiptId, { staleActionIds });
+      deriveReceiptPhase(messages, receiptId, {
+        staleActionIds,
+        retiredActionIds,
+        sending: state.phase === 'sending',
+      });
     if (state.phase === 'creating_thread') {
       if (threadFailed) dispatch({ type: 'threadFailed' });
       // A stored thread's messages reach `messages` one render after it loads: wait for them.
@@ -115,7 +128,20 @@ export function useReceiptChat({
       return;
     }
     const event = receiptEventFor(derived());
-    if (event) dispatch(event);
+    if (!event) return;
+    // A batch of stream events can skip the steps in between: walk through the proposal.
+    if (
+      (state.phase === 'sending' || state.phase === 'reviewing') &&
+      [
+        'confirmStarted',
+        'confirmed',
+        'rejected',
+        'expired',
+        'actionFailed',
+      ].includes(event.type)
+    )
+      dispatch({ type: 'actionProposed' });
+    dispatch(event);
   }, [
     receiptId,
     state.phase,
@@ -125,6 +151,7 @@ export function useReceiptChat({
     messages,
     stored,
     staleActionIds,
+    retiredActionIds,
   ]);
 
   // Confirmed during this visit (not just opened that way): the receipt changed stock and costs.
@@ -147,15 +174,19 @@ export function useReceiptChat({
     if (!receiptId) return;
     if (state.failure === 'thread') restartThread();
     else if (state.failure === 'stream') retryMessage();
-    else if (state.failure === 'action')
+    else if (state.failure === 'action') {
+      const failed = latestReceiptAction(messages, receiptId);
+      if (failed) setRetiredActionIds((ids) => new Set(ids).add(failed.id));
       send(firstMessage, {
         input: 'text',
         attachments: [{ receipt_id: receiptId }],
       });
+    }
     dispatch({ type: 'retry' });
   }, [
     receiptId,
     state.failure,
+    messages,
     restartThread,
     retryMessage,
     send,

@@ -1,7 +1,13 @@
 import * as Haptics from 'expo-haptics';
 import { Mic } from 'lucide-react-native';
 import { memo, useEffect, useState } from 'react';
-import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Platform,
+  StyleSheet,
+  View,
+  type AccessibilityActionEvent,
+} from 'react-native';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -65,6 +71,24 @@ export const VoiceButton = memo(function VoiceButton({
     if (disabled) cancel();
   }, [disabled, cancel]);
 
+  // A screen reader's double tap fires press-in and press-out together, so holding is
+  // impossible: a tap toggles listening instead.
+  const [screenReader, setScreenReader] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+      if (alive) setScreenReader(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      'screenReaderChanged',
+      setScreenReader,
+    );
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, []);
+
   const [hint, setHint] = useState(false);
   useEffect(() => {
     if (!hint) return;
@@ -104,22 +128,56 @@ export const VoiceButton = memo(function VoiceButton({
     );
   }
 
+  const toggle = () => {
+    if (listening) {
+      stop();
+    } else {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void start();
+    }
+  };
+  const holdProps = screenReader
+    ? {
+        onPress: toggle,
+        accessibilityActions: [
+          listening
+            ? { name: 'stop', label: t(voiceStrings, 'stopAction', language) }
+            : {
+                name: 'start',
+                label: t(voiceStrings, 'startAction', language),
+              },
+        ],
+        onAccessibilityAction: (event: AccessibilityActionEvent) => {
+          if (event.nativeEvent.actionName === 'stop') stop();
+          else if (event.nativeEvent.actionName === 'start') void start();
+        },
+      }
+    : {
+        onPressIn: () => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          void start();
+        },
+        onPressOut: stop,
+      };
+
   return (
     <PressableScale
       testID="voice-button"
       accessibilityRole="button"
       accessibilityLabel={t(
         voiceStrings,
-        listening ? 'listening' : 'hold',
+        listening
+          ? screenReader
+            ? 'tapToStop'
+            : 'listening'
+          : screenReader
+            ? 'tapToTalk'
+            : 'hold',
         language,
       )}
       accessibilityState={{ disabled, busy: listening }}
       disabled={disabled}
-      onPressIn={() => {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        void start();
-      }}
-      onPressOut={stop}
+      {...holdProps}
       style={[
         styles.base,
         listening ? styles.listening : styles.idle,

@@ -3,6 +3,7 @@ import type { AssistantAction, AssistantCard } from '@taphoa/api-client';
 import type { AssistantChatMessage, ChatMessage } from './chatReducer';
 import {
   deriveReceiptPhase,
+  latestReceiptAction,
   initialReceiptChatState,
   receiptChatReducer,
   receiptEventFor,
@@ -282,6 +283,53 @@ const action = (
 });
 
 describe('deriveReceiptPhase', () => {
+  test('a retired failed action no longer decides the phase', () => {
+    const old = assistant({ actions: [action('failed')], cards: [lines()] });
+    expect(
+      deriveReceiptPhase([old], RECEIPT, {
+        retiredActionIds: new Set(['act-1']),
+      }),
+    ).toEqual(state('reviewing'));
+    expect(latestReceiptAction([old], RECEIPT)?.id).toBe('act-1');
+    expect(latestReceiptAction([user()], RECEIPT)).toBeUndefined();
+  });
+
+  test('while sending, an older failed action does not count', () => {
+    const old = assistant({
+      id: 'a-old',
+      actions: [action('failed')],
+      cards: [lines()],
+    });
+    const retried = [old, user(), assistant({ id: 'a-new', cards: [lines()] })];
+    expect(deriveReceiptPhase(retried, RECEIPT)).toEqual(
+      state('failed', 'action'),
+    );
+    expect(deriveReceiptPhase(retried, RECEIPT, { sending: true })).toEqual(
+      state('reviewing'),
+    );
+    expect(
+      deriveReceiptPhase(
+        [old, user(), assistant({ status: 'streaming' })],
+        RECEIPT,
+        { sending: true },
+      ),
+    ).toEqual(state('sending'));
+    expect(
+      deriveReceiptPhase(
+        [
+          old,
+          user(),
+          assistant({
+            id: 'a-new',
+            actions: [action('proposed', { id: 'n' })],
+          }),
+        ],
+        RECEIPT,
+        { sending: true },
+      ),
+    ).toEqual(state('awaiting_confirm'));
+  });
+
   test('no messages: still sending', () => {
     expect(deriveReceiptPhase([], RECEIPT)).toEqual(state('sending'));
   });

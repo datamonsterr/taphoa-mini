@@ -16,7 +16,8 @@ export const ErrorNotice = memo(function ErrorNotice({
   onRetry,
 }: {
   error: ChatError;
-  onRetry: () => void;
+  /** Without it the notice has no Retry button (a newer turn already retried). */
+  onRetry?: () => void;
 }) {
   const t = useT(dict);
   const language = useSettingsStore((s) => s.language);
@@ -40,7 +41,7 @@ export const ErrorNotice = memo(function ErrorNotice({
       <Text accessibilityRole="alert" style={styles.text}>
         {text}
       </Text>
-      {error.code === 'quota' ? null : (
+      {error.code === 'quota' || !onRetry ? null : (
         <PressableScale
           testID="assistant-retry"
           accessibilityRole="button"
