@@ -9,6 +9,8 @@ import {
   LogOut,
   User,
 } from 'lucide-react-native';
+import { useAuth, useSessionList } from '@clerk/expo';
+import { useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,9 +24,12 @@ import {
 } from '@/components/ui';
 import { useMe, useMembers, useStore, type BankAccount } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { useAddPerson } from '@/features/auth/addPerson';
+import { signedInSessions } from '@/features/auth/deviceSessions';
 import { useMembership } from '@/features/auth/useMembership';
 import { useCurrentSessionSignOut } from '@/features/auth/useCurrentSessionSignOut';
 import { useChromeStore } from '@/stores/chrome';
+import { useCurrentStore } from '@/stores/currentStore';
 import { useSettingsStore, type Language } from '@/stores/settings';
 import {
   colors,
@@ -40,10 +45,14 @@ import {
 
 import { StockThresholdRow } from './StockThresholdRow';
 import { BankSheet } from './BankSheet';
+import { DeviceSessions } from './DeviceSessions';
 import { InviteSheet } from './InviteSheet';
 import { MemberRow } from './MemberRow';
 import { SetPinSheet } from './SetPinSheet';
+import { StorePicker } from './StorePicker';
+import { SwitchPinSheet } from './SwitchPinSheet';
 import { fill, strings } from './strings';
+import { useSwitchSession } from './useSwitchSession';
 import { formatAccountNumber, initialOf } from './utils';
 
 /** Space under the content for the floating bottom bar (16 + 64 + 32). */
@@ -223,8 +232,13 @@ export function AccountScreen() {
   const members = useMembers();
   const [sheet, setSheet] = useState<ActiveSheet>(null);
   const [pinSaved, setPinSaved] = useState(false);
+  const router = useRouter();
+  const { userId, sessionId } = useAuth();
+  const { sessions } = useSessionList();
+  const switcher = useSwitchSession();
+  const selectStore = useCurrentStore((s) => s.selectStore);
   const setTabBarHidden = useChromeStore((s) => s.setTabBarHidden);
-  const sheetOpen = sheet !== null;
+  const sheetOpen = sheet !== null || switcher.target !== null;
   // The floating tab bar sits above this tab's content, so hide it while a sheet is open.
   useEffect(() => {
     setTabBarHidden(sheetOpen);
@@ -244,6 +258,18 @@ export function AccountScreen() {
   const roleLabel = useCallback(
     (role: 'lead' | 'seller') => t(`role.${role}`),
     [t],
+  );
+  const addPerson = useCallback(() => {
+    // Remember who was signed in, so the add routes can tell when the new person arrives.
+    useAddPerson.getState().begin(sessionId ?? null);
+    router.push('/add-person');
+  }, [router, sessionId]);
+  const selectedStoreId = membership?.store.id;
+  const chooseStore = useCallback(
+    (storeId: string) => {
+      if (userId && storeId !== selectedStoreId) selectStore(userId, storeId);
+    },
+    [userId, selectedStoreId, selectStore],
   );
 
   const contentStyle = [
@@ -340,6 +366,15 @@ export function AccountScreen() {
           {fill(t('acting'), { name: membership.member.display_name })}
         </ScaledText>
 
+        {me.data.memberships.length > 1 ? (
+          <StorePicker
+            memberships={me.data.memberships}
+            selectedId={membership.store.id}
+            roleLabel={roleLabel}
+            onSelect={chooseStore}
+          />
+        ) : null}
+
         <MemberRow
           members={members.data}
           failed={members.isError}
@@ -401,8 +436,14 @@ export function AccountScreen() {
         <ElderRow />
         <TextSizeRow />
         <LanguageRow />
-        {/* T6: Clerk device sessions and PIN switcher belong here. */}
-        <View testID="account-sessions" />
+        <DeviceSessions
+          sessions={signedInSessions(sessions)}
+          currentId={sessionId ?? null}
+          busy={switcher.busy}
+          error={switcher.target ? null : switcher.error}
+          onSwitch={switcher.begin}
+          onAdd={addPerson}
+        />
         <SignOutRow />
       </ScrollView>
 
@@ -412,6 +453,16 @@ export function AccountScreen() {
       ) : null}
       {sheet === 'bank' ? (
         <BankSheet initial={bank} onClose={closeSheet} />
+      ) : null}
+      {switcher.target ? (
+        <SwitchPinSheet
+          target={switcher.target}
+          error={switcher.error}
+          busy={switcher.busy}
+          attempt={switcher.attempt}
+          onSubmit={switcher.submitPin}
+          onClose={switcher.cancel}
+        />
       ) : null}
     </View>
   );
