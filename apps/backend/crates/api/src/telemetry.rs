@@ -10,7 +10,7 @@ use opentelemetry::{
     trace::{Span as _, SpanKind, TraceContextExt as _, Tracer, TracerProvider},
 };
 use opentelemetry_appender_tracing::layer::{OpenTelemetryTracingBridge, TracingSpanAttributes};
-use opentelemetry_otlp::{Protocol, WithExportConfig};
+use opentelemetry_otlp::{ExporterBuildError, Protocol, WithExportConfig};
 use opentelemetry_sdk::{
     Resource,
     logs::SdkLoggerProvider,
@@ -94,6 +94,9 @@ impl TelemetryConfig {
     pub fn enabled(&self) -> bool {
         self.endpoint.is_some() && !self.disabled
     }
+    fn base_endpoint(&self) -> &str {
+        self.endpoint.as_deref().unwrap_or("").trim_end_matches('/')
+    }
     pub fn resource(&self) -> Resource {
         Resource::builder_empty()
             .with_attributes([
@@ -125,57 +128,98 @@ impl TelemetryGuard {
     }
 }
 
+/// Install the global subscriber. A bad exporter configuration must not crash-loop the
+/// service: it degrades to the plain fmt subscriber, logs one error and exports nothing.
+/// Only failing to install any subscriber at all panics.
 pub fn init(config: TelemetryConfig) -> TelemetryGuard {
-    initialize(config).expect("initialize backend telemetry")
-}
-
-fn initialize(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
-    let mut guard = TelemetryGuard::default();
     if config.enabled() {
         // reqwest's provider-neutral TLS feature shares the existing ring provider.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let endpoint = config
-            .endpoint
-            .as_deref()
-            .expect("enabled endpoint")
-            .trim_end_matches('/');
-        // Builders read and percent-decode standard OTEL_EXPORTER_OTLP_HEADERS themselves.
-        // Explicit signal paths preserve the base-endpoint semantics for injected configs.
-        let traces = opentelemetry_otlp::SpanExporter::builder()
-            .with_http()
-            .with_protocol(Protocol::HttpBinary)
-            .with_endpoint(format!("{endpoint}/v1/traces"))
-            .build()?;
-        let logs = opentelemetry_otlp::LogExporter::builder()
-            .with_http()
-            .with_protocol(Protocol::HttpBinary)
-            .with_endpoint(format!("{endpoint}/v1/logs"))
-            .build()?;
-        guard.traces = Some(
-            SdkTracerProvider::builder()
-                .with_resource(config.resource())
-                .with_batch_exporter(traces)
-                .build(),
-        );
-        guard.logs = Some(
-            SdkLoggerProvider::builder()
-                .with_resource(config.resource())
-                .with_batch_exporter(logs)
-                .build(),
-        );
     }
+    let (guard, failure) = export_guard(&config);
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("taphoa_api=info,tower_http=info"));
+    let json = std::env::var("LOG_FORMAT").as_deref() == Ok("json");
+    subscriber(&guard, filter, json)
+        .try_init()
+        .expect("install tracing subscriber");
+    if let Some(failure) = failure {
+        tracing::error!(error = %failure, "telemetry export disabled; continuing with local logs only");
+    }
+    guard
+}
+
+/// Providers for an enabled config, or an empty guard plus the redacted reason export is
+/// off. No process-global state, so the failure path is unit-testable. The reason never
+/// echoes the endpoint (it may embed credentials); header values cannot appear in it
+/// because the builder silently drops invalid headers.
+fn export_guard(config: &TelemetryConfig) -> (TelemetryGuard, Option<String>) {
+    if !config.enabled() {
+        return (TelemetryGuard::default(), None);
+    }
+    match build_providers(config) {
+        Ok((traces, logs)) => (
+            TelemetryGuard {
+                traces: Some(traces),
+                logs: Some(logs),
+            },
+            None,
+        ),
+        Err(error) => {
+            let endpoint = config.base_endpoint();
+            let mut reason = error.to_string();
+            if !endpoint.is_empty() {
+                reason = reason.replace(endpoint, "<endpoint>");
+            }
+            (TelemetryGuard::default(), Some(reason))
+        }
+    }
+}
+
+fn build_providers(
+    config: &TelemetryConfig,
+) -> Result<(SdkTracerProvider, SdkLoggerProvider), ExporterBuildError> {
+    let endpoint = config.base_endpoint();
+    // Builders read and percent-decode standard OTEL_EXPORTER_OTLP_HEADERS themselves.
+    // Explicit signal paths preserve the base-endpoint semantics for injected configs.
+    let traces = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_protocol(Protocol::HttpBinary)
+        .with_endpoint(format!("{endpoint}/v1/traces"))
+        .build()?;
+    let logs = opentelemetry_otlp::LogExporter::builder()
+        .with_http()
+        .with_protocol(Protocol::HttpBinary)
+        .with_endpoint(format!("{endpoint}/v1/logs"))
+        .build()?;
+    Ok((
+        SdkTracerProvider::builder()
+            .with_resource(config.resource())
+            .with_batch_exporter(traces)
+            .build(),
+        SdkLoggerProvider::builder()
+            .with_resource(config.resource())
+            .with_batch_exporter(logs)
+            .build(),
+    ))
+}
+
+/// The process subscriber: local fmt output plus OTel layers when both providers exist.
+fn subscriber(
+    guard: &TelemetryGuard,
+    filter: EnvFilter,
+    json: bool,
+) -> impl Subscriber + Send + Sync + use<> {
     let otel = guard
         .traces
         .as_ref()
         .zip(guard.logs.as_ref())
         .map(|(t, l)| otel_layers(t, l));
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("taphoa_api=info,tower_http=info"));
     // SQL events are consumed only by SqlxLayer, even when RUST_LOG enables sqlx.
-    let exporting = guard.traces.is_some();
-    let local = filter_fn(move |m| !exporting || m.target() != "sqlx::query");
-    let fmt = if std::env::var("LOG_FORMAT").as_deref() == Ok("json") {
+    let exporting = otel.is_some();
+    let local = filter_fn(move |m| !exporting || m.target() != SQLX_QUERY);
+    let fmt = if json {
         tracing_subscriber::fmt::layer()
             .json()
             .with_filter(local)
@@ -187,11 +231,7 @@ fn initialize(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
             .with_filter(filter)
             .boxed()
     };
-    tracing_subscriber::registry()
-        .with(otel)
-        .with(fmt)
-        .try_init()?;
-    Ok(guard)
+    tracing_subscriber::registry().with(otel).with(fmt)
 }
 
 /// Build scoped OTel layers with caller-owned providers (including in-memory exporters).
@@ -696,6 +736,65 @@ fn sql_name(sql: &str) -> (String, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opentelemetry_sdk::{logs::InMemoryLogExporter, trace::InMemorySpanExporter};
+
+    fn config_with_endpoint(endpoint: &str) -> TelemetryConfig {
+        TelemetryConfig::from_lookup(
+            |name| (name == "OTEL_EXPORTER_OTLP_ENDPOINT").then(|| endpoint.to_owned()),
+            || None,
+        )
+    }
+
+    // Only the failure path runs here: the endpoint is rejected before any HTTP client,
+    // thread, TLS provider, subscriber or propagator is created.
+    #[test]
+    fn exporter_failure_disables_export_without_leaking_the_endpoint() {
+        let config = config_with_endpoint("https://user:secret@bad host.example/");
+        assert!(config.enabled());
+        let (guard, failure) = export_guard(&config);
+        assert!(guard.traces.is_none() && guard.logs.is_none());
+        let failure = failure.expect("a failure message to log");
+        assert!(failure.contains("invalid endpoint"), "{failure}");
+        for leaked in ["user", "secret", "bad host"] {
+            assert!(!failure.contains(leaked), "{leaked} leaked: {failure}");
+        }
+    }
+
+    #[test]
+    fn unconfigured_export_has_no_providers_and_no_failure() {
+        let (guard, failure) = export_guard(&TelemetryConfig::from_lookup(|_| None, || None));
+        assert!(guard.traces.is_none() && guard.logs.is_none() && failure.is_none());
+    }
+
+    #[test]
+    fn subscriber_global_max_level_stays_at_debug_or_below() {
+        use tracing::Subscriber as _;
+        let guard = TelemetryGuard {
+            traces: Some(
+                SdkTracerProvider::builder()
+                    .with_simple_exporter(InMemorySpanExporter::default())
+                    .build(),
+            ),
+            logs: Some(
+                SdkLoggerProvider::builder()
+                    .with_simple_exporter(InMemoryLogExporter::default())
+                    .build(),
+            ),
+        };
+        let filter = || EnvFilter::new("taphoa_api=info,tower_http=info");
+        for json in [false, true] {
+            assert_eq!(
+                subscriber(&guard, filter(), json).max_level_hint(),
+                Some(LevelFilter::DEBUG),
+                "json={json}"
+            );
+        }
+        assert_eq!(
+            subscriber(&TelemetryGuard::default(), filter(), false).max_level_hint(),
+            Some(LevelFilter::INFO)
+        );
+    }
+
     #[test]
     fn sql_parser_never_uses_literals_or_comments_as_collection() {
         assert_eq!(
