@@ -15,7 +15,7 @@ import { isApiError } from '@/lib/api/errors';
 import type { Category, Product } from '@/lib/api/types';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { selectIsLead, useSessionStore } from '@/stores/session';
+import { useIsLead } from '@/features/auth/useMembership';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { AdjustStockSheet } from './AdjustStockSheet';
@@ -87,7 +87,7 @@ export function ProductScreen() {
   const { data: categories } = useCategories();
   const patch = usePatchProduct();
   // Only the Lead sets prices; the server answers 403 to anyone else.
-  const isLead = useSessionStore(selectIsLead);
+  const isLead = useIsLead();
   const [adjusting, setAdjusting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);

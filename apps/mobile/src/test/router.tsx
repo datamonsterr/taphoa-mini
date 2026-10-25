@@ -1,4 +1,7 @@
-/// <reference path="../../node_modules/expo-router/build/ts-declarations/expect.d.ts" />
+import {
+  screen as nativeScreen,
+  waitFor as waitForNative,
+} from '@testing-library/react-native';
 import { renderRouter } from 'expo-router/testing-library';
 import path from 'node:path';
 
@@ -7,7 +10,13 @@ import path from 'node:path';
  * The root layout owns the query client, so every call starts with an empty cache.
  */
 export async function renderApp(initialUrl = '/') {
-  return renderRouter(path.resolve(__dirname, '../app'), { initialUrl });
+  const result = await renderRouter(path.resolve(__dirname, '../app'), {
+    initialUrl,
+  });
+  await waitForNative(() =>
+    expect(nativeScreen.queryByTestId('auth-loading')).toBeNull(),
+  );
+  return result;
 }
 
 export {

@@ -52,7 +52,7 @@ import { newUuid } from '@/lib/uuid';
 import { useT } from '@/lib/i18n';
 import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
-import { selectCanEnroll, useSessionStore } from '@/stores/session';
+import { useCanEnroll } from '@/features/auth/useMembership';
 import { camera, colors, size, space } from '@/theme';
 
 import {
@@ -310,7 +310,7 @@ export function CameraScreen() {
   const busy = phase === 'capturing' || phase === 'scanning';
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
-  const canEnroll = useSessionStore(selectCanEnroll);
+  const canEnroll = useCanEnroll();
   const goEnroll = useCallback(
     (detectionId?: string) => {
       if (!canEnroll) return;

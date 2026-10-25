@@ -1,3 +1,10 @@
+import {
+  mockMe,
+  mockCreateStore,
+  mockJoinStore,
+  mockSetPin,
+  mockVerifyPin,
+} from './auth';
 import { businessDate } from '@/lib/date';
 import type {
   AlertStatus,
@@ -193,6 +200,34 @@ const optionalDate = (query: URLSearchParams, key: string): string | null => {
 
 export const MOCK_ROUTES: MockRoute[] = [
   {
+    method: 'POST',
+    path: '/v1/stores',
+    handler: async ({ request }) =>
+      created(mockCreateStore(request, await readJson(request))),
+  },
+  {
+    method: 'POST',
+    path: '/v1/auth/join',
+    handler: async ({ request }) =>
+      created(mockJoinStore(request, await readJson(request))),
+  },
+  {
+    method: 'PUT',
+    path: '/v1/me/pin',
+    handler: async ({ request }) => {
+      mockSetPin(request, await readJson(request));
+      return { status: 204 };
+    },
+  },
+  {
+    method: 'POST',
+    path: '/v1/me/pin/verify',
+    handler: async ({ request }) => {
+      mockVerifyPin(request, await readJson(request));
+      return { status: 204 };
+    },
+  },
+  {
     method: 'GET',
     path: '/v1/stock',
     handler: ({ query }) =>
@@ -267,7 +302,7 @@ export const MOCK_ROUTES: MockRoute[] = [
   {
     method: 'GET',
     path: '/v1/me',
-    handler: () => ok({ member: db.getCurrentMember(), store: db.getStore() }),
+    handler: ({ request }) => ok(mockMe(request)),
   },
   { method: 'GET', path: '/v1/store', handler: () => ok(db.getStore()) },
   {

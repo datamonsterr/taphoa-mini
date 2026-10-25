@@ -12,7 +12,7 @@ import { resetApiClient } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
-import { useSessionStore } from '@/stores/session';
+import { testSession, setTestMembership } from '@/test/session';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
 
@@ -45,12 +45,10 @@ test.each([
 ] as const)(
   'receipt entry follows can_enroll=%s for sellers',
   async (can_enroll, visible) => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: {
-        ...session!,
-        member: { ...session!.member, role: 'seller', can_enroll },
-      },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll },
     });
     await renderWithProviders(<DashboardScreen />);
     if (visible) {
@@ -305,9 +303,10 @@ test('English: period chips and the group follow the language', async () => {
 
 describe('as a Seller', () => {
   beforeEach(() => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: { ...session!, member: { ...session!.member, role: 'seller' } },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller' },
     });
   });
 
