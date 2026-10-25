@@ -1,0 +1,78 @@
+version = "2026.1"
+effective_from = "2026-01-01"
+checked_on = "2026-10-25"
+activity = "Phân phối, cung cấp hàng hóa (bán lẻ)"
+annual_threshold_dong = 1000000000
+presumptive_tax_ended_on = "2026-01-01"
+regulation_note_vi = "Từ 01/01/2026 chấm dứt thuế khoán; hộ kinh doanh tự kê khai, nộp thuế. Nghị định 141/2026/NĐ-CP sửa Nghị định 68/2026/NĐ-CP ngày 05/03/2026, nâng ngưỡng từ 500 triệu đồng của Điều 7 Luật Thuế thu nhập cá nhân 2025 lên 1 tỷ đồng, áp dụng từ 01/01/2026."
+vat_base_note_vi = "Cần xác nhận với cơ quan thuế: VAT tính trên toàn bộ doanh thu hay phần vượt ngưỡng. Ước tính này dùng toàn bộ doanh thu cho VAT và phần vượt 1 tỷ đồng cho PIT theo phương pháp doanh thu."
+exempt_declaration_vi = "Không nộp VAT và PIT khi doanh thu năm không quá 1 tỷ đồng. Vẫn giữ sổ doanh thu và thông báo doanh thu Mẫu 01/TKN-CNKD theo Thông tư 18/2026/TT-BTC, chậm nhất 31/01 năm sau; hộ bắt đầu giữa năm thông báo vào 31/07 và 31/01."
+quarterly_declaration_vi = "Kê khai theo quý từ quý có doanh thu vượt ngưỡng. Hãy xác nhận hạn nộp tờ khai và tiền thuế cụ thể với cơ quan thuế."
+monthly_declaration_vi = "Doanh thu trên 50 tỷ đồng: kê khai theo tháng. Hãy xác nhận hạn nộp tờ khai và tiền thuế cụ thể với cơ quan thuế."
+einvoice_vi = "Trên 1 tỷ đồng phải dùng hóa đơn điện tử có mã hoặc từ máy tính tiền; đăng ký trong 30 ngày sau kỳ có doanh thu lũy kế vượt 1 tỷ đồng."
+income_method_note_vi = "Phương pháp thu nhập cần thu nhập chịu thuế đã xác nhận; doanh thu trừ chi phí trong ứng dụng chưa đủ để xác định thu nhập chịu thuế. Không ước tính PIT theo phương pháp này khi chưa có dữ liệu thu nhập."
+disclaimer_vi = "Số liệu tham khảo; hãy xác nhận với cơ quan thuế."
+
+[[bands]]
+key = "exempt"
+min_revenue_dong = 0
+max_revenue_dong = 1000000000
+vat_basis_points = 0
+pit_basis_points = 0
+pit_method = "revenue"
+pit_allowance_dong = 1000000000
+filing = "annual_notification"
+confidence = "secondary_sources"
+note_vi = "Không quá 1 tỷ đồng: không chịu VAT, PIT; vẫn thông báo doanh thu và giữ sổ."
+
+[[bands]]
+key = "retail_revenue"
+min_revenue_dong = 1000000001
+max_revenue_dong = 3000000000
+vat_basis_points = 100
+pit_basis_points = 50
+pit_method = "revenue"
+pit_allowance_dong = 1000000000
+alternative_income_basis_points = 1500
+filing = "quarterly"
+confidence = "secondary_sources"
+note_vi = "Bán lẻ: VAT 1% doanh thu; PIT 0,5% phần doanh thu vượt 1 tỷ theo phương pháp doanh thu, hoặc 15% thu nhập theo phương pháp thu nhập. Xác nhận cơ sở tính VAT với cơ quan thuế."
+
+[[bands]]
+key = "income_17"
+min_revenue_dong = 3000000001
+max_revenue_dong = 50000000000
+vat_basis_points = 100
+pit_basis_points = 1700
+pit_method = "income"
+pit_allowance_dong = 0
+filing = "quarterly"
+confidence = "secondary_sources"
+note_vi = "Trên 3 đến 50 tỷ đồng: PIT 17% thu nhập; không thể tính PIT chỉ từ doanh thu. Xác nhận cơ sở tính VAT với cơ quan thuế."
+
+[[bands]]
+key = "income_20"
+min_revenue_dong = 50000000001
+vat_basis_points = 100
+pit_basis_points = 2000
+pit_method = "income"
+pit_allowance_dong = 0
+filing = "monthly"
+confidence = "secondary_sources"
+note_vi = "Trên 50 tỷ đồng: PIT 20% thu nhập, kê khai tháng. Xác nhận cơ sở tính VAT với cơ quan thuế."
+
+[[sources]]
+url = "https://thuvienphapluat.vn/phap-luat-doanh-nghiep/bai-viet/chinh-thuc-ho-kinh-doanh-duoi-1-ty-duoc-mien-thue-theo-nghi-dinh-141-2026-nd-cp-20747.html"
+title = "Thư Viện Pháp Luật: Hộ kinh doanh dưới 1 tỷ được miễn thuế theo Nghị định 141/2026/NĐ-CP"
+[[sources]]
+url = "http://luatsuhcm.com/nghien-cuu-an-pham/Cap-nhat-phap-ly/nang-nguong-chiu-thue-doi-voi-ho-kinh-doanh-len-01-ty-dong-ap-dung-tu-ngay-01-01-2026-620.html"
+title = "Luật sư TP.HCM: Nâng ngưỡng chịu thuế hộ kinh doanh lên 1 tỷ từ 01/01/2026"
+[[sources]]
+url = "https://einvoice.vn/tin-tuc/hkd-doanh-thu-1ty-nam"
+title = "E-invoice: Hộ kinh doanh doanh thu 1 tỷ đồng mỗi năm"
+[[sources]]
+url = "https://fast.com.vn/nguong-doanh-thu-mien-thue-doi-voi-ho-kinh-doanh/"
+title = "FAST: Ngưỡng doanh thu miễn thuế đối với hộ kinh doanh"
+[[sources]]
+url = "https://thuvienphapluat.vn/chinh-sach-phap-luat-moi/vn/ho-tro-phap-luat/chinh-sach-moi/100294/chinh-thuc-ho-kinh-doanh-co-doanh-thu-duoi-500-trieu-dong-nam-khong-phai-dong-thue-tu-2026"
+title = "Thư Viện Pháp Luật: Ngưỡng 500 triệu đồng trước khi được nâng lên 1 tỷ đồng"

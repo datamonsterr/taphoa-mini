@@ -518,3 +518,102 @@ async fn historical_tax_year_and_income_bands_never_invent_income() {
     );
     f.cleanup().await;
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn anomaly_rates_rare_hours_and_exact_price_boundary() {
+    let f = Fixture::new().await;
+    let p = f.product("Giá", 1000, None).await;
+    // Previous 60 days: 100 completed sales, all at local noon; normal void rate is zero.
+    sqlx::query("INSERT INTO sales(id,store_id,code,member_id,sold_at,business_date,payment_method,total,request_hash) SELECT gen_random_uuid(),$1,'baseline-'||n,$2,'2026-09-20T12:00:00+07','2026-09-20','cash',1000,'x' FROM generate_series(1,100) n")
+        .bind(f.ctx.actor.store_id).bind(f.ctx.actor.member_id).execute(f.db()).await.unwrap();
+    let rare = f.sale("2026-10-25", 1000, false).await;
+    sqlx::query("UPDATE sales SET sold_at='2026-10-25T02:00:00+07' WHERE id=$1")
+        .bind(rare)
+        .execute(f.db())
+        .await
+        .unwrap();
+    f.sale("2026-10-25", 1000, true).await;
+    for value in [1300_i64, 1301] {
+        sqlx::query("INSERT INTO price_history(store_id,product_id,field,old_value,new_value,source,changed_by,changed_at) VALUES($1,$2,'price',1000,$3,'manual',$4,'2026-10-25T10:00:00+07')")
+            .bind(f.ctx.actor.store_id).bind(p).bind(value).bind(f.ctx.actor.member_id).execute(f.db()).await.unwrap();
+    }
+    let output = f
+        .run(
+            "detect_anomalies",
+            json!({"from":"2026-10-25","to":"2026-10-25"}),
+        )
+        .await;
+    let items = output.data["items"].as_array().unwrap();
+    let void = items.iter().find(|i| i["kind"] == "void_rate").unwrap();
+    assert_eq!(void["rate"], 0.5);
+    assert_eq!(void["normal_rate"], 0.0);
+    let unusual = items.iter().find(|i| i["kind"] == "unusual_hour").unwrap();
+    assert_eq!(unusual["sale_id"], rare.to_string());
+    assert_eq!(unusual["hour"], 2);
+    let changes: Vec<_> = items
+        .iter()
+        .filter(|i| i["kind"] == "price_change")
+        .collect();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0]["new_price_dong"], 1301);
+    f.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn catalog_recognition_and_receipt_cap_at_fifty() {
+    let f = Fixture::new().await;
+    let p = f.product("Món nhập", 1, Some(0)).await;
+    sqlx::query("INSERT INTO products(id,store_id,name,price,request_hash,created_by) SELECT gen_random_uuid(),$1,'Thiếu ảnh '||n,1,'x',$2 FROM generate_series(1,51) n")
+        .bind(f.ctx.actor.store_id).bind(f.ctx.actor.member_id).execute(f.db()).await.unwrap();
+    for (name, args) in [
+        ("get_catalog_issues", json!({})),
+        (
+            "get_recognition_health",
+            json!({"from":"2026-10-01","to":"2026-10-25"}),
+        ),
+    ] {
+        let output = f.run(name, args).await;
+        assert_eq!(output.rows, 50);
+        assert!(output.truncated);
+        assert_eq!(output.data["items"].as_array().unwrap().len(), 50);
+    }
+    let receipt = f.receipt(p, "2026-10-25").await;
+    sqlx::query("INSERT INTO receipt_lines(receipt_id,store_id,position,raw_text,product_name,quantity,cost) SELECT $1,$2,n,'OCR','Dòng chưa khớp',1,100 FROM generate_series(1,51) n")
+        .bind(receipt).bind(f.ctx.actor.store_id).execute(f.db()).await.unwrap();
+    let output = f.run("get_receipt", json!({"receipt_id":receipt})).await;
+    assert_eq!(output.rows, 50);
+    assert!(output.truncated);
+    assert_eq!(
+        output.card.as_ref().unwrap()["lines"]
+            .as_array()
+            .unwrap()
+            .len(),
+        50
+    );
+    assert!(Contract::load().schema_accepts("AssistantCard", output.card.as_ref().unwrap()));
+    f.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn tax_uses_pinned_today_and_retail_estimates_are_integer_dong() {
+    let mut f = Fixture::new().await;
+    f.ctx.today = day("2026-02-01");
+    f.sale("2026-01-01", 1_200_000_000, false).await;
+    f.sale("2026-02-02", 900_000_000, false).await;
+    let output = f
+        .run("get_tax_overview", json!({"year":2026,"period":"month"}))
+        .await;
+    assert_eq!(output.data["annual_revenue_dong"], 1_200_000_000_i64);
+    assert_eq!(output.data["estimated_vat_dong"], 12_000_000);
+    assert_eq!(output.data["estimated_pit_dong"], 1_000_000);
+    assert_eq!(
+        output.data["projected_annual_revenue_dong"],
+        13_687_500_000_i64
+    );
+    assert_eq!(output.data["threshold_crossed_quarter"], 1);
+    assert_eq!(output.data["periods"][1]["revenue_dong"], 0);
+    f.cleanup().await;
+}
