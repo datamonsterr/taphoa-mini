@@ -65,6 +65,17 @@ async function sharedPhone(extra: Record<string, PersonScript> = {}) {
   return people;
 }
 
+/** The person a finished Google sign-in creates a session for (the mock names her `sess_google`). */
+const googlePerson: Record<string, PersonScript> = {
+  token_sess_google: {
+    me: buildMe({
+      userId: 'user_google',
+      name: 'Gờ',
+      memberships: [{ storeId: 'store_google' }],
+    }),
+  },
+};
+
 const open = (flow?: 'add') =>
   renderWithProviders(<SignInScreen flow={flow} />);
 const row = (index: number) =>
@@ -463,7 +474,7 @@ describe('the device lock', () => {
   });
 
   test('a fresh Google sign-in lifts it', async () => {
-    await sharedPhone();
+    await sharedPhone(googlePerson);
     await open();
     await fireEvent.press(screen.getByTestId('auth-google'));
     await waitFor(() => expect(locked()).toBe(false));
@@ -499,7 +510,7 @@ describe('the device lock', () => {
   });
 
   test('a lock with nobody signed in is lifted by a normal sign-in', async () => {
-    installPeople({});
+    installPeople(googlePerson);
     await clerkMock.signOut({ sessionId: 'sess_test' });
     useDeviceLock.getState().lock();
     await open();

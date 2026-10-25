@@ -114,6 +114,21 @@ without their PIN after "Đăng xuất" and a restart. So the lock holds the pho
   or no PIN), or after a fresh sign-in completes: email `finalize` in `VerifyCodeScreen`, or
   Google's `setActive` in `SignInScreen`. A wrong PIN, a lockout, a closed sheet or a failed
   `setActive` leave it locked.
+- A fresh sign-in does not skip the PIN. Both screens read whether the device was locked
+  _before_ `finalize` / `setActive` (the lock can flip while Clerk swaps sessions) and the
+  created session id (`signIn.createdSessionId`, `signUp.createdSessionId` or the SSO result),
+  then call `useSwitchSession().admit`. When the device was locked, `admit` takes that session
+  from `useClerk().client.sessions` (the hook's list predates it), reads its `/v1/me` with its
+  own token and, if any active membership has a PIN (`pinMembership`), opens the same
+  `auth-switch-pin` sheet. The new session is already the active one in Clerk, but the lock
+  keeps the gate on the sign-in routes. Only a 204 from `POST /v1/me/pin/verify` (that session's
+  token, that membership's `X-Store-Id`) calls `unlock`. Closing the sheet, a missing session
+  or an unreadable `/me` signs the new session out again with `signOut({ sessionId })` and the
+  lock stays (fail closed). A person without a PIN or without any store is let in at once. On
+  the email code screen a closed sheet resets the attempt and returns to the form; an
+  unreadable `/me` keeps the screen with "Không đăng nhập được" so the person can change the
+  email. A phone that was not locked asks for no PIN (the person is the active user adding
+  someone, or nobody else is on the phone).
 - It cannot trap anyone: with nobody signed in on the device the gate drops a stale lock, and
   any normal sign-in clears it. Unreadable or malformed storage reads as unlocked.
 
@@ -129,6 +144,10 @@ calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity o
 `<user id>:<store id>`, so both a person switch and a store switch run the existing
 cache-clearing effect (queries, cart, low-stock alerts), and the next request carries
 the new `X-Store-Id`.
+
+The `auth-switch-pin` sheet (and its `-dots`, `-error`, `-keypad`, `-submit` parts) is also
+rendered by the email code screen (`auth-code-screen`); there the screen's own "Xác nhận"
+button shares a name with the sheet's, so tests press `auth-switch-pin-submit`.
 
 T6 files: `src/features/account/{DeviceSessions,SwitchPinSheet,StorePicker}.tsx`,
 `useSwitchSession.ts` (plus `PinSheet` ids and `clearKey`), `src/features/auth/{sessionApi,

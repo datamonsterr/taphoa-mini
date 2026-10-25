@@ -56,6 +56,8 @@ export const clerkMock = {
   sessions: [] as MockClerkSession[],
   signIn: {
     status: 'needs_first_factor',
+    /** The session `finalize` activates; like Clerk it is known once the attempt is complete. */
+    createdSessionId: 'sess_test' as string | null,
     create: jest.fn(),
     reset: jest.fn(),
     emailCode: { sendCode: jest.fn(), verifyCode: jest.fn() },
@@ -63,6 +65,7 @@ export const clerkMock = {
   },
   signUp: {
     status: 'missing_requirements',
+    createdSessionId: 'sess_test' as string | null,
     create: jest.fn(),
     reset: jest.fn(),
     verifications: { sendEmailCode: jest.fn(), verifyEmailCode: jest.fn() },
@@ -141,21 +144,32 @@ export function resetClerkMock() {
         left ? {} : { isSignedIn: false, userId: null, sessionId: null },
       );
     });
-  clerkMock.startSSOFlow.mockReset().mockResolvedValue({
-    createdSessionId: 'sess_google',
-    setActive: clerkMock.setActive,
+  // A finished Google flow leaves a session for a new person in the client, like Clerk.
+  clerkMock.startSSOFlow.mockReset().mockImplementation(async () => {
+    if (!clerkMock.sessions.some(({ id }) => id === 'sess_google'))
+      addClerkSession({
+        id: 'sess_google',
+        userId: 'user_google',
+        email: 'google@example.com',
+      });
+    return { createdSessionId: 'sess_google', setActive: clerkMock.setActive };
   });
   for (const resource of [clerkMock.signIn, clerkMock.signUp]) {
     resource.create.mockReset().mockImplementation(success);
     resource.reset.mockReset().mockImplementation(success);
+    resource.createdSessionId = 'sess_test';
+    // Like Clerk: the created session becomes the active one (the seed person unless told otherwise).
     resource.finalize
       .mockReset()
       .mockImplementation(
         async (options?: { navigate?: () => Promise<void> }) => {
+          const created = signedIn().find(
+            ({ id }) => id === resource.createdSessionId,
+          );
           setClerkState({
             isSignedIn: true,
-            userId: 'user_test',
-            sessionId: 'sess_test',
+            userId: created?.user?.id ?? 'user_test',
+            sessionId: created?.id ?? 'sess_test',
           });
           await options?.navigate?.();
           return { error: null };

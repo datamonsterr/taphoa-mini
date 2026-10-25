@@ -6,6 +6,7 @@ import { VerifyCodeScreen } from './VerifyCodeScreen';
 import { useEmailFlow } from './emailFlow';
 import { useDeviceLock } from '@/stores/deviceLock';
 import { clerkMock, setClerkState } from '@/test/clerk';
+import { buildMe, installPeople } from '@/test/people';
 import { renderWithProviders } from '@/test/render';
 
 const mockPush = jest.fn();
@@ -214,6 +215,18 @@ test('web sign-up has the custom-flow CAPTCHA container required by Clerk', asyn
 });
 
 describe('device lock', () => {
+  afterEach(() => jest.restoreAllMocks());
+  /** The seed session signs in: a person with a store and no PIN, so nothing is asked of them. */
+  const noPin = () =>
+    installPeople({
+      'test-clerk-token': {
+        me: buildMe({
+          userId: 'user_test',
+          name: null,
+          memberships: [{ storeId: 'store_test' }],
+        }),
+      },
+    });
   const enterCode = async () => {
     await fireEvent.changeText(screen.getByTestId('auth-code'), '424242');
     await fireEvent.press(screen.getByTestId('auth-verify-code'));
@@ -222,6 +235,7 @@ describe('device lock', () => {
   test.each(['signIn', 'signUp'] as const)(
     'a completed email %s lifts it',
     async (mode) => {
+      noPin();
       useDeviceLock.getState().lock();
       await codeScreen(mode);
       await enterCode();
