@@ -1782,6 +1782,8 @@ paths:
       operationId: createAssistantThread
       summary: Create an assistant thread
       description: Create a private thread for the caller, optionally seeded with screen or receipt context.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       requestBody:
         required: true
         content:
@@ -1806,6 +1808,7 @@ paths:
       summary: List own assistant threads
       description: Cursor pagination of the caller threads, newest first.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1827,6 +1830,7 @@ paths:
       summary: Read a thread with messages and actions
       description: Only the owning member can read a thread in the current store.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: threadId
           in: path
           required: true
@@ -1855,6 +1859,7 @@ paths:
       summary: Delete own assistant thread
       description: Delete own assistant thread.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: threadId
           in: path
           required: true
@@ -1884,6 +1889,7 @@ paths:
         the 200 stream. message.completed and error terminate the stream. No resumption or Last-Event-ID;
         clients never automatically resend this POST.'
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: threadId
           in: path
           required: true
@@ -1921,6 +1927,7 @@ paths:
         Execute with the confirming member permissions. A replay returns the first result. Expired
         or changed targets return 409 action_stale; an already decided action returns 409 already_decided.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: actionId
           in: path
           required: true
@@ -1955,6 +1962,7 @@ paths:
         Reject a proposal in an accessible thread. A stale or already decided action returns
         409 action_stale or already_decided.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: actionId
           in: path
           required: true
@@ -1986,6 +1994,7 @@ paths:
       summary: Rate an assistant message
       description: Save thumbs up or down and an optional comment for an assistant message in an own thread.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: messageId
           in: path
           required: true
@@ -2019,6 +2028,7 @@ paths:
         At most eight permission-filtered chips ranked by priority. Computed by rules without
         a model call; the phone puts its on-device context chips first.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: screen
           in: query
           required: true
@@ -2059,6 +2069,7 @@ paths:
         Return the stored daily digest, using a template when model generation is unavailable.
         Profit and cost fields are null for members without cost permission.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: business_date
           in: query
           required: false
@@ -2088,6 +2099,8 @@ paths:
       description:
         Upsert by token for the authenticated member and current store; update platform, app
         version and language.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       requestBody:
         required: true
         content:
@@ -2113,6 +2126,7 @@ paths:
       summary: Remove an Expo push token
       description: Idempotently remove the caller push registration for this token.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: token
           in: path
           required: true

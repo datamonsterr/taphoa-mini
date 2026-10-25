@@ -4739,7 +4739,10 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4761,7 +4764,10 @@ export interface operations {
     createAssistantThread: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4787,7 +4793,10 @@ export interface operations {
     getAssistantThread: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 threadId: string;
             };
@@ -4813,7 +4822,10 @@ export interface operations {
     deleteAssistantThread: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 threadId: string;
             };
@@ -4837,7 +4849,10 @@ export interface operations {
     sendAssistantMessage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 threadId: string;
             };
@@ -4868,6 +4883,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
                 /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
@@ -4897,7 +4914,10 @@ export interface operations {
     rejectAssistantAction: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 actionId: string;
             };
@@ -4924,7 +4944,10 @@ export interface operations {
     submitAssistantFeedback: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 messageId: string;
             };
@@ -4959,7 +4982,10 @@ export interface operations {
                 /** @description Whether the current frame has an unknown product. */
                 unknown_product?: boolean;
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4984,7 +5010,10 @@ export interface operations {
                 /** @description Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest. */
                 business_date?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5007,7 +5036,10 @@ export interface operations {
     registerDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5033,7 +5065,10 @@ export interface operations {
     unregisterDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 /** @description Expo push token, URL-encoded as a path segment. */
                 token: string;
