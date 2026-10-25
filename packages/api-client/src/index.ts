@@ -1,6 +1,11 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { components, paths } from './schema';
-import { readAssistantStream, type StreamOptions } from './sse';
+import {
+  AssistantStreamInterruptedError,
+  readAssistantStream,
+  type AssistantStreamEvent,
+  type StreamOptions,
+} from './sse';
 export {
   parseSseStream,
   readAssistantStream,
@@ -22,6 +27,11 @@ export interface ApiClientOptions {
   getToken?: () => string | null | Promise<string | null>;
   /** Injected for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
+}
+
+/** Fails on first read; avoids a ReadableStream constructor, absent in React Native. */
+async function* interruptedStream(): AsyncGenerator<AssistantStreamEvent> {
+  throw new AssistantStreamInterruptedError();
 }
 
 export function createApiClient(options: ApiClientOptions) {
@@ -62,15 +72,11 @@ export function createApiClient(options: ApiClientOptions) {
       if (!result.response.ok)
         return { error: result.error, response: result.response };
       // A successful empty response still represents an interrupted assistant stream.
-      const bodyStream =
-        result.data ??
-        new ReadableStream<Uint8Array>({
-          start(c) {
-            c.close();
-          },
-        });
       return {
-        events: readAssistantStream(bodyStream, streamOptions),
+        events:
+          result.data == null
+            ? interruptedStream()
+            : readAssistantStream(result.data, streamOptions),
         response: result.response,
       };
     },

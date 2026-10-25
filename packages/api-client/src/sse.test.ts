@@ -64,6 +64,28 @@ it('aborts a pending read and releases its lock', async () => {
   expect(body.locked).toBe(false);
 });
 
+it('rejects with AbortError when the signal lacks throwIfAborted', async () => {
+  // React Native's AbortSignal polyfill may not implement throwIfAborted.
+  const signal = {
+    aborted: true,
+    reason: undefined,
+    addEventListener() {},
+    removeEventListener() {},
+  } as unknown as AbortSignal;
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({ cancel });
+  const rejection = await parseSseStream(body, { signal })
+    .next()
+    .then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+  expect(rejection).toBeInstanceOf(Error);
+  expect(rejection).not.toBeInstanceOf(TypeError);
+  expect(rejection).toMatchObject({ name: 'AbortError' });
+  expect(body.locked).toBe(false);
+});
+
 const completed: AssistantStreamEvent = {
   event: 'message.completed',
   data: {
@@ -215,4 +237,46 @@ it('returns a JSON 404 without attempting to parse it as SSE', async () => {
   expect(result.error).toEqual(error);
   expect(result.response.status).toBe(404);
   expect(fetchMock).toHaveBeenCalledOnce();
+});
+
+it('reports an empty 2xx body as interrupted without using ReadableStream', async () => {
+  // Build the response first: React Native has no global ReadableStream.
+  const response = new Response(null, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+  const original = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'ReadableStream',
+  );
+  // Node's Request constructor needs the global, so hide it only once the
+  // request is built, i.e. for the client code that handles the response.
+  const fetchMock = vi.fn(async () => {
+    Object.defineProperty(globalThis, 'ReadableStream', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    return response;
+  });
+  const api = createApiClient({
+    baseUrl: 'https://mock.local',
+    fetch: fetchMock as typeof fetch,
+  });
+  try {
+    const result = await api.sendAssistantMessage('thread', {
+      content: 'Chào',
+      language: 'vi',
+    });
+    if (!result.events) throw new Error('Expected stream');
+    expect(globalThis.ReadableStream).toBeUndefined();
+    expect(result.response.status).toBe(200);
+    await expect(result.events.next()).rejects.toBeInstanceOf(
+      AssistantStreamInterruptedError,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'ReadableStream', original);
+    else delete (globalThis as { ReadableStream?: unknown }).ReadableStream;
+  }
 });

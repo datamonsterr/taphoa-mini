@@ -1,6 +1,15 @@
 export type SseFrame = { event: string; data: string; id?: string };
 export type StreamOptions = { signal?: AbortSignal };
 
+function abortError() {
+  return Object.assign(new Error('Aborted'), { name: 'AbortError' });
+}
+
+/** AbortSignal.throwIfAborted is missing from React Native's polyfill. */
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason ?? abortError();
+}
+
 /** Decode WHATWG event-stream framing without connecting or reconnecting. */
 export async function* parseSseStream(
   body: ReadableStream<Uint8Array>,
@@ -19,17 +28,17 @@ export async function* parseSseStream(
   };
   options.signal?.addEventListener('abort', abort, { once: true });
   try {
-    options.signal?.throwIfAborted();
+    throwIfAborted(options.signal);
     while (true) {
       const chunk = await reader.read();
-      options.signal?.throwIfAborted();
+      throwIfAborted(options.signal);
       if (chunk.done) {
         ended = true;
         return;
       }
       const text = decoder.decode(chunk.value, { stream: true });
       for (const char of text) {
-        options.signal?.throwIfAborted();
+        throwIfAborted(options.signal);
         if (skipLf) {
           skipLf = false;
           if (char === '\n') continue;
