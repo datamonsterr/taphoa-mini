@@ -1,6 +1,7 @@
 //! The chat-model port. The agent loop (T2) calls it, `openrouter.rs` (T3) and the scripted mock
 //! implement it. One call is one model on one HTTP request; fallback across models is the loop's job.
 pub mod openrouter;
+pub mod rules;
 pub mod scripted;
 
 use async_trait::async_trait;
