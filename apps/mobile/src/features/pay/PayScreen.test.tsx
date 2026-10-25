@@ -15,7 +15,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
 
 import type { CreateSaleRequest } from '@/lib/api';
-import { saleCode } from '@/lib/uuid';
+import { newUuid, saleCode } from '@/lib/uuid';
 
 import { PayScreen, SUCCESS_MS } from './PayScreen';
 import { buildVietQr } from './vietqr';
@@ -383,6 +383,7 @@ describe('PayScreen language', () => {
 describe('PayScreen credit', () => {
   async function chooseCustomer(limit?: number) {
     const c = await createCustomer({
+      id: newUuid(),
       name: 'Chị Lan',
       ...(limit === undefined ? {} : { credit_limit: limit }),
     });

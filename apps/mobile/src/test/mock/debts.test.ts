@@ -7,7 +7,7 @@ import { addDays, businessDate } from '@/lib/date';
 import { getMockDb } from './db';
 import { getDailyReport, putDayClose } from './ledger';
 
-const customer = () => api.createCustomer({ name: 'Chị Lan' });
+const customer = () => api.createCustomer({ id: newUuid(), name: 'Chị Lan' });
 const sale = (
   customerId: string,
   extra: Partial<CreateSaleRequest> = {},
@@ -203,8 +203,12 @@ test('day-close counts only paid cash and repayments; revenue includes credit', 
 });
 
 test('customer search, archive filter, sort and pagination are preserved', async () => {
-  const c = await api.createCustomer({ name: 'Lan', phone: '0901234567' });
-  await api.createCustomer({ name: 'Mai' });
+  const c = await api.createCustomer({
+    id: newUuid(),
+    name: 'Lan',
+    phone: '0901234567',
+  });
+  await api.createCustomer({ id: newUuid(), name: 'Mai' });
   expect(
     (await api.listCustomers({ query: 'lAN' })).items?.map((c) => c.id),
   ).toEqual([c.id]);
