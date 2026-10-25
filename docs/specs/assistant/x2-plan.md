@@ -93,6 +93,23 @@ T9 remove Langfuse (scope change) ─▶ T5 redeploy collector PostHog-only
   `restartPolicyType`, the two volume regions, `+ bucket images-sin`, `- bucket images`,
   `- bucket images-sjc`.
 
+- **T7 test-env proof (2026-10-25).** Branch validation run 40184209575 (`deploy.yml` on
+  Railway `test`): 66 e2e tests passed, `/readyz` p95 83 ms. An authenticated
+  `GET /v1/reports/today` with a known `traceparent` produced, in PostHog project 682994:
+  a `logs` row `request completed` (INFO) with that `trace_id`, its `span_id`, `http.route`,
+  status, duration, `taphoa.store.id`, `taphoa.member.id`, `taphoa.member.role`, `session.id`
+  and `posthog.session_id`, resource `service.name=taphoa-backend`,
+  `deployment.environment.name=test`; and `posthog.trace_spans` rows for the server span
+  `GET /v1/reports/today` (parented to the incoming `traceparent`, same identity attributes)
+  with `db SELECT sessions` and `db SELECT` children. Queried with HogQL
+  (`SELECT … FROM logs` / `FROM posthog.trace_spans WHERE trace_id = …`); ingestion lag about
+  4 minutes.
+- **Readyz tail diagnosed with the new traces.** An earlier validation (run 40181638165) passed
+  all e2e tests but failed the `/readyz` p95 probe (504 ms vs 500 ms). Over 40 minutes of `test`
+  traces the server span was p50 11.7 ms / max 437 ms, and the time sat in the child
+  `s3 HeadBucket` span (max 437 ms) while `db SELECT` stayed under 12 ms: storage latency,
+  not telemetry overhead.
+
 ## Review notes (deferred, with reasons)
 
 - `user.id` is not recorded and `session.id` is the internal session UUID until X1 lands the
