@@ -692,3 +692,64 @@ async fn concurrent_confirms_and_executing_crash_recovery_are_safe() {
     assert_eq!(recovered.body["error"]["code"], "invite_outcome_unknown");
     assert_eq!(count(&w, "invites").await, before);
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn seller_owned_forged_price_action_is_denied_and_expired_reject_is_stale() {
+    let (w, _) = world().await;
+    let seller = context(&w, true).await;
+    let p = w.product("Sữa", 15000, None).await;
+    let action: Uuid = sqlx::query_scalar("INSERT INTO assistant_actions(store_id,thread_id,message_id,kind,payload,summary_vi,proposed_by,expires_at) VALUES($1,$2,$3,'price_change',$4,'Đổi giá',$5,now()+interval '24 hours') RETURNING id")
+        .bind(w.store_id).bind(seller.thread_id).bind(seller.message_id)
+        .bind(json!({"product_id":p,"old_price":15000,"new_price":17000})).bind(w.seller_id)
+        .fetch_one(w.pool()).await.unwrap();
+    let action = json!({"id":action});
+    let reply = decide(&w, &action, &w.seller, "confirm", Some("forged")).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    assert_eq!(values(&w, p).await.0, 15000);
+    sqlx::query("UPDATE assistant_actions SET expires_at=now()-interval '1 second' WHERE id=$1")
+        .bind(id(&action))
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let reply = decide(&w, &action, &w.seller, "reject", None).await;
+    assert_eq!(reply.status, StatusCode::CONFLICT);
+    assert_eq!(reply.body["code"], "action_stale");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn assistant_member_foreign_keys_allow_data_reset() {
+    let (w, _) = world().await;
+    let ctx = context(&w, false).await;
+    let proposer: Uuid = sqlx::query_scalar("INSERT INTO members(store_id,display_name,role) VALUES($1,'Temporary','seller') RETURNING id")
+        .bind(w.store_id).fetch_one(w.pool()).await.unwrap();
+    let decider: Uuid = sqlx::query_scalar("INSERT INTO members(store_id,display_name,role) VALUES($1,'Temporary','lead') RETURNING id")
+        .bind(w.store_id).fetch_one(w.pool()).await.unwrap();
+    let action: Uuid = sqlx::query_scalar("INSERT INTO assistant_actions(store_id,thread_id,message_id,kind,payload,summary_vi,proposed_by,decided_by,expires_at) VALUES($1,$2,$3,'expense','{}','Chi phí',$4,$5,now()+interval '24 hours') RETURNING id")
+        .bind(w.store_id).bind(ctx.thread_id).bind(ctx.message_id).bind(proposer).bind(decider)
+        .fetch_one(w.pool()).await.unwrap();
+    sqlx::query("DELETE FROM members WHERE id=$1")
+        .bind(decider)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let remaining: Option<Uuid> =
+        sqlx::query_scalar("SELECT decided_by FROM assistant_actions WHERE id=$1")
+            .bind(action)
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert!(remaining.is_none());
+    sqlx::query("DELETE FROM members WHERE id=$1")
+        .bind(proposer)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM assistant_actions WHERE id=$1")
+        .bind(action)
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
+}
