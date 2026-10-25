@@ -18,7 +18,14 @@ Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X4"
   `lang` `vi-VN` or `en-US` from the app language, `interimResults: true`, `continuous: true` while
   the button is held, `requiresOnDeviceRecognition` when `supportsOnDeviceRecognition()` is true.
   Release calls `stop()`; the final transcript fills the input and is never sent automatically. Web
-  uses the library's Web Speech API path; the button hides when `isRecognitionAvailable()` is false.
+  uses the library's Web Speech API path and hides the button when `isRecognitionAvailable()` is
+  false. On Android and iOS the button is always visible: without recognition it looks disabled and
+  a press says "Máy này chưa hỗ trợ nói thành chữ". If an on-device start fails before any result
+  (for example `language-not-supported`), the hold restarts once with
+  `requiresOnDeviceRecognition: false`. Expo Go does not ship the native module, so
+  `voice/speechModule.ts` loads the package lazily after checking
+  `requireOptionalNativeModule('ExpoSpeechRecognition')`; without the module the mic shows the
+  unavailable state and the app still starts.
   Native module, so it needs a new development or preview build (fingerprint changes).
 - **Route.** `src/app/assistant.tsx` renders `features/assistant/AssistantScreen`, registered in the
   root stack inside the signed-in guard as a `transparentModal` that slides from the bottom (one
@@ -39,15 +46,23 @@ Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X4"
   come from `GET /v1/assistant/next-steps?screen=camera&document_detected=&unknown_product=`,
   de-duplicated by kind. Server chips show `title_vi`, or an `en` title by kind when the app is in
   English. Analytics: `next_step_shown` once per chip per screen visit, `next_step_tapped`.
-- **Receipt in chat (U14).** A pure state machine (`features/assistant/receiptChat.ts`) drives the
-  flow: `idle → creating_receipt → creating_thread → open → reviewing → confirming → confirmed`,
-  with `failed` (`no_text`, `forbidden`, `network`) and `rejected`. The chip creates the receipt
-  from the current scan image (`POST /v1/receipts`), creates a thread with
-  `context: {screen: camera, next_step_id: receipt_detected, receipt_id, image_id}`, opens the chat
-  with `entry=receipt`, and sends the first message with `attachments: [{receipt_id}]`. Tapping a
-  card line prefills the input with that line; the `receipt_confirm` action card confirms. "Xem
-  dạng bảng" on the `receipt_lines` card pushes `/receipt/{id}`; back returns to the chat. The
-  existing document button and receipt form are unchanged.
+- **Receipt in chat (U14).** The camera does the first half: the `receipt_detected` chip creates
+  the receipt from the current scan image (`POST /v1/receipts`, the existing `readReceipt` with its
+  notices) and opens `/assistant?entry=receipt&screen=camera&receiptId=<id>`. A pure state machine
+  in the chat (`features/assistant/receiptChat.ts`) drives the rest:
+  `creating_thread → sending → reviewing → awaiting_confirm → confirming → confirmed`, plus
+  `rejected`, `expired` and `failed` (`thread`, `stream`, `action`; Retry goes back to the step that
+  failed). The chat creates the thread with `context: {screen: camera, next_step_id:
+receipt_detected, receipt_id}`, sends the first message with `attachments: [{receipt_id}]`,
+  and the reply (`get_receipt` tool line, `receipt_lines` card, short text, `receipt_confirm`
+  action) moves the machine. `deriveReceiptPhase(messages, receiptId)` reads the same phase from the
+  messages, so a reopened thread (its context has `receipt_id`) lands in the right place.
+  `useReceiptChat` feeds the machine, hears a `409 action_stale` from the mutation cache, and on
+  `confirmed` invalidates the receipt, receipts list, stock and product queries. A status row above
+  the messages shows the phase with an always-visible "Xem dạng bảng" link to `/receipt/{id}` (back
+  returns to the chat); the success haptic comes from the action card that confirms. Tapping a
+  card line prefills the input with that line. The existing document button and receipt form are
+  unchanged.
 - **Actions.** Confirm calls `POST /v1/assistant/actions/{id}/confirm` with
   `Idempotency-Key: <action id>`; Reject calls `/reject`. `409 action_stale` shows "expired",
   `already_decided` refetches the thread.

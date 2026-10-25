@@ -1,5 +1,6 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { renderWithProviders } from '@/test/render';
 import { speechMock } from '@/test/speech';
@@ -9,6 +10,8 @@ import { VoiceButton } from './VoiceButton';
 
 const flat = (node: { props: { style?: unknown } }) =>
   Object.assign({}, ...[node.props.style].flat(5).filter(Boolean));
+
+afterEach(() => jest.restoreAllMocks());
 
 beforeEach(() => {
   speechMock.reset();
@@ -47,10 +50,69 @@ test('labels in English when the language is en', async () => {
   expect(screen.getByLabelText('Hold to talk')).toBeTruthy();
 });
 
-test('renders nothing when recognition is unavailable', async () => {
+test('renders nothing on the web when recognition is unavailable', async () => {
+  jest.replaceProperty(Platform, 'OS', 'web');
   speechMock.setAvailable(false);
   await renderButton();
   expect(screen.queryByTestId('voice-button')).toBeNull();
+});
+
+describe.each(['ios', 'android'] as const)('%s without recognition', (os) => {
+  beforeEach(() => {
+    jest.replaceProperty(Platform, 'OS', os);
+    speechMock.setAvailable(false);
+    jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+  });
+
+  test('still renders, with a disabled look and a hint for screen readers', async () => {
+    await renderButton();
+    const button = screen.getByTestId('voice-button');
+    expect(button.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(button.props.accessibilityHint).toBe(
+      'Máy này chưa hỗ trợ nói thành chữ',
+    );
+    expect(flat(button).opacity).toBeLessThan(1);
+    expect(flat(button).width).toBeGreaterThanOrEqual(48);
+    expect(screen.queryByTestId('voice-unavailable')).toBeNull();
+  });
+
+  test('a press explains it, announces it, and never starts', async () => {
+    await renderButton();
+    const button = screen.getByTestId('voice-button');
+    await fireEvent(button, 'pressIn');
+    await fireEvent.press(button);
+    expect(screen.getByTestId('voice-unavailable')).toHaveTextContent(
+      'Máy này chưa hỗ trợ nói thành chữ',
+    );
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+      'Máy này chưa hỗ trợ nói thành chữ',
+    );
+    expect(speechMock.module.requestPermissionsAsync).not.toHaveBeenCalled();
+    expect(speechMock.module.start).not.toHaveBeenCalled();
+  });
+
+  test('the hint goes away by itself', async () => {
+    jest.useFakeTimers();
+    try {
+      await renderButton();
+      await fireEvent.press(screen.getByTestId('voice-button'));
+      expect(screen.getByTestId('voice-unavailable')).toBeTruthy();
+      await act(async () => {
+        jest.advanceTimersByTime(5000);
+      });
+      expect(screen.queryByTestId('voice-unavailable')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('explains in English when the app is', async () => {
+    await renderButton({ language: 'en' });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    expect(screen.getByTestId('voice-unavailable')).toHaveTextContent(
+      'This device does not support speech to text',
+    );
+  });
 });
 
 test('press in starts with haptic and shows the listening state', async () => {

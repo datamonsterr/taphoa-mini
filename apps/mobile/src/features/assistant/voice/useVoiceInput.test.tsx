@@ -295,3 +295,118 @@ test('stop and cancel while idle do nothing', async () => {
   expect(mod.stop).not.toHaveBeenCalled();
   expect(mod.abort).not.toHaveBeenCalled();
 });
+
+describe('on-device fallback', () => {
+  const lastOnDevice = () =>
+    mod.start.mock.calls.at(-1)?.[0].requiresOnDeviceRecognition;
+
+  test('language-not-supported restarts once without on-device recognition, in the same hold', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    expect(lastOnDevice()).toBe(true);
+
+    await act(() => speechMock.emitError('language-not-supported'));
+    expect(hook.result.current.error).toBeNull();
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(2);
+    expect(lastOnDevice()).toBe(false);
+    expect(mod.start.mock.calls[1][0]).toMatchObject({
+      lang: 'vi-VN',
+      interimResults: true,
+      continuous: true,
+    });
+    // No second permission prompt and no analytics for the failed attempt.
+    expect(mod.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(captured).toEqual([]);
+
+    await act(() => speechMock.emitStart());
+    expect(hook.result.current.listening).toBe(true);
+    await act(() => speechMock.emitResult('hai chai', true));
+    await act(() => hook.result.current.stop());
+    await act(() => speechMock.emitEnd());
+    expect(hook.onFinal).toHaveBeenCalledWith('hai chai');
+    expect(hook.result.current.error).toBeNull();
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.props).toMatchObject({ ok: true });
+  });
+
+  test('any other start error before a result also falls back', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    await act(() => speechMock.emitError('service-not-allowed'));
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(2);
+    expect(lastOnDevice()).toBe(false);
+  });
+
+  test('falls back only once: a second failure is an error', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    await act(() => speechMock.emitError('language-not-supported'));
+    await act(() => speechMock.emitEnd());
+    await act(() => speechMock.emitError('language-not-supported'));
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.error).toBe('failed');
+    expect(hook.result.current.listening).toBe(false);
+    expect(captured[0]?.props).toMatchObject({ ok: false });
+  });
+
+  test('an error after a result is not retried', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    await act(() => speechMock.emitResult('hai'));
+    await act(() => speechMock.emitError('network'));
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.error).toBe('failed');
+  });
+
+  test('a permission error is not retried', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    await act(() => speechMock.emitError('not-allowed'));
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.error).toBe('permission');
+  });
+
+  test('without on-device recognition there is nothing to fall back from', async () => {
+    const hook = await setup();
+    await startAndListen(hook);
+    await act(() => speechMock.emitError('language-not-supported'));
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.error).toBe('failed');
+  });
+
+  test('a hold released before the failed attempt ended is not restarted', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    await act(() => speechMock.emitError('language-not-supported'));
+    await act(() => hook.result.current.stop());
+    await act(() => speechMock.emitEnd());
+    expect(mod.start).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.error).toBe('failed');
+    expect(hook.result.current.listening).toBe(false);
+  });
+
+  test('a restart the engine refuses surfaces failed', async () => {
+    speechMock.setOnDevice(true);
+    const hook = await setup();
+    await startAndListen(hook);
+    mod.start.mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    await act(() => speechMock.emitError('language-not-supported'));
+    await act(() => speechMock.emitEnd());
+    expect(hook.result.current.error).toBe('failed');
+    expect(hook.result.current.listening).toBe(false);
+  });
+});

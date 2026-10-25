@@ -1,11 +1,9 @@
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { capture } from '@/lib/analytics';
 import type { Language } from '@/stores/settings';
+
+import { getSpeechModule, type SpeechModule } from './speechModule';
 
 export type VoiceLocale = 'vi-VN' | 'en-US';
 /** `permission`: microphone or speech access denied. `failed`: any other engine error. */
@@ -38,17 +36,17 @@ export const voiceLocale = (language: Language): VoiceLocale =>
 // Finished segments cover separate utterances, so they are joined, never replaced.
 const join = (a: string, b: string) => [a, b].filter(Boolean).join(' ');
 
-function readAvailable(): boolean {
+function readAvailable(speech: SpeechModule | null): boolean {
   try {
-    return ExpoSpeechRecognitionModule.isRecognitionAvailable();
+    return speech?.isRecognitionAvailable() ?? false;
   } catch {
     return false;
   }
 }
 
-function readOnDevice(): boolean {
+function readOnDevice(speech: SpeechModule | null): boolean {
   try {
-    return ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+    return speech?.supportsOnDeviceRecognition() ?? false;
   } catch {
     return false;
   }
@@ -57,13 +55,43 @@ function readOnDevice(): boolean {
 // Not errors for the user: the engine simply heard nothing.
 const SILENT_CODES = new Set(['no-speech', 'speech-timeout', 'aborted']);
 
+type SpeechEvents = {
+  start: undefined;
+  result: { isFinal: boolean; results: { transcript?: string }[] };
+  error: { error: string };
+  end: undefined;
+};
+
+/** Listens to one engine event for as long as the component lives; a no-op without the module. */
+function useSpeechEvent<K extends keyof SpeechEvents>(
+  speech: SpeechModule | null,
+  name: K,
+  handler: (event: SpeechEvents[K]) => void,
+) {
+  const latest = useRef(handler);
+  useEffect(() => {
+    latest.current = handler;
+  });
+  useEffect(() => {
+    if (!speech) return;
+    const subscription = (
+      speech.addListener as (
+        event: K,
+        listener: (event: SpeechEvents[K]) => void,
+      ) => { remove: () => void }
+    )(name, (event) => latest.current(event));
+    return () => subscription.remove();
+  }, [speech, name]);
+}
+
 /** Hold-to-talk dictation on top of expo-speech-recognition. Never sends anything itself. */
 export function useVoiceInput({
   language,
   onPartial,
   onFinal,
 }: UseVoiceInputOptions): VoiceInput {
-  const [available] = useState(readAvailable);
+  const speech = getSpeechModule();
+  const [available] = useState(() => readAvailable(speech));
   const [listening, setListening] = useState(false);
   const [partial, setPartial] = useState('');
   const [error, setError] = useState<VoiceError | null>(null);
@@ -83,6 +111,14 @@ export function useVoiceInput({
   const committed = useRef('');
   const current = useRef('');
   const failure = useRef<VoiceError | null>(null);
+  /** Whether the running session asked for on-device recognition. */
+  const onDevice = useRef(false);
+  /** True once the session was restarted without on-device recognition during this hold. */
+  const fellBack = useRef(false);
+  /** True once the running session produced a result. */
+  const heard = useRef(false);
+  /** An on-device start failed: restart in the network engine when the session ends. */
+  const retryNetwork = useRef(false);
 
   const reset = useCallback(() => {
     holding.current = false;
@@ -91,12 +127,35 @@ export function useVoiceInput({
     setPartial('');
   }, []);
 
-  useSpeechRecognitionEvent('start', () => {
+  /** Starts a session with the current hold's settings; false when the engine throws. */
+  const begin = useCallback(
+    (requireOnDevice: boolean) => {
+      onDevice.current = requireOnDevice;
+      heard.current = false;
+      try {
+        if (!speech) return false;
+        speech.start({
+          lang: locale.current,
+          interimResults: true,
+          continuous: true,
+          requiresOnDeviceRecognition: requireOnDevice,
+          addsPunctuation: true,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [speech],
+  );
+
+  useSpeechEvent(speech, 'start', () => {
     if (active.current) setListening(true);
   });
 
-  useSpeechRecognitionEvent('result', (event) => {
+  useSpeechEvent(speech, 'result', (event) => {
     if (!active.current) return;
+    heard.current = true;
     const text = event.results[0]?.transcript?.trim() ?? '';
     if (event.isFinal) {
       committed.current = join(committed.current, text);
@@ -109,14 +168,34 @@ export function useVoiceInput({
     callbacks.current.onPartial?.(running);
   });
 
-  useSpeechRecognitionEvent('error', (event) => {
+  useSpeechEvent(speech, 'error', (event) => {
     if (!active.current || SILENT_CODES.has(event.error)) return;
+    // On-device start refused before anything was heard (for example `language-not-supported`):
+    // not an error yet; `end` follows and restarts the session once in the network engine.
+    if (
+      event.error !== 'not-allowed' &&
+      onDevice.current &&
+      !fellBack.current &&
+      !heard.current
+    ) {
+      retryNetwork.current = true;
+      return;
+    }
     failure.current = event.error === 'not-allowed' ? 'permission' : 'failed';
     setError(failure.current);
   });
 
-  useSpeechRecognitionEvent('end', () => {
+  useSpeechEvent(speech, 'end', () => {
     if (!active.current) return;
+    if (retryNetwork.current) {
+      retryNetwork.current = false;
+      if (holding.current) {
+        fellBack.current = true;
+        if (begin(false)) return;
+      }
+      failure.current = 'failed';
+      setError('failed');
+    }
     const text = join(committed.current, current.current).trim();
     const ok = text !== '' && failure.current === null;
     capture('voice_input_used', {
@@ -135,8 +214,7 @@ export function useVoiceInput({
     if (!permitted.current) {
       let granted = false;
       try {
-        granted = (await ExpoSpeechRecognitionModule.requestPermissionsAsync())
-          .granted;
+        granted = (await speech!.requestPermissionsAsync()).granted;
       } catch {
         granted = false;
       }
@@ -154,37 +232,31 @@ export function useVoiceInput({
     current.current = '';
     failure.current = null;
     startedAt.current = Date.now();
+    fellBack.current = false;
+    retryNetwork.current = false;
     active.current = true;
-    try {
-      ExpoSpeechRecognitionModule.start({
-        lang: locale.current,
-        interimResults: true,
-        continuous: true,
-        requiresOnDeviceRecognition: readOnDevice(),
-        addsPunctuation: true,
-      });
-    } catch {
+    if (!begin(readOnDevice(speech))) {
       reset();
       setError('failed');
     }
-  }, [language, reset]);
+  }, [language, reset, begin, speech]);
 
   const stop = useCallback(() => {
     holding.current = false;
-    if (active.current) ExpoSpeechRecognitionModule.stop();
-  }, []);
+    if (active.current) speech?.stop();
+  }, [speech]);
 
   const cancel = useCallback(() => {
     const wasActive = active.current;
     reset();
-    if (wasActive) ExpoSpeechRecognitionModule.abort();
-  }, [reset]);
+    if (wasActive) speech?.abort();
+  }, [reset, speech]);
 
   useEffect(
     () => () => {
-      if (active.current) ExpoSpeechRecognitionModule.abort();
+      if (active.current) speech?.abort();
     },
-    [],
+    [speech],
   );
 
   return { available, listening, partial, error, start, stop, cancel };
