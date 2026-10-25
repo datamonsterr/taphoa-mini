@@ -250,7 +250,7 @@ async fn errors_and_unmatched_routes_have_safe_attributes() {
     for path in [
         "/v1/images/00000000-0000-0000-0000-000000000001",
         "/readyz",
-        "/not-a-route?private=value",
+        "/not-a-route/token-abc123?private=value",
     ] {
         router(AppState::default())
             .oneshot(
@@ -280,8 +280,14 @@ async fn errors_and_unmatched_routes_have_safe_attributes() {
         Status::error("")
     );
     let missing = spans.iter().find(|s| s.name == "GET").unwrap();
+    // Attacker-chosen paths can carry tokens and have unbounded cardinality.
     assert_eq!(attr(missing, "http.route"), None);
-    assert_eq!(attr(missing, "url.path"), Some("/not-a-route".into()));
+    assert_eq!(attr(missing, "url.path"), None);
+    let logs = capture.logs.get_emitted_logs().unwrap();
+    for exported in [format!("{spans:?}"), format!("{logs:?}")] {
+        assert!(!exported.contains("not-a-route"), "{exported}");
+        assert!(!exported.contains("token-abc123"), "{exported}");
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

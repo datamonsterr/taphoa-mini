@@ -386,7 +386,7 @@ pub async fn http_span(request: Request, next: Next) -> Response {
         otel.kind = "server",
         http.request.method = method,
         http.route = tracing::field::Empty,
-        url.path = request.uri().path(),
+        url.path = tracing::field::Empty,
         http.response.status_code = tracing::field::Empty,
         taphoa.error.code = tracing::field::Empty,
         otel.status_code = tracing::field::Empty,
@@ -397,8 +397,11 @@ pub async fn http_span(request: Request, next: Next) -> Response {
         taphoa.member.role = tracing::field::Empty,
         session.id = tracing::field::Empty
     );
+    // Unmatched paths are attacker-chosen: they can carry tokens and have unbounded
+    // cardinality, so only matched requests record a path and route.
     if let Some(route) = route {
         span.record("http.route", route);
+        span.record("url.path", request.uri().path());
     }
     if let Some(session) = request
         .headers()
