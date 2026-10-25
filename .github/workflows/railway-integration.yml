@@ -61,7 +61,6 @@ jobs:
         working-directory: apps/backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
-          JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
           RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
           RATE_LIMIT_JOIN_PER_HOUR: '100000'
           RATE_LIMIT_RECOVER_PER_10MIN: '100000'

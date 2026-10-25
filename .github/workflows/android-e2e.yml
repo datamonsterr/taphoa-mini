@@ -32,7 +32,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fork and dependabot runs get no repository secrets, and the app signs in through Clerk: both
+  # jobs skip with a notice there instead of failing.
+  clerk-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check for Clerk secrets
+        id: check
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: |
+          if [ -n "$CLERK_SECRET_KEY" ] && [ -n "$CLERK_PUBLISHABLE_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Secrets CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are not available (fork or dependabot run); skipping the Android E2E jobs."
+          fi
+
   maestro:
+    needs: clerk-secrets
+    if: needs.clerk-secrets.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -74,6 +96,9 @@ jobs:
           E2E_PUBLIC_HOST: 10.0.2.2
           # Request lines (method, path, status) so a failed save in a flow shows in the log.
           RUST_LOG: info,tower_http=debug
+          # The backend verifies the app's Clerk session JWTs (issuer from the publishable key).
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/e2e/stack.sh up
 
       # The runner has no committed android/ project (CNG): generate it from app.json.
@@ -92,6 +117,8 @@ jobs:
       - name: Build release APK
         env:
           EXPO_PUBLIC_API_URL: http://10.0.2.2:8080
+          # Public by design; the bundle embeds it so ClerkProvider talks to the same instance.
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         working-directory: apps/mobile/android
         run: >-
           ./gradlew assembleRelease
@@ -176,6 +203,8 @@ jobs:
   # Proves the app previews in Expo Go (dev client from Metro, no native build): Metro runs on
   # the runner, Expo Go on the emulator loads it over 10.0.2.2.
   expo-go:
+    needs: clerk-secrets
+    if: needs.clerk-secrets.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -202,6 +231,8 @@ jobs:
           CI: '1'
           EXPO_NO_TELEMETRY: '1'
           REACT_NATIVE_PACKAGER_HOSTNAME: 10.0.2.2
+          # Public by design; Metro inlines EXPO_PUBLIC_* so the app can start ClerkProvider.
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: nohup npx expo start --go --port 8081 --host lan > "$RUNNER_TEMP/metro.log" 2>&1 &
 
       - name: Wait for Metro
