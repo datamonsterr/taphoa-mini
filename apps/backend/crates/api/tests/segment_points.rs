@@ -78,12 +78,14 @@ struct TestWorld {
 
 async fn setup_world(with_segmenter: bool) -> TestWorld {
     let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("segment-points-test-secret-at-least-32-bytes!!".into()),
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
         k if k.starts_with("RATE_LIMIT_") => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    common::clerk::install(&mut state);
     state.rate_limiter = Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
     let store = Arc::new(MemStore::default());
     state.storage = Some(store.clone());
@@ -218,6 +220,10 @@ async fn call_api(
     token: Option<&str>,
     body: Value,
 ) -> (StatusCode, Value) {
+    // Auth setup uses independently signed Clerk identities, never API-issued tokens.
+    let minted = (token.is_none() && ["/v1/stores", "/v1/auth/join"].contains(&path))
+        .then(common::clerk::token);
+    let token = token.or(minted.as_deref());
     let mut request = Request::builder()
         .method(method)
         .uri(path)
@@ -232,14 +238,13 @@ async fn call_api(
         Body::from(body.to_string())
     };
     let (status, bytes) = raw_call(app, request.body(body).unwrap()).await;
-    (
-        status,
-        if bytes.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-        },
-    )
+    let mut response: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    if status == StatusCode::CREATED
+        && let Some(token) = minted
+    {
+        response["access_token"] = json!(token);
+    }
+    (status, response)
 }
 
 #[tokio::test]

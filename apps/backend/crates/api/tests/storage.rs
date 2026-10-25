@@ -1,3 +1,4 @@
+mod common;
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -30,6 +31,7 @@ async fn real_upload_reference_and_presigned_download() {
     let mut state = AppState::connect(Some(&database), Some(&redis), None)
         .await
         .unwrap();
+    common::clerk::install(&mut state);
     state.storage = Some(objects.clone());
     state.image_url_ttl = config.url_ttl;
     let pool = state.postgres.clone().unwrap();
@@ -40,10 +42,11 @@ async fn real_upload_reference_and_presigned_download() {
         .await
         .unwrap();
     assert_eq!(readiness.status(), StatusCode::OK);
+    let token = common::clerk::token();
     let created = app
         .clone()
         .oneshot(
-            Request::post("/v1/stores")
+            Request::post("/v1/stores").header("authorization",format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({"store_name":"Storage test","display_name":"Lead","device":{"name":"test","platform":"android"}}).to_string(),
@@ -56,7 +59,7 @@ async fn real_upload_reference_and_presigned_download() {
     let created: Value =
         serde_json::from_slice(&to_bytes(created.into_body(), 65536).await.unwrap()).unwrap();
     let store_id: Uuid = created["store"]["id"].as_str().unwrap().parse().unwrap();
-    let bearer = format!("Bearer {}", created["access_token"].as_str().unwrap());
+    let bearer = format!("Bearer {token}");
     let fixture = include_bytes!("../../../tests/fixtures/sample.png");
     let mut body = b"--test\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nenrollment\r\n--test\r\nContent-Disposition: form-data; name=\"image\"; filename=\"sample.png\"\r\nContent-Type: image/png\r\n\r\n".to_vec();
     body.extend_from_slice(fixture);

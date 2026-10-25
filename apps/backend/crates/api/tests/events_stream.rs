@@ -4,6 +4,7 @@
 //! - `events::relay::spawn(pool, redis_url, shutdown_rx) -> JoinHandle<()>`
 //! - `events::Hub::{new, with_heartbeat(Duration)}` and `AppState.hub`
 //! - `events::spawn_background(&AppState, shutdown_rx) -> Vec<JoinHandle<()>>` (relay + hub subscriber)
+mod common;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -25,7 +26,7 @@ async fn pool() -> PgPool {
 }
 async fn new_store(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'stream','x')")
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'stream')")
         .bind(id)
         .execute(pool)
         .await
@@ -193,12 +194,14 @@ struct Server {
 }
 async fn start() -> (Server, AppState) {
     let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("stream-test-secret-at-least-32-bytes".into()),
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
         "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("100000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    common::clerk::install(&mut state);
     state.hub = Hub::with_heartbeat(Duration::from_millis(300));
     let (shutdown, rx) = watch::channel(false);
     let mut tasks = spawn_background(&state, rx.clone());
@@ -238,17 +241,20 @@ impl Server {
     }
 }
 async fn create_store(base: &str) -> Value {
-    reqwest::Client::new()
+    let token = common::clerk::token();
+    let response = reqwest::Client::new()
         .post(format!("{base}/v1/stores"))
-        .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
-        .json(&json!({"store_name":"SSE","display_name":"Lead","device":{"name":"d","platform":"web"}}))
+        .bearer_auth(&token)
+        .json(&json!({"store_name":"SSE","display_name":"Lead"}))
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let mut body: Value = response.json().await.unwrap();
+    body["access_token"] = json!(token);
+    body
 }
+
 async fn open(base: &str, token: &str, last_event_id: Option<&str>) -> reqwest::Response {
     let mut request = reqwest::Client::new()
         .get(format!("{base}/v1/events"))
@@ -458,23 +464,61 @@ async fn replay_pages_through_a_backlog_larger_than_one_page() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn stream_ends_after_its_own_session_is_revoked() {
-    let (server, _) = start().await;
+async fn stream_ends_after_its_member_is_deactivated() {
+    let (server, state) = start().await;
     let lead = create_store(&server.base).await;
     let token = lead["access_token"].as_str().unwrap();
     let mut mine = open(&server.base, token, None).await;
     let mut buf = String::new();
 
-    let logout = reqwest::Client::new()
-        .post(format!("{}/v1/auth/logout", server.base))
-        .bearer_auth(token)
-        .send()
-        .await
-        .unwrap();
-    assert!(logout.status().is_success());
-    let (_, name, data) = event(&mut mine, &mut buf).await;
-    assert_eq!(name, "session.revoked");
-    assert_eq!(data["data"]["reason"], "logout");
+    let store: Uuid = lead["store"]["id"].as_str().unwrap().parse().unwrap();
+    let member: Uuid = lead["member"]["id"].as_str().unwrap().parse().unwrap();
+    let mut tx = state.postgres.as_ref().unwrap().begin().await.unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":Uuid::new_v4(),"change":"deactivated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":member,"change":"updated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":member,"change":"deactivated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    for change in ["deactivated", "updated", "deactivated"] {
+        let (_, name, data) = event(&mut mine, &mut buf).await;
+        assert_eq!(name, "member.changed");
+        assert_eq!(data["data"]["change"], change);
+    }
     // Only heartbeats may still be buffered; the stream must then reach EOF.
     loop {
         let chunk = timeout(Duration::from_secs(5), mine.chunk())

@@ -6,7 +6,8 @@ fn actor(role: Role, can_enroll: bool) -> Actor {
     Actor {
         member_id: Uuid::nil(),
         store_id: Uuid::nil(),
-        session_id: Uuid::nil(),
+        clerk_user_id: "user_permissions".into(),
+        clerk_session_id: "sess_permissions".into(),
         role,
         can_enroll,
     }

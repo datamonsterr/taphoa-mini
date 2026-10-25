@@ -19,7 +19,6 @@ async fn main() -> Result<()> {
     // Credentials deliberately go to stdout only. Do not add tracing or file output.
     for store in report.stores {
         println!("\n{} ({})", store.name, store.store_id);
-        println!("Recovery code: {}", store.recovery_code);
         for member in store.members {
             println!(
                 "  {}: {} ({}){}{}",

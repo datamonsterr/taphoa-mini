@@ -129,7 +129,7 @@ async fn patch_store(
             &mut tx,
             Event {
                 store_id: actor.store_id,
-                actor: Some((actor.member_id, actor.session_id)),
+                actor: Some(actor.event_actor()),
                 typ: "store.changed",
                 version: 1,
                 data: json!({"fields":fields}),
@@ -218,10 +218,6 @@ async fn remove_member(
     keep_lead(&leads, &member, true)?;
     if member.active {
         sqlx::query("UPDATE members SET active=false,version=version+1,updated_at=now() WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).execute(&mut *tx).await?;
-        let sessions:Vec<Uuid>=sqlx::query_scalar("UPDATE sessions SET revoked_at=now() WHERE store_id=$1 AND member_id=$2 AND revoked_at IS NULL RETURNING id").bind(actor.store_id).bind(id).fetch_all(&mut *tx).await?;
-        for sid in sessions {
-            revoked_event(&mut tx, &actor, sid, "member_removed").await?;
-        }
         member_event(&mut tx, &actor, id, "deactivated").await?;
     }
     tx.commit().await?;

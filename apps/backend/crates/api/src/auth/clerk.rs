@@ -640,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn config_exposes_optional_clerk_settings_without_changing_jwt_secret() {
+    fn config_requires_clerk_settings_and_ignores_jwt_secret() {
         let cfg = Config::from_lookup(|name| match name {
             "JWT_SECRET" => Some("x".repeat(32)),
             "CLERK_ISSUER" => Some(ISSUER.into()),
@@ -648,9 +648,10 @@ mod tests {
         })
         .unwrap();
         assert_eq!(cfg.clerk.unwrap().issuer, ISSUER);
-        assert_eq!(cfg.jwt_secret, "x".repeat(32));
-        let cfg =
-            Config::from_lookup(|name| (name == "JWT_SECRET").then(|| "x".repeat(32))).unwrap();
-        assert!(cfg.clerk.is_none());
+        let error = Config::from_lookup(|name| (name == "JWT_SECRET").then(|| "x".repeat(32)))
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("CLERK_PUBLISHABLE_KEY"));
+        assert!(error.to_string().contains("CLERK_ISSUER"));
     }
 }

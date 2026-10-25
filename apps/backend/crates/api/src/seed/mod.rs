@@ -30,7 +30,6 @@ pub struct SeedReport {
 pub struct StoreReport {
     pub store_id: Uuid,
     pub name: String,
-    pub recovery_code: String,
     pub members: Vec<MemberReport>,
     pub invite_token_hint: String,
 }
@@ -75,18 +74,9 @@ impl Store {
     }
 
     fn report(self) -> StoreReport {
-        let mut rng = Prng::new(&format!("{SEED}/recovery/{}", self.number));
-        let raw = crockford((u128::from(rng.next()) << 64) | u128::from(rng.next()), 16);
-        let recovery_code = raw
-            .as_bytes()
-            .chunks(4)
-            .map(|s| String::from_utf8_lossy(s).into_owned())
-            .collect::<Vec<_>>()
-            .join("-");
         StoreReport {
             store_id: self.store_id(),
             name: self.name().into(),
-            recovery_code,
             members: ["Mẹ", "Bà nội", "Con trai", "Cô Lan"]
                 .iter()
                 .enumerate()
@@ -148,35 +138,22 @@ pub async fn run(pool: &PgPool) -> Result<SeedReport> {
 }
 
 async fn seed_store(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Result<()> {
-    let normalized = report.recovery_code.replace('-', "");
-    let lookup = digest(&normalized);
     let salt = store.store_id().to_string();
-    let (recovery_hash, pin_hash) = tokio::task::spawn_blocking(move || -> Result<_> {
-        Ok((
-            password_hash(&normalized, &salt)?,
-            password_hash("2468", &format!("{salt}/pin"))?,
-        ))
-    })
-    .await
-    .context("join credential hashing")??;
+    let pin_hash =
+        tokio::task::spawn_blocking(move || password_hash("2468", &format!("{salt}/pin")))
+            .await
+            .context("join PIN hashing")??;
     let start = store.at(store.today - Duration::days(29), 0, 0)?;
     let bank = store.number == 1;
-    sqlx::query("INSERT INTO stores (id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct,recovery_code_hash,recovery_code_lookup,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,20,$7,$8,$9,$9) ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO stores (id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,20,$7,$7) ON CONFLICT DO NOTHING")
         .bind(store.store_id()).bind(store.name()).bind(bank.then_some("970436"))
         .bind(bank.then_some("Vietcombank")).bind(bank.then_some("0123456789"))
-        .bind(bank.then_some("NGUYEN THI BA")).bind(recovery_hash).bind(lookup).bind(start)
+        .bind(bank.then_some("NGUYEN THI BA")).bind(start)
         .execute(&mut **tx).await?;
-    for (n, member) in report.members.iter().enumerate() {
-        sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT DO NOTHING")
+    for member in &report.members {
+        sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,created_at,updated_at,clerk_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8) ON CONFLICT DO NOTHING")
             .bind(member.member_id).bind(store.store_id()).bind(&member.display_name).bind(&member.role)
-            .bind(member.can_enroll).bind(member.pin.as_ref().map(|_| pin_hash.as_str())).bind(start)
-            .execute(&mut **tx).await?;
-        sqlx::query("INSERT INTO sessions (id,store_id,member_id,device_name,platform,app_version,refresh_token_hash,expires_at,created_at,last_seen_at) VALUES ($1,$2,$3,$4,$5,'1.0.0-seed',$6,$7,$8,$9) ON CONFLICT DO NOTHING")
-            .bind(store.id(2,n as u64)).bind(store.store_id()).bind(member.member_id)
-            .bind(["Samsung A15 quầy", "iPhone của bà", "Redmi của con", "Máy tính quầy"][n])
-            .bind(["android","ios","android","web"][n])
-            .bind(digest(&format!("{SEED}/session/{}/{n}",store.number)))
-            .bind(store.at(store.today + Duration::days(90),0,0)?).bind(start).bind(store.now)
+            .bind(member.can_enroll).bind(member.pin.as_ref().map(|_| pin_hash.as_str())).bind(start).bind(format!("seed_{}",member.member_id))
             .execute(&mut **tx).await?;
         change(tx, store, "member", member.member_id, start).await?;
     }
@@ -300,16 +277,7 @@ async fn event(
         .get("member_id")
         .cloned()
         .unwrap_or_else(|| json!(store.id(1, 0)));
-    let actor_session = if let Some(member) = actor_member
-        .as_str()
-        .and_then(|id| Uuid::parse_str(id).ok())
-    {
-        (0..4)
-            .find(|n| store.id(1, *n) == member)
-            .map(|n| store.id(2, n))
-    } else {
-        None
-    };
+    let actor_session = "seed_session";
     let mut payload = json!({"id":format!("evt_{id:015}"),"type":kind,"version":1,"store_id":store.store_id(),"occurred_at":at.with_timezone(&Ho_Chi_Minh).to_rfc3339(),"actor":{"member_id":actor_member,"session_id":actor_session},"data":data});
     if let Some(cursor) = cursor {
         payload["cursor"] = json!(cursor);
@@ -381,19 +349,14 @@ mod tests {
             now: DateTime::from_timestamp(1_792_720_800, 0).unwrap(),
         };
         let first = store.report();
-        assert_eq!(first.recovery_code, store.report().recovery_code);
-        assert_eq!(first.recovery_code.len(), 19);
-        assert!(
-            first
-                .recovery_code
-                .split('-')
-                .all(|s| s.len() == 4 && s.bytes().all(|c| CROCKFORD.contains(&c)))
+        assert_eq!(
+            first.members[0].member_id,
+            store.report().members[0].member_id
         );
-        let normalized = first.recovery_code.replace('-', "");
-        let hash = password_hash(&normalized, "fixture salt").unwrap();
+        let hash = password_hash("2468", "fixture salt").unwrap();
         assert!(hash.starts_with("$argon2id$"));
         Argon2::default()
-            .verify_password(normalized.as_bytes(), hash.as_str())
+            .verify_password(b"2468", hash.as_str())
             .unwrap();
         let embedding: Vec<f64> = serde_json::from_str(&vector(store.id(5, 0))).unwrap();
         assert_eq!(embedding.len(), 384);

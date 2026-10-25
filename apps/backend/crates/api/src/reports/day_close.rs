@@ -154,7 +154,7 @@ pub(super) async fn put(
         .bind(c.cash_expenses).bind(expected).bind(input.counted_cash).bind(c.transfer_revenue)
         .bind(input.note).bind(actor.member_id).bind(c.closed_at).fetch_one(&mut *tx).await?;
     emit(&mut tx, Event {
-        store_id:actor.store_id,actor:Some((actor.member_id,actor.session_id)),typ:"day.closed",version:1,
+        store_id:actor.store_id,actor:Some(actor.event_actor()),typ:"day.closed",version:1,
         data:json!({"business_date":day,"expected_cash":expected,"counted_cash":row.counted_cash,"difference":row.difference}),
         change:None,
     }).await?;

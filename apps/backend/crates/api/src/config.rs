@@ -65,7 +65,7 @@ impl ClerkSettings {
     }
 }
 
-// No Debug: contains the signing secret.
+// No Debug: contains the optional Clerk secret key.
 #[derive(Clone)]
 pub struct Config {
     pub port: u16,
@@ -79,7 +79,6 @@ pub struct Config {
     pub ocr_decoder: Option<PathBuf>,
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
-    pub jwt_secret: String,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
@@ -90,11 +89,10 @@ impl Config {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
-        let jwt_secret = get("JWT_SECRET").context("JWT_SECRET is required (at least 32 bytes)")?;
-        if jwt_secret.len() < 32 {
-            bail!("JWT_SECRET must be at least 32 bytes");
-        }
         let clerk = ClerkSettings::from_lookup(&get)?;
+        if clerk.is_none() {
+            bail!("CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required");
+        }
         let db_max_connections = get("DB_MAX_CONNECTIONS")
             .unwrap_or_else(|| "10".into())
             .parse()
@@ -135,10 +133,6 @@ impl Config {
                 defaults.store_create_per_hour,
             )?,
             join_per_hour: positive("RATE_LIMIT_JOIN_PER_HOUR", defaults.join_per_hour)?,
-            recover_per_10min: positive(
-                "RATE_LIMIT_RECOVER_PER_10MIN",
-                defaults.recover_per_10min,
-            )?,
             pin_attempts: positive("RATE_LIMIT_PIN_ATTEMPTS", defaults.pin_attempts)?,
         };
         let hops = positive("TRUSTED_PROXY_HOPS", 1)? as usize;
@@ -163,7 +157,6 @@ impl Config {
             encoder: get("SAM_ENCODER_PATH").map(PathBuf::from),
             decoder: get("SAM_DECODER_PATH").map(PathBuf::from),
             dino_model: get("DINO_MODEL_PATH").map(PathBuf::from),
-            jwt_secret,
             clerk,
             db_max_connections,
         })
@@ -240,8 +233,8 @@ mod tests {
         ];
         for mask in 0u8..16 {
             let config = Config::from_lookup(|name| {
-                if name == "JWT_SECRET" {
-                    return Some("x".repeat(32));
+                if name == "CLERK_ISSUER" {
+                    return Some("https://test.clerk.accounts.dev".into());
                 }
                 keys.iter()
                     .position(|k| *k == name)
@@ -259,7 +252,7 @@ mod tests {
         for value in ["0", "bad", "-1"] {
             assert!(
                 Config::from_lookup(|name| match name {
-                    "JWT_SECRET" => Some("x".repeat(32)),
+                    "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
                     "OCR_THREADS" => Some(value.into()),
                     _ => None,
                 })
@@ -267,7 +260,7 @@ mod tests {
             );
         }
         let config = Config::from_lookup(|name| match name {
-            "JWT_SECRET" => Some("x".repeat(32)),
+            "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
             "OCR_THREADS" => Some("2".into()),
             _ => None,
         })
@@ -281,7 +274,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("JWT_SECRET")
+                .contains("CLERK_ISSUER")
         );
         let secret = "private-short-value";
         let error = Config::from_lookup(|_| Some(secret.into()))
@@ -289,8 +282,10 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(!error.contains(secret));
-        let defaults =
-            Config::from_lookup(|name| (name == "JWT_SECRET").then(|| "x".repeat(32))).unwrap();
+        let defaults = Config::from_lookup(|name| {
+            (name == "CLERK_ISSUER").then(|| "https://test.clerk.accounts.dev".into())
+        })
+        .unwrap();
         assert_eq!(defaults.port, 8080);
         assert_eq!(defaults.db_max_connections, 10);
         assert_eq!(defaults.rate_limits, RateLimits::default());
@@ -307,7 +302,7 @@ mod tests {
         ] {
             assert!(
                 Config::from_lookup(|name| match name {
-                    "JWT_SECRET" => Some("x".repeat(32)),
+                    "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
                     name if name == key => Some(value.into()),
                     _ => None,
                 })
@@ -318,11 +313,11 @@ mod tests {
     #[test]
     fn reads_service_and_model_settings() {
         let config = Config::from_lookup(|name| {
-            if name.starts_with("CLERK_") {
+            if name.starts_with("CLERK_") && name != "CLERK_ISSUER" {
                 return None;
             }
             Some(match name {
-                "JWT_SECRET" => "x".repeat(32),
+                "CLERK_ISSUER" => "https://test.clerk.accounts.dev".into(),
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
                 "OCR_THREADS" => "4".into(),
