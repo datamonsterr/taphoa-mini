@@ -45,6 +45,10 @@ const TABLES: &[&str] = &[
     "stock_adjustment_requests",
     "receipts",
     "receipt_lines",
+    "assistant_threads",
+    "assistant_messages",
+    "assistant_actions",
+    "assistant_feedback",
 ];
 
 #[tokio::test]
@@ -89,6 +93,10 @@ async fn hnsw_index_and_store_leading_indexes() {
         "expenses",
         "margin_alerts",
         "change_log",
+        "assistant_threads",
+        "assistant_messages",
+        "assistant_actions",
+        "assistant_feedback",
     ] {
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pg_indexes WHERE tablename=$1 AND indexdef ~ '\\(\\(?store_id\\M'",
@@ -430,4 +438,125 @@ async fn migrator_tolerates_missing_versions() {
         result.is_ok(),
         "missing version should be tolerated: {result:?}"
     );
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn assistant_checks_defaults_and_cascades() {
+    let Some(pool) = pool().await else { return };
+    let mut tx = pool.begin().await.unwrap();
+    let store: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO stores(name,recovery_code_hash) VALUES ('assistant','x') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(store_id,display_name,role) VALUES ($1,'Lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let thread: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO assistant_threads(store_id,member_id) VALUES ($1,$2) RETURNING id",
+    )
+    .bind(store)
+    .bind(member)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let message: uuid::Uuid = sqlx::query_scalar("INSERT INTO assistant_messages(thread_id,store_id,role,content) VALUES ($1,$2,'assistant','Chào') RETURNING id")
+        .bind(thread)
+        .bind(store)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let (status, attachments, tool_calls, transcript, cards): (
+        String,
+        serde_json::Value,
+        serde_json::Value,
+        serde_json::Value,
+        serde_json::Value,
+    ) = sqlx::query_as(
+        "SELECT status,attachments,tool_calls,transcript,cards FROM assistant_messages WHERE id=$1",
+    )
+    .bind(message)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(status, "complete");
+    for value in [attachments, tool_calls, transcript, cards] {
+        assert_eq!(value, serde_json::json!([]));
+    }
+    let action: uuid::Uuid = sqlx::query_scalar("INSERT INTO assistant_actions(store_id,thread_id,message_id,kind,payload,summary_vi,proposed_by,expires_at) VALUES ($1,$2,$3,'expense','{}','x',$4,now()) RETURNING id")
+        .bind(store)
+        .bind(thread)
+        .bind(message)
+        .bind(member)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let default_status: String =
+        sqlx::query_scalar("SELECT status FROM assistant_actions WHERE id=$1")
+            .bind(action)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(default_status, "proposed");
+    sqlx::query("INSERT INTO assistant_feedback(message_id,member_id,store_id,rating) VALUES ($1,$2,$3,'up')")
+        .bind(message)
+        .bind(member)
+        .bind(store)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    for statement in [
+        "INSERT INTO assistant_messages(thread_id,store_id,role,content) VALUES ($1,$2,'system','x')",
+        "INSERT INTO assistant_messages(thread_id,store_id,role,content,status) VALUES ($1,$2,'user','x','done')",
+        "UPDATE assistant_actions SET status='confirmed' WHERE store_id=$2",
+        "UPDATE assistant_feedback SET rating='neutral' WHERE store_id=$2",
+        "INSERT INTO assistant_feedback(message_id,member_id,store_id,rating) VALUES ($3,$4,$2,'down')",
+    ] {
+        sqlx::query("SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let e = sqlx::query(statement)
+            .bind(thread)
+            .bind(store)
+            .bind(message)
+            .bind(member)
+            .execute(&mut *tx)
+            .await
+            .unwrap_err();
+        // 23514 check violation, 23505 duplicate (message_id, member_id).
+        assert!(
+            matches!(
+                e.as_database_error().unwrap().code().as_deref(),
+                Some("23514" | "23505")
+            ),
+            "{statement}: {e}"
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    // Deleting the thread removes its messages, actions and feedback.
+    sqlx::query("DELETE FROM assistant_threads WHERE id=$1")
+        .bind(thread)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let left: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM assistant_messages WHERE store_id=$1) \
+         + (SELECT count(*) FROM assistant_actions WHERE store_id=$1) \
+         + (SELECT count(*) FROM assistant_feedback WHERE store_id=$1)",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(left, 0);
 }
