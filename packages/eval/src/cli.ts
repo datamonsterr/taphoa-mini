@@ -15,8 +15,18 @@ import {
   makeJudge,
   type JudgeFn,
 } from './judge/judge.ts';
-import { createLiveOracle, OracleUnavailableError } from './oracle/live.ts';
+import { ORACLE_NAMES } from './oracle/catalog.ts';
+import {
+  createLiveOracle,
+  openEvalDatabase,
+  OracleUnavailableError,
+} from './oracle/live.ts';
 import { FakeOracle, type OracleProvider } from './oracle/provider.ts';
+import {
+  renderOraclesMd,
+  renderOraclesText,
+  runCatalog,
+} from './oracle/report.ts';
 import {
   DEFAULT_POSTHOG_HOST,
   MemorySink,
@@ -52,7 +62,9 @@ import type { GoldenCase } from './types.ts';
 
 const USAGE = [
   'usage: node src/cli.ts <command> [options]',
-  '  validate [--dir golden]            check the golden cases and their coverage',
+  '  validate [--dir golden]            check the golden cases, their coverage and oracle names',
+  '  oracles [--md] [--out file]        run every oracle against EVAL_DATABASE_URL and print',
+  '                                     the values; --md writes ORACLES.md instead',
   '  smoke|full [options]               run the smoke set (25 cases) or every case',
   '  compare --models a,b,c [options]   run the smoke set once per model and rank them',
   '  calibrate [--judge-model id] [--file f] [--out dir]',
@@ -77,6 +89,7 @@ const PACKAGE_DIR = resolve(import.meta.dirname, '..');
 /** The golden directory next to this package's src, whatever the cwd is. */
 const DEFAULT_DIR = join(PACKAGE_DIR, 'golden');
 const DEFAULT_OUT = join(PACKAGE_DIR, 'results');
+const DEFAULT_ORACLES_MD = join(PACKAGE_DIR, 'ORACLES.md');
 const DEFAULT_CALIBRATION = join(
   import.meta.dirname,
   'judge',
@@ -87,7 +100,7 @@ const DEFAULT_CALIBRATION = join(
 class UsageError extends Error {}
 
 export type CliDeps = {
-  /** Builds the oracle of live runs. Task T3 plugs the pg provider in at `oracle/live.ts`. */
+  /** Builds the oracle of live runs (default: the pg provider of `oracle/live.ts`). */
   createOracle?: (
     env: Record<string, string | undefined>,
   ) => Promise<OracleProvider>;
@@ -153,8 +166,7 @@ function validate(args: string[], log: (line: string) => void): number {
   }
   // Show paths relative to where the command ran, so editors can open them.
   const { cases, errors } = loadGolden(relative(process.cwd(), dir) || '.');
-  // The oracle-name check arrives with the oracle catalog.
-  const problems = [...errors, ...checkCoverage(cases)];
+  const problems = [...errors, ...checkCoverage(cases, ORACLE_NAMES)];
   if (problems.length === 0) {
     log(`ok: ${cases.length} golden cases`);
     return 0;
@@ -319,7 +331,10 @@ async function prepare(
     outDir: outOption ?? DEFAULT_OUT,
     today,
     concurrency,
-    closeStub: async () => {},
+    // The pg oracle holds a connection pool; others have nothing to close.
+    closeStub: async () => {
+      await (oracle as { close?: () => Promise<void> }).close?.();
+    },
   };
 }
 
@@ -496,6 +511,43 @@ async function compare(
   }
 }
 
+/** Runs every oracle with its example args; `--md` writes ORACLES.md for case writers. */
+async function oraclesCommand(
+  args: string[],
+  env: Record<string, string | undefined>,
+  deps: Required<Pick<CliDeps, 'log' | 'warn'>> & CliDeps,
+): Promise<number> {
+  const flags = parseFlags(args, ['--md'], ['--out']);
+  const db = await openEvalDatabase(env);
+  try {
+    const runs = await runCatalog(db.pool, {
+      storeId: db.storeId,
+      today: db.today,
+    });
+    const failed = runs.filter((r) => r.error !== null);
+    if (!flags.booleans.has('--md')) {
+      for (const line of renderOraclesText(runs)) deps.log(line);
+      deps.log(`${runs.length} oracles, ${failed.length} failed`);
+      return failed.length > 0 ? 1 : 0;
+    }
+    if (failed.length > 0) {
+      for (const r of failed) deps.log(`${r.entry.name}: ${r.error}`);
+      deps.log(`${failed.length} oracle(s) failed; ORACLES.md not written`);
+      return 1;
+    }
+    const file = flags.values.get('--out')
+      ? resolve(flags.values.get('--out')!)
+      : DEFAULT_ORACLES_MD;
+    writeFileSync(file, renderOraclesMd(runs, { today: db.today }));
+    deps.log(
+      `${runs.length} oracles written to ${relative(process.cwd(), file)}`,
+    );
+    return 0;
+  } finally {
+    await db.close();
+  }
+}
+
 async function calibrateCommand(
   args: string[],
   env: Record<string, string | undefined>,
@@ -566,6 +618,8 @@ export async function main(
         return await compare(rest, env, full);
       case 'calibrate':
         return await calibrateCommand(rest, env, full);
+      case 'oracles':
+        return await oraclesCommand(rest, env, full);
       default:
         console.error(USAGE);
         return 2;
