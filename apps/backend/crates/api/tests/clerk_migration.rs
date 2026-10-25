@@ -1,11 +1,12 @@
 //! Apply 0701 inside isolated schemas so this never resets a shared database.
-use sqlx::{Connection, Executor, PgConnection};
+use sqlx::{Connection, PgConnection};
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
 async fn clerk_reset_applies_on_empty_and_populated_schema() {
     let url = std::env::var("DATABASE_URL").unwrap();
     for populated in [false, true] {
         let mut conn = PgConnection::connect(&url).await.unwrap();
+        sqlx::raw_sql("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public").execute(&mut conn).await.unwrap();
         let mut tx = conn.begin().await.unwrap();
         let schema = format!("clerk_migration_{}", uuid::Uuid::new_v4().simple());
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
@@ -15,7 +16,7 @@ async fn clerk_reset_applies_on_empty_and_populated_schema() {
         .await
         .unwrap();
         for migration in taphoa_api::MIGRATOR.iter().filter(|m| m.version < 701) {
-            sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.to_string()))
+            sqlx::raw_sql(migration.sql.clone())
                 .execute(&mut *tx)
                 .await
                 .unwrap();
@@ -27,7 +28,7 @@ async fn clerk_reset_applies_on_empty_and_populated_schema() {
             .iter()
             .find(|m| m.version == 701)
             .expect("0701 exists");
-        sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.to_string()))
+        sqlx::raw_sql(migration.sql.clone())
             .execute(&mut *tx)
             .await
             .unwrap();
