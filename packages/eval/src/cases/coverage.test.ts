@@ -115,7 +115,7 @@ describe('checkCoverage: smoke set', () => {
 });
 
 describe('checkCoverage: oracle names', () => {
-  const known = new Set(['known_a', 'known_b']);
+  const known = new Set(['known_a', 'known_b', 'margin_pct']);
 
   const withOracles = (c: Partial<GoldenCase>) =>
     fullSet().map((x) => (x.id === 'U1-05' ? { ...x, ...c } : x));
@@ -159,6 +159,30 @@ describe('checkCoverage: oracle names', () => {
       expect(text).toContain(name);
     }
     expect(text).toContain('U1-05');
+  });
+
+  it('skips the oracle-name check for pending cases', () => {
+    const pending = { on: 'X5' as const, reason: 'debt tools' };
+    const cases = fullSet().map((x) =>
+      x.id === 'U23-03'
+        ? {
+            ...x,
+            pending,
+            expect_facts: [{ oracle: 'debt_total', match: 'number' as const }],
+            denied_facts: [
+              {
+                oracle: 'denied_debt_totals',
+                match: 'none_mentioned' as const,
+              },
+            ],
+          }
+        : x,
+    );
+    expect(checkCoverage(cases, known)).toEqual([]);
+    const live = cases.map((x) =>
+      x.id === 'U23-03' ? { ...x, pending: undefined } : x,
+    );
+    expect(checkCoverage(live, known).join('\n')).toContain('debt_total');
   });
 
   it('reports each unknown oracle once with the cases that use it', () => {

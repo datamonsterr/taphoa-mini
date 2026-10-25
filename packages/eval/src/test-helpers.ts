@@ -67,6 +67,9 @@ export function mkFullSet(): GoldenCase[] {
         tags.push('permission');
         extra.role = 'seller';
         extra.expect_refusal = true;
+        extra.denied_facts = [
+          { oracle: 'margin_pct', match: 'none_mentioned' },
+        ];
       }
       if (n === 3 && u >= 11 && u <= 18) {
         tags.push('injection');

@@ -25,7 +25,8 @@ function oraclesOf(c: GoldenCase): string[] {
 /**
  * Problems with the case set as a whole: too few cases per use case, tag
  * counts under the minimum, the smoke set's size and spread, and (when
- * `knownOracles` is given) oracle names nobody defines. Pending cases count.
+ * `knownOracles` is given) oracle names nobody defines. Pending cases count
+ * everywhere except the oracle-name check, which skips them.
  */
 export function checkCoverage(
   cases: GoldenCase[],
@@ -66,6 +67,8 @@ export function checkCoverage(
   if (knownOracles) {
     const usedBy = new Map<string, string[]>();
     for (const c of cases) {
+      // A pending case may name oracles that cannot exist until its epic lands.
+      if (c.pending) continue;
       for (const name of new Set(oraclesOf(c))) {
         if (knownOracles.has(name)) continue;
         usedBy.set(name, [...(usedBy.get(name) ?? []), c.id]);
