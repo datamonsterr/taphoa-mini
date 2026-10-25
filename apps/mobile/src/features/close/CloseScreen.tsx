@@ -44,6 +44,21 @@ const keypadLabels = (t: (key: string) => string) => ({
   delete: t('keypad.delete'),
 });
 
+/** One line of the day's debt movements; a day without that movement leaves it out. */
+function DebtLine({ label, amount }: { label: string; amount: number }) {
+  if (amount <= 0) return null;
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label} ${formatVnd(amount)}`}
+      style={styles.debtLine}
+    >
+      <Text style={styles.debtLabel}>{label}</Text>
+      <MoneyText amount={amount} variant="label" />
+    </View>
+  );
+}
+
 export function CloseScreen() {
   const t = useT(closeStrings);
   const diffLabels = useLabels(closeStrings, differenceLabels);
@@ -182,7 +197,17 @@ export function CloseScreen() {
             />
 
             {closed ? (
-              <Text style={styles.closedNote}>{t('closed')}</Text>
+              <>
+                <DebtLine
+                  label={t('cashRepayments')}
+                  amount={closed.cash_repayments ?? 0}
+                />
+                <DebtLine
+                  label={t('creditSales')}
+                  amount={closed.credit_sales ?? 0}
+                />
+                <Text style={styles.closedNote}>{t('closed')}</Text>
+              </>
             ) : (
               <>
                 <Keypad
@@ -233,6 +258,14 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontVariant: ['tabular-nums'],
   },
+  debtLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space[3],
+    paddingHorizontal: 20,
+  },
+  debtLabel: { ...typography.caption, color: colors.inkMuted },
   closedNote: {
     ...typography.label,
     textAlign: 'center',
