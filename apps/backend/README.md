@@ -168,7 +168,7 @@ DATABASE_URL=postgres://postgres:pw@localhost:11432/w_seed pnpm seed
 ```
 
 The command runs migrations, then creates **Tạp hóa Cô Ba** and **Cửa hàng Minh Khai**.
-Each store has one Lead and three sellers, device sessions, a pending invite and a
+Each store has one Lead and three sellers, a pending invite and a
 used invite, eight categories, 30 branded products with pack/case units, image
 metadata, normalized fake 384-dimensional embeddings, and price history. It also
 creates 30 days of 15–40 sales per store/day ending on the first run's current
@@ -179,27 +179,45 @@ Cô Ba has sample bank details; Minh Khai has no bank profile. Both include
 recorded cash and transfer sales. Image object keys are dummy
 metadata: there are no corresponding storage objects.
 
-The CLI prints store/member IDs, the original deterministic recovery codes, PIN
-hints, and a ready pending invite token. Use the printed recovery code to sign in
-as the Lead through `POST /v1/auth/recover`:
+The CLI prints store/member IDs, PIN hints, and a ready pending invite token. The
+printed seller PIN is `2468`; PINs use Argon2id and invite tokens use SHA-256.
+
+### Clerk test users
+
+Identity lives in Clerk, so a seeded member can sign in only when `members.clerk_user_id`
+names a real Clerk user. Set `CLERK_SECRET_KEY` (and `CLERK_API_URL` for a non-default
+Clerk API, default `https://api.clerk.com`) before running the seed:
 
 ```sh
-curl -X POST http://localhost:8080/v1/auth/recover \
-  -H 'Content-Type: application/json' \
-  -d '{"recovery_code":"REPLACE-WITH-PRINTED-CODE","device":{"name":"Local browser","platform":"web","app_version":"1.0.0"}}'
+CLERK_SECRET_KEY=sk_test_... DATABASE_URL=... pnpm seed
 ```
 
-Recovery rotates the code: save the new code returned by the endpoint. The printed
-code is normalized to uppercase with hyphens/spaces removed for authentication;
-only its Argon2id hash and SHA-256 lookup digest are stored. PINs use Argon2id;
-invite tokens use SHA-256. The printed seller PIN is `2468`.
+For each seeded member the CLI finds the Clerk user with the member's email
+(`GET /v1/users?email_address=`) or creates a passwordless one (`POST /v1/users`), links it
+to the member and prints each member's email and role. Emails are deterministic,
+`seed-<store key>-<member key>+clerk_test@example.com`, with store keys `coba` (Tạp hóa Cô
+Ba) and `minhkhai` (Cửa hàng Minh Khai) and member keys `me` (Lead), `ba-noi`, `con-trai`
+and `co-lan`, for example `seed-coba-me+clerk_test@example.com`. Every `+clerk_test` address
+signs in with the fixed email code `424242` and sends no mail. The eval store (`--profile
+eval`, epic X7) will use store key `eval` with the same scheme.
+
+Reruns are idempotent: users that exist are reused (nothing is created twice), members of
+stores that were already seeded, for example with placeholder ids, are relinked, and no
+member is duplicated. The client keeps to at most four requests per second and retries
+HTTP 429 after `Retry-After` (up to five times), because the development instance allows
+100 requests per 10 seconds for every holder of the key. Do not delete `seed-*` users from
+Clerk during cleanup sweeps; if one is deleted, the next seed run creates and relinks it.
+
+Without `CLERK_SECRET_KEY` the seed keeps placeholder ids (`seed_<member id>`), prints one
+warning that the seeded members cannot sign in, and never overwrites real ids stored by an
+earlier keyed run. The key is never printed.
 
 IDs, codes, tokens, product vectors, and the PRNG are deterministic. Each store is
 seeded in one transaction, protected by a transaction-scoped advisory lock. If its
 fixed fixture store ID already exists, the entire store is skipped: **same-day and
 later reruns preserve every table's row counts and manual edits**, without adding
 new dates or resetting credentials. The output still shows the original hints;
-a consumed/expired invite or rotated recovery code is not made valid again. A
+a consumed or expired invite is not made valid again. A
 failure rolls back that store completely, and a rerun can finish the other store.
 Use a fresh disposable database to regenerate a new 30-day window.
 
