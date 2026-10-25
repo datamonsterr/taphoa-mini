@@ -154,6 +154,10 @@ impl ModelError {
 
 #[async_trait]
 pub trait ChatModel: Send + Sync {
+    /// Host only for telemetry; implementations must not return credentials or paths.
+    fn server_address(&self) -> &str {
+        "openrouter.ai"
+    }
     /// Streams text deltas into `deltas` as they arrive; returns the assembled reply.
     async fn chat(
         &self,

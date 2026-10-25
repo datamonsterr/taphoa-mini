@@ -174,6 +174,9 @@ impl OpenRouterChat {
 }
 #[async_trait]
 impl ChatModel for OpenRouterChat {
+    fn server_address(&self) -> &str {
+        OpenRouterChat::server_address(self)
+    }
     async fn chat(
         &self,
         request: &ChatRequest,
