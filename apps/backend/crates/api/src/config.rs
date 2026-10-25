@@ -1,8 +1,69 @@
 use crate::ratelimit::{ClientIpSource, RateLimits};
 use anyhow::{Context, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD_INDIFFERENT};
 use std::{path::PathBuf, sync::Arc};
 use taphoa_recognition::ocr::{PpOcrDetector, VietOcr};
 use taphoa_recognition::{DinoEmbedder, Embedder, SamOptions, SamSegmenter, Segmenter};
+
+// No Debug: contains the optional Clerk secret key.
+#[derive(Clone)]
+pub struct ClerkSettings {
+    pub issuer: String,
+    pub jwks_url: String,
+    pub api_url: String,
+    pub authorized_parties: Vec<String>,
+    pub secret_key: Option<String>,
+}
+impl ClerkSettings {
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Option<Self>> {
+        let derived_issuer = get("CLERK_PUBLISHABLE_KEY")
+            .map(|key| -> anyhow::Result<String> {
+                let encoded = key
+                    .strip_prefix("pk_test_")
+                    .or_else(|| key.strip_prefix("pk_live_"))
+                    .context("CLERK_PUBLISHABLE_KEY must start with pk_test_ or pk_live_")?;
+                let decoded = STANDARD_NO_PAD_INDIFFERENT
+                    .decode(encoded)
+                    .context("CLERK_PUBLISHABLE_KEY must contain standard base64")?;
+                let decoded = String::from_utf8(decoded)
+                    .context("CLERK_PUBLISHABLE_KEY must encode a frontend API host")?;
+                let host = decoded.strip_suffix('$').unwrap_or(&decoded);
+                if host.is_empty()
+                    || host.len() > 253
+                    || !host.split('.').all(|label| {
+                        !label.is_empty()
+                            && label.len() <= 63
+                            && !label.starts_with('-')
+                            && !label.ends_with('-')
+                            && label
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    })
+                {
+                    bail!("CLERK_PUBLISHABLE_KEY must encode a frontend API host");
+                }
+                Ok(format!("https://{host}"))
+            })
+            .transpose()?;
+        let Some(issuer) = get("CLERK_ISSUER").or(derived_issuer) else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            jwks_url: get("CLERK_JWKS_URL")
+                .unwrap_or_else(|| format!("{issuer}/.well-known/jwks.json")),
+            issuer,
+            api_url: get("CLERK_API_URL").unwrap_or_else(|| "https://api.clerk.com".into()),
+            authorized_parties: get("CLERK_AUTHORIZED_PARTIES")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|party| !party.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            secret_key: get("CLERK_SECRET_KEY"),
+        }))
+    }
+}
 
 // No Debug: contains the signing secret.
 #[derive(Clone)]
@@ -19,6 +80,7 @@ pub struct Config {
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
     pub jwt_secret: String,
+    pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
     pub client_ip: ClientIpSource,
@@ -32,6 +94,7 @@ impl Config {
         if jwt_secret.len() < 32 {
             bail!("JWT_SECRET must be at least 32 bytes");
         }
+        let clerk = ClerkSettings::from_lookup(&get)?;
         let db_max_connections = get("DB_MAX_CONNECTIONS")
             .unwrap_or_else(|| "10".into())
             .parse()
@@ -101,6 +164,7 @@ impl Config {
             decoder: get("SAM_DECODER_PATH").map(PathBuf::from),
             dino_model: get("DINO_MODEL_PATH").map(PathBuf::from),
             jwt_secret,
+            clerk,
             db_max_connections,
         })
     }
@@ -254,6 +318,9 @@ mod tests {
     #[test]
     fn reads_service_and_model_settings() {
         let config = Config::from_lookup(|name| {
+            if name.starts_with("CLERK_") {
+                return None;
+            }
             Some(match name {
                 "JWT_SECRET" => "x".repeat(32),
                 "PORT" => "9000".into(),

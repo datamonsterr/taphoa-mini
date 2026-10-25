@@ -1,7 +1,9 @@
 pub mod actor;
+pub mod clerk;
 pub mod jwt;
 pub mod permissions;
 pub use actor::{Actor, Role};
+pub use clerk::{ClerkClaims, ClerkSettings, ClerkVerifier};
 pub use jwt::JwtKeys;
 pub use permissions::{Action, can};
 
