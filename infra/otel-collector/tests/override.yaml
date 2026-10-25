@@ -3,9 +3,9 @@ processors:
   batch:
     timeout: 100ms
 exporters:
-  otlphttp/langfuse:
+  otlp_http/langfuse:
     encoding: json
     compression: none
-  otlphttp/posthog:
+  otlp_http/posthog:
     encoding: json
     compression: none

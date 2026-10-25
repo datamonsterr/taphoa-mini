@@ -49,7 +49,7 @@ processors:
     send_batch_max_size: 1024
 
 exporters:
-  otlphttp/langfuse:
+  otlp_http/langfuse:
     endpoint: ${env:LANGFUSE_OTLP_ENDPOINT}
     auth:
       authenticator: basicauth/langfuse
@@ -64,7 +64,7 @@ exporters:
       enabled: true
       num_consumers: 4
       queue_size: 1000
-  otlphttp/posthog:
+  otlp_http/posthog:
     traces_endpoint: ${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/traces
     logs_endpoint: ${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/logs
     headers:
@@ -97,12 +97,12 @@ service:
         - filter/langfuse
         - transform/langfuse
         - batch
-      exporters: [otlphttp/langfuse]
+      exporters: [otlp_http/langfuse]
     traces/posthog:
       receivers: [otlp]
       processors: [memory_limiter, transform/redact, resource/defaults, batch]
-      exporters: [otlphttp/posthog]
+      exporters: [otlp_http/posthog]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, transform/redact, resource/defaults, batch]
-      exporters: [otlphttp/posthog]
+      exporters: [otlp_http/posthog]

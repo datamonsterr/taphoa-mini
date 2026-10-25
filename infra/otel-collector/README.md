@@ -111,7 +111,6 @@ have no v0.163.2 tag; use the component READMEs at the actual module tag:
   batching twice.
 - [OTLP HTTP exporter](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.163.0/exporter/otlphttpexporter/README.md)
   supports the endpoint, header, encoding, compression, retry and queue settings
-  used here. `otlphttp` is a deprecated alias for `otlp_http`; the requested
-  `otlphttp/langfuse` and `otlphttp/posthog` IDs are retained and emit a startup
-  warning on this pin. `${env:POSTHOG_HOST:-https://us.i.posthog.com}` is accepted
+  used here. `otlp_http` is the current exporter type name.
+  `${env:POSTHOG_HOST:-https://us.i.posthog.com}` is accepted
   by the pinned image and exercised without `POSTHOG_HOST` in `validate.sh`.
