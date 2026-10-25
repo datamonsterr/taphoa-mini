@@ -36,8 +36,8 @@ responses are not replayed, so one user action cannot consume two PIN attempts.
 `membership_required` invalidates the current user's `/me` query.
 
 `useMembership` exposes the selected store/member, including role, can_enroll and
-has_pin. `useCurrentSessionSignOut` passes `{ sessionId }` to Clerk and then
-activates the next signed-in person (see Multi-session below).
+has_pin. `useCurrentSessionSignOut` passes `{ sessionId }` to Clerk and activates
+nobody afterwards (see Multi-session below).
 
 ## Multi-session switcher and PIN lock (T6)
 
@@ -73,11 +73,28 @@ attempt and `dismissTo('/account')`. Google's callback in this mode is
 render while signed in; register it next to the `sign-in` callback in Clerk.
 
 Sign out passes `{ sessionId }` of the current session. Checked in clerk-js 6.40.1
-(`@clerk/expo` 4.14.1): with several signed-in sessions it removes only that one and
-leaves **no** session active (clerk-js reselects one only when it loads), so the
-hook calls `setActive({ session })` for the first remaining signed-in person right
-after. That hand-over has no PIN check by design of the task; a stricter product
-rule would route it through the switch sheet instead.
+(`@clerk/expo` 4.14.1, `Clerk.signOut`): with several signed-in sessions it removes only
+that one, clears `clerk.session`, and does **not** activate another (`updateClient` selects
+a session only while the client is first loaded). `useAuth().isSignedIn` is then false while
+`useSessionList().sessions` (the client) still holds everyone else. The hook therefore
+never calls `setActive`: handing the phone to the next person would skip their PIN.
+
+Instead the root gate keeps `signedIn` tied to the active session, so the signed-out state
+routes to `/sign-in`, and `SignInScreen` lists the people still signed in on the phone:
+"Chọn người trên máy này" (`DeviceSessions variant="signIn"`, nobody is current, no "add"
+row), then "Hoặc đăng nhập bằng email khác" and the normal email / Google form. Picking
+someone runs the same `useSwitchSession` as the account tab: their `/me` is re-read with
+their own token; without a PIN in their selected store `setActive` runs at once; with one
+the `auth-switch-pin` sheet verifies it with **their** token and `X-Store-Id`, and only a
+204 calls `setActive` (wrong PIN stays and clears, 429 shows the lockout). When nobody is
+left, or only ended / pending sessions, the list is hidden. `flow="add"` (the signed-in
+"add a person" route) never shows it. The welcome screen's "Đăng xuất" uses the same hook,
+so it behaves the same.
+
+Known limit: clerk-js picks the initial session on app launch (`lastActiveSessionId`, else
+the first signed-in session). After "Đăng xuất" and a cold start, someone who is still
+signed in can therefore become active without their PIN. Guarding that needs a persisted
+"locked" flag consumed by the gate; it is not part of this change.
 
 Store picker: with more than one membership a "Cửa hàng" list appears; choosing one
 calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity on
@@ -88,13 +105,21 @@ the new `X-Store-Id`.
 T6 files: `src/features/account/{DeviceSessions,SwitchPinSheet,StorePicker}.tsx`,
 `useSwitchSession.ts` (plus `PinSheet` ids and `clearKey`), `src/features/auth/{sessionApi,
 deviceSessions,addPerson}.ts`, `AddPersonLayout.tsx`, `src/app/add-person/*`, and the
-`flow="add"` mode of `SignInScreen` / `VerifyCodeScreen`.
+`flow="add"` mode of `SignInScreen` / `VerifyCodeScreen`. The sign-out fix reuses
+`DeviceSessions` (`variant`, optional `onAdd`), `SwitchPinSheet` (`testID`) and
+`useSwitchSession` from `SignInScreen`; tests are `src/features/auth/DevicePeople.test.tsx`
+and `signOutPicker.route.test.tsx`.
 
 Stable test IDs: `account-sessions`, `account-session-<index>` (position in the
 signed-in list, Clerk order), `account-sessions-error`, `account-add-person`,
 `account-switch-pin` with parts `-dots`, `-error`, `-keypad`, `-submit`,
 `account-stores`, `account-store-<storeId>`, `auth-add-cancel` (add mode of both
 auth screens). The generic `PinSheet` uses `pin-sheet` and the same parts by default.
+
+On the sign-in screen after a sign-out: `auth-device-sessions` (the list, shown only when
+someone is still signed in), `auth-device-session-<index>` (position in the signed-in list,
+Clerk order), `auth-device-sessions-error`, and the PIN sheet `auth-switch-pin` with the
+same parts (`-dots`, `-error`, `-keypad`, `-submit`).
 
 ## Dependencies
 
@@ -114,7 +139,7 @@ the transitive `browser-tabs-lock` and `core-js` build scripts.
 
 | Route             | Screen                      | Inputs and actions                                                                                                               |
 | ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `/sign-in`        | `auth-sign-in-screen`       | `auth-email`, `auth-send-code`, `auth-google`, `auth-captcha` (web)                                                              |
+| `/sign-in`        | `auth-sign-in-screen`       | `auth-device-sessions`, `auth-device-session-<index>`, `auth-email`, `auth-send-code`, `auth-google`, `auth-captcha` (web)       |
 | `/verify-code`    | `auth-code-screen`          | `auth-code`, `auth-verify-code`, `auth-resend-code`, `auth-change-email`                                                         |
 | `/welcome`        | `onboarding-welcome-screen` | `onboarding-create`, `onboarding-join`, `onboarding-sign-out`                                                                    |
 | `/create`         | `create-store-screen`       | `create-store-name`, `create-display-name`, `create-bank-bin`, `create-bank-number`, `create-bank-holder`, `create-store-submit` |
