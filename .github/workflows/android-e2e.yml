@@ -32,8 +32,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Fork and dependabot runs get no repository secrets, and the app signs in through Clerk: both
-  # jobs skip with a notice there instead of failing.
+  # Fork pull requests and dependabot runs get no repository secrets, and the app signs in
+  # through Clerk: only those two skip both jobs (with a notice). Same-repo pull requests and
+  # manual runs must have both secrets, so blank ones fail this job with a clear message
+  # instead of silently dropping the Clerk coverage.
   clerk-secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -45,11 +47,15 @@ jobs:
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          SKIP_ALLOWED: ${{ github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]' }}
         run: |
           if [ -n "$CLERK_SECRET_KEY" ] && [ -n "$CLERK_PUBLISHABLE_KEY" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$SKIP_ALLOWED" = "true" ]; then
             echo "::notice::Secrets CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are not available (fork or dependabot run); skipping the Android E2E jobs."
+          else
+            echo "::error title=Clerk secrets missing::CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY must both be set for the Android E2E jobs. Only fork pull requests and dependabot runs may skip them. Set them with gh secret set (see docs/deploy.md, Clerk identity)."
+            exit 1
           fi
 
   maestro:

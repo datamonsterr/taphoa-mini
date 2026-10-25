@@ -1,6 +1,9 @@
 import { useSignIn, useSignUp } from '@clerk/expo';
 import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { SwitchPinSheet } from '@/features/account/SwitchPinSheet';
+import { useSwitchSession } from '@/features/account/useSwitchSession';
 import { useT } from '@/lib/i18n';
 import { useDeviceLock } from '@/stores/deviceLock';
 import {
@@ -21,6 +24,8 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
   const cancelAdd = useCancelAddPerson();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
+  // A person with a PIN who signs in on a locked phone gives it before the lock lifts.
+  const switcher = useSwitchSession();
   const mode = useEmailFlow((s) => s.mode);
   const email = useEmailFlow((s) => s.email);
   const [code, setCode] = useState('');
@@ -29,6 +34,12 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
   // Cancelling clears the email; the pop animation must not bounce back to the form.
   const [leaving, setLeaving] = useState(false);
   if (!email && !leaving) return <Redirect href={paths.form} />;
+  const restart = async () => {
+    await signIn.reset();
+    await signUp.reset();
+    useEmailFlow.getState().reset();
+    router.replace(paths.form);
+  };
   const verify = async () => {
     if (!/^\d{6}$/.test(code)) {
       setError(t('invalidCode'));
@@ -47,11 +58,18 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
         setError(t('incomplete'));
         return;
       }
+      // Both are read before finalizing: the lock can flip while Clerk swaps sessions.
+      const wasLocked = useDeviceLock.getState().locked;
+      const sessionId = resource.createdSessionId;
       const finalized = await resource.finalize({ navigate: async () => {} });
       if (finalized.error) throw finalized.error;
-      // A fresh sign-in proves who is holding the phone, so it lifts the device lock.
-      useDeviceLock.getState().unlock();
-      useEmailFlow.getState().reset();
+      // A fresh sign-in proves who is holding the phone, so it lifts the device lock, after the
+      // PIN if that person has one. Backing out of the PIN signs the new session out again.
+      await switcher.admit(sessionId, wasLocked, (result) => {
+        if (result === 'in') useEmailFlow.getState().reset();
+        else if (result === 'cancelled') void restart();
+        else setError(t('generic'));
+      });
     } catch (failure) {
       setError(t(authErrorKey(failure)));
     } finally {
@@ -75,65 +93,77 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
   };
   const changeEmail = async () => {
     if (busy) return;
-    await signIn.reset();
-    await signUp.reset();
-    useEmailFlow.getState().reset();
-    router.replace(paths.form);
+    await restart();
   };
   return (
-    <Frame testID="auth-code-screen" title={t('codeTitle')} subtitle={email}>
-      <Field
-        testID="auth-code"
-        label={t('code')}
-        value={code}
-        onChangeText={setCode}
-        maxLength={6}
-        keyboardType="number-pad"
-        autoComplete="one-time-code"
-        autoCapitalize="none"
-        onSubmitEditing={() => {
-          void verify();
-        }}
-      />
-      <FormError message={error} />
-      <ActionButton
-        testID="auth-verify-code"
-        label={t('verify')}
-        busy={busy}
-        onPress={() => {
-          void verify();
-        }}
-      />
-      <ActionButton
-        testID="auth-resend-code"
-        label={t('resend')}
-        variant="secondary"
-        disabled={busy}
-        onPress={() => {
-          void resend();
-        }}
-      />
-      <ActionButton
-        testID="auth-change-email"
-        label={t('changeEmail')}
-        variant="secondary"
-        disabled={busy}
-        onPress={() => {
-          void changeEmail();
-        }}
-      />
-      {flow === 'add' ? (
+    <View style={styles.fill}>
+      <Frame testID="auth-code-screen" title={t('codeTitle')} subtitle={email}>
+        <Field
+          testID="auth-code"
+          label={t('code')}
+          value={code}
+          onChangeText={setCode}
+          maxLength={6}
+          keyboardType="number-pad"
+          autoComplete="one-time-code"
+          autoCapitalize="none"
+          onSubmitEditing={() => {
+            void verify();
+          }}
+        />
+        <FormError message={error} />
         <ActionButton
-          testID="auth-add-cancel"
-          label={t('cancel')}
+          testID="auth-verify-code"
+          label={t('verify')}
+          busy={busy}
+          onPress={() => {
+            void verify();
+          }}
+        />
+        <ActionButton
+          testID="auth-resend-code"
+          label={t('resend')}
           variant="secondary"
           disabled={busy}
           onPress={() => {
-            setLeaving(true);
-            void cancelAdd();
+            void resend();
           }}
         />
+        <ActionButton
+          testID="auth-change-email"
+          label={t('changeEmail')}
+          variant="secondary"
+          disabled={busy}
+          onPress={() => {
+            void changeEmail();
+          }}
+        />
+        {flow === 'add' ? (
+          <ActionButton
+            testID="auth-add-cancel"
+            label={t('cancel')}
+            variant="secondary"
+            disabled={busy}
+            onPress={() => {
+              setLeaving(true);
+              void cancelAdd();
+            }}
+          />
+        ) : null}
+      </Frame>
+      {switcher.target ? (
+        <SwitchPinSheet
+          testID="auth-switch-pin"
+          target={switcher.target}
+          error={switcher.error}
+          busy={switcher.busy}
+          attempt={switcher.attempt}
+          onSubmit={switcher.submitPin}
+          onClose={switcher.cancel}
+        />
       ) : null}
-    </Frame>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({ fill: { flex: 1 } });

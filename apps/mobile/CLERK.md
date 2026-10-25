@@ -8,7 +8,17 @@ lock below). `/v1/me` owns the membership and permission data.
 
 The root gate waits for Clerk and preference hydration, then routes signed-out
 users to `/sign-in`, users without memberships to `/welcome`, and members to `/`.
-Changing users or stores clears shop queries, cart and stock alerts. Store IDs
+Changing users or stores clears shop queries and every client store that holds
+person or store data (`resetStoreScopedState` in `src/features/auth/resetClientState.ts`):
+the cart, low-stock alerts, the quick-enroll session (`useQuickEnrollStore`: shots, local
+URIs, server image ids, active flag), the receipt toast (`useReceiptNotice`) and the capture
+mode (`useCaptureModeStore`, back to "one"). Changing the _person_ also drops a pending
+invite token (`useInviteIntent`); an invite that arrived while nobody was signed in, or
+before the gate first settled, is kept for whoever signs in next, and so is one when only
+the store changes (it is not store data). Device-wide stores are left alone: settings,
+`taphoa-current-store`, `taphoa-device-lock`, the tab-bar chrome (each sheet resets it on
+unmount) and the half-typed sign-in email (reset by its flows). A new store holding
+person or store data must be added to `resetStoreScopedState`. Store IDs
 that no longer belong to the user fall back to the first active membership.
 
 Google uses `useSSO` and activates `createdSessionId` with the returned `setActive`.
@@ -34,7 +44,11 @@ reference: <https://docs.expo.dev/versions/v58.0.0/>.
 `X-Store-Id`; bearer tokens come from Clerk. A token 401 is replayed once using
 `getToken({ skipCache: true })`. A second 401 returns to the caller. Wrong-PIN
 responses are not replayed, so one user action cannot consume two PIN attempts.
-`membership_required` invalidates the current user's `/me` query.
+`membership_required` invalidates the current user's `/me` query. So does a `403`
+`forbidden` on a request that carried `X-Store-Id` (a person removed from the selected
+store falls back to another membership once `/me` is re-read). While the device is locked
+the bridge registers `getToken: async () => null` and no store id, so nothing is sent with
+the live Clerk session that nobody was let in as.
 
 `useMembership` exposes the selected store/member, including role, can_enroll and
 has_pin. `useCurrentSessionSignOut` passes `{ sessionId }` to Clerk and activates
@@ -51,10 +65,15 @@ session's own `session.getToken()` (cached per session with React Query under
 The name is `profile.display_name`, else the Clerk email, else "Người dùng".
 
 Switching: the target's `/me` is re-read on every tap (never trust a cached
-`has_pin`). The target's store is `currentStore.storeIds[<their Clerk user id>]`
-or their first membership. Without a PIN (or without any store) `setActive({ session })`
-runs at once. With a PIN the account PIN sheet opens and `POST /v1/me/pin/verify`
-is sent with the **target** session's token and `X-Store-Id` of that store
+`has_pin`). A PIN is required when **any** active membership of the target has
+`has_pin` (`/v1/me` lists active memberships only), so choosing a store without a PIN
+is no way around the PIN of another. The store that is verified is
+`currentStore.storeIds[<their Clerk user id>]` or their first membership when that one
+has a PIN, else their first membership that does (`pinMembership` in
+`src/features/auth/deviceSessions.ts`). Without a PIN anywhere (or without any store)
+`setActive({ session })` runs at once. With a PIN the account PIN sheet opens and
+`POST /v1/me/pin/verify` is sent with the **target** session's token and `X-Store-Id`
+of that store
 (`src/features/auth/sessionApi.ts`, a one-off client beside the active one; one 401
 replay with `getToken({ skipCache: true })`, never for `invalid_pin`). Only 204 calls
 `setActive`. 401 `invalid_pin` shows "Sai mã PIN" and clears the digits; 429 shows
@@ -85,8 +104,9 @@ routes to `/sign-in`, and `SignInScreen` lists the people still signed in on the
 "Chọn người trên máy này" (`DeviceSessions variant="signIn"`, nobody is current, no "add"
 row), then "Hoặc đăng nhập bằng email khác" and the normal email / Google form. Picking
 someone runs the same `useSwitchSession` as the account tab: their `/me` is re-read with
-their own token; without a PIN in their selected store `setActive` runs at once; with one
-the `auth-switch-pin` sheet verifies it with **their** token and `X-Store-Id`, and only a
+their own token; without a PIN in any of their stores `setActive` runs at once; with one
+the `auth-switch-pin` sheet verifies it with **their** token and `X-Store-Id` of the store
+that holds it, and only a
 204 calls `setActive` (wrong PIN stays and clears, 429 shows the lockout). When nobody is
 left, or only ended / pending sessions, the list is hidden. `flow="add"` (the signed-in
 "add a person" route) never shows it. The welcome screen's "Đăng xuất" uses the same hook,
@@ -108,6 +128,25 @@ without their PIN after "Đăng xuất" and a restart. So the lock holds the pho
   or no PIN), or after a fresh sign-in completes: email `finalize` in `VerifyCodeScreen`, or
   Google's `setActive` in `SignInScreen`. A wrong PIN, a lockout, a closed sheet or a failed
   `setActive` leave it locked.
+- A fresh sign-in does not skip the PIN. Both screens read whether the device was locked
+  _before_ `finalize` / `setActive` (the lock can flip while Clerk swaps sessions) and the
+  created session id (`signIn.createdSessionId`, `signUp.createdSessionId` or the SSO result),
+  then call `useSwitchSession().admit`. When the device was locked, `admit` takes that session
+  from `useClerk().client.sessions` (the hook's list predates it), reads its `/v1/me` with its
+  own token and, if any active membership has a PIN (`pinMembership`), opens the same
+  `auth-switch-pin` sheet. The new session is already the active one in Clerk, but the lock
+  keeps the gate on the sign-in routes. Only a 204 from `POST /v1/me/pin/verify` (that session's
+  token, that membership's `X-Store-Id`) calls `unlock`. Closing the sheet, a missing session
+  or an unreadable `/me` signs the new session out again with `signOut({ sessionId })` and the
+  lock stays (fail closed). A person without a PIN or without any store is let in at once. On
+  the email code screen a closed sheet resets the attempt and returns to the form; an
+  unreadable `/me` keeps the screen with "Không đăng nhập được" so the person can change the
+  email. A phone that was not locked asks for no PIN (the person is the active user adding
+  someone, or nobody else is on the phone).
+- When `/v1/me` cannot be read for the signed-in person, the gate shows an error frame with
+  "Thử lại" and "Đăng xuất" (`auth-load-sign-out`, current session only through
+  `useCurrentSessionSignOut`, so it ends at the sign-in screen or the picker like any other
+  sign-out).
 - It cannot trap anyone: with nobody signed in on the device the gate drops a stale lock, and
   any normal sign-in clears it. Unreadable or malformed storage reads as unlocked.
 
@@ -121,8 +160,12 @@ session is left, so the end state is right.
 Store picker: with more than one membership a "Cửa hàng" list appears; choosing one
 calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity on
 `<user id>:<store id>`, so both a person switch and a store switch run the existing
-cache-clearing effect (queries, cart, low-stock alerts), and the next request carries
+cache-clearing effect (queries and the stores above), and the next request carries
 the new `X-Store-Id`.
+
+The `auth-switch-pin` sheet (and its `-dots`, `-error`, `-keypad`, `-submit` parts) is also
+rendered by the email code screen (`auth-code-screen`); there the screen's own "Xác nhận"
+button shares a name with the sheet's, so tests press `auth-switch-pin-submit`.
 
 T6 files: `src/features/account/{DeviceSessions,SwitchPinSheet,StorePicker}.tsx`,
 `useSwitchSession.ts` (plus `PinSheet` ids and `clearKey`), `src/features/auth/{sessionApi,

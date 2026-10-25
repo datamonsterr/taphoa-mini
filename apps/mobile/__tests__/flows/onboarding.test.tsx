@@ -1,10 +1,13 @@
 import { getMockDb } from '@/test/mock/db';
-import { clerkMock, setClerkState } from '@/test/clerk';
+import { clerkMock } from '@/test/clerk';
 import { setApiTransport } from '@/lib/api/client';
 import { renderApp, screen, fireEvent } from '@/test/router';
 
+/** Nobody is signed in on this phone: Clerk has no active session and no session in its client. */
+const signedOut = () => clerkMock.signOut({ sessionId: 'sess_test' });
+
 test('signed out opens sign-in rather than the shop', async () => {
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   await renderApp('/');
   expect(await screen.findByTestId('auth-email')).toBeOnTheScreen();
   expect(screen.queryByTestId('camera-screen')).toBeNull();
@@ -33,7 +36,7 @@ test('a Clerk session with membership opens the shop', async () => {
 });
 
 test('email then code signs an existing user in with Core 3 finalize', async () => {
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   await renderApp('/sign-in');
   await fireEvent.changeText(
     await screen.findByTestId('auth-email'),
@@ -53,7 +56,7 @@ test('email then code signs an existing user in with Core 3 finalize', async () 
 });
 
 test('an unknown identifier signs up with an email code and finalizes', async () => {
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   clerkMock.signIn.create.mockResolvedValueOnce({
     error: { code: 'form_identifier_not_found' },
   });
@@ -77,7 +80,7 @@ test('an unknown identifier signs up with an email code and finalizes', async ()
 });
 
 test('a wrong code is explained in Vietnamese and stays on verification', async () => {
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   await renderApp('/sign-in');
   await fireEvent.changeText(
     await screen.findByTestId('auth-email'),
@@ -96,7 +99,7 @@ test('a wrong code is explained in Vietnamese and stays on verification', async 
 });
 
 test('verification can resend and change the email', async () => {
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   await renderApp('/sign-in');
   await fireEvent.changeText(
     await screen.findByTestId('auth-email'),
@@ -111,7 +114,7 @@ test('verification can resend and change the email', async () => {
 });
 
 test('Google SSO activates the created session', async () => {
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   await renderApp('/sign-in');
   await fireEvent.press(await screen.findByTestId('auth-google'));
   expect(clerkMock.startSSOFlow).toHaveBeenCalledWith({
@@ -175,7 +178,7 @@ test('onboarding can open join and sign out of only the current session', async 
 
 test('an invitation opened while signed out survives email sign-in', async () => {
   getMockDb().hasMembership = false;
-  setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+  await signedOut();
   await renderApp('/join?token=K7Q4MZ2P9HXDT3VA');
   await fireEvent.changeText(
     await screen.findByTestId('auth-email'),

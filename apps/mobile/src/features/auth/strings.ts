@@ -24,6 +24,8 @@ export const strings: Dict = {
     loading: 'Đang tải tài khoản',
     loadError: 'Không tải được tài khoản. Kiểm tra mạng rồi thử lại.',
     retry: 'Thử lại',
+    signOut: 'Đăng xuất',
+    signOutError: 'Không đăng xuất được. Vui lòng thử lại.',
     configTitle: 'Chưa cấu hình đăng nhập',
     configMessage:
       'Thiếu EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY. Hãy cấu hình khóa công khai Clerk rồi khởi động lại ứng dụng.',
@@ -53,6 +55,8 @@ export const strings: Dict = {
     loading: 'Loading account',
     loadError: 'Could not load your account. Check your network and try again.',
     retry: 'Try again',
+    signOut: 'Sign out',
+    signOutError: 'Could not sign out. Please try again.',
     configTitle: 'Sign-in configuration missing',
     configMessage:
       'EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY is missing. Configure the Clerk publishable key and restart the app.',

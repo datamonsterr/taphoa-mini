@@ -5,8 +5,8 @@ import { useDeviceLock } from '@/stores/deviceLock';
 import { addClerkSession, clerkMock, getClerkState } from '@/test/clerk';
 import { getMockDb } from '@/test/mock/db';
 import { createMockFetch } from '@/test/mock/fetch';
-import { buildMe, installPeople } from '@/test/people';
-import { fireEvent, renderApp, screen, waitFor } from '@/test/router';
+import { buildMe, installPeople, type PersonScript } from '@/test/people';
+import { fireEvent, renderApp, screen, waitFor, within } from '@/test/router';
 import { testSession } from '@/test/session';
 
 afterEach(() => jest.restoreAllMocks());
@@ -32,7 +32,7 @@ function everyoneIsMember() {
 }
 
 /** Cô Ba is signed in on a phone that Bé Út (with a PIN) and hai (none) also have a session on. */
-function sharedPhone() {
+function sharedPhone(overrides: Record<string, PersonScript> = {}) {
   addClerkSession({
     id: 'sess_ut',
     userId: 'user_ut',
@@ -67,6 +67,7 @@ function sharedPhone() {
         memberships: [{ storeId: 'store_hai' }],
       }),
     },
+    ...overrides,
   });
 }
 
@@ -263,6 +264,70 @@ describe('cold start while the device is locked', () => {
     await waitFor(() => expect(screen).toHavePathname('/'));
     expect(useDeviceLock.getState().locked).toBe(false);
     expect(clerkMock.signIn.finalize).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a fresh email sign-in by a person who has a PIN', () => {
+    /** Cô Ba comes back by email on the locked phone, and she has a PIN in her store. */
+    const signInByEmail = async () => {
+      const people = sharedPhone({
+        'test-clerk-token': {
+          me: buildMe({
+            userId: 'user_test',
+            name: 'Cô Ba',
+            memberships: [{ storeId: testSession().store.id, hasPin: true }],
+          }),
+          pin: UT_PIN,
+        },
+      });
+      everyoneIsMember();
+      await coldStart();
+      await fireEvent.changeText(
+        await screen.findByTestId('auth-email'),
+        'coba@example.com',
+      );
+      await fireEvent.press(screen.getByTestId('auth-send-code'));
+      await fireEvent.changeText(
+        await screen.findByTestId('auth-code'),
+        '424242',
+      );
+      await fireEvent.press(screen.getByTestId('auth-verify-code'));
+      await screen.findByTestId('auth-switch-pin');
+      return people;
+    };
+
+    test('stays on the code screen behind the PIN sheet and opens the shop only after it', async () => {
+      const people = await signInByEmail();
+      expect(screen).toHavePathname('/verify-code');
+      expect(useDeviceLock.getState().locked).toBe(true);
+      expect(screen.queryByTestId('account-sessions')).toBeNull();
+      for (const digit of UT_PIN)
+        await fireEvent.press(screen.getByRole('button', { name: digit }));
+      await fireEvent.press(
+        within(screen.getByTestId('auth-switch-pin-submit')).getByRole(
+          'button',
+        ),
+      );
+      await waitFor(() => expect(screen).toHavePathname('/'));
+      expect(useDeviceLock.getState().locked).toBe(false);
+      expect(people.verifies()).toHaveLength(1);
+      expect(people.verifies()[0]).toMatchObject({ token: 'test-clerk-token' });
+    });
+
+    test('closing the sheet signs her out again and returns to the picker, still locked', async () => {
+      await signInByEmail();
+      await fireEvent.press(screen.getByTestId('sheet-scrim'));
+      await waitFor(() =>
+        expect(clerkMock.signOut).toHaveBeenCalledWith({
+          sessionId: 'sess_test',
+        }),
+      );
+      await waitFor(() => expect(screen).toHavePathname('/sign-in'));
+      expect(
+        await screen.findByTestId('auth-device-sessions'),
+      ).toBeOnTheScreen();
+      expect(useDeviceLock.getState().locked).toBe(true);
+      expect(getClerkState().isSignedIn).toBe(false);
+    });
   });
 
   test('a stored lock with nobody signed in does not trap anyone', async () => {

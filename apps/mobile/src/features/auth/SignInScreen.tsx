@@ -90,12 +90,17 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
         }),
       });
       if (result.createdSessionId && result.setActive) {
+        // Read before activating: the lock can flip while Clerk swaps sessions.
+        const wasLocked = useDeviceLock.getState().locked;
         await result.setActive({
           session: result.createdSessionId,
           navigate: async () => {},
         });
-        // A fresh sign-in proves who is holding the phone, so it lifts the device lock.
-        useDeviceLock.getState().unlock();
+        // A fresh sign-in proves who is holding the phone, so it lifts the device lock, after the
+        // PIN if that person has one. Backing out of the PIN signs the new session out again.
+        await switcher.admit(result.createdSessionId, wasLocked, (outcome) => {
+          if (outcome === 'failed') setError(t('generic'));
+        });
       } else if (
         result.authSessionResult?.type !== 'cancel' &&
         result.authSessionResult?.type !== 'dismiss'

@@ -638,8 +638,10 @@ jobs:
 
   # ---------- Web E2E against the real backend ----------
 
-  # Fork and dependabot runs get no repository secrets, and the web E2E signs in through Clerk:
-  # it skips with a notice there instead of failing.
+  # Fork pull requests and dependabot runs get no repository secrets, and the web E2E signs in
+  # through Clerk: only those two skip it (with a notice). Same-repo pull requests, pushes and
+  # main must have both secrets, so blank ones fail this job (and ci-ok) with a clear message
+  # instead of silently dropping the Clerk coverage.
   clerk-secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -651,11 +653,15 @@ jobs:
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          SKIP_ALLOWED: ${{ github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]' }}
         run: |
           if [ -n "$CLERK_SECRET_KEY" ] && [ -n "$CLERK_PUBLISHABLE_KEY" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$SKIP_ALLOWED" = "true" ]; then
             echo "::notice::Secrets CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are not available (fork or dependabot run); skipping web-e2e."
+          else
+            echo "::error title=Clerk secrets missing::CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY must both be set for web-e2e. Only fork pull requests and dependabot runs may skip it. Set them with gh secret set (see docs/deploy.md, Clerk identity)."
+            exit 1
           fi
 
   # Playwright drives the exported web app against the prebuilt backend binary with SAM + DINO

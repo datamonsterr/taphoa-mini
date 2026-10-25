@@ -20,16 +20,23 @@ import {
 import { useMe } from '@/lib/api/hooks';
 import { keys } from '@/lib/api/keys';
 import type { Me } from '@/lib/api/store';
-import { useCartStore } from '@/stores/cart';
-import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import { useDeviceLock } from '@/stores/deviceLock';
 import { resolveMembership, useCurrentStore } from '@/stores/currentStore';
 import { useT } from '@/lib/i18n';
 import { Frame, FormError, ActionButton } from '@/features/onboarding/kit';
 import { signedInSessions } from './deviceSessions';
+import { useCurrentSessionSignOut } from './useCurrentSessionSignOut';
+import {
+  resetPersonScopedState,
+  resetStoreScopedState,
+} from './resetClientState';
 import { strings } from './strings';
 
 type GateState = { signedIn: boolean; hasMembership: boolean };
+
+/** What the bridge hands out while the device is locked: Clerk may have a session, the app has none. */
+const noToken = async () => null;
+
 export function AuthGate({
   children,
 }: {
@@ -47,6 +54,7 @@ export function AuthGate({
   const userId = locked ? null : auth.userId;
   const qc = useQueryClient();
   const t = useT(strings);
+  const signOut = useCurrentSessionSignOut();
   const { token: incomingToken } = useGlobalSearchParams<{
     token?: string | string[];
   }>();
@@ -68,12 +76,15 @@ export function AuthGate({
   const membership = resolveMembership(me.data?.memberships ?? [], storedId);
   const identity = `${userId ?? ''}:${membership?.store.id ?? ''}`;
   const previous = useRef<string | undefined>(undefined);
+  const previousUser = useRef<string | null>(null);
   const [settledIdentity, setSettledIdentity] = useState<string>();
 
   useLayoutEffect(() => {
     const unregister = registerAuthBridge({
       userId,
-      getToken,
+      // Locked: Clerk still has an active session (clerk-js picks one by itself on a cold start),
+      // but nobody was let in, so no request may carry that person token.
+      getToken: locked ? noToken : getToken,
       getStoreId: () => {
         if (!userId) return null;
         const data = qc.getQueryData<Me>(keys.me(userId));
@@ -89,7 +100,7 @@ export function AuthGate({
       },
     });
     return unregister;
-  }, [getToken, userId, qc]);
+  }, [getToken, locked, userId, qc]);
 
   // Clerk has nobody active but others stay signed in: the phone goes to the person picker and
   // stays locked there, also across a restart. With nobody signed in any more there is nobody to
@@ -101,7 +112,8 @@ export function AuthGate({
     else if (signedInCount === 0 && lock.locked) lock.unlock();
   }, [isLoaded, lockHydrated, auth.isSignedIn, signedInCount]);
 
-  // A different person or store must never inherit a cart, alerts or cached shop data.
+  // A different person or store must never inherit cached shop data, a cart, alerts, camera or
+  // quick-enroll state, and a different person not even a pending invite.
   useLayoutEffect(() => {
     if (!isLoaded || !hydrated || previous.current === identity) return;
     previous.current = identity;
@@ -110,8 +122,10 @@ export function AuthGate({
     void qc.cancelQueries();
     qc.clear();
     if (currentMe) qc.setQueryData(keys.me(userId), currentMe);
-    useCartStore.getState().clear();
-    useLowStockAlerts.getState().reset();
+    resetStoreScopedState();
+    if (previousUser.current && previousUser.current !== userId)
+      resetPersonScopedState();
+    previousUser.current = userId ?? null;
     setSettledIdentity(identity);
   }, [isLoaded, hydrated, identity, userId, me.data, qc]);
 
@@ -132,11 +146,22 @@ export function AuthGate({
   if (isSignedIn && !me.data)
     return (
       <Frame title={t('title')} back={false}>
-        <FormError message={t('loadError')} />
+        <FormError
+          message={signOut.failed ? t('signOutError') : t('loadError')}
+        />
         <ActionButton
           label={t('retry')}
           onPress={() => {
             void me.refetch();
+          }}
+        />
+        <ActionButton
+          testID="auth-load-sign-out"
+          label={t('signOut')}
+          variant="secondary"
+          busy={signOut.busy}
+          onPress={() => {
+            void signOut.signOut();
           }}
         />
       </Frame>
