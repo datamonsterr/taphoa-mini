@@ -1,3 +1,4 @@
+import type { AssistantStreamEvent } from '@taphoa/api-client';
 import { MockHttpError } from './errors';
 import { MOCK_ROUTES, type MockRoute } from './routes';
 
@@ -72,7 +73,9 @@ export function createMockFetch(options: MockFetchOptions = {}): typeof fetch {
           params,
           query: url.searchParams,
         });
-        return json(result.status, result.body);
+        return 'sse' in result
+          ? sseResponse(result.sse, request.signal)
+          : json(result.status, result.body);
       } catch (error) {
         if (error instanceof MockHttpError)
           return json(error.status, error.toBody());
@@ -95,4 +98,61 @@ export function createMockFetch(options: MockFetchOptions = {}): typeof fetch {
           'not_found',
         );
   }) as typeof fetch;
+}
+
+/** One frame per chunk, with visible pacing in dev and no delay in Jest. */
+function sseResponse(
+  events: AssistantStreamEvent[],
+  signal: AbortSignal,
+): Response {
+  const encoder = new TextEncoder();
+  let index = 0;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let wake: (() => void) | undefined;
+  const stop = () => {
+    stopped = true;
+    if (timer !== undefined) clearTimeout(timer);
+    wake?.();
+    signal.removeEventListener('abort', abort);
+  };
+  let abort: () => void;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      abort = () => {
+        stop();
+        controller.error(signal.reason);
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    },
+    async pull(controller) {
+      if (stopped) return;
+      if (index >= events.length) {
+        stop();
+        controller.close();
+        return;
+      }
+      if (process.env.NODE_ENV !== 'test') {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          timer = setTimeout(resolve, 40);
+        });
+        wake = undefined;
+        timer = undefined;
+      }
+      if (stopped) return;
+      const frame = events[index++]!;
+      controller.enqueue(
+        encoder.encode(
+          `event: ${frame.event}\ndata: ${JSON.stringify(frame.data)}\n\n`,
+        ),
+      );
+    },
+    cancel: stop,
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
 }

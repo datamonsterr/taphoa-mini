@@ -1115,6 +1115,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/assistant/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List own assistant threads
+         * @description Cursor pagination of the caller threads, newest first.
+         */
+        get: operations["listAssistantThreads"];
+        put?: never;
+        /**
+         * Create an assistant thread
+         * @description Create a private thread for the caller, optionally seeded with screen or receipt context.
+         */
+        post: operations["createAssistantThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/threads/{threadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a thread with messages and actions
+         * @description Only the owning member can read a thread in the current store.
+         */
+        get: operations["getAssistantThread"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete own assistant thread
+         * @description Delete own assistant thread.
+         */
+        delete: operations["deleteAssistantThread"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/threads/{threadId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a message and stream the assistant reply
+         * @description Each SSE frame has event: <name> and one JSON data: line. Validation, ownership and not-found errors are JSON before the stream starts. Quota and model failures are error events inside the 200 stream. message.completed and error terminate the stream. No resumption or Last-Event-ID; clients never automatically resend this POST.
+         */
+        post: operations["sendAssistantMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/actions/{actionId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm and execute a proposed action
+         * @description Execute with the confirming member permissions. A replay returns the first result. Expired or changed targets return 409 action_stale; an already decided action returns 409 already_decided.
+         */
+        post: operations["confirmAssistantAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/actions/{actionId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a proposed action
+         * @description Reject a proposal in an accessible thread. A stale or already decided action returns 409 action_stale or already_decided.
+         */
+        post: operations["rejectAssistantAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/messages/{messageId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rate an assistant message
+         * @description Save thumbs up or down and an optional comment for an assistant message in an own thread.
+         */
+        post: operations["submitAssistantFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/next-steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List ranked next-step chips
+         * @description At most eight permission-filtered chips ranked by priority. Computed by rules without a model call; the phone puts its on-device context chips first.
+         */
+        get: operations["listAssistantNextSteps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/assistant/digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the daily digest
+         * @description Return the stored daily digest, using a template when model generation is unavailable. Profit and cost fields are null for members without cost permission.
+         */
+        get: operations["getAssistantDigest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register or update an Expo push token
+         * @description Upsert by token for the authenticated member and current store; update platform, app version and language.
+         */
+        post: operations["registerDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an Expo push token
+         * @description Idempotently remove the caller push registration for this token.
+         */
+        delete: operations["unregisterDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1123,7 +1331,7 @@ export interface components {
             /** @description Human-readable message (English; the app localizes by `code`). */
             error: string;
             /**
-             * @description Machine code, including no_text (422), ocr_unavailable (503), already_confirmed (409).
+             * @description Machine code, including no_text (422), ocr_unavailable (503), already_confirmed (409), action_stale (409; proposal expired or target changed), already_decided (409; proposal already confirmed or rejected).
              * @example duplicate_suspected
              */
             code?: string;
@@ -2015,7 +2223,7 @@ export interface components {
             /** @example evt_000000000000128 */
             id: string;
             /** @enum {string} */
-            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed";
+            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed" | "assistant.action.confirmed" | "assistant.action.rejected";
             version: number;
             /** Format: uuid */
             store_id: string;
@@ -2030,6 +2238,313 @@ export interface components {
             /** @description Change-feed cursor after this event, when relevant. */
             cursor?: string;
             data?: Record<string, never>;
+        };
+        /** @enum {string} */
+        AssistantLanguage: "vi" | "en";
+        AssistantThreadContext: {
+            screen: string;
+            next_step_id?: string;
+            /** Format: uuid */
+            receipt_id?: string;
+            /** Format: uuid */
+            image_id?: string;
+        };
+        CreateAssistantThread: {
+            title?: string;
+            context?: components["schemas"]["AssistantThreadContext"];
+        };
+        AssistantThread: {
+            /** Format: uuid */
+            id: string;
+            title: string | null;
+            context: components["schemas"]["AssistantThreadContext"] | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AssistantThreadPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["AssistantThread"][];
+            next_cursor: string | null;
+        };
+        AssistantThreadDetail: {
+            thread: components["schemas"]["AssistantThread"];
+            messages: components["schemas"]["AssistantMessage"][];
+            actions: components["schemas"]["AssistantAction"][];
+        };
+        AssistantAttachment: {
+            /** Format: uuid */
+            image_id: string;
+        } | {
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        SendAssistantMessage: {
+            content: string;
+            attachments?: components["schemas"]["AssistantAttachment"][];
+            language: components["schemas"]["AssistantLanguage"];
+        };
+        AssistantMessage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            thread_id: string;
+            /** @enum {string} */
+            role: "user" | "assistant";
+            content: string;
+            /** @description Attachments sent by the user; empty for assistant messages. */
+            attachments: components["schemas"]["AssistantAttachment"][];
+            tool_calls: components["schemas"]["AssistantToolCallSummary"][];
+            cards: components["schemas"]["AssistantCard"][];
+            model: string | null;
+            feedback: components["schemas"]["AssistantFeedback"] | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AssistantToolCallSummary: {
+            call_id: string;
+            tool: string;
+            ok: boolean;
+            summary_vi: string;
+        };
+        /** @description A proposal expires after 24 hours or when its target changes. Decisions use the deciding member permissions. */
+        AssistantAction: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            thread_id: string;
+            /** Format: uuid */
+            message_id: string;
+            /** @enum {string} */
+            kind: "stock_adjustment" | "expense" | "price_change" | "threshold_update" | "reorder_list" | "receipt_line_update" | "receipt_confirm" | "repayment" | "debt_adjustment" | "invite";
+            /** @enum {string} */
+            status: "proposed" | "executing" | "done" | "failed" | "rejected" | "expired";
+            /** @description Validated tool arguments. Shape depends on kind; proposing never executes a write. */
+            payload: {
+                [key: string]: unknown;
+            };
+            summary_vi: string;
+            /** Format: uuid */
+            proposed_by: string;
+            /** Format: uuid */
+            decided_by: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            result: {
+                [key: string]: unknown;
+            } | null;
+            error: {
+                code: string;
+                message: string;
+            } | null;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Suggested base-unit quantity. Cost fields are null when the caller cannot view costs. */
+        AssistantRestockItem: {
+            /** Format: uuid */
+            product_id: string;
+            name: string;
+            quantity: number;
+            unit_cost: components["schemas"]["Money"] | null;
+            total_cost: components["schemas"]["Money"] | null;
+        };
+        AssistantCard: {
+            /** @constant */
+            type: "receipt_lines";
+            /** Format: uuid */
+            receipt_id: string;
+            lines: {
+                /** Format: uuid */
+                line_id: string;
+                name: string;
+                quantity: number | null;
+                cost: components["schemas"]["Money"] | null;
+                /** Format: uuid */
+                product_id: string | null;
+                /** @description Matched catalog product name; null when unmatched. */
+                product_name: string | null;
+                confidence: number | null;
+            }[];
+        } | {
+            /** @constant */
+            type: "restock_list";
+            items: components["schemas"]["AssistantRestockItem"][];
+            total_cost: components["schemas"]["Money"] | null;
+        } | {
+            /** @constant */
+            type: "debt_list";
+            items: {
+                /** Format: uuid */
+                customer_id: string;
+                name: string;
+                total: components["schemas"]["Money"];
+                overdue_days: number;
+            }[];
+        } | {
+            /** @constant */
+            type: "chart_bars";
+            title_vi: string;
+            /** @enum {string} */
+            unit: "dong" | "units";
+            bars: {
+                label: string;
+                /** Format: int64 */
+                value: number;
+            }[];
+        };
+        AssistantMessageCreated: {
+            /** Format: uuid */
+            message_id: string;
+            /** Format: uuid */
+            thread_id: string;
+        };
+        AssistantMessageDelta: {
+            text: string;
+        };
+        AssistantToolStarted: {
+            call_id: string;
+            tool: string;
+            label_vi: string;
+        };
+        AssistantToolFinished: {
+            call_id: string;
+            tool: string;
+            ok: boolean;
+            summary_vi: string;
+        };
+        AssistantMessageCompleted: {
+            /** Format: uuid */
+            message_id: string;
+            model: string;
+            usage: {
+                input_tokens: number;
+                output_tokens: number;
+            };
+        };
+        AssistantStreamError: {
+            /** @enum {string} */
+            code: "quota" | "model_unavailable" | "timeout" | "internal";
+            message_vi: string;
+        };
+        /** @description Parsed SSE frame: event name and one JSON data payload. message.completed and error are terminal. No Last-Event-ID or automatic POST retries. */
+        AssistantStreamEvent: {
+            /** @constant */
+            event: "message.created";
+            data: components["schemas"]["AssistantMessageCreated"];
+        } | {
+            /** @constant */
+            event: "message.delta";
+            data: components["schemas"]["AssistantMessageDelta"];
+        } | {
+            /** @constant */
+            event: "tool.started";
+            data: components["schemas"]["AssistantToolStarted"];
+        } | {
+            /** @constant */
+            event: "tool.finished";
+            data: components["schemas"]["AssistantToolFinished"];
+        } | {
+            /** @constant */
+            event: "action.proposed";
+            data: components["schemas"]["AssistantAction"];
+        } | {
+            /** @constant */
+            event: "card";
+            data: components["schemas"]["AssistantCard"];
+        } | {
+            /** @constant */
+            event: "message.completed";
+            data: components["schemas"]["AssistantMessageCompleted"];
+        } | {
+            /** @constant */
+            event: "error";
+            data: components["schemas"]["AssistantStreamError"];
+        };
+        AssistantFeedback: {
+            /** @enum {string} */
+            rating: "up" | "down";
+            comment?: string;
+        };
+        NextStep: {
+            id: string;
+            /** @enum {string} */
+            kind: "receipt_detected" | "unknown_product" | "restock" | "draft_receipts" | "overdue_debts" | "day_close" | "review_queue" | "digest" | "setup" | "margin_alert";
+            title_vi: string;
+            subtitle_vi: string | null;
+            /** @description Lower values appear first. */
+            priority: number;
+            action: {
+                /** @constant */
+                type: "navigate";
+                route: string;
+            } | {
+                /** @constant */
+                type: "chat";
+                prompt_vi: string;
+                context: components["schemas"]["AssistantThreadContext"];
+            };
+        };
+        NextStepList: {
+            items: components["schemas"]["NextStep"][];
+        };
+        Digest: {
+            /** Format: date */
+            business_date: string;
+            /** Format: date-time */
+            generated_at: string;
+            /** @enum {string} */
+            source: "model" | "template";
+            summary_vi: string;
+            sales: {
+                revenue: components["schemas"]["Money"];
+                sale_count: number;
+                /**
+                 * Format: int64
+                 * @description Signed VND profit; null when the caller cannot view profit.
+                 */
+                gross_profit: number | null;
+                /** @description Revenue change versus the preceding business date; null without a comparison. */
+                change_pct: number | null;
+            };
+            restock: components["schemas"]["AssistantRestockItem"][];
+            overdue_debts: {
+                count: number;
+                total: components["schemas"]["Money"];
+            };
+            open_drafts: {
+                count: number;
+            };
+            /** Format: date-time */
+            read_at: string | null;
+        };
+        RegisterDevice: {
+            /**
+             * @description Expo push token, unique across registrations.
+             * @example ExponentPushToken[example]
+             */
+            token: string;
+            /** @enum {string} */
+            platform: "android" | "ios";
+            app_version: string;
+            language: components["schemas"]["AssistantLanguage"];
+        };
+        Device: {
+            /**
+             * @description Expo push token, unique across registrations.
+             * @example ExponentPushToken[example]
+             */
+            token: string;
+            /** @enum {string} */
+            platform: "android" | "ios";
+            app_version: string;
+            language: components["schemas"]["AssistantLanguage"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
         };
     };
     responses: {
@@ -2069,7 +2584,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`, `already_confirmed`). */
+        /** @description State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`, `already_confirmed`, `action_stale`, `already_decided`). */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -4121,6 +4636,326 @@ export interface operations {
                     "text/event-stream": components["schemas"]["StoreEvent"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listAssistantThreads: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantThreadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createAssistantThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAssistantThread"];
+            };
+        };
+        responses: {
+            /** @description Thread created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantThread"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getAssistantThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantThreadDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteAssistantThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    sendAssistantMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendAssistantMessage"];
+            };
+        };
+        responses: {
+            /** @description SSE frames with event name and one JSON data line. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["AssistantStreamEvent"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    confirmAssistantAction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated action, or the first result on an idempotent replay. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantAction"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectAssistantAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated rejected action. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantAction"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    submitAssistantFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantFeedback"];
+            };
+        };
+        responses: {
+            /** @description Feedback saved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAssistantNextSteps: {
+        parameters: {
+            query: {
+                /** @description Current app screen, for example camera. */
+                screen: string;
+                /** @description Whether the phone detected a receipt in the current frame. */
+                document_detected?: boolean;
+                /** @description Whether the current frame has an unknown product. */
+                unknown_product?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextStepList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getAssistantDigest: {
+        parameters: {
+            query?: {
+                /** @description Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest. */
+                business_date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Digest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    registerDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterDevice"];
+            };
+        };
+        responses: {
+            /** @description Device registration upserted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    unregisterDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expo push token, URL-encoded as a path segment. */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registration removed, including when the token was already absent. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };
