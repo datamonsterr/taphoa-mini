@@ -59,14 +59,17 @@ pub fn suggested_price(cost: i64, threshold_bp: i64) -> i64 {
     let rounded = numerator.div_euclid(step) + i128::from(numerator.rem_euclid(step) != 0);
     i64::try_from(rounded * 1000).expect("suggested price exceeds i64 range")
 }
+/// `opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`.
+/// Sales and refunds count only the part paid now; repayments are cash collected on debts.
 pub fn expected_cash(
     opening_float: i64,
     cash_sales: i64,
     cash_refunds: i64,
+    cash_repayments: i64,
     cash_expenses: i64,
 ) -> i64 {
-    let cash = i128::from(opening_float) + i128::from(cash_sales)
-        - i128::from(cash_refunds)
+    let cash = i128::from(opening_float) + i128::from(cash_sales) - i128::from(cash_refunds)
+        + i128::from(cash_repayments)
         - i128::from(cash_expenses);
     i64::try_from(cash).expect("expected cash exceeds i64 range")
 }
@@ -146,10 +149,25 @@ mod tests {
     #[test]
     fn cash_formula() {
         assert_eq!(
-            expected_cash(200_000, 1_500_000, 60_000, 400_000),
+            expected_cash(200_000, 1_500_000, 60_000, 0, 400_000),
             1_240_000
         );
-        assert_eq!(expected_cash(0, 0, 0, 50_000), -50_000);
+        assert_eq!(expected_cash(0, 0, 0, 0, 50_000), -50_000);
+    }
+    #[test]
+    fn cash_formula_adds_cash_repayments() {
+        // opening + sales - refunds + repayments - expenses
+        assert_eq!(
+            expected_cash(200_000, 1_500_000, 60_000, 25_000, 400_000),
+            1_265_000
+        );
+        assert_eq!(expected_cash(0, 0, 0, 40_000, 0), 40_000);
+        assert_eq!(expected_cash(0, 0, 0, 40_000, 50_000), -10_000);
+        assert_eq!(
+            expected_cash(i64::MAX, 0, 0, 1, 1),
+            i64::MAX,
+            "wide intermediate"
+        );
     }
     #[test]
     fn void_authz_table() {
