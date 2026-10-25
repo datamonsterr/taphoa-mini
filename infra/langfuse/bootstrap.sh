@@ -82,7 +82,7 @@ else:
     owner = ""  # Existing value is preserved without retrieving it.
 
 set_missing("langfuse-clickhouse", "CLICKHOUSE_DB", "default")
-set_missing("langfuse-clickhouse", "CLICKHOUSE_USER", "clickhouse")
+set_missing("langfuse-clickhouse", "CLICKHOUSE_USER", "langfuse")
 set_missing("langfuse-clickhouse", "CLICKHOUSE_PASSWORD", secrets.token_urlsafe(32))
 set_missing("langfuse-clickhouse", "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT", "1")
 
@@ -97,7 +97,7 @@ common = {
     "NEXTAUTH_URL": "https://${{langfuse-web.RAILWAY_PUBLIC_DOMAIN}}",
     "TELEMETRY_ENABLED": "false",
     "LANGFUSE_S3_BATCH_EXPORT_ENABLED": "false",
-    "HOSTNAME": "0.0.0.0",
+    "HOSTNAME": "::",
 }
 
 uses = {"EVENT_UPLOAD": "events/", "MEDIA_UPLOAD": "media/", "BATCH_EXPORT": "exports/"}
@@ -148,7 +148,7 @@ for key, value in {**common, **worker, "PORT": "3030"}.items():
 # per-environment operator step (private production, authenticated public test).
 collector = {
     "COLLECTOR_BEARER_TOKEN": secrets.token_urlsafe(48),
-    "LANGFUSE_OTLP_ENDPOINT": "https://${{langfuse-web.RAILWAY_PUBLIC_DOMAIN}}/api/public/otel",
+    "LANGFUSE_OTLP_ENDPOINT": "http://${{langfuse-web.RAILWAY_PRIVATE_DOMAIN}}:3000/api/public/otel",
     "LANGFUSE_PUBLIC_KEY": "${{langfuse-web.LANGFUSE_INIT_PROJECT_PUBLIC_KEY}}",
     "LANGFUSE_SECRET_KEY": "${{langfuse-web.LANGFUSE_INIT_PROJECT_SECRET_KEY}}",
     "POSTHOG_HOST": "${{backend.POSTHOG_HOST}}",

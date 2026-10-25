@@ -73,12 +73,13 @@ settings. Railway holds the values and reference expressions.
 | `LANGFUSE_INIT_PROJECT_PUBLIC_KEY`, `LANGFUSE_INIT_PROJECT_SECRET_KEY`, `LANGFUSE_INIT_USER_PASSWORD` | Locally generated API key pair and admin password, retained in Railway                                                    |
 | `LANGFUSE_S3_{EVENT_UPLOAD,MEDIA_UPLOAD,BATCH_EXPORT}_*`                                              | Bucket API credentials and endpoint/region/name copied securely in memory; prefixes and path-style flag are configuration |
 | Collector `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`                                                | References to web's initial project keys                                                                                  |
-| Collector `LANGFUSE_OTLP_ENDPOINT`                                                                    | Web public-domain reference plus `/api/public/otel`                                                                       |
+| Collector `LANGFUSE_OTLP_ENDPOINT`                                                                    | `http://${{langfuse-web.RAILWAY_PRIVATE_DOMAIN}}:3000/api/public/otel`                                                    |
 | Collector `COLLECTOR_BEARER_TOKEN`                                                                    | Locally generated random token                                                                                            |
 | Collector `POSTHOG_HOST`, `POSTHOG_PROJECT_TOKEN`                                                     | References to production backend variables                                                                                |
 
-`HOSTNAME=0.0.0.0` and `PORT=3000` (web) / `3030` (worker) bind the HTTP
-servers. `CLICKHOUSE_CLUSTER_ENABLED=false` selects the single-node topology.
+`HOSTNAME=::` and `PORT=3000` (web) / `3030` (worker) bind the HTTP
+servers on IPv6 for Railway private networking; `::` also accepts IPv4.
+`CLICKHOUSE_CLUSTER_ENABLED=false` selects the single-node topology.
 `TELEMETRY_ENABLED=false` disables Langfuse's own usage telemetry. Secrets must
 never use `ctx.randomString`, which is deterministic, or appear in Git, shell
 arguments, logs or documentation.

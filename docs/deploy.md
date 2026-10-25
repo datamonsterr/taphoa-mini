@@ -88,25 +88,30 @@ service-specific Dockerfile edits.
 Backend traces and logs travel over OTLP/HTTP to one production OTel Collector.
 It routes assistant spans to self-hosted Langfuse and all traces/logs to PostHog
 Cloud US; backend business events use the PostHog project configuration. Production
-uses the private base endpoint `http://otel-collector.railway.internal:4318`.
+uses the private base endpoint reference
+`http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318`.
 Test uses `https://otel-collector-production-ce86.up.railway.app` with the same
 collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
 `/v1/traces` and `/v1/logs`. Set bearer authorization for both environments.
 
-| Service   | Variable                      | Purpose                                                                                                 |
-| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                          |
-| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer <collector-token>`; store securely in Railway, never commit the token             |
-| Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                         |
-| Backend   | `TELEMETRY_ENVIRONMENT`       | Signal environment (`production`, `test`, `eval`, `local`); explicitly set to distinguish both backends |
-| Backend   | `SERVICE_VERSION`             | Release identifier; fallback is Railway commit SHA, `.service-version`, then crate version              |
-| Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                        |
-| Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                              |
-| Collector | `LANGFUSE_OTLP_ENDPOINT`      | Langfuse OTLP base, `https://<langfuse-web-domain>/api/public/otel`                                     |
-| Collector | `LANGFUSE_PUBLIC_KEY`         | Langfuse project public API key                                                                         |
-| Collector | `LANGFUSE_SECRET_KEY`         | Langfuse project secret API key                                                                         |
-| Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                         |
-| Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                   |
+| Service   | Variable                      | Purpose                                                                                                                  |
+| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                                           |
+| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<collector-token>` (W3C/OTel env format; space URL-encoded)                                      |
+| Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                                          |
+| Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; defaults to Railway's `RAILWAY_ENVIRONMENT_NAME` (`production` / `test`), so it is not set on Railway |
+| Backend   | `SERVICE_VERSION`             | Release identifier; fallback is Railway commit SHA, `.service-version`, then crate version                               |
+| Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                                         |
+| Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                                               |
+| Collector | `LANGFUSE_OTLP_ENDPOINT`      | Langfuse OTLP base, `http://langfuse-web.railway.internal:3000/api/public/otel`                                          |
+| Collector | `LANGFUSE_PUBLIC_KEY`         | Langfuse project public API key                                                                                          |
+| Collector | `LANGFUSE_SECRET_KEY`         | Langfuse project secret API key                                                                                          |
+| Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                                          |
+| Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                                    |
+
+Production `OTEL_EXPORTER_OTLP_HEADERS` is the reference
+`Authorization=Bearer%20${{otel-collector.COLLECTOR_BEARER_TOKEN}}`. Test holds a
+literal copy of the header value, set securely through stdin. Never commit the token.
 
 The backend also preserves `POSTHOG_HOST` and `POSTHOG_PROJECT_TOKEN` in both
 environments for server-side product events. All four backend PostHog/OTLP
@@ -123,8 +128,16 @@ change must produce no X2 creates, updates or deletes in either plan. Existing
 unrelated drift (Clerk variables, backend source/restart settings, application
 volume regions and image buckets) needs separate review before any apply.
 
-Deploy the collector from the **repository root**, once its configuration has
-landed and its six variables are set:
+Deploy the collector once its configuration has landed and its six variables
+are set. From a Git worktree under `.claude/worktrees/`, the CLI resolves the main
+checkout, whose ignore rules drop the worktree. Run from the **worktree root**
+with an explicit upload path and `--path-as-root`:
+
+```sh
+railway up . --path-as-root --service otel-collector --environment production --ci
+```
+
+From the **main checkout root**, plain `railway up` works:
 
 ```sh
 railway up --service otel-collector --environment production --ci
