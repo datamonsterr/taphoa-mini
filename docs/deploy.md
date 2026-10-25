@@ -1,15 +1,22 @@
 # Deploying the backend
 
-Railway project `taphoa-mini` has two environments, `production` and `test`, each with
-three services (the `test` environment is a duplicate of production with its own data).
+Railway project `taphoa-mini` has two environments: `production` runs nine services,
+and `test` runs the three application services with its own data. The six telemetry
+services run only in production and receive signals from both environments.
 Mobile native builds and the web deploy stay in `apps/mobile/.eas/workflows/`; mobile is
 not a Railway service.
 
-| Service    | Source and configuration                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| `backend`  | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile` |
-| `Postgres` | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`             |
-| `Redis`    | Railway Redis database with volume at `/data`                                                 |
+| Service               | Source and configuration                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `backend`             | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile`             |
+| `Postgres`            | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`                         |
+| `Redis`               | Railway Redis database with volume at `/data`                                                             |
+| `langfuse-postgres`   | Production only; `ghcr.io/railwayapp-templates/postgres-ssl:18`, volume at `/var/lib/postgresql/data`     |
+| `langfuse-redis`      | Production only; `redis:8.2`, volume at `/data`                                                           |
+| `langfuse-clickhouse` | Production only; `clickhouse/clickhouse-server:26.4.5`, volume at `/var/lib/clickhouse`                   |
+| `langfuse-web`        | Production only; `langfuse/langfuse:4.70.0`, public port 3000                                             |
+| `langfuse-worker`     | Production only; `langfuse/langfuse-worker:4.70.0`                                                        |
+| `otel-collector`      | Production only; root upload, Dockerfile `infra/otel-collector/Dockerfile`, public/private OTLP port 4318 |
 
 ## Infrastructure as Code
 
@@ -75,6 +82,72 @@ The Dockerfile retains cargo-chef dependency **layer** caching and omits BuildKi
 cache mounts. Railway requires mount IDs prefixed `s/<service-id>-` and does not
 allow environment interpolation in those IDs. Ordinary layers work without
 service-specific Dockerfile edits.
+
+## Telemetry
+
+Backend traces and logs travel over OTLP/HTTP to one production OTel Collector.
+It routes assistant spans to self-hosted Langfuse and all traces/logs to PostHog
+Cloud US; backend business events use the PostHog project configuration. Production
+uses the private base endpoint `http://otel-collector.railway.internal:4318`.
+Test uses `https://otel-collector-production-ce86.up.railway.app` with the same
+collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
+`/v1/traces` and `/v1/logs`. Set bearer authorization for both environments.
+
+| Service   | Variable                      | Purpose                                                                                                 |
+| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                          |
+| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer <collector-token>`; store securely in Railway, never commit the token             |
+| Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                         |
+| Backend   | `TELEMETRY_ENVIRONMENT`       | Signal environment (`production`, `test`, `eval`, `local`); explicitly set to distinguish both backends |
+| Backend   | `SERVICE_VERSION`             | Release identifier; fallback is Railway commit SHA, `.service-version`, then crate version              |
+| Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                        |
+| Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                              |
+| Collector | `LANGFUSE_OTLP_ENDPOINT`      | Langfuse OTLP base, `https://<langfuse-web-domain>/api/public/otel`                                     |
+| Collector | `LANGFUSE_PUBLIC_KEY`         | Langfuse project public API key                                                                         |
+| Collector | `LANGFUSE_SECRET_KEY`         | Langfuse project secret API key                                                                         |
+| Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                         |
+| Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                   |
+
+The backend also preserves `POSTHOG_HOST` and `POSTHOG_PROJECT_TOKEN` in both
+environments for server-side product events. All four backend PostHog/OTLP
+variables and every X2 service variable use `preserve()`; values and reference
+expressions remain in Railway. Never print variable values while inspecting
+configuration.
+
+`.railway/railway.ts` declares Langfuse, its three volumes, the `langfuse` bucket
+and the collector only inside `ctx.isEnvironment('production')`. Never duplicate
+them into test. Review `railway config plan --environment production` and
+`railway config plan --environment test` after every IaC change. **Never apply a
+plan that deletes X2 resources or backend telemetry variables.** A mirror-only
+change must produce no X2 creates, updates or deletes in either plan. Existing
+unrelated drift (Clerk variables, backend source/restart settings, application
+volume regions and image buckets) needs separate review before any apply.
+
+Deploy the collector from the **repository root**, once its configuration has
+landed and its six variables are set:
+
+```sh
+railway up --service otel-collector --environment production --ci
+```
+
+Its Dockerfile watches `infra/otel-collector/**`; Railway's default restart policy
+is on failure, with five retries. Verify the submitted deployment reaches
+`SUCCESS`, confirm unauthenticated OTLP requests return 401, then verify an
+authenticated test log and assistant trace reach PostHog and Langfuse.
+
+To rotate the collector token, generate a fresh random token locally and pipe
+it with `railway variable set --stdin` to production collector
+`COLLECTOR_BEARER_TOKEN` and both backend `OTEL_EXPORTER_OTLP_HEADERS` variables.
+Use `--skip-deploys` while staging, and a production reference to the collector
+variable where possible; test needs its own securely supplied value across the
+environment boundary. Redeploy collector and both backends together, allowing
+for a brief authorization interruption, then verify 401 with the old token and
+successful exports with the new one. Never put a token in shell arguments or a
+file. Re-running bootstrap preserves the existing token and does not rotate it.
+
+See the [collector guide](../infra/otel-collector/README.md) for routing,
+redaction and authentication, and the [Langfuse guide](../infra/langfuse/README.md)
+for resources, headless initialization, secrets, upgrades and cost.
 
 ## Image bucket credentials
 
