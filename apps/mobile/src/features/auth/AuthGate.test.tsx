@@ -19,7 +19,7 @@ import { useCaptureModeStore } from '@/features/camera/modeStore';
 import { useQuickEnrollStore } from '@/features/camera/quickEnroll';
 import { useInviteIntent } from '@/features/onboarding/inviteIntent';
 import { useReceiptNotice } from '@/features/receipts/ReceiptToast';
-import { setApiTransport } from '@/lib/api/client';
+import { getApiClient, setApiTransport } from '@/lib/api/client';
 import {
   bridgeUserId,
   clerkToken,
@@ -218,6 +218,39 @@ test('membership_required refetches me and the gate leaves the shop', async () =
   memberships = [];
   await act(async () => membershipRequired());
   await waitFor(() => expect(screen.getByText('onboarding')).toBeOnTheScreen());
+});
+
+test('a forbidden answer in the selected store re-reads me and falls back to another membership', async () => {
+  const first = testSession();
+  const second = {
+    store: { ...first.store, id: 'second-store' },
+    member: { ...first.member },
+  };
+  let memberships = [first, second];
+  setApiTransport((async (input: RequestInfo | URL) =>
+    new URL(new Request(input).url).pathname === '/v1/me'
+      ? Response.json({
+          clerk_user_id: 'user_test',
+          profile: null,
+          memberships,
+        })
+      : Response.json(
+          { error: 'not a member', code: 'forbidden' },
+          { status: 403 },
+        )) as typeof fetch);
+  await renderWithProviders(gate);
+  await screen.findByText('shop');
+  await act(async () =>
+    useCurrentStore.getState().selectStore('user_test', second.store.id),
+  );
+  await screen.findByText('shop');
+  await waitFor(() => expect(currentStoreId()).toBe(second.store.id));
+  // The person was removed from the selected store meanwhile.
+  memberships = [first];
+  const answer = await getApiClient().raw.GET('/v1/members');
+  expect(answer.response.status).toBe(403);
+  await waitFor(() => expect(currentStoreId()).toBe(first.store.id));
+  expect(await screen.findByText('shop')).toBeOnTheScreen();
 });
 
 test('me failure offers retry and only then resolves the onboarding gate', async () => {

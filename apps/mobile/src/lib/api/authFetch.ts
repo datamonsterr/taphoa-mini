@@ -17,12 +17,15 @@ export function createAuthFetch({
   fetch: transport,
 }: AuthFetchOptions): typeof fetch {
   const send = (request: Request) => (transport ?? globalThis.fetch)(request);
-  const inspect = async (response: Response) => {
-    if (
-      response.status === 403 &&
-      (await responseCode(response)) === 'membership_required'
-    )
-      membershipRequired();
+  // `membership_required` says the person has no membership at all. Inside a store (the request
+  // carried X-Store-Id) a plain `forbidden` can also mean they were removed from that one while
+  // keeping another, so either way `/me` is re-read and the selected store falls back.
+  const inspect = async (response: Response, inStore: boolean) => {
+    if (response.status === 403) {
+      const code = await responseCode(response);
+      if (code === 'membership_required' || (inStore && code === 'forbidden'))
+        membershipRequired();
+    }
     return response;
   };
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -32,16 +35,17 @@ export function createAuthFetch({
     if (token) request.headers.set('Authorization', `Bearer ${token}`);
     else request.headers.delete('Authorization');
     const replay = request.clone();
+    const inStore = request.headers.has('X-Store-Id');
     const response = await send(request);
     if (
       response.status !== 401 ||
       !token ||
       (await responseCode(response)) === 'invalid_pin'
     )
-      return inspect(response);
+      return inspect(response, inStore);
     const fresh = await clerkToken({ skipCache: true });
     if (!fresh) return response;
     replay.headers.set('Authorization', `Bearer ${fresh}`);
-    return inspect(await send(replay));
+    return inspect(await send(replay), inStore);
   }) as typeof fetch;
 }
