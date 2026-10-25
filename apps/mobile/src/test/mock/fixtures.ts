@@ -1,5 +1,7 @@
 import { addDays, businessDate } from '@/lib/date';
 import type {
+  Customer,
+  DebtEntry,
   Receipt,
   StockMovement,
   Category,
@@ -25,6 +27,8 @@ import { randomCode, seedUuid } from './ids';
 export type ProductRecord = { product: Product };
 
 export type MockState = {
+  customers: Customer[];
+  debtEntries: DebtEntry[];
   documentImageIds: Set<string>;
   stockMovements: Map<string, StockMovement[]>;
   receipts: Receipt[];
@@ -543,6 +547,8 @@ export function buildSeed(now: Date = new Date()): MockState {
     stockMovements: new Map(),
     receipts: [],
     idempotency: new Map(),
+    customers: [],
+    debtEntries: [],
     store,
     members,
     currentMemberId: LEAD_ID,
