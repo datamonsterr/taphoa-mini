@@ -1,12 +1,12 @@
 # Telemetry contract
 
 Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · ADR
-[0006](../../adr/0006-telemetry-routing.md) · Epics: X2 (backend, collector), X3 (assistant
-spans), X6 (product events)
+[0007](../../adr/0007-posthog-only-observability.md) · Epics: X2 (backend, collector), X3
+(assistant spans and LLM events), X6 (product events)
 
 This file is the source of truth for span, log and product-event names and attributes. Contract
 tests (in-memory exporters) assert the required attributes. Check the current OpenTelemetry
-semantic conventions and the Langfuse and PostHog ingestion docs before coding; when a
+semantic conventions and the PostHog ingestion and LLM analytics docs before coding; when a
 convention has moved, follow the current one and update this file in the same PR.
 
 ## Pipeline
@@ -19,11 +19,10 @@ backend (tracing → tracing-opentelemetry, opentelemetry-appender-tracing)
     │ OTLP/HTTP  (production: private network; test: public domain + bearer token)
     ▼
 otel-collector (Railway production)
-    ├─ traces where scope = taphoa.assistant or gen_ai.operation.name present ─▶ Langfuse /api/public/otel
-    ├─ all traces ──────────────────────────────────────────────────────────▶ PostHog tracing (when its OTLP intake is available)
+    ├─ all traces ──────────────────────────────────────────────────────────▶ PostHog tracing (current OTLP traces intake)
     └─ all logs ────────────────────────────────────────────────────────────▶ PostHog logs (/i/v1/logs)
-backend ── server-side business events (posthog capture API) ───────────────▶ PostHog Cloud US
-eval harness ── Langfuse SDK (datasets, runs, scores) ──────────────────────▶ Langfuse
+backend ── business events + LLM analytics ($ai_trace, $ai_span, $ai_generation) via capture API ──▶ PostHog Cloud US
+eval harness ── eval_case_scored, eval_run_completed via capture API ──────▶ PostHog Cloud US
 ```
 
 Collector processors: `memory_limiter`, `batch`, an attribute redaction step (drop
@@ -39,8 +38,7 @@ never blocks a request on export.
 | `service.version`             | git SHA (`RAILWAY_GIT_COMMIT_SHA` or build arg)  |
 | `deployment.environment.name` | `production`, `test`, `eval`, `local`            |
 
-Langfuse reads the environment from its own attribute (`langfuse.environment`) when the
-resource attribute is not mapped; set both.
+PostHog events (product and `$ai_*`) carry the same value as the `environment` property.
 
 ## Identity attributes (every span and log inside an authenticated request)
 
@@ -70,28 +68,44 @@ text, tokens, keys.
 
 ## Assistant spans (instrumentation scope `taphoa.assistant`)
 
-Follow the OpenTelemetry GenAI conventions so Langfuse maps them to traces, generations and
-tool observations.
+Spans follow the OpenTelemetry GenAI conventions and reach PostHog tracing through the collector,
+so a slow turn can be followed into DB and tool spans.
 
-| Span                            | Kind     | Required attributes                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `invoke_agent taphoa-assistant` | internal | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name=taphoa-assistant`, `langfuse.trace.name=assistant.turn`, `langfuse.user.id`, `langfuse.session.id` (= thread id), `langfuse.trace.tags` (use-case tags), `langfuse.trace.metadata.store_id`, `langfuse.trace.metadata.role`, `langfuse.trace.metadata.screen`, `langfuse.observation.input` (user text), `langfuse.observation.output` (final text), `langfuse.environment` |
-| `chat {model}`                  | client   | `gen_ai.operation.name=chat`, `gen_ai.provider.name=openrouter`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`, input and output messages (current GenAI message attributes), `taphoa.assistant.fallback_index`, time to first token                                                                                                  |
-| `execute_tool {tool}`           | internal | `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `taphoa.tool.kind` (read, propose), `taphoa.tool.ok`, `taphoa.tool.rows`, `taphoa.tool.denied`                                                                                                                                                                                                                                                      |
-| `assistant.action {kind}`       | internal | `taphoa.action.id`, `taphoa.action.kind`, `taphoa.action.status` (confirmed, rejected, expired, failed); linked to the proposing trace with a span link                                                                                                                                                                                                                                                                              |
-| `assistant.next_steps`          | internal | `taphoa.next_steps.count`, kinds                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Span                            | Kind     | Required attributes                                                                                                                                                                                                                                                                                 |
+| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoke_agent taphoa-assistant` | internal | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name=taphoa-assistant`, `gen_ai.conversation.id` (thread id), `taphoa.assistant.use_cases`, `taphoa.assistant.screen`, identity                                                                                                                 |
+| `chat {model}`                  | client   | `gen_ai.operation.name=chat`, `gen_ai.provider.name=openrouter`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`, `taphoa.assistant.fallback_index`, time to first token (no message content on spans) |
+| `execute_tool {tool}`           | internal | `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `taphoa.tool.kind` (read, propose), `taphoa.tool.ok`, `taphoa.tool.rows`, `taphoa.tool.denied`                                                                                                                     |
+| `assistant.action {kind}`       | internal | `taphoa.action.id`, `taphoa.action.kind`, `taphoa.action.status` (confirmed, rejected, expired, failed); linked to the proposing trace with a span link                                                                                                                                             |
+| `assistant.next_steps`          | internal | `taphoa.next_steps.count`, kinds                                                                                                                                                                                                                                                                    |
 
-Langfuse scores (written through the Langfuse public API by the backend):
+## Assistant LLM analytics events (PostHog)
 
-| Score            | Source                                        | Value                                                      |
-| ---------------- | --------------------------------------------- | ---------------------------------------------------------- |
-| `user_feedback`  | thumbs on a message                           | 1 or 0, comment                                            |
-| `action_outcome` | proposed action decided                       | `confirmed`, `rejected`, `expired`, `failed` (categorical) |
-| `quota_hit`      | turn ended by quota                           | 1                                                          |
-| eval scores      | eval harness ([golden-set.md](golden-set.md)) | per scorer                                                 |
+Captured by the backend PostHog client after each turn (batched, never blocking the reply).
+Every event: `distinct_id` = Clerk user id, `$groups.store` = store id, properties `member_id`,
+`role`, `environment`, `$ai_session_id` = thread id, `$ai_trace_id` = the OTel trace id (hex) of
+the turn, so PostHog LLM traces and backend traces share one id. Check the current PostHog
+manual-capture docs for property names before coding.
 
-Use-case tags on `langfuse.trace.tags`: the use-case ids (`U1`..`U23`) whose tools ran in the
-turn, plus `receipt_chat`, `voice`, `next_step:<kind>` when the turn started from a chip.
+| Event            | When           | Required properties                                                                                                                                                                                                                                                      |
+| ---------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `$ai_trace`      | one per turn   | `$ai_span_name=assistant.turn`, `$ai_input_state` (user text), `$ai_output_state` (final text), `$ai_latency`, `use_cases` (`U1`..`U23`), `entry` (button, chip, receipt, digest, push), `next_step_kind`, `eval_run_id` (eval only)                                     |
+| `$ai_generation` | per model call | `$ai_span_id`, `$ai_parent_id`, `$ai_model`, `$ai_provider=openrouter`, `$ai_input` (messages), `$ai_output_choices`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_http_status`, `$ai_is_error`, `$ai_error`, `fallback_index`, `time_to_first_token_ms` |
+| `$ai_span`       | per tool call  | `$ai_span_id`, `$ai_parent_id`, `$ai_span_name=tool:<name>`, `$ai_input_state` (arguments), `$ai_output_state` (summary and row count, not full rows), `$ai_latency`, `$ai_is_error`, `tool_kind`, `denied`                                                              |
+
+Message content is allowed in `$ai_*` events (needed for debugging the assistant); mask 9-15
+digit sequences (phones, bank numbers) before sending. Free models report zero cost; set PostHog
+custom model pricing to 0 for them so cost charts stay correct.
+
+Score and outcome events (backend unless noted):
+
+| Event                                                     | Source                                        | Properties                                                                |
+| --------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
+| LLM feedback (`$ai_feedback` or the current PostHog name) | thumbs on a message (`POST .../feedback`)     | `$ai_trace_id`, `rating` (up, down), `comment`                            |
+| `assistant_action_decided`                                | proposed action decided                       | `$ai_trace_id`, `kind`, `decision` (confirmed, rejected, expired, failed) |
+| `assistant_quota_hit`                                     | turn ended by quota                           | `$ai_trace_id`, `scope` (store, openrouter)                               |
+| `eval_case_scored`                                        | eval harness ([golden-set.md](golden-set.md)) | `eval_run_id`, `model`, `case_id`, `use_case`, `scorer`, `value`          |
+| `eval_run_completed`                                      | eval harness                                  | `eval_run_id`, `model`, `set` (smoke, full), pass-bar results             |
 
 ## Logs
 
@@ -102,8 +116,8 @@ turn, plus `receipt_chat`, `voice`, `next_step:<kind>` when the turn started fro
 
 ## Metrics
 
-No OTel metrics pipeline in this program. Langfuse computes LLM metrics from traces; PostHog
-insights compute product and API metrics from events and logs.
+No OTel metrics pipeline in this program. PostHog LLM analytics computes LLM metrics from `$ai_*`
+events; PostHog insights compute product and API metrics from events and logs.
 
 ## Product events (PostHog)
 

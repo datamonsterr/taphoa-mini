@@ -1,7 +1,8 @@
 # Assistant, Clerk identity, debt book and observability: program spec
 
 Status: Accepted · Date: 2026-10-25 · ADRs: [0004](../../adr/0004-clerk-identity.md),
-[0005](../../adr/0005-assistant-in-backend.md), [0006](../../adr/0006-telemetry-routing.md)
+[0005](../../adr/0005-assistant-in-backend.md), [0007](../../adr/0007-posthog-only-observability.md)
+(supersedes 0006: Langfuse dropped, PostHog only)
 
 ## Goal
 
@@ -9,8 +10,8 @@ Give the shop owner an in-app **assistant** that reads and analyzes store data t
 assistant tools, tells them what to restock and what to do next, and drafts actions they
 confirm. Replace our own auth with **Clerk** so every trace, log and product event belongs to
 a person. Add a **debt book (sổ nợ)** to checkout. Instrument the whole system with
-**OpenTelemetry**, ship assistant traces and evaluations to self-hosted **Langfuse**, and ship
-product analytics, logs, errors and session replay to **PostHog Cloud US**. Every piece is
+**OpenTelemetry** and send assistant LLM analytics, evaluations, product analytics, logs,
+traces, errors and session replay to **PostHog Cloud US**. Every piece is
 built test-first and validated on Railway `test`, then production.
 
 ## Documents
@@ -22,23 +23,23 @@ built test-first and validated on Railway `test`, then production.
 | [auth-clerk.md](auth-clerk.md)                 | Clerk integration contract and migration                                     |
 | [debt-book.md](debt-book.md)                   | Debt book data model, API and flows                                          |
 | [telemetry-contract.md](telemetry-contract.md) | Span, log and product-event names and attributes; collector routing          |
-| [dashboards.md](dashboards.md)                 | Langfuse and PostHog chart catalog with the data each chart needs            |
+| [dashboards.md](dashboards.md)                 | PostHog chart catalog (LLM and product) with the data each chart needs       |
 | [golden-set.md](golden-set.md)                 | Golden set design, scoring, pass bars, model selection                       |
 
 ## Definition of done (whole program)
 
-| #   | Done when                                                                                                                                                                            | Proven by                                           |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| 1   | A chat button sits at the bottom right next to the tab bar on every shop screen and opens the assistant; replies stream in Vietnamese (or English when the app language is English). | Jest + Playwright web + Maestro flows               |
-| 2   | All use cases U1-U23 in [assistant.md](assistant.md) work end to end on Railway `test` with a free OpenRouter model; propose tools never write before Confirm.                       | Golden set + e2e `assistant.test.ts`                |
-| 3   | Next-step strip under the camera frame shows ranked chips and swipes horizontally; receipts are processed in chat; voice input works on Android.                                     | Jest, Maestro, e2e                                  |
-| 4   | Golden set (about 140 Vietnamese cases) meets the pass bars in [golden-set.md](golden-set.md) for the chosen default model; runs appear as Langfuse dataset runs with scores.        | `pnpm --filter @taphoa/eval run full` + Langfuse UI |
-| 5   | Clerk replaces our auth (email code + Google, multi-session, PIN lock); legacy refresh/recovery/switch endpoints are gone; data reset and reseeded.                                  | e2e `auth.test.ts`, Maestro sign-in flow            |
-| 6   | Debt book: credit sales (full or partial) at checkout, repayments, balances, reminders; chốt sổ counts cash repayments.                                                              | Rust integration + e2e `debts.test.ts` + Maestro    |
-| 7   | Langfuse runs in Railway `production`; every chart in [dashboards.md](dashboards.md) "Langfuse" section exists and shows real data from `test` and `production`.                     | DoD report screenshots + Langfuse API queries       |
-| 8   | PostHog has every dashboard in [dashboards.md](dashboards.md) "PostHog" section with real data; logs, error tracking and masked session replay receive data.                         | DoD report screenshots + PostHog API queries        |
-| 9   | Every span, log and event follows the [telemetry contract](telemetry-contract.md); a trace or event can be traced to a Clerk user and a store in both tools.                         | Contract tests (in-memory exporter) + DoD report    |
-| 10  | CI green, every epic PR merged into `main`, production deployed by the existing pipeline, worktrees cleaned per `AGENTS.md`.                                                         | `gh pr list --state merged`, `git worktree list`    |
+| #   | Done when                                                                                                                                                                            | Proven by                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| 1   | A chat button sits at the bottom right next to the tab bar on every shop screen and opens the assistant; replies stream in Vietnamese (or English when the app language is English). | Jest + Playwright web + Maestro flows            |
+| 2   | All use cases U1-U23 in [assistant.md](assistant.md) work end to end on Railway `test` with a free OpenRouter model; propose tools never write before Confirm.                       | Golden set + e2e `assistant.test.ts`             |
+| 3   | Next-step strip under the camera frame shows ranked chips and swipes horizontally; receipts are processed in chat; voice input works on Android.                                     | Jest, Maestro, e2e                               |
+| 4   | Golden set (about 140 Vietnamese cases) meets the pass bars in [golden-set.md](golden-set.md) for the chosen default model; run scores appear in PostHog and in a repo results file. | `pnpm --filter @taphoa/eval run full` + PostHog  |
+| 5   | Clerk replaces our auth (email code + Google, multi-session, PIN lock); legacy refresh/recovery/switch endpoints are gone; data reset and reseeded.                                  | e2e `auth.test.ts`, Maestro sign-in flow         |
+| 6   | Debt book: credit sales (full or partial) at checkout, repayments, balances, reminders; chốt sổ counts cash repayments.                                                              | Rust integration + e2e `debts.test.ts` + Maestro |
+| 7   | Every chart in [dashboards.md](dashboards.md) "PostHog LLM analytics" section exists and shows real data from `test` and `production`.                                               | DoD report screenshots + PostHog API queries     |
+| 8   | PostHog has every dashboard in [dashboards.md](dashboards.md) "PostHog" section with real data; logs, error tracking and masked session replay receive data.                         | DoD report screenshots + PostHog API queries     |
+| 9   | Every span, log and event follows the [telemetry contract](telemetry-contract.md); a trace or event can be traced to a Clerk user and a store in PostHog.                            | Contract tests (in-memory exporter) + DoD report |
+| 10  | CI green, every epic PR merged into `main`, production deployed by the existing pipeline, worktrees cleaned per `AGENTS.md`.                                                         | `gh pr list --state merged`, `git worktree list` |
 
 The final DoD report lives at `docs/specs/assistant/dod-report.md` (written by epic X9).
 
@@ -50,8 +51,9 @@ The final DoD report lives at `docs/specs/assistant/dod-report.md` (written by e
   both roles, tools filtered by `auth::can`; Vietnamese default, follows the app language.
 - **Model:** free OpenRouter tool-capable models only, ordered list `ASSISTANT_MODELS`; the
   account has 1,000 free requests per day shared by every environment and the eval.
-- **Telemetry:** ADR 0006. Collector in Railway `production`; Langfuse in the same project
-  (production environment only); PostHog Cloud US; session replay on with masking.
+- **Telemetry:** ADR 0007 (supersedes 0006). PostHog Cloud US only, including LLM analytics;
+  OTel Collector in Railway `production` routes traces and logs to PostHog; no Langfuse;
+  session replay on with masking.
 - **Use cases:** all of U1-U23 (expiry tracking is out of scope).
 - **Receipts:** a detected document opens a chat thread that walks through the receipt; the
   old form stays one release as the "Xem dạng bảng" fallback.
@@ -126,7 +128,7 @@ dependencies are merged, answers questions from epic sessions, and runs nothing 
   secrets) and `.env.example`.
 - **Railway `test`** is shared. Validate a branch with
   `gh workflow run deploy.yml -f ref=<branch>` (deploys are serialized). Never run
-  `railway config apply` with a plan that deletes services, volumes or the Langfuse stack.
+  `railway config apply` with a plan that deletes services, volumes or the collector.
 - **Free model quota** is shared (1,000 requests per day). Unit and integration tests use a
   mock model client. Only the eval harness and e2e assistant specs call OpenRouter, and the e2e
   assistant spec stays under 30 requests per run.
@@ -140,24 +142,28 @@ dependencies are merged, answers questions from epic sessions, and runs nothing 
 
 ## Secrets and variables map
 
-| Name                                                            | Where                                                             | Owner epic |
-| --------------------------------------------------------------- | ----------------------------------------------------------------- | ---------- |
-| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                     | Railway backend (test, production), local file; set               | X1         |
-| `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                             | EAS (all environments); set                                       | X1         |
-| `OPENROUTER_API_KEY`                                            | Railway backend, local file; set (key expires 2026-11-23)         | X3         |
-| `ASSISTANT_MODELS`, `ASSISTANT_DAILY_MESSAGES_PER_STORE`        | Railway backend                                                   | X3         |
-| `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`                         | Railway backend (test, production); set                           | X2, X6     |
-| `EXPO_PUBLIC_POSTHOG_KEY`, `EXPO_PUBLIC_POSTHOG_HOST`           | EAS (all environments); set                                       | X6         |
-| `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID`                | Local file only; set                                              | X6, X9     |
-| `LANGFUSE_*` init, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Railway Langfuse services; local file and GitHub secrets for eval | X2         |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`     | Railway backend (test uses the collector public domain)           | X2         |
-| `COLLECTOR_BEARER_TOKEN`                                        | Railway collector + backend                                       | X2         |
-| GitHub secrets for CI eval/e2e (Clerk, OpenRouter, Langfuse)    | `gh secret set`                                                   | X1, X7     |
-| FCM V1 service account                                          | Uploaded to EAS credentials by the user                           | X8         |
+| Name                                                        | Where                                                         | Owner epic |
+| ----------------------------------------------------------- | ------------------------------------------------------------- | ---------- |
+| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                 | Railway backend (test, production), local file; set           | X1         |
+| `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                         | EAS (all environments); set                                   | X1         |
+| `OPENROUTER_API_KEY`                                        | Railway backend, local file; set (per environment, no expiry) | X3         |
+| `ASSISTANT_MODELS`, `ASSISTANT_DAILY_MESSAGES_PER_STORE`    | Railway backend                                               | X3         |
+| `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`                     | Railway backend (test, production); set                       | X2, X6     |
+| `EXPO_PUBLIC_POSTHOG_KEY`, `EXPO_PUBLIC_POSTHOG_HOST`       | EAS (all environments); set                                   | X6         |
+| `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID`            | Local file only; set                                          | X6, X9     |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` | Railway backend (test uses the collector public domain)       | X2         |
+| `COLLECTOR_BEARER_TOKEN`                                    | Railway collector + backend                                   | X2         |
+| GitHub secrets for CI eval/e2e (Clerk, OpenRouter, PostHog) | `gh secret set`                                               | X1, X7     |
+| FCM V1 service account                                      | Uploaded to EAS by the user; files in the local folder        | X8         |
 
-## Waiting on the user (non-blocking for wave 1)
+## User inputs (all received 2026-10-25)
 
-- Clerk dashboard: enable **multi-session** (single-session mode is on); roll the secret key.
-  Needed by X1 before its multi-session e2e task.
-- OpenRouter: a new key without expiry before 2026-11-23. Needed by X3 before production.
-- FCM: `google-services.json` and the FCM V1 service account uploaded to EAS. Needed by X8.
+- Clerk multi-session is on (the secret key was not rolled; owner's choice).
+- OpenRouter: per-environment keys without expiry (`taphoa-mini-production`, `-test`, `-eval`,
+  $1 limit each) on Railway, in GitHub secret `OPENROUTER_API_KEY` (eval) and the local file.
+- FCM: Firebase project `taphoa-mini` with the Android app; `google-services.json` and the
+  service account are in `~/.config/taphoa-mini/`; the key is uploaded to EAS (FCM V1 and EAS
+  Submit).
+- Railway project tokens are GitHub secrets `RAILWAY_TOKEN_TEST` and `RAILWAY_TOKEN`; the deploy
+  pipeline runs. Railway's GitHub autodeploy of `main` to production stays on (owner's choice), so
+  a merge to `main` is a production deploy.

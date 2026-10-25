@@ -1,6 +1,6 @@
 # ADR 0006: OpenTelemetry through one collector to self-hosted Langfuse and PostHog Cloud
 
-Status: Accepted · Date: 2026-10-25
+Status: Superseded by [ADR 0007](0007-posthog-only-observability.md) · Date: 2026-10-25
 
 ## Context
 

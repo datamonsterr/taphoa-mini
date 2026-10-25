@@ -19,7 +19,7 @@ free model from data.
 - The eval pins `today` (business date `2026-10-20`) with an `X-Taphoa-Eval-Run: <run id>`
   header plus `X-Taphoa-Today`. The backend honours them only when
   `ASSISTANT_ALLOW_EVAL_HEADERS=1` (Railway `test` and local; never production), and then tags the
-  turn's spans `langfuse.environment=eval` and the run id as trace metadata.
+  turn's `$ai_*` events `environment=eval` with the run id as `eval_run_id`.
 - The eval runs against Railway `test` (or a local backend) on the eval store only.
 - Expected facts are computed by **oracle SQL** in the harness against the same database, never
   typed by hand, so seed changes do not break cases.
@@ -59,7 +59,7 @@ data in the answer.
 - 6 ambiguity cases (assistant asks one clarifying question).
 - 25 cases tagged `smoke`, spread across use cases.
 
-## Scorers (each a Langfuse score on the run item)
+## Scorers (each an `eval_case_scored` PostHog event: run id, model, case id, use case, scorer, value)
 
 | Score                | How                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------- |
@@ -90,8 +90,9 @@ answer only (no tool data), with a calibration check on 10 hand-labelled answers
 
 ## Running
 
-- Harness: `packages/eval` (TypeScript, `@taphoa/api-client` against `BACKEND_URL`, Langfuse JS
-  SDK for datasets, runs and scores; check the current SDK docs for the experiment API).
+- Harness: `packages/eval` (TypeScript, `@taphoa/api-client` against `BACKEND_URL`; scores sent
+  with the PostHog Node SDK or capture API, `distinct_id` = `eval-harness`, `environment=eval`;
+  check current PostHog docs for LLM evaluation and score event names).
 - `pnpm --filter @taphoa/eval run smoke` (25 cases) on each PR that touches the assistant, in CI,
   against the branch deployment or a local backend with the eval seed.
 - `pnpm --filter @taphoa/eval run full` nightly at most once per day and on demand; prints the
@@ -102,5 +103,7 @@ answer only (no tool data), with a calibration check on 10 hand-labelled answers
 - Budget: a full run is about 700 OpenRouter requests of the shared 1,000 per day. The harness
   checks the remaining free quota (`GET https://openrouter.ai/api/v1/key`) first and refuses to
   start below the run's estimate plus 100.
-- Datasets in Langfuse: `golden-v1` (all) and `golden-v1-smoke`; the JSONL files are the source of
-  truth and the harness syncs them.
+- Results: each run sends `eval_run_completed` (model, run id, pass-bar table) and writes
+  `packages/eval/results/<date>-<model>.md`; the JSONL files are the source of truth for cases.
+  PostHog keeps LLM events 30 days on the free tier, so the results files are the long-term
+  record.
