@@ -5,7 +5,7 @@ use sqlx::{PgPool, Row, postgres::PgListener};
 use taphoa_api::events::{Event, emit, emit_many};
 use uuid::Uuid;
 
-fn event(store_id: Uuid, actor: Option<(Uuid, Uuid)>, change: bool) -> Event {
+fn event(store_id: Uuid, actor: Option<(Uuid, String)>, change: bool) -> Event {
     Event {
         store_id,
         actor,
@@ -23,16 +23,14 @@ async fn emits_complete_envelope_atomically_and_notifies_on_commit() {
     let mut listener = PgListener::connect(&database_url).await.unwrap();
     listener.listen("outbox").await.unwrap();
     let store_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'event test','fixture')",
-    )
-    .bind(store_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'event test')")
+        .bind(store_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let actor = (Uuid::new_v4(), "sess_clerk_event".to_string());
     let mut tx = pool.begin().await.unwrap();
-    let emitted = emit(&mut tx, event(store_id, Some(actor), true))
+    let emitted = emit(&mut tx, event(store_id, Some(actor.clone()), true))
         .await
         .unwrap();
     assert_eq!(emitted.payload["id"], format!("evt_{:015}", emitted.id));
@@ -98,7 +96,7 @@ async fn emits_complete_envelope_atomically_and_notifies_on_commit() {
         &mut tx,
         [
             event(store_id, None, false),
-            event(store_id, Some(actor), true),
+            event(store_id, Some(actor.clone()), true),
         ],
     )
     .await

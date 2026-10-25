@@ -153,6 +153,7 @@ async fn build_state(
     let mut state = AppState::connect(Some(&database), Some(&redis), None)
         .await
         .unwrap();
+    common::clerk::install(&mut state);
     let index = Arc::new(InMemoryVectorIndex::default());
     state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
     state.embedder = Some(Arc::new(TestEmbedder));
@@ -176,10 +177,11 @@ fn unique_ip() -> String {
 
 /// Store + lead member + design device; returns (store, member, token).
 async fn create_store(app: &Router) -> (Uuid, Uuid, String) {
+    let token = common::clerk::token();
     let created = app
         .clone()
         .oneshot(
-            Request::post("/v1/stores")
+            Request::post("/v1/stores").header("authorization",format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .header("x-forwarded-for", unique_ip())
                 .body(Body::from(
@@ -195,7 +197,7 @@ async fn create_store(app: &Router) -> (Uuid, Uuid, String) {
     (
         body["store"]["id"].as_str().unwrap().parse().unwrap(),
         body["member"]["id"].as_str().unwrap().parse().unwrap(),
-        body["access_token"].as_str().unwrap().to_owned(),
+        token,
     )
 }
 
