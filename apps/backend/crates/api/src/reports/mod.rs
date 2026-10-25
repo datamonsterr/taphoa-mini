@@ -57,9 +57,11 @@ struct TodayParams {
 pub(super) const TODAY_SQL: &str = r#"
 WITH close AS (SELECT * FROM day_closes WHERE store_id=$1 AND business_date=$2),
 s AS (
+    -- Revenue is the full total; the cash and transfer parts count only what was paid now.
     SELECT COALESCE(sum(total),0)::bigint revenue, count(*) sales_count,
-        COALESCE(sum(total) FILTER (WHERE payment_method='cash'),0)::bigint cash_revenue,
-        COALESCE(sum(total) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue,
+        COALESCE(sum(total-credit_amount) FILTER (WHERE payment_method='cash'),0)::bigint cash_revenue,
+        COALESCE(sum(total-credit_amount) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue,
+        COALESCE(sum(credit_amount),0)::bigint credit_sales,
         count(*) FILTER (WHERE received_at > (SELECT closed_at FROM close)) late_sales_count
     FROM sales WHERE store_id=$1 AND business_date=$2 AND status='completed'
 ), v AS (
@@ -69,12 +71,15 @@ s AS (
     SELECT COALESCE(sum(amount),0)::bigint expenses,
         COALESCE(sum(amount) FILTER (WHERE paid_with='cash_box'),0)::bigint cash_expenses
     FROM expenses WHERE store_id=$1 AND business_date=$2 AND deleted_at IS NULL
+), r AS (
+    SELECT COALESCE(sum(-amount),0)::bigint cash_repayments
+    FROM debt_entries WHERE store_id=$1 AND business_date=$2 AND kind='repayment' AND method='cash'
 )
-SELECT s.*,v.*,e.*,COALESCE((SELECT opening_float FROM close),0) opening_float,
+SELECT s.*,v.*,e.*,r.*,COALESCE((SELECT opening_float FROM close),0) opening_float,
     (SELECT count(*) FROM sale_lines WHERE store_id=$1 AND review_status='open') manual_lines_open,
     (SELECT (to_jsonb(c)-'store_id') || jsonb_build_object('late_sales_count',s.late_sales_count)
      FROM close c) day_close
-FROM s CROSS JOIN v CROSS JOIN e
+FROM s CROSS JOIN v CROSS JOIN e CROSS JOIN r
 "#;
 #[derive(sqlx::FromRow)]
 struct DailyRow {
@@ -82,9 +87,11 @@ struct DailyRow {
     sales_count: i64,
     cash_revenue: i64,
     transfer_revenue: i64,
+    credit_sales: i64,
     voided_count: i64,
     expenses: i64,
     cash_expenses: i64,
+    cash_repayments: i64,
     opening_float: i64,
     manual_lines_open: i64,
     day_close: Option<Value>,
@@ -105,8 +112,9 @@ async fn today(
     Ok(Json(
         json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
         "voided_count":r.voided_count,"cash_revenue":r.cash_revenue,"transfer_revenue":r.transfer_revenue,
+        "cash_repayments":r.cash_repayments,"credit_sales":r.credit_sales,
         "expenses":r.expenses,"net":r.revenue-r.expenses,
-        "expected_cash":money::expected_cash(r.opening_float,r.cash_revenue,0,r.cash_expenses),
+        "expected_cash":money::expected_cash(r.opening_float,r.cash_revenue,0,r.cash_repayments,r.cash_expenses),
         "manual_lines_open":r.manual_lines_open,"day_close":r.day_close}),
     ))
 }

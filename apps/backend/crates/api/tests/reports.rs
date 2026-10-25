@@ -479,6 +479,22 @@ async fn transactions_export_csv_and_xlsx() {
     let text = String::from_utf8(csv.raw).unwrap();
     assert!(text.contains(s["code"].as_str().unwrap()), "{text}");
     assert!(text.contains("20000") && text.contains("12000"));
+    // Sale and expense rows both carry the credit_amount column, 0 without credit.
+    assert!(
+        text.contains("payment_method/paid_with,amount,credit_amount,status,member name"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            ",{},cash,20000,0,completed,Seller",
+            s["code"].as_str().unwrap()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(",khac,cash_box,12000,0,completed,Lead"),
+        "{text}"
+    );
     let xlsx = w.call("GET", &q, &w.lead, json!(null)).await;
     assert_eq!(xlsx.status, StatusCode::OK);
     assert_eq!(

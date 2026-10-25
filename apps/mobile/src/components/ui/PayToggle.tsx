@@ -1,4 +1,4 @@
-import { Banknote, QrCode } from 'lucide-react-native';
+import { Banknote, QrCode, BookOpen } from 'lucide-react-native';
 import { memo, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
@@ -12,14 +12,18 @@ import { colors, radius } from '@/theme';
 import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
 
-export type PayMethod = 'transfer' | 'cash';
+export type PayMethod = 'transfer' | 'cash' | 'credit';
 
-export type PayToggleLabels = { group: string } & Record<PayMethod, string>;
+export type PayToggleLabels = { group: string } & Record<
+  Exclude<PayMethod, 'credit'>,
+  string
+> & { credit?: string };
 
 const DEFAULT_LABELS: PayToggleLabels = {
   group: 'Cách trả',
   transfer: 'Chuyển khoản',
   cash: 'Tiền mặt',
+  credit: 'Ghi nợ',
 };
 
 export type PayToggleProps = {
@@ -35,6 +39,7 @@ const GAP = 4;
 const OPTIONS = [
   { id: 'transfer', icon: QrCode },
   { id: 'cash', icon: Banknote },
+  { id: 'credit', icon: BookOpen },
 ] as const;
 
 export const PayToggle = memo(function PayToggle({
@@ -42,7 +47,7 @@ export const PayToggle = memo(function PayToggle({
   onChange,
   labels = DEFAULT_LABELS,
 }: PayToggleProps) {
-  const index = value === 'transfer' ? 0 : 1;
+  const index = OPTIONS.findIndex((option) => option.id === value);
   const x = useSharedValue(index * (WIDTH + GAP));
   useEffect(() => {
     x.value = withTiming(index * (WIDTH + GAP), { duration: 160 });
@@ -63,7 +68,7 @@ export const PayToggle = memo(function PayToggle({
           <PressableScale
             key={id}
             accessibilityRole="radio"
-            accessibilityLabel={labels[id]}
+            accessibilityLabel={labels[id] ?? DEFAULT_LABELS[id]}
             accessibilityState={{ checked: on, selected: on }}
             aria-checked={on}
             aria-selected={on}

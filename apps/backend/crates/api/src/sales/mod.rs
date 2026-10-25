@@ -43,6 +43,14 @@ struct SaleInput {
     #[serde(default)]
     scan_ids: Vec<Uuid>,
     lines: Vec<LineInput>,
+    /// Part of the total owed to the store by a customer (debt book).
+    #[serde(default)]
+    credit: Option<CreditInput>,
+}
+#[derive(Debug, Deserialize)]
+struct CreditInput {
+    customer_id: Uuid,
+    amount: i64,
 }
 #[derive(Debug, Deserialize)]
 struct LineInput {
@@ -57,19 +65,38 @@ struct LineInput {
     suggested_product_id: Option<Uuid>,
 }
 impl SaleInput {
+    /// Amount put on the customer's tab; 0 without a `credit` object.
+    fn credit_amount(&self) -> i64 {
+        self.credit.as_ref().map_or(0, |c| c.amount)
+    }
+    fn customer_id(&self) -> Option<Uuid> {
+        self.credit.as_ref().map(|c| c.customer_id)
+    }
+    /// Payment rules of createSale. The `credit` method owes the whole total; cash and transfer
+    /// may owe `0 < credit < total`. Cash received covers only the part paid now.
+    fn payment_is_valid(&self) -> bool {
+        let credit = self.credit_amount();
+        let shape = match self.payment_method.as_str() {
+            "credit" => self.credit.is_some() && credit == self.total,
+            "cash" | "transfer" => self.credit.is_none() || (0 < credit && credit < self.total),
+            _ => false,
+        };
+        shape
+            && self.credit.as_ref().is_none_or(|c| c.amount >= 1)
+            && (self.payment_method == "cash" || self.cash_received.is_none())
+            && self
+                .cash_received
+                .is_none_or(|n| money::change_given(self.total - credit, n).is_some())
+    }
     fn validate(&self) -> ApiResult<()> {
         if self.id.get_version_num() != 7
             || !(1..=200).contains(&self.lines.len())
-            || !matches!(self.payment_method.as_str(), "cash" | "transfer")
             || self.total < 0
             || self
                 .vietqr_memo
                 .as_ref()
                 .is_some_and(|s| s.chars().count() > 25)
-            || (self.payment_method != "cash" && self.cash_received.is_some())
-            || self
-                .cash_received
-                .is_some_and(|n| money::change_given(self.total, n).is_none())
+            || !self.payment_is_valid()
         {
             return Err(ApiError::validation_failed("invalid sale"));
         }
@@ -193,8 +220,22 @@ async fn create(
     input.validate()?;
     let date = business_date(input.sold_at);
     let code = money::sale_code(input.id);
-    let won = sqlx::query("INSERT INTO sales(id,store_id,code,member_id,session_id,sold_at,business_date,payment_method,cash_received,total,vietqr_memo,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(id) DO NOTHING")
-        .bind(input.id).bind(actor.store_id).bind(&code).bind(actor.member_id).bind(actor.session_id).bind(input.sold_at).bind(date).bind(&input.payment_method).bind(input.cash_received).bind(input.total).bind(&input.vietqr_memo).bind(hash.as_slice())
+    // Lock order (deadlock rule): products, then the customer row, then the store row, which
+    // `events::emit` takes. Both locks come before the sale insert: its customer foreign key
+    // takes FOR KEY SHARE on the customer, and two concurrent credit sales that each held one
+    // would deadlock on the later FOR UPDATE. An unknown customer is also a 404, not a
+    // foreign-key violation.
+    let products: Vec<Uuid> = input
+        .lines
+        .iter()
+        .filter_map(|line| line.product_id)
+        .collect();
+    crate::stock::lock_products(&mut tx, actor.store_id, &products).await?;
+    if let Some(customer) = input.customer_id() {
+        crate::debts::lock_customer(&mut tx, actor.store_id, customer).await?;
+    }
+    let won = sqlx::query("INSERT INTO sales(id,store_id,code,member_id,session_id,sold_at,business_date,payment_method,cash_received,total,vietqr_memo,request_hash,customer_id,credit_amount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO NOTHING")
+        .bind(input.id).bind(actor.store_id).bind(&code).bind(actor.member_id).bind(actor.session_id).bind(input.sold_at).bind(date).bind(&input.payment_method).bind(input.cash_received).bind(input.total).bind(&input.vietqr_memo).bind(hash.as_slice()).bind(input.customer_id()).bind(input.credit_amount())
         .execute(&mut *tx).await.map_err(write_error)?.rows_affected() == 1;
     if !won {
         let (store, stored): (Uuid, Vec<u8>) =
@@ -210,12 +251,6 @@ async fn create(
             sale(&mut tx, actor.store_id, input.id).await?,
         ));
     }
-    let products: Vec<Uuid> = input
-        .lines
-        .iter()
-        .filter_map(|line| line.product_id)
-        .collect();
-    crate::stock::lock_products(&mut tx, actor.store_id, &products).await?;
     for (position, line) in input.lines.iter().enumerate() {
         let mut quantity_in_base = 1;
         let mut mismatch = false;
@@ -308,20 +343,43 @@ async fn create(
             .execute(&mut *tx)
             .await?;
     }
-    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len()})).await?;
+    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
+    if let Some(customer) = input.customer_id() {
+        // The customer row is already locked; the sale and its debt entry commit together.
+        crate::debts::record_entry(
+            &mut tx,
+            actor.store_id,
+            customer,
+            "credit_sale",
+            input.credit_amount(),
+            Some(input.id),
+            None,
+            None,
+            actor.member_id,
+            date,
+            None,
+            None,
+            Some((actor.member_id, actor.session_id)),
+        )
+        .await?;
+    }
     let result = sale(&mut tx, actor.store_id, input.id).await?;
     tx.commit().await?;
     Ok(Idempotent::Created(result))
 }
 
 async fn sale(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiResult<Value> {
-    let mut value: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'code',code,'sold_at',sold_at,'received_at',received_at,'business_date',business_date,'member_id',member_id,'payment_method',payment_method,'cash_received',cash_received,'total',total,'vietqr_memo',vietqr_memo,'status',status,'void',CASE WHEN status='voided' THEN jsonb_build_object('reason',void_reason,'voided_by',voided_by,'voided_at',voided_at) ELSE NULL END) FROM sales WHERE store_id=$1 AND id=$2")
+    let mut value: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'code',code,'sold_at',sold_at,'received_at',received_at,'business_date',business_date,'member_id',member_id,'payment_method',payment_method,'cash_received',cash_received,'total',total,'credit_amount',credit_amount,'customer_id',customer_id,'vietqr_memo',vietqr_memo,'status',status,'void',CASE WHEN status='voided' THEN jsonb_build_object('reason',void_reason,'voided_by',voided_by,'voided_at',voided_at) ELSE NULL END) FROM sales WHERE store_id=$1 AND id=$2")
         .bind(store).bind(id).fetch_optional(&mut *conn).await?.ok_or_else(ApiError::not_found)?;
     let total = value["total"].as_i64().ok_or_else(ApiError::internal)?;
+    let credit = value["credit_amount"]
+        .as_i64()
+        .ok_or_else(ApiError::internal)?;
+    // Change is against the part paid now; the credit stays on the customer's tab.
     value["change_given"] = json!(
         value["cash_received"]
             .as_i64()
-            .and_then(|n| money::change_given(total, n))
+            .and_then(|n| money::change_given(total - credit, n))
     );
     let lines: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',l.id,'product_id',l.product_id,'unit_id',l.unit_id,'source',l.source,'quantity',l.quantity,'unit_price',l.unit_price,'manual_label',l.manual_label,'detection_id',l.detection_id,'suggested_product_id',l.suggested_product_id,'line_total',l.line_total,'price_mismatch',l.price_mismatch,'product_name',p.name) FROM sale_lines l LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id WHERE l.store_id=$1 AND l.sale_id=$2 ORDER BY l.position")
         .bind(store).bind(id).fetch_all(conn).await?;
@@ -374,7 +432,7 @@ async fn list(
     let f = query(filters)?;
     if f.payment_method
         .as_deref()
-        .is_some_and(|s| !matches!(s, "cash" | "transfer"))
+        .is_some_and(|s| !matches!(s, "cash" | "transfer" | "credit"))
         || f.status
             .as_deref()
             .is_some_and(|s| !matches!(s, "completed" | "voided"))
@@ -421,7 +479,7 @@ async fn void(
     }
     let id = parse_id(&id)?;
     let mut tx = pool(&state)?.begin().await?;
-    let (member,date,status,total): (Uuid,NaiveDate,String,i64) = sqlx::query_as("SELECT member_id,business_date,status,total FROM sales WHERE store_id=$1 AND id=$2 FOR UPDATE").bind(actor.store_id).bind(id).fetch_optional(&mut *tx).await?.ok_or_else(ApiError::not_found)?;
+    let (member,date,status,total,credit_amount,customer): (Uuid,NaiveDate,String,i64,i64,Option<Uuid>) = sqlx::query_as("SELECT member_id,business_date,status,total,credit_amount,customer_id FROM sales WHERE store_id=$1 AND id=$2 FOR UPDATE").bind(actor.store_id).bind(id).fetch_optional(&mut *tx).await?.ok_or_else(ApiError::not_found)?;
     if !money::can_void(&actor, member, date, business_date(Utc::now())) {
         return Err(ApiError::forbidden());
     }
@@ -430,6 +488,10 @@ async fn void(
             .bind(actor.store_id).bind(id).fetch_all(&mut *tx).await?;
         let products: Vec<Uuid> = lines.iter().map(|(product, _, _)| *product).collect();
         crate::stock::lock_products(&mut tx, actor.store_id, &products).await?;
+        // Lock order: products, customer, then the store row taken by `emit`.
+        if let Some(customer) = customer {
+            crate::debts::lock_customer(&mut tx, actor.store_id, customer).await?;
+        }
         for (product, quantity, size) in lines {
             let quantity = quantity
                 .checked_mul(size)
@@ -446,7 +508,8 @@ async fn void(
             )
             .await?;
         }
-        sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(input.voided_at.unwrap_or_else(Utc::now)).execute(&mut *tx).await?;
+        let voided_at = input.voided_at.unwrap_or_else(Utc::now);
+        sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(voided_at).execute(&mut *tx).await?;
         event(
             &mut tx,
             &actor,
@@ -454,6 +517,26 @@ async fn void(
             json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total}),
         )
         .await?;
+        if let Some(customer) = customer.filter(|_| credit_amount > 0) {
+            // Reverses exactly this sale's credit on the void's business date. The status guard
+            // above and the unique (sale_id, kind) index keep a second void from adding another.
+            crate::debts::record_entry(
+                &mut tx,
+                actor.store_id,
+                customer,
+                "void",
+                -credit_amount,
+                Some(id),
+                None,
+                None,
+                actor.member_id,
+                business_date(voided_at),
+                None,
+                None,
+                Some((actor.member_id, actor.session_id)),
+            )
+            .await?;
+        }
     }
     let result = sale(&mut tx, actor.store_id, id).await?;
     tx.commit().await?;
@@ -494,6 +577,86 @@ mod tests {
         let mut v = input();
         v["lines"][0]["manual_label"] = json!("ạ".repeat(80));
         assert!(validate(v).is_ok());
+    }
+    fn credit_sale(method: &str, credit: Option<i64>, cash_received: Option<i64>) -> Value {
+        let mut v = input(); // total 10
+        v["payment_method"] = json!(method);
+        if let Some(amount) = credit {
+            v["credit"] = json!({"customer_id":Uuid::now_v7(),"amount":amount});
+        }
+        if let Some(cash) = cash_received {
+            v["cash_received"] = json!(cash);
+        }
+        v
+    }
+    #[test]
+    fn validates_credit_combinations() {
+        // (method, credit.amount, cash_received, accepted) for a sale totalling 10.
+        for (method, credit, cash, ok) in [
+            ("credit", Some(10), None, true),
+            ("credit", None, None, false),
+            ("credit", Some(9), None, false),
+            ("credit", Some(11), None, false),
+            ("credit", Some(0), None, false),
+            ("credit", Some(10), Some(10), false),
+            ("cash", Some(4), None, true),
+            ("cash", Some(4), Some(6), true),
+            ("cash", Some(4), Some(10), true),
+            ("cash", Some(4), Some(5), false),
+            ("cash", Some(9), Some(1), true),
+            ("cash", Some(9), Some(0), false),
+            ("cash", Some(10), None, false),
+            ("cash", Some(11), None, false),
+            ("cash", Some(0), None, false),
+            ("cash", Some(-1), None, false),
+            ("cash", None, Some(10), true),
+            ("cash", None, Some(9), false),
+            ("transfer", Some(4), None, true),
+            ("transfer", Some(9), None, true),
+            ("transfer", Some(4), Some(6), false),
+            ("transfer", Some(10), None, false),
+            ("transfer", Some(0), None, false),
+            ("transfer", Some(-3), None, false),
+        ] {
+            let result = validate(credit_sale(method, credit, cash));
+            assert_eq!(
+                result.is_ok(),
+                ok,
+                "{method} credit {credit:?} cash {cash:?}: {result:?}"
+            );
+            if let Err(error) = result {
+                assert_eq!(error.code, "validation_failed", "{method} {credit:?}");
+            }
+        }
+    }
+    #[test]
+    fn credit_object_must_be_well_formed() {
+        for credit in [
+            json!({"customer_id":"not-a-uuid","amount":4}),
+            json!({"customer_id":Uuid::now_v7()}),
+            json!({"amount":4}),
+            json!({"customer_id":Uuid::now_v7(),"amount":"4"}),
+            json!(4),
+        ] {
+            let mut v = credit_sale("cash", None, None);
+            v["credit"] = credit;
+            assert!(serde_json::from_value::<SaleInput>(v).is_err());
+        }
+    }
+    #[test]
+    fn credit_amount_and_paid_part() {
+        let parse = |v: Value| serde_json::from_value::<SaleInput>(v).unwrap();
+        let plain = parse(input());
+        assert_eq!(plain.credit_amount(), 0);
+        assert_eq!(plain.customer_id(), None);
+        let partial = parse(credit_sale("cash", Some(4), Some(6)));
+        assert_eq!(partial.credit_amount(), 4);
+        assert!(partial.customer_id().is_some());
+        // The cash drawer receives the paid part only.
+        assert_eq!(
+            money::change_given(10 - partial.credit_amount(), 10),
+            Some(4)
+        );
     }
     #[test]
     fn validates_line_relationships_and_duplicates() {

@@ -41,6 +41,11 @@ function toAscii(text: string): string {
     .replace(/[̀-ͯ]/g, '');
 }
 
+/** The transfer note as VietQR carries it: no diacritics, at most 25 characters. */
+export function vietQrMemo(memo: string): string {
+  return toAscii(memo).slice(0, MEMO_MAX);
+}
+
 export function buildVietQr({
   bankBin,
   accountNumber,
@@ -53,7 +58,7 @@ export function buildVietQr({
   }
   const money = amount ? Math.round(amount) : 0;
   const beneficiary = tlv('00', bankBin) + tlv('01', accountNumber);
-  const note = memo ? toAscii(memo).slice(0, MEMO_MAX) : '';
+  const note = memo ? vietQrMemo(memo) : '';
   const body =
     tlv('00', '01') +
     tlv('01', money > 0 ? '12' : '11') +
