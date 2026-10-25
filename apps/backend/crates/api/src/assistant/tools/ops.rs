@@ -233,31 +233,37 @@ async fn day_close(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolErr
     let day = date(&parse::<CloseArgs>(args)?.business_date)?;
     let data:Value=sqlx::query_scalar(r#"
         WITH c AS (SELECT * FROM day_closes WHERE store_id=$1 AND business_date=$2),
-        s AS (SELECT coalesce(sum(total) FILTER (WHERE payment_method='cash'),0)::bigint cash_completed,
-            coalesce(sum(total) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue
+        s AS (SELECT coalesce(sum(total-credit_amount) FILTER (WHERE payment_method='cash'),0)::bigint cash_completed,
+            coalesce(sum(total-credit_amount) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue,
+            coalesce(sum(credit_amount),0)::bigint credit_sales
             FROM sales WHERE store_id=$1 AND business_date=$2 AND status='completed'),
-        v AS (SELECT coalesce(sum(total),0)::bigint refunds FROM sales
+        v AS (SELECT coalesce(sum(total-credit_amount),0)::bigint refunds FROM sales
             WHERE store_id=$1 AND business_date=$2 AND payment_method='cash' AND status='voided'),
+        r AS (SELECT coalesce(sum(-amount) FILTER (WHERE method='cash'),0)::bigint cash_repayments,
+            coalesce(sum(-amount) FILTER (WHERE method='transfer'),0)::bigint transfer_repayments
+            FROM debt_entries WHERE store_id=$1 AND business_date=$2 AND kind='repayment'),
         e AS (SELECT coalesce(sum(amount),0)::bigint expenses FROM expenses
             WHERE store_id=$1 AND business_date=$2 AND deleted_at IS NULL AND paid_with='cash_box')
         SELECT jsonb_build_object('business_date',$2::date,
             'opening_cash_dong',coalesce(c.opening_float,0),
             'cash_sales_dong',coalesce(c.cash_sales,s.cash_completed+v.refunds),
             'cash_refunds_dong',coalesce(c.cash_refunds,v.refunds),
+            'credit_sales_dong',coalesce(c.credit_sales,s.credit_sales),
+            'debt_repayments_cash_dong',coalesce(c.cash_repayments,r.cash_repayments),
+            'debt_repayments_transfer_dong',coalesce(c.transfer_repayments,r.transfer_repayments),
             'cash_expenses_dong',coalesce(c.cash_expenses,e.expenses),
             'transfer_revenue_dong',coalesce(c.transfer_revenue,s.transfer_revenue),
-            'expected_cash_dong',coalesce(c.expected_cash,s.cash_completed-e.expenses),
+            'expected_cash_dong',coalesce(c.expected_cash,s.cash_completed+r.cash_repayments-e.expenses),
             'close',CASE WHEN c.store_id IS NULL THEN NULL ELSE jsonb_build_object(
                 'counted_cash_dong',c.counted_cash,'expected_cash_dong',c.expected_cash,
                 'difference_dong',c.difference,'closed_at',c.closed_at,'note',c.note,
                 'late_sales_count',(SELECT count(*) FROM sales x WHERE x.store_id=$1
                     AND x.business_date=$2 AND x.status='completed' AND x.received_at>c.closed_at)) END)
-        FROM s CROSS JOIN v CROSS JOIN e LEFT JOIN c ON true
+        FROM s CROSS JOIN v CROSS JOIN r CROSS JOIN e LEFT JOIN c ON true
     "#).bind(ctx.actor.store_id).bind(day).fetch_one(pool(&ctx.state)?).await?;
     let mut data = data;
-    data["debt_repayments_cash_dong"] = Value::Null;
     data["note_vi"] = json!(
-        "Chưa có dữ liệu trả nợ tiền mặt. Khi đã chốt, các khoản tiền là ảnh chụp tại lần chốt; khi chưa chốt, tiền đầu ngày mặc định 0 ₫."
+        "Khi đã chốt, các khoản tiền là ảnh chụp tại lần chốt; khi chưa chốt, tiền đầu ngày mặc định 0 ₫. Doanh số bán chịu không tính vào tiền mặt; tiền trả nợ được tính theo phương thức thanh toán."
     );
     Ok(ToolOutput::new(data, "Đã kiểm tra số liệu chốt sổ."))
 }

@@ -108,6 +108,17 @@ fn today() -> NaiveDate {
 #[ignore = "requires Postgres and Redis"]
 async fn summary_matches_reports_and_previous_period_and_omits_profit_for_seller() {
     let f = Fixture::new().await;
+    let customer = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO customers(id,store_id,name,request_hash) VALUES($1,$2,'Credit fixture','x')",
+    )
+    .bind(customer)
+    .bind(f.world.store_id)
+    .execute(f.world.pool())
+    .await
+    .unwrap();
+    sqlx::query("UPDATE sales SET customer_id=$2,credit_amount=CASE WHEN status='voided' THEN 9000 WHEN business_date='2026-02-10' THEN 13000 ELSE 5000 END WHERE store_id=$1")
+        .bind(f.world.store_id).bind(customer).execute(f.world.pool()).await.unwrap();
     let out = f.run("get_sales_summary", json!({})).await;
     assert_eq!(out.data["totals"]["revenue_dong"], 23000);
     assert_eq!(out.data["totals"]["sale_count"], 1);
@@ -128,6 +139,58 @@ async fn summary_matches_reports_and_previous_period_and_omits_profit_for_seller
     assert_eq!(
         out.data["totals"]["revenue_dong"],
         report.body["buckets"][0]["revenue"]
+    );
+    assert_eq!(out.data["totals"]["credit_dong"], 13000);
+    assert_eq!(out.data["previous"]["totals"]["credit_dong"], 5000);
+    assert_eq!(out.data["groups"][0]["credit_dong"], 13000);
+    let daily = f
+        .world
+        .call(
+            "GET",
+            "/v1/reports/today?date=2026-02-10",
+            &f.world.lead,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(daily.status, 200);
+    assert_eq!(
+        out.data["totals"]["credit_dong"],
+        daily.body["credit_sales"]
+    );
+    let top = f.run("get_top_products", json!({})).await;
+    assert_eq!(top.data["items"][0]["revenue_dong"], 20000);
+    let search = f.run("search_sales", json!({})).await;
+    assert_eq!(search.data["sale_count"], 1);
+    assert_eq!(
+        search.data["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["revenue_dong"].as_i64().unwrap())
+            .sum::<i64>(),
+        report.body["buckets"][0]["revenue"].as_i64().unwrap()
+    );
+    let tax = f
+        .run("get_tax_overview", json!({"year":2026,"period":"month"}))
+        .await;
+    let annual = f
+        .world
+        .call(
+            "GET",
+            "/v1/reports/summary?from=2026-01-01&to=2026-02-10",
+            &f.world.lead,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(annual.status, 200);
+    assert_eq!(
+        tax.data["annual_revenue_dong"].as_i64().unwrap(),
+        annual.body["buckets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|bucket| bucket["revenue"].as_i64().unwrap())
+            .sum::<i64>()
     );
     let seller = Registry::standard()
         .run(

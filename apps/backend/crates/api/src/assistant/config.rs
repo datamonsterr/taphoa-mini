@@ -3,7 +3,8 @@
 use anyhow::{Context, bail, ensure};
 use std::time::Duration;
 
-pub const DEFAULT_MODELS: &str = "thinkingmachines/inkling-small:free,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free";
+/// Ordered free tool-capable fallbacks; gated models can fall through on HTTP 403/404.
+pub const DEFAULT_MODELS: &str = "nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free";
 /// `reasoning.effort` values OpenRouter documents (checked 2026-10-25).
 const REASONING_EFFORTS: [&str; 7] = ["max", "xhigh", "high", "medium", "low", "minimal", "none"];
 
@@ -145,9 +146,9 @@ mod tests {
         assert_eq!(
             parsed.models,
             [
-                "thinkingmachines/inkling-small:free",
                 "nvidia/nemotron-3-ultra-550b-a55b:free",
-                "google/gemma-4-31b-it:free"
+                "google/gemma-4-31b-it:free",
+                "nvidia/nemotron-3-super-120b-a12b:free"
             ]
         );
         assert_eq!(parsed.daily_messages_per_store, 60);

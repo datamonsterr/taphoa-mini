@@ -22,8 +22,9 @@ These settle what the spec leaves open. Vendor facts were checked on 2026-10-25.
   401, 402, 429, 502, 503); errors after commit are a `data:` chunk with a top-level `error` and
   `finish_reason: "error"`, and a 200 stream with only an error chunk is a failure.
 - **Fallback is client side.** The loop walks `ASSISTANT_MODELS` in order, one model per HTTP
-  request, and moves to the next model on 429 (not the daily free quota), 5xx, timeout, a
-  mid-stream error before any text delta was sent, or tool-call arguments that are not valid
+  request, and moves to the next model on 403/404 (gated or unavailable models), 429 (not the
+  daily free quota), 5xx, timeout, a mid-stream error before any text delta was sent, or tool-call
+  arguments that are not valid
   JSON. OpenRouter's `models` array is not used: its docs do not cover streaming or invalid tool
   JSON, and per-attempt calls give an exact `fallback_index` and one span and `$ai_generation`
   per attempt. A failure after text deltas reached the client ends the turn with
@@ -31,9 +32,9 @@ These settle what the spec leaves open. Vendor facts were checked on 2026-10-25.
   limit) stops the turn with `error: quota`, sets a Redis flag until the next UTC midnight, and
   later turns make no model call while it is set.
 - **Free models.** The default `ASSISTANT_MODELS` is
-  `thinkingmachines/inkling-small:free,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free`
-  (free, `tools` supported, best agentic index on 2026-10-25). Only `:free` ids are allowed, so a
-  fallback never bills. X7's comparison picks the final order.
+  `nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free`
+  (free tool-capable fallbacks; gated models were removed after the Railway test run). Only
+  `:free` ids are allowed, so a fallback never bills. X7's comparison picks the final order.
 - **Agent loop.** At most 6 model calls per user message; tool calls of one model turn run in
   parallel with a 5 s timeout each; the last 20 thread messages plus tool results form the context
   and the oldest tool results are dropped first. Tool output goes into `tool` messages as JSON

@@ -342,6 +342,14 @@ async fn retryable_errors_fall_back_and_daily_quota_stops_later_turns() {
             status: 429,
             message: "busy".into(),
         },
+        ModelError::Unavailable {
+            status: 403,
+            message: "gated".into(),
+        },
+        ModelError::Unavailable {
+            status: 404,
+            message: "delisted".into(),
+        },
         ModelError::Timeout,
         ModelError::InvalidToolCall {
             message: "bad json".into(),

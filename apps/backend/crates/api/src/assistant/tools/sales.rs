@@ -141,6 +141,7 @@ macro_rules! totals {
         r#"
 SELECT jsonb_build_object(
     'revenue_dong',COALESCE(sum(total) FILTER (WHERE status='completed'),0)::bigint,
+    'credit_dong',COALESCE(sum(credit_amount) FILTER (WHERE status='completed'),0)::bigint,
     'sale_count',count(*) FILTER (WHERE status='completed'),
     'void_count',count(*) FILTER (WHERE status='voided'),
     'gross_profit_dong',COALESCE(sum(profit) FILTER (WHERE status='completed'),0)::bigint,
@@ -177,6 +178,7 @@ async fn summary(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
                 ELSE business_date::text END bucket,
                 CASE WHEN $4='member' THEN display_name ELSE NULL END member_name,
                 COALESCE(sum(total) FILTER (WHERE status='completed'),0)::bigint revenue_dong,
+                COALESCE(sum(credit_amount) FILTER (WHERE status='completed'),0)::bigint credit_dong,
                 count(*) FILTER (WHERE status='completed') sale_count,
                 count(*) FILTER (WHERE status='voided') void_count,
                 COALESCE(sum(profit) FILTER (WHERE status='completed'),0)::bigint gross_profit_dong,

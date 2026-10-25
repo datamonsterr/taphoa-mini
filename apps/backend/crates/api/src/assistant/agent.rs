@@ -637,6 +637,12 @@ async fn run_turn_inner(
                 Err(error) => {
                     all_timeouts &= matches!(error, ModelError::Timeout);
                     attempt.http_status = error.http_status().or(attempt.http_status);
+                    tracing::warn!(
+                        model = %id,
+                        error_kind = telemetry::error_info(&error).0,
+                        http_status = attempt.http_status,
+                        "assistant model attempt failed"
+                    );
                     attempt.error = Some(error.clone());
                     telemetry::attempt_finished(&span, &attempt);
                     record.attempts.push(attempt);

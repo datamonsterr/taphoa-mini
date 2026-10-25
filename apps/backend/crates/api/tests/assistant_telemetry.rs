@@ -63,6 +63,7 @@ struct Capture {
     spans: InMemorySpanExporter,
     traces: SdkTracerProvider,
     logs: SdkLoggerProvider,
+    log_exporter: InMemoryLogExporter,
 }
 impl Capture {
     fn new() -> Self {
@@ -70,13 +71,15 @@ impl Capture {
         let traces = SdkTracerProvider::builder()
             .with_simple_exporter(spans.clone())
             .build();
+        let log_exporter = InMemoryLogExporter::default();
         let logs = SdkLoggerProvider::builder()
-            .with_simple_exporter(InMemoryLogExporter::default())
+            .with_simple_exporter(log_exporter.clone())
             .build();
         Self {
             spans,
             traces,
             logs,
+            log_exporter,
         }
     }
     fn subscriber(&self) -> impl tracing::Subscriber + use<> {
@@ -184,7 +187,7 @@ async fn turn_spans_events_fallback_denial_eval_and_masking() {
         vec![
             Step::error(ModelError::RateLimited {
                 status: 429,
-                message: "retry".into(),
+                message: "private upstream content 0912345678 sk-secret-key".into(),
             }),
             Step::tools([
                 (
@@ -208,6 +211,40 @@ async fn turn_spans_events_fallback_denial_eval_and_masking() {
     let generations = recorder.events("$ai_generation", 3).await;
     let tools = recorder.events("$ai_span", 2).await;
     assert_eq!((traces.len(), generations.len(), tools.len()), (1, 3, 2));
+    let logs = capture.log_exporter.get_emitted_logs().unwrap();
+    let failures: Vec<_> = logs
+        .iter()
+        .filter(|log| {
+            log.record
+                .target()
+                .is_some_and(|target| target.as_ref() == "taphoa_api::assistant::agent")
+                && log.record.severity_number() == Some(opentelemetry::logs::Severity::Warn)
+        })
+        .collect();
+    assert_eq!(failures.len(), 1, "one warning per failed attempt");
+    for (key, expected) in [
+        (
+            "model",
+            opentelemetry::logs::AnyValue::String("first/m:free".into()),
+        ),
+        (
+            "error_kind",
+            opentelemetry::logs::AnyValue::String("rate_limited".into()),
+        ),
+        ("http_status", opentelemetry::logs::AnyValue::Int(429)),
+    ] {
+        assert!(
+            failures[0]
+                .record
+                .attributes_iter()
+                .any(|(k, v)| k.as_str() == key && *v == expected),
+            "{key}"
+        );
+    }
+    let log_text = format!("{logs:?}");
+    for secret in ["private upstream content", "0912345678", "sk-secret-key"] {
+        assert!(!log_text.contains(secret), "{secret}");
+    }
     let spans = capture.spans.get_finished_spans().unwrap();
     let invoke = spans
         .iter()

@@ -213,7 +213,7 @@ async fn day_close_matches_cash_snapshot_and_unclosed_calculation() {
     assert_eq!(open.data["expected_cash_dong"], 85000);
     assert_eq!(open.data["cash_sales_dong"], 120000);
     assert_eq!(open.data["cash_refunds_dong"], 20000);
-    assert!(open.data["debt_repayments_cash_dong"].is_null());
+    assert_eq!(open.data["debt_repayments_cash_dong"], 0);
     sqlx::query("INSERT INTO day_closes(store_id,business_date,opening_float,cash_sales,cash_refunds,cash_expenses,expected_cash,counted_cash,transfer_revenue,closed_by) VALUES($1,'2026-10-25',10000,120000,20000,15000,95000,90000,0,$2)").bind(f.ctx.actor.store_id).bind(f.ctx.actor.member_id).execute(f.db()).await.unwrap();
     let close = f
         .run("explain_day_close", json!({"business_date":"2026-10-25"}))
@@ -615,5 +615,101 @@ async fn tax_uses_pinned_today_and_retail_estimates_are_integer_dong() {
     );
     assert_eq!(output.data["threshold_crossed_quarter"], 1);
     assert_eq!(output.data["periods"][1]["revenue_dong"], 0);
+    f.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn day_close_credit_sales_and_repayments_match_endpoint_and_snapshot() {
+    let w = common::world::World::new().await;
+    let f = Fixture {
+        ctx: ToolContext {
+            state: w.state.clone(),
+            actor: Actor {
+                store_id: w.store_id,
+                member_id: w.lead_id,
+                session_id: Uuid::new_v4(),
+                role: Role::Lead,
+                can_enroll: true,
+            },
+            today: day("2026-10-25"),
+            language: Language::Vi,
+            thread_id: Uuid::new_v4(),
+            message_id: Uuid::new_v4(),
+            trace_id: None,
+        },
+    };
+    let customer = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO customers(id,store_id,name,request_hash) VALUES($1,$2,'Credit fixture','x')",
+    )
+    .bind(customer)
+    .bind(w.store_id)
+    .execute(f.db())
+    .await
+    .unwrap();
+    for (method, total, credit, voided) in [
+        ("cash", 100000_i64, 30000_i64, false),
+        ("credit", 50000, 50000, false),
+        ("transfer", 40000, 10000, false),
+        ("cash", 20000, 5000, true),
+    ] {
+        let sale = f.sale("2026-10-25", total, voided).await;
+        sqlx::query(
+            "UPDATE sales SET payment_method=$2,credit_amount=$3,customer_id=$4 WHERE id=$1",
+        )
+        .bind(sale)
+        .bind(method)
+        .bind(credit)
+        .bind(customer)
+        .execute(f.db())
+        .await
+        .unwrap();
+    }
+    for (method, amount) in [("cash", -12000_i64), ("transfer", -9000)] {
+        sqlx::query("INSERT INTO debt_entries(store_id,customer_id,kind,amount,balance_after,method,member_id,business_date) VALUES($1,$2,'repayment',$3,0,$4,$5,'2026-10-25')")
+            .bind(w.store_id).bind(customer).bind(amount).bind(method).bind(w.lead_id).execute(f.db()).await.unwrap();
+    }
+    sqlx::query("INSERT INTO expenses(id,store_id,member_id,spent_at,business_date,amount,category,paid_with,request_hash) VALUES($1,$2,$3,'2026-10-25T10:00:00+07','2026-10-25',15000,'dien','cash_box','x')")
+        .bind(Uuid::new_v4()).bind(w.store_id).bind(w.lead_id).execute(f.db()).await.unwrap();
+    let args = json!({"business_date":"2026-10-25"});
+    let open = f.run("explain_day_close", args.clone()).await;
+    assert_eq!(open.data["expected_cash_dong"], 67000);
+    assert_eq!(open.data["cash_sales_dong"], 85000);
+    assert_eq!(open.data["cash_refunds_dong"], 15000);
+    assert_eq!(open.data["credit_sales_dong"], 90000);
+    assert_eq!(open.data["debt_repayments_cash_dong"], 12000);
+    assert_eq!(open.data["debt_repayments_transfer_dong"], 9000);
+    let close = w
+        .call(
+            "PUT",
+            "/v1/day-closes/2026-10-25",
+            &w.lead,
+            json!({"opening_float":0,"counted_cash":65000}),
+        )
+        .await;
+    assert_eq!(close.status, 200, "{}", close.body);
+    assert_eq!(open.data["expected_cash_dong"], close.body["expected_cash"]);
+    let snapshot = f.run("explain_day_close", args.clone()).await;
+    assert_eq!(
+        snapshot.data["expected_cash_dong"],
+        close.body["expected_cash"]
+    );
+    assert_eq!(snapshot.data["close"]["difference_dong"], -2000);
+    // Late repayments and credit sales must not change the saved close's components.
+    sqlx::query("INSERT INTO debt_entries(store_id,customer_id,kind,amount,balance_after,method,member_id,business_date) VALUES($1,$2,'repayment',-1000,0,'cash',$3,'2026-10-25')")
+        .bind(w.store_id).bind(customer).bind(w.lead_id).execute(f.db()).await.unwrap();
+    f.sale("2026-10-25", 1000, false).await;
+    let late = f.run("explain_day_close", args).await;
+    for field in [
+        "expected_cash_dong",
+        "cash_sales_dong",
+        "cash_refunds_dong",
+        "credit_sales_dong",
+        "debt_repayments_cash_dong",
+        "debt_repayments_transfer_dong",
+    ] {
+        assert_eq!(late.data[field], snapshot.data[field], "{field}");
+    }
     f.cleanup().await;
 }

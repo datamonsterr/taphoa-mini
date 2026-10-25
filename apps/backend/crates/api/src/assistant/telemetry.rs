@@ -285,7 +285,7 @@ pub(crate) fn feedback(
     capture(state, events);
 }
 // Provider messages may echo credentials, request bodies or URLs. Export only safe local wording.
-fn error_info(error: &ModelError) -> (&'static str, &'static str) {
+pub(super) fn error_info(error: &ModelError) -> (&'static str, &'static str) {
     match error {
         ModelError::RateLimited { .. } => ("rate_limited", "model rate limited"),
         ModelError::DailyQuota { .. } => ("daily_quota", "free model daily quota exhausted"),

@@ -270,7 +270,7 @@ fn http_error(status: u16, bytes: &[u8]) -> ModelError {
             ModelError::DailyQuota { message }
         }
         429 => ModelError::RateLimited { status, message },
-        408 | 500..=599 => ModelError::Unavailable { status, message },
+        403 | 404 | 408 | 500..=599 => ModelError::Unavailable { status, message },
         _ => ModelError::Other {
             status: Some(status),
             message,
@@ -730,6 +730,28 @@ mod tests {
         assert!(body.get("usage").is_none());
     }
     #[tokio::test]
+    async fn gated_model_403_is_retryable() {
+        let mock = canned(
+            403,
+            json!({"error":{"message":"only available on agentic harnesses"}}).to_string(),
+        )
+        .await;
+        let error = run(&mock).await.0.unwrap_err();
+        assert!(matches!(error, ModelError::Unavailable { status: 403, .. }));
+        assert!(error.retryable());
+    }
+    #[tokio::test]
+    async fn missing_model_404_is_retryable() {
+        let mock = canned(
+            404,
+            json!({"error":{"message":"model delisted"}}).to_string(),
+        )
+        .await;
+        let error = run(&mock).await.0.unwrap_err();
+        assert!(matches!(error, ModelError::Unavailable { status: 404, .. }));
+        assert!(error.retryable());
+    }
+    #[tokio::test]
     async fn http_status_mapping_and_daily_quota() {
         for (status, error, expected) in [
             (429, json!({"message":"Rate limit exceeded"}), "rate"),
@@ -748,6 +770,12 @@ mod tests {
                 json!({"message":"Limited","metadata":{"limit":"PER-DAY"}}),
                 "daily",
             ),
+            (
+                403,
+                json!({"message":"only available on agentic harnesses"}),
+                "unavailable",
+            ),
+            (404, json!({"message":"model delisted"}), "unavailable"),
             (502, json!({"message":"bad gateway"}), "unavailable"),
             (503, json!({"message":"unavailable"}), "unavailable"),
             (408, json!({"message":"timeout"}), "unavailable"),
@@ -760,6 +788,10 @@ mod tests {
             mock.requests.try_recv().unwrap();
             assert!(mock.requests.try_recv().is_err());
             assert_eq!(error.http_status(), Some(status));
+            assert_eq!(
+                error.retryable(),
+                matches!(expected, "rate" | "unavailable")
+            );
             assert!(
                 matches!(
                     (&error, expected),
