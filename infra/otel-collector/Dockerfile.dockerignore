@@ -1,0 +1,5 @@
+**
+!infra/
+!infra/otel-collector/
+!infra/otel-collector/**
+infra/otel-collector/tests/__pycache__/

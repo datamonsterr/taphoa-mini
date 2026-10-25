@@ -4,6 +4,8 @@
 !apps/backend/
 !apps/backend/**
 apps/backend/target/
+# Worktree-specific target paths are not portable inside the build image.
+apps/backend/.cargo/
 apps/backend/models/
 apps/backend/onnxruntime/
 apps/backend/.env
