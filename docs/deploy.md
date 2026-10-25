@@ -138,7 +138,10 @@ CI can seed and run integration tests (`scripts/ci/railway_env.py` builds the UR
 
 Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys too: a
 `railway up` whose snapshot has no backend change versus the last deployment ends as
-`SKIPPED`, meaning the running deployment already matches.
+`SKIPPED`, meaning the running deployment already matches. `railway up --ci` never returns after
+a `SKIPPED` upload, so the workflow deploys with `scripts/ci/railway_deploy.py`: it uploads with
+`--detach` and polls `railway deployment list` until the new deployment is `SUCCESS` or `SKIPPED`
+(exit 0) or `FAILED` / `CRASHED` / `REMOVED` (prints the build log, exit 1), with a 30-minute cap.
 
 ## CI pipeline
 
@@ -167,8 +170,12 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
 3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
    epic branches can be validated before merge.
 
-Deploys are serialized per environment (`deploy-railway-test`,
-`deploy-railway-production`, no cancellation). `.github/workflows/railway-integration.yml`
+Deploys are serialized per environment. Production uses the `deploy-railway-production`
+concurrency group. The `test` job uses no group: GitHub keeps one pending run per group and
+cancels older pending runs, which kept cancelling branch validations. Instead its first step,
+`scripts/ci/wait_turn.py`, waits until no `Deploy backend` run with a smaller run id still has its
+`test` job queued or running (a FIFO queue; older runs never wait on newer ones).
+`.github/workflows/railway-integration.yml`
 runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
 (manual, nightly 20:17 UTC and on backend changes to `main`) via
 `scripts/ci/with-railway-test-services.sh`: a throwaway database `it_<run>` is created and
@@ -198,7 +205,7 @@ environment context in a clean checkout; the service is selected explicitly.
 `.github/workflows/deploy.yml` listens for completed `CI` workflows on `main` and
 requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
-`railway up --service backend --ci` in the `production` job, which `needs` the `test`
+`scripts/ci/railway_deploy.py backend` in the `production` job, which `needs` the `test`
 job (deploy, seed, e2e). Production deploys are serialized. Turn off
 Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
 the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.
