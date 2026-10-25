@@ -1,4 +1,10 @@
-import { buildVietQr, crc16, tlv, type VietQrInput } from './vietqr';
+import {
+  buildVietQr,
+  crc16,
+  tlv,
+  vietQrMemo,
+  type VietQrInput,
+} from './vietqr';
 
 const input: VietQrInput = {
   bankBin: '970436',
@@ -44,6 +50,15 @@ describe('tlv', () => {
 
   it('throws when the value is longer than 99 characters', () => {
     expect(() => tlv('62', 'x'.repeat(100))).toThrow(/too long/);
+  });
+});
+
+describe('vietQrMemo', () => {
+  it('strips diacritics (đ too) and clamps to 25 characters', () => {
+    expect(vietQrMemo('Trả nợ Đỗ Văn Ân')).toBe('Tra no Do Van An');
+    expect(vietQrMemo('Thanh toán đơn hàng số một hai ba bốn')).toBe(
+      'Thanh toan don hang so mo',
+    );
   });
 });
 

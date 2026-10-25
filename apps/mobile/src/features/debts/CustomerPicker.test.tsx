@@ -1,11 +1,17 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { renderWithProviders } from '@/test/render';
-import { createCustomer } from '@/lib/api/debts';
+import * as debtsApi from '@/lib/api/debts';
+import { createCustomer, listCustomers } from '@/lib/api/debts';
+import { newUuid } from '@/lib/uuid';
 import { CustomerPicker } from './CustomerPicker';
 
 test('shows recent customers, searches name/phone and selects a customer', async () => {
-  const lan = await createCustomer({ name: 'Lan', phone: '0901234567' });
-  await createCustomer({ name: 'Mai' });
+  const lan = await createCustomer({
+    id: newUuid(),
+    name: 'Lan',
+    phone: '0901234567',
+  });
+  await createCustomer({ id: newUuid(), name: 'Mai' });
   const onSelect = jest.fn();
   await renderWithProviders(
     <CustomerPicker onSelect={onSelect} onClose={jest.fn()} />,
@@ -33,4 +39,30 @@ test('creates inline with name and optional phone then selects', async () => {
   expect(onSelect).toHaveBeenCalledWith(
     expect.objectContaining({ name: 'Cô Hoa', phone: '0912345678' }),
   );
+});
+
+afterEach(() => jest.restoreAllMocks());
+
+test('pressing create again after a lost response resends the same id', async () => {
+  const real = debtsApi.createCustomer;
+  const create = jest
+    .spyOn(debtsApi, 'createCustomer')
+    .mockImplementationOnce(async (input) => {
+      await real(input);
+      throw new TypeError('response lost');
+    });
+  const onSelect = jest.fn();
+  await renderWithProviders(
+    <CustomerPicker onSelect={onSelect} onClose={jest.fn()} />,
+  );
+  await fireEvent.changeText(screen.getByLabelText('Tên khách hàng'), 'Cô Hoa');
+  await fireEvent.press(screen.getByLabelText('Tạo khách hàng'));
+  expect(
+    await screen.findByText('Không tạo được khách hàng. Thử lại.'),
+  ).toBeOnTheScreen();
+  await fireEvent.press(screen.getByLabelText('Tạo khách hàng'));
+  await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(create.mock.calls[1]![0].id).toBe(create.mock.calls[0]![0].id);
+  expect((await listCustomers({ query: 'Hoa' })).items).toHaveLength(1);
 });

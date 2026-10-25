@@ -646,6 +646,8 @@ export const useCustomers = (
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
     select: (data) => data.pages.flatMap((page) => page.items ?? []),
+    // Typing in a search box must not blank the list between keystrokes.
+    placeholderData: keepPreviousData,
   });
 export const useCustomer = (id: string | undefined) =>
   useQuery({

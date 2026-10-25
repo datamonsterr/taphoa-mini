@@ -1,5 +1,4 @@
 import type { paths } from '@taphoa/api-client';
-import { newUuid } from '@/lib/uuid';
 import { getApiClient } from './client';
 import { unwrap } from './errors';
 import type {
@@ -22,14 +21,11 @@ export const listCustomers = (params: ListCustomersParams = {}) =>
   unwrap(
     getApiClient().raw.GET('/v1/customers', { params: { query: params } }),
   );
+/** The caller owns the UUIDv7: a retry must resend the same id so the server replays instead of duplicating. */
 export const createCustomer = (
-  input: Omit<CreateCustomerRequest, 'id'> & { id?: string },
+  input: CreateCustomerRequest,
 ): Promise<Customer> =>
-  unwrap(
-    getApiClient().raw.POST('/v1/customers', {
-      body: { ...input, id: input.id ?? newUuid() },
-    }),
-  );
+  unwrap(getApiClient().raw.POST('/v1/customers', { body: input }));
 export const getCustomer = (customerId: string): Promise<Customer> =>
   unwrap(
     getApiClient().raw.GET('/v1/customers/{customerId}', {

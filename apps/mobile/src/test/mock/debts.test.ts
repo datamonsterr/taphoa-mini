@@ -4,10 +4,11 @@ import { getApiClient } from '@/lib/api/client';
 import type { CreateSaleRequest } from '@/lib/api/types';
 import { newUuid } from '@/lib/uuid';
 import { addDays, businessDate } from '@/lib/date';
+import { freezeDate } from '../clock';
 import { getMockDb } from './db';
-import { getDailyReport, putDayClose } from './ledger';
+import { getDailyReport, putDayClose, voidSale } from './ledger';
 
-const customer = () => api.createCustomer({ name: 'Chị Lan' });
+const customer = () => api.createCustomer({ id: newUuid(), name: 'Chị Lan' });
 const sale = (
   customerId: string,
   extra: Partial<CreateSaleRequest> = {},
@@ -203,8 +204,12 @@ test('day-close counts only paid cash and repayments; revenue includes credit', 
 });
 
 test('customer search, archive filter, sort and pagination are preserved', async () => {
-  const c = await api.createCustomer({ name: 'Lan', phone: '0901234567' });
-  await api.createCustomer({ name: 'Mai' });
+  const c = await api.createCustomer({
+    id: newUuid(),
+    name: 'Lan',
+    phone: '0901234567',
+  });
+  await api.createCustomer({ id: newUuid(), name: 'Mai' });
   expect(
     (await api.listCustomers({ query: 'lAN' })).items?.map((c) => c.id),
   ).toEqual([c.id]);
@@ -269,4 +274,55 @@ test('seller retains the existing ability to void their own same-day credit sale
   });
   expect(result.response.status).toBe(200);
   expect((await api.getCustomer(c.id)).balance).toBe(0);
+});
+
+test('the entries list is newest first even when entries share a millisecond', async () => {
+  freezeDate(Date.now());
+  const c = await customer();
+  for (const amount of [1000, 2000, 3000, 4000, 5000, 6000])
+    await api.createRepayment(c.id, { amount, method: 'cash' }, newUuid());
+  expect(
+    (await api.listDebtEntries(c.id)).items?.map((e) => -e.amount),
+  ).toEqual([6000, 5000, 4000, 3000, 2000, 1000]);
+});
+
+test('day close follows expected = float + cash sales - refunds + repayments - cash expenses, credit and voided credit excluded', async () => {
+  getMockDb().sales = [];
+  getMockDb().expenses = [];
+  const c = await customer();
+  await createSale(
+    sale(c.id, {
+      payment_method: 'cash',
+      cash_received: 4000,
+      credit: { customer_id: c.id, amount: 6000 },
+    }),
+  );
+  const voided = await createSale(sale(c.id));
+  voidSale(voided.id, { reason: 'Nhầm' });
+  await api.createRepayment(c.id, { amount: 2500, method: 'cash' }, newUuid());
+  await api.createRepayment(
+    c.id,
+    { amount: 700, method: 'transfer' },
+    newUuid(),
+  );
+  const close = putDayClose(businessDate(), {
+    opening_float: 1000,
+    counted_cash: 0,
+    note: null,
+  });
+  expect(close).toMatchObject({
+    cash_sales: 4000,
+    cash_refunds: 0,
+    cash_repayments: 2500,
+    transfer_repayments: 700,
+    credit_sales: 6000,
+  });
+  expect(close.expected_cash).toBe(
+    close.opening_float! +
+      close.cash_sales! -
+      close.cash_refunds! +
+      close.cash_repayments! -
+      close.cash_expenses!,
+  );
+  expect(close.expected_cash).toBe(7500);
 });

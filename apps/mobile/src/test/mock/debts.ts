@@ -358,11 +358,9 @@ export const DEBT_ROUTES: MockRoute[] = [
         body: paginate(
           getMockDb()
             .debtEntries.filter((e) => e.customer_id === params.customerId)
-            .sort(
-              (a, b) =>
-                b.created_at.localeCompare(a.created_at) ||
-                b.id.localeCompare(a.id),
-            ),
+            // Newest first. Entries are pushed in order, so reversing is exact even when two
+            // land in the same millisecond (a created_at/id sort is not).
+            .reverse(),
           query,
         ),
       };
