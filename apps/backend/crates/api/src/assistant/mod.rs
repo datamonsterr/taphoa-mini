@@ -1,11 +1,13 @@
 //! The in-backend assistant (ADR 0005): threads, an agent loop over permission-filtered tools,
 //! proposed actions the owner confirms, and next-step chips. Spec: docs/specs/assistant/.
 pub mod actions;
+pub mod agent;
 pub mod config;
 pub mod eval;
 pub mod model;
 pub mod next_steps;
 pub mod quota;
+pub mod stream;
 pub mod threads;
 pub mod tools;
 
@@ -21,10 +23,20 @@ use std::sync::Arc;
 
 /// Held in `AppState.assistant`. `model` is None until main.rs builds a client; the message
 /// endpoint then answers `model_unavailable`.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AssistantState {
     pub config: Arc<AssistantConfig>,
     pub model: Option<Arc<dyn ChatModel>>,
+    pub registry: Arc<tools::Registry>,
+}
+impl Default for AssistantState {
+    fn default() -> Self {
+        Self {
+            config: Arc::new(AssistantConfig::default()),
+            model: None,
+            registry: Arc::new(tools::Registry::standard()),
+        }
+    }
 }
 
 /// Language of a turn: the system prompt and the Vietnamese-or-English wording follow it.
@@ -54,6 +66,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/v1/assistant/actions/{action_id}/reject",
             post(actions::reject),
+        )
+        .route(
+            "/v1/assistant/threads/{thread_id}/messages",
+            post(agent::send_message),
         )
         .route(
             "/v1/assistant/threads",
