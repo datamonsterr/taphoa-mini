@@ -46,8 +46,9 @@ SDK 3.16 (`defineRailway((ctx) => …)` with `ctx.isEnvironment(name)`).
   regions `sfo` to `sin`, and drop the Clerk variables. X2 never runs `railway config apply`;
   it creates services with the CLI and mirrors them in the file. X2 adds `preserve()` for the
   PostHog and OTel variables it owns and reports the rest to the program controller.
-- **Service version.** `SERVICE_VERSION` env, else `RAILWAY_GIT_COMMIT_SHA`, else a
-  `.service-version` file the deploy workflow writes before `railway up`, else the crate
+- **Service version.** `SERVICE_VERSION` env, which the deploy workflow sets to the deployed
+  SHA as a Railway variable before `railway up`; else `RAILWAY_GIT_COMMIT_SHA`; else an
+  optional local `.service-version` file read from the working directory; else the crate
   version.
 
 ## Task graph

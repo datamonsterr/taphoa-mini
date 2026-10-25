@@ -90,17 +90,17 @@ Test uses `https://otel-collector-production-ce86.up.railway.app` with the same
 collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
 `/v1/traces` and `/v1/logs`. Set bearer authorization for both environments.
 
-| Service   | Variable                      | Purpose                                                                                                                  |
-| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                                           |
-| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<collector-token>` (W3C/OTel env format; space URL-encoded)                                      |
-| Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                                          |
-| Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; by default the backend uses Railway's `RAILWAY_ENVIRONMENT_NAME` (`production`, `test`), else `local` |
-| Backend   | `SERVICE_VERSION`             | Release identifier; fallback is Railway commit SHA, `.service-version`, then crate version                               |
-| Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                                         |
-| Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                                               |
-| Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                                          |
-| Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                                    |
+| Service   | Variable                      | Purpose                                                                                                                                                                                                              |
+| --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                                                                                                                                       |
+| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<collector-token>` (W3C/OTel env format; space URL-encoded)                                                                                                                                  |
+| Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                                                                                                                                      |
+| Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; by default the backend uses Railway's `RAILWAY_ENVIRONMENT_NAME` (`production`, `test`), else `local`                                                                                             |
+| Backend   | `SERVICE_VERSION`             | Release identifier; the deploy workflow sets it to the deployed SHA before `railway up`; fallback is Railway commit SHA, then an optional local `.service-version` file in the working directory, then crate version |
+| Backend   | `OTEL_SDK_DISABLED`           | `true` disables telemetry export                                                                                                                                                                                     |
+| Collector | `COLLECTOR_BEARER_TOKEN`      | Required bearer credential on OTLP ingress                                                                                                                                                                           |
+| Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                                                                                                                                      |
+| Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                                                                                                                                |
 
 Production backend values are Railway references: the endpoint is
 `http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318` and

@@ -78,6 +78,8 @@ export default defineRailway((ctx) => {
       POSTHOG_HOST: preserve(),
       OTEL_EXPORTER_OTLP_ENDPOINT: preserve(),
       OTEL_EXPORTER_OTLP_HEADERS: preserve(),
+      // Set by the deploy workflow to the deployed git SHA.
+      SERVICE_VERSION: preserve(),
       OPENROUTER_API_KEY: preserve(),
       DECISIONS_MODEL: 'inception/mercury-decide:free',
       // Bucket credentials are not referencable from IaC; set once with
