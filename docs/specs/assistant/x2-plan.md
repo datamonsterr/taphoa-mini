@@ -83,3 +83,25 @@ T9 remove Langfuse (scope change) ─▶ T5 redeploy collector PostHog-only
   public URL and header); collector PostHog variables reference the backend PostHog variables.
 - **Deploy note.** From a worktree under `.claude/worktrees/`, `railway up` resolves the main
   checkout and its ignore rules drop the worktree; use `railway up . --path-as-root`.
+- **IaC plans (after the Langfuse stack was deleted).** `railway config plan` lists no X2
+  resource or variable in either environment; the collector is neither created in `test` nor
+  deleted in `production`. Remaining lines are the pre-existing drift: production
+  `+ backend.OCR_THREADS`, Clerk variable deletes, backend `source.*` and
+  `restartPolicyType`, `redis-volume`/`postgres-volume` region `sfo`→`sin`,
+  `- bucket images-prod`; test `+ backend.SAM_DECODERS`, Clerk variable deletes,
+  `restartPolicyType`, the two volume regions, `+ bucket images-sin`, `- bucket images`,
+  `- bucket images-sjc`.
+
+## Review notes (deferred, with reasons)
+
+- `user.id` is not recorded and `session.id` is the internal session UUID until X1 lands the
+  Clerk `Actor`; X1 maps `user.id = clerk_user_id` and `session.id = sid` inside
+  `telemetry::record_identity`.
+- `db.collection.name` is omitted when the main table cannot be parsed safely (CTEs,
+  dollar-quoted literals); the contract's required attribute applies when the table is known.
+- `recognition.scan` spans are not emitted by X2 (not in the X2 acceptance); follow-up for the
+  owning epic.
+- Background tasks (outbox relay, retention, index worker) are still only observed at
+  shutdown, as before X2; supervision is a separate follow-up.
+- Collector redaction keeps `error_mode: ignore` (a failing statement must not drop whole
+  batches); its statements cannot fail on valid input.
