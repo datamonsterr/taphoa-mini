@@ -4,6 +4,7 @@ import { getApiClient } from '@/lib/api/client';
 import type { CreateSaleRequest } from '@/lib/api/types';
 import { newUuid } from '@/lib/uuid';
 import { addDays, businessDate } from '@/lib/date';
+import { freezeDate } from '../clock';
 import { getMockDb } from './db';
 import { getDailyReport, putDayClose } from './ledger';
 
@@ -273,4 +274,14 @@ test('seller retains the existing ability to void their own same-day credit sale
   });
   expect(result.response.status).toBe(200);
   expect((await api.getCustomer(c.id)).balance).toBe(0);
+});
+
+test('the entries list is newest first even when entries share a millisecond', async () => {
+  freezeDate(Date.now());
+  const c = await customer();
+  for (const amount of [1000, 2000, 3000, 4000, 5000, 6000])
+    await api.createRepayment(c.id, { amount, method: 'cash' }, newUuid());
+  expect(
+    (await api.listDebtEntries(c.id)).items?.map((e) => -e.amount),
+  ).toEqual([6000, 5000, 4000, 3000, 2000, 1000]);
 });

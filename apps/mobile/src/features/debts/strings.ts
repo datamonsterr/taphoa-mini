@@ -75,7 +75,6 @@ export const debtStrings: Dict = {
     'edit.save': 'Lưu thay đổi',
     'edit.error': 'Không lưu được. Thử lại.',
     'edit.archive': 'Lưu trữ khách hàng',
-    'edit.unarchive': 'Bỏ lưu trữ khách hàng',
     'sheet.close': 'Đóng',
   },
   en: {
@@ -153,7 +152,6 @@ export const debtStrings: Dict = {
     'edit.save': 'Save changes',
     'edit.error': 'Could not save. Try again.',
     'edit.archive': 'Archive customer',
-    'edit.unarchive': 'Unarchive customer',
     'sheet.close': 'Close',
   },
 };

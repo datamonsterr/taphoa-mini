@@ -11,6 +11,7 @@ import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { colors, radius, size, space, typography } from '@/theme';
 
+import { useInputStyle } from './DebtInput';
 import { OverdueBadge } from './OverdueBadge';
 import { debtStrings } from './strings';
 
@@ -24,6 +25,7 @@ export function DebtBookScreen() {
   const [query, setQuery] = useState('');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const inputStyle = useInputStyle();
   const search = query.trim();
   const summary = useDebtSummary();
   const customers = useCustomers({
@@ -118,7 +120,7 @@ export function DebtBookScreen() {
           onChangeText={setQuery}
           returnKeyType="search"
           autoCorrect={false}
-          style={styles.input}
+          style={inputStyle}
         />
         <PressableScale
           accessibilityRole="button"
@@ -248,15 +250,6 @@ const styles = StyleSheet.create({
   summaryError: { flex: 1, gap: space[3] },
   overdueText: { ...typography.caption, color: colors.warning },
   filters: { gap: space[2], paddingHorizontal: space[4] },
-  input: {
-    ...typography.body,
-    color: colors.ink,
-    minHeight: size.tapMin,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    borderRadius: radius.md,
-    paddingHorizontal: space[4],
-  },
   chip: {
     alignSelf: 'flex-start',
     minHeight: size.tapMin,
