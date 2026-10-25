@@ -28,6 +28,7 @@ import {
 } from './db';
 import { badRequest, notFound } from './errors';
 import { randomCode } from './ids';
+import { applyStock } from './stockReceipts';
 
 const sum = <T>(items: T[], pick: (item: T) => number) =>
   items.reduce((total, item) => total + pick(item), 0);
@@ -117,6 +118,14 @@ export function createSale(req: CreateSaleRequest): {
     lines,
   };
   db.sales.push(sale);
+  for (const line of lines) {
+    if (!line.product_id) continue;
+    const product = findProductRecord(line.product_id).product;
+    if (product.stock_quantity === null) continue;
+    const factor =
+      product.units.find((u) => u.id === line.unit_id)?.quantity_in_base ?? 1;
+    applyStock(product.id, -line.quantity * factor, 'sale', sale.id);
+  }
   for (const l of lines) {
     if (l.source !== 'manual') continue;
     db.manualLines.push({

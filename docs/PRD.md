@@ -133,7 +133,7 @@ The problem is real and the solution fits it. Adjustments to the original idea:
 
 ### Non-goals (MVP)
 
-- Full inventory/stock counts and reorder alerts (phase 2–3).
+- Automatic reordering.
 - Training or fine-tuning any model (phase 2).
 - Automatic bank transfer confirmation (phase 2).
 - E-invoice issuance / tax filing integration (phase 3, after regulation review).
@@ -173,12 +173,14 @@ Priority: **P0** = MVP must, **P1** = MVP should, **P2** = later.
 
 ### 5.3 Expenses and purchases (Chi / Nhập hàng)
 
-| ID  | Requirement                                                                                                          | Priority |
-| --- | -------------------------------------------------------------------------------------------------------------------- | -------- |
-| E1  | Add expense: amount, category (nhập hàng, điện, nước, khác), optional photo of supplier bill, optional note.         | P0       |
-| E2  | Purchase linked to products: quantity and unit cost per product; updates product cost price.                         | P1       |
-| E3  | When cost price rises so margin < configured threshold (default 0) the app alerts the lead and suggests a new price. | P1       |
-| E4  | Stock quantity tracking (purchases add, sales subtract).                                                             | P2       |
+| ID  | Requirement                                                                                                                         | Priority |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| E1  | Add expense: amount, category (nhập hàng, điện, nước, khác), optional photo of supplier bill, optional note.                        | P0       |
+| E2  | Purchase linked to products: quantity and unit cost per product; updates product cost price.                                        | P1       |
+| E3  | When cost price rises so margin < configured threshold (default 0) the app alerts the lead and suggests a new price.                | P1       |
+| E4  | Stock quantity tracking (purchases add, sales subtract).                                                                            | P1       |
+| E5  | Scan a supplier import receipt into stock and expense (OCR + product mapping), receipt history.                                     | P1       |
+| E6  | Low-stock alerts on threshold crossing, with configurable store default and per-product override; in-app banner and dashboard list. | P1       |
 
 ### 5.4 Reports (Báo cáo)
 

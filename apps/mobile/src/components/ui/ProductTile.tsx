@@ -4,6 +4,11 @@ import { StyleSheet, View } from 'react-native';
 
 import { Text } from './ScaledText';
 
+import { strings } from '@/features/stock/strings';
+import type { Product } from '@/lib/api/types';
+import { useT } from '@/lib/i18n';
+import { StockBadge } from './StockBadge';
+
 import { formatVnd } from '@/lib/format';
 import { colors, radius, space, typography } from '@/theme';
 
@@ -13,6 +18,8 @@ export type ProductTileProps = {
   name: string;
   price: number;
   imageUri?: string;
+  stockQuantity?: number | null;
+  stockStatus?: Product['stock_status'];
   onPress?: () => void;
 };
 
@@ -22,12 +29,20 @@ export const ProductTile = memo(function ProductTile({
   price,
   imageUri,
   onPress,
+  stockQuantity = null,
+  stockStatus = 'untracked',
 }: ProductTileProps) {
+  const t = useT(strings);
   const priceText = formatVnd(price);
   return (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${priceText}`}
+      accessibilityHint={
+        stockQuantity !== null
+          ? `${t('stock')} ${stockQuantity}, ${t(stockStatus)}`
+          : undefined
+      }
       pressedScale={0.98}
       onPress={onPress}
       style={styles.tile}
@@ -44,6 +59,9 @@ export const ProductTile = memo(function ProductTile({
             testID="product-photo"
           />
         ) : null}
+        <View style={styles.badge}>
+          <StockBadge quantity={stockQuantity} status={stockStatus} />
+        </View>
       </View>
       <Text numberOfLines={1} style={styles.name}>
         {name}
@@ -56,6 +74,12 @@ export const ProductTile = memo(function ProductTile({
 });
 
 const styles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    top: space[2],
+    right: space[2],
+    maxWidth: '95%',
+  },
   tile: { flex: 1, gap: space[2] },
   photo: {
     aspectRatio: 1,

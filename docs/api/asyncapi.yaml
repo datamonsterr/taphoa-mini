@@ -50,6 +50,9 @@ channels:
       salePaymentConfirmed:
         { $ref: '#/components/messages/salePaymentConfirmed' }
       productIndexed: { $ref: '#/components/messages/productIndexed' }
+      stockChanged: { $ref: '#/components/messages/stockChanged' }
+      stockLow: { $ref: '#/components/messages/stockLow' }
+      receiptConfirmed: { $ref: '#/components/messages/receiptConfirmed' }
   storeEventBus:
     address: 'store:{storeId}:events'
     title: Store event bus (Redis pub/sub)
@@ -76,6 +79,9 @@ channels:
       salePaymentConfirmed:
         { $ref: '#/components/messages/salePaymentConfirmed' }
       productIndexed: { $ref: '#/components/messages/productIndexed' }
+      stockChanged: { $ref: '#/components/messages/stockChanged' }
+      stockLow: { $ref: '#/components/messages/stockLow' }
+      receiptConfirmed: { $ref: '#/components/messages/receiptConfirmed' }
   internalEvents:
     address: internal:events
     title: Internal events (Redis pub/sub)
@@ -467,3 +473,64 @@ components:
                   reference_count:
                     type: integer
                     minimum: 0
+    stockChanged:
+      name: stock.changed
+      summary: Tracked quantity changed; ledger and event committed in the same transaction.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: stock.changed }
+              data:
+                type: object
+                required: [product_id, stock_quantity, reason]
+                properties:
+                  product_id: { $ref: '#/components/schemas/Uuid' }
+                  stock_quantity:
+                    {
+                      type: integer,
+                      description: Base-unit quantity; may be negative.,
+                    }
+                  reason:
+                    {
+                      type: string,
+                      enum: [receipt, sale, sale_void, adjustment],
+                    }
+    stockLow:
+      name: stock.low
+      summary: Quantity crossed from above to at or below the effective threshold; restocking above re-arms it.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: stock.low }
+              data:
+                type: object
+                required: [product_id, name, stock_quantity, threshold]
+                properties:
+                  product_id: { $ref: '#/components/schemas/Uuid' }
+                  name: { type: [string, 'null'] }
+                  stock_quantity: { type: integer }
+                  threshold: { type: integer, minimum: 0, maximum: 100000 }
+    receiptConfirmed:
+      name: receipt.confirmed
+      summary: Receipt confirmed with one expense and stock movements in the same transaction; no event on replay.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: receipt.confirmed }
+              data:
+                type: object
+                required: [receipt_id, expense_id, total, line_count]
+                properties:
+                  receipt_id: { $ref: '#/components/schemas/Uuid' }
+                  expense_id: { $ref: '#/components/schemas/Uuid' }
+                  total: { $ref: '#/components/schemas/Money' }
+                  line_count: { type: integer, minimum: 1, maximum: 100 }

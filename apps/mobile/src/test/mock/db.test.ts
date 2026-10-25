@@ -29,7 +29,7 @@ beforeEach(resetMockDb);
 
 const image = () => registerImage({ contentType: 'image/png', byteSize: 10 });
 
-test('seed: demo store, bank account, lead + 2 members, 12 products with images', () => {
+test('seed: demo store, bank account, lead + 2 members, 13 products with images', () => {
   const db = getMockDb();
   expect(db.store).toMatchObject({
     name: 'Tạp hóa Cô Ba',
@@ -37,7 +37,7 @@ test('seed: demo store, bank account, lead + 2 members, 12 products with images'
   });
   expect(db.members.map((m) => m.role)).toEqual(['lead', 'seller', 'seller']);
   expect(getCurrentMember().id).toBe(LEAD_ID);
-  expect(db.products).toHaveLength(12);
+  expect(db.products).toHaveLength(13);
   for (const { product } of db.products) {
     expect(product.images.length).toBeGreaterThanOrEqual(1);
     expect(product.images.length).toBeLessThanOrEqual(2);
@@ -64,9 +64,9 @@ test('resetMockDb restores the seed and the scenario', () => {
     force_new: false,
   });
   setMockScenario('multi');
-  expect(getMockDb().products).toHaveLength(13);
+  expect(getMockDb().products).toHaveLength(14);
   resetMockDb();
-  expect(getMockDb().products).toHaveLength(12);
+  expect(getMockDb().products).toHaveLength(13);
 });
 
 test('normalizeText strips accents, đ and case', () => {
@@ -80,7 +80,7 @@ test('listProducts: accent-insensitive search, category, barcode, archived, sort
   expect(listProducts({ q: '  COCA ' })).toHaveLength(1);
   expect(listProducts({ q: 'zzz' })).toEqual([]);
   const drinks = getProduct(PRODUCT_IDS.coca).category_id;
-  expect(listProducts({ categoryId: drinks }).length).toBe(4);
+  expect(listProducts({ categoryId: drinks }).length).toBe(5);
   const names = listProducts({}).map((p) => normalizeText(p.name ?? ''));
   expect(names).toEqual([...names].sort());
   patchProduct(PRODUCT_IDS.coca, { archived: true, barcode: '8934588' });

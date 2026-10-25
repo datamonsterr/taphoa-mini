@@ -171,7 +171,7 @@ async fn load_entities(
     let mut entities = HashMap::new();
     let store_ids = ids("store");
     if !store_ids.is_empty() {
-        let stores: Vec<StoreRow> = sqlx::query_as("SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,created_at,version FROM stores WHERE id = ANY($1) AND id=$2")
+        let stores: Vec<StoreRow> = sqlx::query_as("SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,low_stock_threshold,created_at,version FROM stores WHERE id = ANY($1) AND id=$2")
             .bind(&store_ids).bind(actor.store_id).fetch_all(&mut *conn).await?;
         for row in stores {
             entities.insert(("store".into(), row.id), row.json());
@@ -199,7 +199,7 @@ async fn load_entities(
     }
     let product_ids = ids("product");
     if !product_ids.is_empty() {
-        let mut products: Vec<(Uuid, Value)> = sqlx::query_as("SELECT id,jsonb_build_object('id',id,'name',name,'price',price,'base_unit',base_unit,'cost_price',cost_price,'barcode',barcode,'category_id',category_id,'archived',archived,'version',version,'created_by',created_by,'updated_at',updated_at,'units','[]'::jsonb,'images','[]'::jsonb) FROM products WHERE id = ANY($1) AND store_id=$2")
+        let mut products: Vec<(Uuid, Value)> = sqlx::query_as("SELECT id,jsonb_build_object('id',id,'name',name,'price',price,'base_unit',base_unit,'cost_price',cost_price,'barcode',barcode,'category_id',category_id,'archived',archived,'stock_quantity',stock_quantity,'low_stock_threshold',low_stock_threshold,'stock_status',CASE WHEN stock_quantity IS NULL THEN 'untracked' WHEN stock_quantity<=0 THEN 'out' WHEN stock_quantity<=coalesce(low_stock_threshold,(SELECT s.low_stock_threshold FROM stores s WHERE s.id=products.store_id)) THEN 'low' ELSE 'ok' END,'version',version,'created_by',created_by,'updated_at',updated_at,'units','[]'::jsonb,'images','[]'::jsonb) FROM products WHERE id = ANY($1) AND store_id=$2")
             .bind(&product_ids).bind(actor.store_id).fetch_all(&mut *conn).await?;
         let found_ids: Vec<Uuid> = products.iter().map(|(id, _)| *id).collect();
         if !found_ids.is_empty() {

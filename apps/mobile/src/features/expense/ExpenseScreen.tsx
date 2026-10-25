@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import {
   Box,
   Droplet,
@@ -29,6 +30,7 @@ import type { ExpenseCategory } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
 import { newUuid } from '@/lib/uuid';
+import { selectCanEnroll, useSessionStore } from '@/stores/session';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { dismissSheet } from '../dashboard/dismiss';
@@ -52,6 +54,7 @@ const keypadLabels = (t: (key: string) => string) => ({
 
 export function ExpenseScreen() {
   const t = useT(expenseStrings);
+  const canEnroll = useSessionStore(selectCanEnroll);
   const padLabels = useLabels(expenseStrings, keypadLabels);
   const keyDiameter = useKeypadDiameter(76);
   const [category, setCategory] = useState<ExpenseCategory | null>(null);
@@ -166,6 +169,17 @@ export function ExpenseScreen() {
             )}
           </View>
 
+          {canEnroll ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('receipts')}
+              onPress={() => router.push('/receipts')}
+              style={styles.receipts}
+            >
+              <Icon icon={ReceiptText} color={colors.ink} />
+              <Text style={typography.label}>{t('receipts')}</Text>
+            </PressableScale>
+          ) : null}
           <View
             accessibilityRole="radiogroup"
             accessibilityLabel={t('categories')}
@@ -236,6 +250,15 @@ const CategoryChip = memo(function CategoryChip({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  receipts: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSoft,
+  },
   body: { gap: space[3] },
   srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   topRow: {

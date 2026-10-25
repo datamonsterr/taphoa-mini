@@ -16,6 +16,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useCartStore } from '@/stores/cart';
+import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import {
   selectSession,
   selectSignedIn,
@@ -50,6 +51,7 @@ export default function RootLayout() {
     if (hydrated && !session) {
       queryClient.clear();
       useCartStore.getState().clear();
+      useLowStockAlerts.getState().reset();
     }
   }, [hydrated, session, queryClient]);
 
@@ -72,6 +74,9 @@ export default function RootLayout() {
                 options={{ animation: 'slide_from_bottom' }}
               />
               <Stack.Screen name="product/[id]" />
+              <Stack.Screen name="stock" />
+              <Stack.Screen name="receipt/[id]" />
+              <Stack.Screen name="receipts" />
               <Stack.Screen name="pay" />
               <Stack.Screen
                 name="cart"

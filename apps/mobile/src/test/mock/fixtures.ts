@@ -1,5 +1,7 @@
 import { addDays, businessDate } from '@/lib/date';
 import type {
+  Receipt,
+  StockMovement,
   Category,
   DayClose,
   Expense,
@@ -23,6 +25,10 @@ import { randomCode, seedUuid } from './ids';
 export type ProductRecord = { product: Product };
 
 export type MockState = {
+  documentImageIds: Set<string>;
+  stockMovements: Map<string, StockMovement[]>;
+  receipts: Receipt[];
+  idempotency: Map<string, { hash: string; value: unknown }>;
   store: Store;
   members: Member[];
   currentMemberId: string;
@@ -173,6 +179,15 @@ const SEED_PRODUCTS: SeedProduct[] = [
     unit: 'gói',
     images: ['omo'],
   },
+  {
+    key: 'aquafina',
+    name: 'Nước suối Aquafina 500ml',
+    price: 6000,
+    cost: 5000,
+    category: 'drinks',
+    unit: 'chai',
+    images: ['lavie'],
+  },
 ];
 
 /** Seed product ids by key, e.g. `PRODUCT_IDS.coca`. */
@@ -190,7 +205,8 @@ export const PRODUCT_IDS = Object.fromEntries(
   | 'trung'
   | 'tuongan'
   | 'namngu'
-  | 'omo',
+  | 'omo'
+  | 'aquafina',
   string
 >;
 
@@ -261,6 +277,7 @@ export function buildSeed(now: Date = new Date()): MockState {
     },
     timezone: 'Asia/Ho_Chi_Minh',
     margin_threshold_pct: MARGIN_THRESHOLD_PCT,
+    low_stock_threshold: 5,
     sales_memo_prefix: 'TH',
     created_at: iso,
     version: 1,
@@ -333,6 +350,23 @@ export function buildSeed(now: Date = new Date()): MockState {
         : [],
       images: productImages,
       index_status: 'ready',
+      stock_quantity:
+        seed.key === 'coca'
+          ? 20
+          : seed.key === 'haohao'
+            ? 3
+            : seed.key === 'pepsi'
+              ? 0
+              : null,
+      low_stock_threshold: null,
+      stock_status:
+        seed.key === 'coca'
+          ? 'ok'
+          : seed.key === 'haohao'
+            ? 'low'
+            : seed.key === 'pepsi'
+              ? 'out'
+              : 'untracked',
       archived: false,
       version: 1,
       created_by: LEAD_ID,
@@ -504,6 +538,10 @@ export function buildSeed(now: Date = new Date()): MockState {
   ]);
 
   return {
+    documentImageIds: new Set(),
+    stockMovements: new Map(),
+    receipts: [],
+    idempotency: new Map(),
     store,
     members,
     currentMemberId: LEAD_ID,

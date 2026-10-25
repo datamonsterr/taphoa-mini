@@ -64,16 +64,69 @@ erDiagram
     products ||--o{ purchase_lines : bought
     products ||--o{ margin_alerts : "warned by"
     expenses |o--o{ margin_alerts : raised
+    stores ||--o{ stock_movements : owns
+    products ||--o{ stock_movements : "quantity history"
+    members |o--o{ stock_movements : adjusted
+    stores ||--o{ receipts : owns
+    members ||--o{ receipts : scanned
+    images ||--o{ receipts : "receipt photo"
+    expenses |o--o{ receipts : "confirmed expense"
+    receipts ||--o{ receipt_lines : contains
+    stores ||--o{ receipt_lines : owns
+    products |o--o{ receipt_lines : mapped
     stores ||--o{ day_closes : closes
     stores ||--o{ change_log : "changes of"
     stores ||--o{ outbox_events : emits
 
+    stock_movements {
+        uuid id PK
+        uuid store_id FK
+        uuid product_id FK
+        int delta
+        int quantity_after
+        text reason
+        uuid ref_id
+        uuid member_id FK
+        text note
+        timestamptz created_at
+    }
+    receipts {
+        uuid id PK
+        uuid store_id FK
+        uuid member_id FK
+        uuid image_id FK
+        text status "draft | confirmed | discarded"
+        text ocr_text
+        text parser "decisions | fallback"
+        text model
+        jsonb timings
+        bigint total
+        uuid expense_id FK
+        bytea request_hash
+        timestamptz created_at
+        timestamptz confirmed_at
+        timestamptz updated_at
+    }
+    receipt_lines {
+        uuid id PK
+        uuid receipt_id FK
+        uuid store_id FK
+        int position
+        text raw_text
+        text product_name
+        int quantity
+        bigint cost
+        uuid product_id FK
+        real match_confidence
+        jsonb candidates
+    }
     stores {
         uuid id PK
         text name
         text bank_bin
         text bank_account_number
         text bank_account_name
+        int low_stock_threshold
         numeric margin_threshold_pct
         text sales_memo_prefix
         text recovery_code_hash
@@ -124,6 +177,8 @@ erDiagram
         bigint cost_price
         text barcode
         uuid category_id FK
+        int stock_quantity "nullable = untracked"
+        int low_stock_threshold "nullable override"
         text index_status
         bool archived
         bigint version
@@ -659,6 +714,91 @@ Suggested price: smallest price ≥ `cost × (1 + max(threshold, 10%))`, rounded
 next 1.000đ (the PRD F4 example: cost 8.500đ gives 10.000đ). The 10% floor and rounding
 step become store settings if the family asks.
 
+### 3.6b Stock and import receipts
+
+Proposed migration `0601_stock_receipts.sql`, specified in
+[stock-receipts.md](specs/stock-receipts.md). This section describes the contract;
+implementation belongs to the migration task.
+
+```sql
+ALTER TABLE stores ADD COLUMN low_stock_threshold INT NOT NULL DEFAULT 5
+    CHECK (low_stock_threshold BETWEEN 0 AND 100000);
+ALTER TABLE products
+    ADD COLUMN stock_quantity INT,
+    ADD COLUMN low_stock_threshold INT CHECK (low_stock_threshold BETWEEN 0 AND 100000);
+
+CREATE TABLE stock_movements (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id       UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    product_id     UUID NOT NULL REFERENCES products ON DELETE CASCADE,
+    delta          INT NOT NULL,
+    quantity_after INT NOT NULL,
+    reason         TEXT NOT NULL CHECK (reason IN ('receipt', 'sale', 'sale_void', 'adjustment')),
+    ref_id         UUID,
+    member_id      UUID REFERENCES members,
+    note           TEXT CHECK (char_length(note) <= 200),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX stock_movements_product ON stock_movements (store_id, product_id, created_at DESC);
+
+CREATE TABLE receipts (
+    id           UUID PRIMARY KEY,
+    store_id     UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    member_id    UUID NOT NULL REFERENCES members,
+    image_id     UUID NOT NULL REFERENCES images,
+    status       TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'confirmed', 'discarded')),
+    ocr_text     TEXT NOT NULL,
+    parser       TEXT NOT NULL CHECK (parser IN ('decisions', 'fallback')),
+    model        TEXT,
+    timings      JSONB NOT NULL DEFAULT '{}',
+    total        BIGINT NOT NULL DEFAULT 0,
+    expense_id   UUID REFERENCES expenses ON DELETE SET NULL,
+    request_hash BYTEA NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    confirmed_at TIMESTAMPTZ,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX receipts_store_created ON receipts (store_id, created_at DESC);
+
+CREATE TABLE receipt_lines (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    receipt_id       UUID NOT NULL REFERENCES receipts ON DELETE CASCADE,
+    store_id         UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    position         INT NOT NULL,
+    raw_text         TEXT NOT NULL,
+    product_name     TEXT NOT NULL,
+    quantity         INT NOT NULL CHECK (quantity > 0),
+    cost             BIGINT NOT NULL CHECK (cost >= 0),
+    product_id       UUID REFERENCES products ON DELETE SET NULL,
+    match_confidence REAL,
+    candidates       JSONB NOT NULL DEFAULT '[]',
+    UNIQUE (receipt_id, position)
+);
+```
+
+Images: purpose `expense_receipt` already exists; receipt photos keep the scan's image row.
+
+- `stock_quantity IS NULL` means untracked. Sales and voids leave untracked stock `NULL`;
+  a receipt or a stock count starts tracking. Tracked quantities may be negative.
+- Every tracked change writes one `stock_movements` row with the signed delta and
+  `quantity_after` in the same transaction as the sale, void, receipt or adjustment.
+- Effective threshold = product override, or store default (5). Both thresholds are in
+  `0..100000`; a `NULL` product override restores the default.
+- Status is `untracked` for `NULL`, `out` for quantity ≤ 0, `low` for quantity ≤ the
+  effective threshold, otherwise `ok`. The stock list excludes untracked products.
+- `stock.low` fires only when a movement crosses from above the effective threshold to
+  at or below it. Restocking above the threshold re-arms the alert. The previous quantity
+  and ledger `quantity_after` decide the crossing; no extra alert table is needed.
+- Receipt line `cost` is the line amount in integer đồng; quantities use product base units.
+  Confirm requires all retained lines to be mapped to store products. One transaction
+  creates a `nhap_hang` expense (`amount = Σ cost`, receipt `image_id`), purchase lines
+  (`unit_cost = ceil(cost / quantity)`), stock movements, margin alerts and outbox events,
+  and marks the receipt confirmed. Idempotent replay returns the same receipt without
+  repeating writes. Discard only applies to drafts.
+- OCR text, parser (`decisions` or `fallback`), model ID and millisecond timings are kept
+  on the receipt. Candidate mappings are JSON; unmatched `product_id` is `NULL`.
+  Presigned `image_url` values are generated on read and never stored.
+
 ### 3.7 Day close
 
 ```sql
@@ -894,6 +1034,16 @@ Every event, in Redis and on SSE, is this JSON (formal schema in
 | `alert.resolved`         | Alert accepted or dismissed                | `{alert_id, status, new_price}`                                                  | Lead: remove banner               |
 | `day.closed`             | Day close stored or redone                 | `{business_date, expected_cash, counted_cash, difference}`                       | Refresh Today                     |
 | `sale.payment_confirmed` | Phase 2 (S9): bank notification matched    | `{sale_id, amount, bank_ref}`                                                    | Show "Đã nhận tiền" on pay screen |
+
+### 5.4b Stock and import receipts
+
+All three events use the store outbox and the envelope above, then Redis and SSE.
+
+| Type                | When                                                               | `data`                                          | Phone reaction                                    |
+| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------- |
+| `stock.changed`     | Tracked stock changes in the movement transaction                  | `{product_id, stock_quantity, reason}`          | Pull product changes; refresh stock and movements |
+| `stock.low`         | Quantity crosses from above to at or below the effective threshold | `{product_id, name, stock_quantity, threshold}` | Show banner and refresh dashboard "Sắp hết hàng"  |
+| `receipt.confirmed` | Receipt, expense and stock commit; never on replay                 | `{receipt_id, expense_id, total, line_count}`   | Refresh receipt history, stock and expenses       |
 
 ### 5.5 Internal (not sent to phones)
 

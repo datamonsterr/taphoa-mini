@@ -32,6 +32,37 @@ afterEach(() => jest.restoreAllMocks());
 
 const ready = () => screen.findByLabelText(/^Doanh thu \d/);
 
+test('opens import receipt history from the dashboard', async () => {
+  await renderWithProviders(<DashboardScreen />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Hóa đơn nhập' }));
+  expect(router.push).toHaveBeenCalledWith('/receipts');
+  await ready();
+});
+
+test.each([
+  [false, false],
+  [true, true],
+] as const)(
+  'receipt entry follows can_enroll=%s for sellers',
+  async (can_enroll, visible) => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: {
+        ...session!,
+        member: { ...session!.member, role: 'seller', can_enroll },
+      },
+    });
+    await renderWithProviders(<DashboardScreen />);
+    if (visible) {
+      expect(
+        screen.getByRole('button', { name: 'Hóa đơn nhập' }),
+      ).toBeOnTheScreen();
+    } else {
+      expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
+    }
+  },
+);
+
 test('shows a skeleton while loading', async () => {
   let release: () => void = () => {};
   const real = ledger.getTodayReport;
@@ -160,7 +191,9 @@ describe('alerts', () => {
     const pill = await screen.findByRole('button', {
       name: `${alerts.length} món giá bán dưới giá nhập`,
     });
-    expect(screen.queryByText(alerts[0]!.product_name!)).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: alerts[0]!.product_name! }),
+    ).toBeNull();
     await fireEvent.press(pill);
     await fireEvent.press(
       await screen.findByRole('button', { name: alerts[0]!.product_name! }),
@@ -169,7 +202,9 @@ describe('alerts', () => {
       `/product/${alerts[0]!.product_id}`,
     );
     await fireEvent.press(pill);
-    expect(screen.queryByText(alerts[0]!.product_name!)).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: alerts[0]!.product_name! }),
+    ).toBeNull();
   });
 
   test('sold without catalog expands the manual lines', async () => {

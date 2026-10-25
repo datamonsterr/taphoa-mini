@@ -60,23 +60,23 @@ fn id(value: &str) -> ApiResult<Uuid> {
     value.parse().map_err(|_| invalid("invalid id"))
 }
 #[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
-struct PurchaseLine {
-    product_id: Uuid,
-    unit_id: Option<Uuid>,
-    quantity: i32,
-    unit_cost: i64,
+pub(crate) struct PurchaseLine {
+    pub(crate) product_id: Uuid,
+    pub(crate) unit_id: Option<Uuid>,
+    pub(crate) quantity: i32,
+    pub(crate) unit_cost: i64,
 }
 #[derive(Deserialize)]
-struct CreateExpense {
-    id: Uuid,
-    spent_at: DateTime<Utc>,
-    amount: i64,
-    category: String,
-    paid_with: String,
-    image_id: Option<Uuid>,
-    note: Option<String>,
+pub(crate) struct CreateExpense {
+    pub(crate) id: Uuid,
+    pub(crate) spent_at: DateTime<Utc>,
+    pub(crate) amount: i64,
+    pub(crate) category: String,
+    pub(crate) paid_with: String,
+    pub(crate) image_id: Option<Uuid>,
+    pub(crate) note: Option<String>,
     #[serde(default)]
-    purchase_lines: Vec<PurchaseLine>,
+    pub(crate) purchase_lines: Vec<PurchaseLine>,
 }
 impl CreateExpense {
     fn validate(&self) -> ApiResult<()> {
@@ -206,12 +206,7 @@ async fn create(
         serde_json::from_value(raw).map_err(|_| invalid("invalid expense"))?;
     input.validate()?;
     let mut tx = pool(&state)?.begin().await?;
-    // ON CONFLICT waits for an in-flight identical create before checking its committed hash.
-    // Store-scoped lookup below hides another store's use of the same client id.
-    let inserted = sqlx::query("INSERT INTO expenses (id,store_id,member_id,spent_at,business_date,amount,category,paid_with,image_id,note,request_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,$9,$10) ON CONFLICT (id) DO NOTHING")
-        .bind(input.id).bind(actor.store_id).bind(actor.member_id).bind(input.spent_at)
-        .bind(business_date(input.spent_at)).bind(input.amount).bind(&input.category)
-        .bind(&input.paid_with).bind(&input.note).bind(hash.as_slice()).execute(&mut *tx).await?.rows_affected() == 1;
+    let inserted = create_in_transaction(&mut tx, &actor, &input, &hash).await?;
     if !inserted {
         let stored: Vec<u8> =
             sqlx::query_scalar("SELECT request_hash FROM expenses WHERE store_id=$1 AND id=$2")
@@ -230,12 +225,35 @@ async fn create(
         tx.commit().await?;
         return Ok(Idempotent::Replay(result));
     }
-    image_owned(&mut tx, actor.store_id, input.image_id).await?;
+    let row = load(&mut tx, actor.store_id, input.id).await?;
+    let result = response(&mut tx, &state, &actor, row).await?;
+    tx.commit().await?;
+    Ok(Idempotent::Created(result))
+}
+/// Create an expense and every purchase side effect in a caller-owned transaction.
+/// Callers validate their input and lock the complete product set before any event.
+/// Receipt callers preserve sum(line cost) even when ceil(unit cost) rounds up.
+pub(crate) async fn create_in_transaction(
+    conn: &mut PgConnection,
+    actor: &Actor,
+    input: &CreateExpense,
+    hash: &[u8; 32],
+) -> ApiResult<bool> {
+    // ON CONFLICT waits for an in-flight identical create before checking its committed hash.
+    // Store-scoped lookup below hides another store's use of the same client id.
+    let inserted = sqlx::query("INSERT INTO expenses (id,store_id,member_id,spent_at,business_date,amount,category,paid_with,image_id,note,request_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,$9,$10) ON CONFLICT (id) DO NOTHING")
+        .bind(input.id).bind(actor.store_id).bind(actor.member_id).bind(input.spent_at)
+        .bind(business_date(input.spent_at)).bind(input.amount).bind(&input.category)
+        .bind(&input.paid_with).bind(&input.note).bind(hash.as_slice()).execute(&mut *conn).await?.rows_affected() == 1;
+    if !inserted {
+        return Ok(false);
+    }
+    image_owned(conn, actor.store_id, input.image_id).await?;
     if let Some(image) = input.image_id {
         sqlx::query("UPDATE expenses SET image_id=$2 WHERE id=$1")
             .bind(input.id)
             .bind(image)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
     }
     // Consistent product lock order also serializes purchases against alert acceptance.
@@ -247,37 +265,37 @@ async fn create(
     sqlx::query("SELECT id FROM products WHERE store_id=$1 AND id=ANY($2) ORDER BY id FOR UPDATE")
         .bind(actor.store_id)
         .bind(&product_ids)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut *conn)
         .await?;
     let threshold: i64 =
         sqlx::query_scalar("SELECT (margin_threshold_pct*100)::bigint FROM stores WHERE id=$1")
             .bind(actor.store_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut *conn)
             .await?;
     for line in &input.purchase_lines {
         let (price, old_cost): (i64, Option<i64>) =
             sqlx::query_as("SELECT price,cost_price FROM products WHERE store_id=$1 AND id=$2")
                 .bind(actor.store_id)
                 .bind(line.product_id)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut *conn)
                 .await?
                 .ok_or_else(ApiError::not_found)?;
         let quantity = if let Some(unit) = line.unit_id {
             sqlx::query_scalar::<_, i32>("SELECT quantity_in_base FROM product_units WHERE store_id=$1 AND product_id=$2 AND id=$3")
-                .bind(actor.store_id).bind(line.product_id).bind(unit).fetch_optional(&mut *tx).await?.ok_or_else(ApiError::not_found)?
+                .bind(actor.store_id).bind(line.product_id).bind(unit).fetch_optional(&mut *conn).await?.ok_or_else(ApiError::not_found)?
         } else {
             1
         };
         let cost = money::base_unit_cost(line.unit_cost, quantity);
         sqlx::query("INSERT INTO purchase_lines (store_id,expense_id,product_id,unit_id,quantity,unit_cost,base_unit_cost) VALUES ($1,$2,$3,$4,$5,$6,$7)")
-            .bind(actor.store_id).bind(input.id).bind(line.product_id).bind(line.unit_id).bind(line.quantity).bind(line.unit_cost).bind(cost).execute(&mut *tx).await?;
+            .bind(actor.store_id).bind(input.id).bind(line.product_id).bind(line.unit_id).bind(line.quantity).bind(line.unit_cost).bind(cost).execute(&mut *conn).await?;
         sqlx::query("UPDATE products SET cost_price=$3,version=version+1,updated_at=now() WHERE store_id=$1 AND id=$2")
-            .bind(actor.store_id).bind(line.product_id).bind(cost).execute(&mut *tx).await?;
+            .bind(actor.store_id).bind(line.product_id).bind(cost).execute(&mut *conn).await?;
         sqlx::query("INSERT INTO price_history (store_id,product_id,field,old_value,new_value,source,changed_by) VALUES ($1,$2,'cost_price',$3,$4,'purchase',$5)")
-            .bind(actor.store_id).bind(line.product_id).bind(old_cost).bind(cost).bind(actor.member_id).execute(&mut *tx).await?;
+            .bind(actor.store_id).bind(line.product_id).bind(old_cost).bind(cost).bind(actor.member_id).execute(&mut *conn).await?;
         alerts::purchase(
-            &mut tx,
-            &actor,
+            conn,
+            actor,
             input.id,
             line.product_id,
             price,
@@ -286,11 +304,8 @@ async fn create(
         )
         .await?;
     }
-    event(&mut tx, &actor, "expense.created", json!({"expense_id":input.id,"amount":input.amount,"category":input.category,"business_date":business_date(input.spent_at)})).await?;
-    let row = load(&mut tx, actor.store_id, input.id).await?;
-    let result = response(&mut tx, &state, &actor, row).await?;
-    tx.commit().await?;
-    Ok(Idempotent::Created(result))
+    event(conn, actor, "expense.created", json!({"expense_id":input.id,"amount":input.amount,"category":input.category,"business_date":business_date(input.spent_at)})).await?;
+    Ok(true)
 }
 #[derive(Deserialize)]
 struct Filters {

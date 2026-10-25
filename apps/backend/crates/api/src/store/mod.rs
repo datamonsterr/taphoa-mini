@@ -57,13 +57,18 @@ async fn patch_store(
     actor.require(Action::ManageStore)?;
     let patch = object(&input)?;
     let mut tx = pool(&state)?.begin().await?;
-    let row: StoreRow = sqlx::query_as("SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,created_at,version FROM stores WHERE id=$1 FOR UPDATE")
+    let row: StoreRow = sqlx::query_as("SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,low_stock_threshold,created_at,version FROM stores WHERE id=$1 FOR UPDATE")
         .bind(actor.store_id)
         .fetch_one(&mut *tx)
         .await?;
     let mut current = row.json();
     let mut fields = Vec::new();
-    for field in ["name", "margin_threshold_pct", "sales_memo_prefix"] {
+    for field in [
+        "name",
+        "margin_threshold_pct",
+        "sales_memo_prefix",
+        "low_stock_threshold",
+    ] {
         if let Some(value) = patch.get(field) {
             match field {
                 "name" => {
@@ -71,6 +76,11 @@ async fn patch_store(
                 }
                 "sales_memo_prefix" => {
                     text(value, 0, 8)?;
+                }
+                "low_stock_threshold" => {
+                    if !value.as_i64().is_some_and(|n| (0..=100000).contains(&n)) {
+                        return Err(ApiError::validation_failed("invalid low stock threshold"));
+                    }
                 }
                 _ => {
                     if !value.as_f64().is_some_and(|n| (0.0..=100.0).contains(&n)) {
@@ -113,8 +123,8 @@ async fn patch_store(
     if !fields.is_empty() {
         let bank: Option<BankAccount> = serde_json::from_value(current["bank_account"].clone())
             .map_err(|_| ApiError::validation_failed("invalid bank account"))?;
-        sqlx::query("UPDATE stores SET name=$2,bank_bin=$3,bank_short_name=$4,bank_account_number=$5,bank_account_name=$6,margin_threshold_pct=$7::float8::numeric,sales_memo_prefix=$8,version=version+1,updated_at=now() WHERE id=$1")
-            .bind(actor.store_id).bind(current["name"].as_str()).bind(bank.as_ref().map(|b|&b.bank_bin)).bind(bank.as_ref().and_then(|b|b.bank_short_name.as_ref())).bind(bank.as_ref().map(|b|&b.account_number)).bind(bank.as_ref().map(|b|&b.account_name)).bind(current["margin_threshold_pct"].as_f64()).bind(current["sales_memo_prefix"].as_str()).execute(&mut *tx).await?;
+        sqlx::query("UPDATE stores SET name=$2,bank_bin=$3,bank_short_name=$4,bank_account_number=$5,bank_account_name=$6,margin_threshold_pct=$7::float8::numeric,sales_memo_prefix=$8,low_stock_threshold=$9,version=version+1,updated_at=now() WHERE id=$1")
+            .bind(actor.store_id).bind(current["name"].as_str()).bind(bank.as_ref().map(|b|&b.bank_bin)).bind(bank.as_ref().and_then(|b|b.bank_short_name.as_ref())).bind(bank.as_ref().map(|b|&b.account_number)).bind(bank.as_ref().map(|b|&b.account_name)).bind(current["margin_threshold_pct"].as_f64()).bind(current["sales_memo_prefix"].as_str()).bind(current["low_stock_threshold"].as_i64().map(|n|n as i32)).execute(&mut *tx).await?;
         emit(
             &mut tx,
             Event {

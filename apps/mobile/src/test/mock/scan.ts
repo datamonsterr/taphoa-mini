@@ -11,7 +11,7 @@ import type {
 
 import { getMockDb, nowIso } from './db';
 import { PRODUCT_IDS } from './fixtures';
-import { getMockScenario } from './scenario';
+import { getMockScenario, consumeNextScanDocument } from './scenario';
 
 export const SCAN_IMAGE_SIZE = { width: 1080, height: 1440 } as const;
 
@@ -113,6 +113,8 @@ export function buildScan(input: {
     ),
   }));
 
+  const detected =
+    consumeNextScanDocument() || db.documentImageIds.has(input.image.id);
   const scan: Scan = {
     id: newUuid(),
     image: { ...input.image, ...SCAN_IMAGE_SIZE },
@@ -125,6 +127,11 @@ export function buildScan(input: {
     },
     timings_ms: { segment: 40, embed: 25, search: 5, total: 70 },
     detections,
+    document: {
+      detected,
+      score: detected ? 0.9 : 0,
+      text_lines: detected ? 12 : 0,
+    },
     created_at: nowIso(),
   };
   db.scans.set(scan.id, scan);

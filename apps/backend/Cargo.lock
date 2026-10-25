@@ -4040,6 +4040,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "uuid",
 ]
 
@@ -4050,6 +4051,7 @@ dependencies = [
  "image",
  "ort",
  "serde",
+ "serde_json",
  "sha2 0.11.1",
  "thiserror",
 ]

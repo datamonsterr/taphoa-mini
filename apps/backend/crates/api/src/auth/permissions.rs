@@ -4,6 +4,7 @@ use crate::error::{ApiError, ApiResult};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Sell,
+    AdjustStock,
     VoidOwnSaleSameDay,
     VoidAnySale,
     EnrollProduct,

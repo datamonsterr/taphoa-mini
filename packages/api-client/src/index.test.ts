@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createApiClient, type paths } from './index';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { createApiClient, type components, type paths } from './index';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -89,5 +89,107 @@ describe('api client', () => {
       ],
     };
     expect(sample).toBeDefined();
+  });
+});
+
+describe('stock and receipt contract', () => {
+  it('types: stock, receipt, product and scan shapes are available', () => {
+    type Schemas = components['schemas'];
+    const adjustment: Schemas['StockAdjustment'] = {
+      count: 0,
+      note: 'kiểm kho',
+    };
+    const delta: Schemas['StockAdjustment'] = { delta: -2 };
+    const confirm: Schemas['ReceiptConfirm'] = {
+      lines: [{ product_id: image.id, quantity: 24, cost: 204000 }],
+      paid_with: 'cash_box',
+    };
+    expectTypeOf<Schemas['Product']['stock_quantity']>().toEqualTypeOf<
+      number | null
+    >();
+    expectTypeOf<Schemas['Product']['low_stock_threshold']>().toEqualTypeOf<
+      number | null
+    >();
+    expectTypeOf<Schemas['Product']['stock_status']>().toEqualTypeOf<
+      'ok' | 'low' | 'out' | 'untracked'
+    >();
+    expectTypeOf<Schemas['Scan']['document']>().toEqualTypeOf<
+      Schemas['ScanDocument']
+    >();
+    expectTypeOf<
+      paths['/v1/stock']['get']['responses'][200]['content']['application/json']
+    >().toEqualTypeOf<Schemas['StockList']>();
+    expectTypeOf<
+      paths['/v1/products/{productId}/stock-adjustments']['post']['responses'][200]['content']['application/json']
+    >().toEqualTypeOf<Schemas['StockMovement']>();
+    expectTypeOf<
+      paths['/v1/products/{productId}/stock-movements']['get']['responses'][200]['content']['application/json']
+    >().toEqualTypeOf<Schemas['StockMovementList']>();
+    expectTypeOf<
+      paths['/v1/receipts']['get']['responses'][200]['content']['application/json']
+    >().toEqualTypeOf<Schemas['ReceiptList']>();
+    expectTypeOf<
+      paths['/v1/receipts/{receiptId}']['get']['responses'][200]['content']['application/json']
+    >().toEqualTypeOf<Schemas['Receipt']>();
+    expectTypeOf<
+      paths['/v1/receipts/{receiptId}']['delete']['responses'][204]
+    >().not.toBeNever();
+    expect(adjustment.count).toBe(0);
+    expect(delta.delta).toBe(-2);
+    expect(confirm.lines[0]!.cost).toBe(204000);
+  });
+
+  it('posts a receipt photo with a required idempotency header', async () => {
+    const draft: components['schemas']['Receipt'] = {
+      id: image.id,
+      status: 'draft',
+      image_id: image.id,
+      image_url: image.url,
+      total: 0,
+      parser: 'fallback',
+      model: null,
+      lines: [],
+      timings: { ocr: 1800, parse: 12, decisions: 0, total: 1812 },
+      expense_id: null,
+      created_at: '2026-10-25T00:00:00Z',
+      confirmed_at: null,
+    };
+    const { api, fetchMock } = setup(json(draft, 201), 'tok');
+    const { data, response } = await api.raw.POST('/v1/receipts', {
+      params: { header: { 'Idempotency-Key': 'receipt-create-1' } },
+      body: { image_id: image.id },
+    });
+    expect(response.status).toBe(201);
+    expect(data?.status).toBe('draft');
+    const req = fetchMock.mock.calls[0]![0];
+    expect(req.headers.get('Idempotency-Key')).toBe('receipt-create-1');
+    expect(await req.json()).toEqual({ image_id: image.id });
+  });
+
+  it('confirms mapped lines and exposes already_confirmed errors', async () => {
+    const { api, fetchMock } = setup(
+      json({ error: 'Already confirmed', code: 'already_confirmed' }, 409),
+      'tok',
+    );
+    const { error, response } = await api.raw.POST(
+      '/v1/receipts/{receiptId}/confirm',
+      {
+        params: {
+          path: { receiptId: image.id },
+          header: { 'Idempotency-Key': 'receipt-confirm-1' },
+        },
+        body: {
+          lines: [{ product_id: image.id, quantity: 24, cost: 204000 }],
+          paid_with: 'other',
+        },
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(error?.code).toBe('already_confirmed');
+    const req = fetchMock.mock.calls[0]![0];
+    expect(req.url).toBe(
+      `https://api.example.test/v1/receipts/${image.id}/confirm`,
+    );
+    expect(req.headers.get('Idempotency-Key')).toBe('receipt-confirm-1');
   });
 });

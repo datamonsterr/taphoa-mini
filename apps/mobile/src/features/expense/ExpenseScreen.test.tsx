@@ -8,6 +8,7 @@ import * as images from '@/lib/api/images';
 import * as ledger from '@/lib/api/ledger';
 import { resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
+import { useSessionStore } from '@/stores/session';
 
 import { ExpenseScreen } from './ExpenseScreen';
 
@@ -245,4 +246,36 @@ describe('bill photo', () => {
     expect(open).toHaveBeenCalledTimes(1);
     expect(request).not.toHaveBeenCalled();
   });
+});
+
+test('opens import receipt history', async () => {
+  await renderWithProviders(<ExpenseScreen />);
+  await press('Hóa đơn nhập');
+  expect(router.push).toHaveBeenCalledWith('/receipts');
+});
+
+test('hides receipt history from a Seller without can_enroll', async () => {
+  const { session } = useSessionStore.getState();
+  useSessionStore.setState({
+    session: {
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll: false },
+    },
+  });
+  await renderWithProviders(<ExpenseScreen />);
+  expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
+});
+
+test('shows receipt history to a Seller with can_enroll', async () => {
+  const { session } = useSessionStore.getState();
+  useSessionStore.setState({
+    session: {
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll: true },
+    },
+  });
+  await renderWithProviders(<ExpenseScreen />);
+  expect(
+    screen.getByRole('button', { name: 'Hóa đơn nhập' }),
+  ).toBeOnTheScreen();
 });

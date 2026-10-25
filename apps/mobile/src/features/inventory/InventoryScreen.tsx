@@ -23,6 +23,8 @@ import type { Product } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
 import { colors, radius, space, typography } from '@/theme';
 
+import { StockSegment } from '@/features/stock/StockSegment';
+
 import { strings } from './strings';
 import { useDebouncedValue } from './useDebouncedValue';
 
@@ -51,6 +53,8 @@ const InventoryTile = memo(function InventoryTile({
       <ProductTile
         name={product.name ?? ''}
         price={product.price}
+        stockQuantity={product.stock_quantity}
+        stockStatus={product.stock_status}
         imageUri={product.images[0]?.url}
         onPress={onPress}
       />
@@ -258,6 +262,7 @@ export function InventoryScreen() {
           </>
         )}
       </View>
+      <StockSegment selected="products" />
       <View style={styles.body}>{body}</View>
     </View>
   );

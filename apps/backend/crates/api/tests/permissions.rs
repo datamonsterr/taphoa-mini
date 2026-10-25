@@ -18,6 +18,7 @@ fn matrix() {
     // (action, lead, seller, seller+can_enroll)
     let table = [
         (Sell, true, true, true),
+        (AdjustStock, true, false, false),
         (VoidOwnSaleSameDay, true, true, true),
         (VoidAnySale, true, false, false),
         (EnrollProduct, true, false, true),
@@ -51,4 +52,12 @@ fn matrix() {
             "enroller {action:?}"
         );
     }
+}
+
+#[test]
+fn receipt_permission_reuses_enrollment_and_lead_does_not_need_flag() {
+    // Receipt handlers intentionally use the same permission as catalog enrollment.
+    assert!(can(&actor(Role::Lead, false), Action::EnrollProduct));
+    assert!(can(&actor(Role::Seller, true), Action::EnrollProduct));
+    assert!(!can(&actor(Role::Seller, false), Action::EnrollProduct));
 }

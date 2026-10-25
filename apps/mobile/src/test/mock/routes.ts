@@ -12,6 +12,7 @@ import type {
 import * as db from './db';
 import { badRequest, MockHttpError } from './errors';
 import * as ledger from './ledger';
+import * as stock from './stockReceipts';
 import { readMultipart, type FormFields, type FormFile } from './multipart';
 import { buildScan } from './scan';
 import {
@@ -99,6 +100,7 @@ function imageFromFile(file: FormFile, purpose: ImagePurpose): Image {
     byteSize: file.size ?? 1,
     purpose,
     uri: file.uri,
+    name: file.name,
   });
 }
 
@@ -190,6 +192,77 @@ const optionalDate = (query: URLSearchParams, key: string): string | null => {
 };
 
 export const MOCK_ROUTES: MockRoute[] = [
+  {
+    method: 'GET',
+    path: '/v1/stock',
+    handler: ({ query }) =>
+      ok(paginate(stock.listStock(query.get('status') ?? 'all'), query)),
+  },
+  {
+    method: 'GET',
+    path: '/v1/products/{productId}/stock-movements',
+    handler: ({ params, query }) =>
+      ok(paginate(stock.listStockMovements(params.productId!), query)),
+  },
+  {
+    method: 'POST',
+    path: '/v1/products/{productId}/stock-adjustments',
+    handler: async ({ params, request }) => {
+      const body = asObject(await readJson(request));
+      return ok(
+        stock.idempotent(`adjust:${params.productId}`, request, body, () =>
+          stock.adjustStock(params.productId!, body),
+        ),
+      );
+    },
+  },
+  {
+    method: 'GET',
+    path: '/v1/receipts',
+    handler: ({ query }) =>
+      ok(paginate(stock.listReceipts(query.get('status')), query)),
+  },
+  {
+    method: 'POST',
+    path: '/v1/receipts',
+    handler: async ({ request }) => {
+      const body = asObject(await readJson(request));
+      return created(
+        stock.idempotent('receipt', request, body, () =>
+          stock.createReceipt(body.image_id),
+        ),
+      );
+    },
+  },
+  {
+    method: 'GET',
+    path: '/v1/receipts/{receiptId}',
+    handler: ({ params }) => ok(stock.getReceipt(params.receiptId!)),
+  },
+  {
+    method: 'POST',
+    path: '/v1/receipts/{receiptId}/confirm',
+    handler: async ({ params, request }) => {
+      const body = asObject(await readJson(request));
+      return ok(
+        stock.idempotent(`confirm:${params.receiptId}`, request, body, () =>
+          stock.confirmReceipt(
+            params.receiptId!,
+            body as unknown as import('@/lib/api/types').ReceiptConfirm,
+          ),
+        ),
+      );
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/v1/receipts/{receiptId}',
+    handler: ({ params }) => {
+      stock.discardReceipt(params.receiptId!);
+      return { status: 204 };
+    },
+  },
+
   { method: 'GET', path: '/healthz', handler: () => ok({ status: 'ok' }) },
   {
     method: 'GET',

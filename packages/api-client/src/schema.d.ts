@@ -210,7 +210,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update store name, VietQR bank account, margin threshold (Lead) */
+        /** Update store name, VietQR bank account, margin and low-stock thresholds (Lead) */
         patch: operations["updateStore"];
         trace?: never;
     };
@@ -471,6 +471,7 @@ export interface paths {
          * @description Price and cost changes write a `price_history` row (old, new, who, when) and publish a
          *     `catalog.changed` event. Conflict rule: the Lead's edits win; concurrent edits resolve
          *     last-writer-wins by server receive time, and both appear in history.
+         *     The low-stock threshold override is Lead only; null restores the store default.
          */
         patch: operations["updateProduct"];
         trace?: never;
@@ -742,6 +743,145 @@ export interface paths {
         patch: operations["updateExpense"];
         trace?: never;
     };
+    "/v1/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tracked stock quantities and status
+         * @description Sorted by status (out, low, ok), then name. `all` excludes untracked products.
+         *     Threshold is the effective product override or store default. Quantities are in base units.
+         */
+        get: operations["listStock"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/products/{productId}/stock-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                productId: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set or adjust stock (Lead)
+         * @description Exactly one of count or delta is required (422 otherwise). Count sets an absolute
+         *     quantity; delta changes it. Writes the quantity, ledger movement and outbox events
+         *     in one transaction. Replaying the same Idempotency-Key returns the same movement.
+         */
+        post: operations["createStockAdjustment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/products/{productId}/stock-movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                productId: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        /** Stock movement history */
+        get: operations["listStockMovements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Receipt history (Lead or can_enroll) */
+        get: operations["listReceipts"];
+        put?: never;
+        /**
+         * Read a supplier receipt into a draft (Lead or can_enroll)
+         * @description Synchronous OCR, parsing and product mapping of an uploaded image; returns a draft
+         *     within the 6 s budget. Reuses the scan image row. Returns 404 for an unknown image,
+         *     422 no_text when OCR finds no text, or 503 ocr_unavailable when models are absent.
+         *     Decision failures fall back to rules. Replaying the same Idempotency-Key returns
+         *     the same receipt without repeating OCR.
+         */
+        post: operations["createReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts/{receiptId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receiptId: components["parameters"]["ReceiptId"];
+            };
+            cookie?: never;
+        };
+        /** Receipt detail and photo (Lead or can_enroll) */
+        get: operations["getReceipt"];
+        put?: never;
+        post?: never;
+        /**
+         * Discard a draft receipt (Lead or can_enroll)
+         * @description Marks the draft discarded; 409 already_confirmed when confirmed.
+         */
+        delete: operations["discardReceipt"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts/{receiptId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receiptId: components["parameters"]["ReceiptId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a receipt into stock and an expense (Lead or can_enroll)
+         * @description All retained lines must map to known products; map or drop unmatched lines (422).
+         *     Creates one nhap_hang expense with amount = sum(cost), the receipt image and purchase
+         *     lines with unit_cost = ceil(cost / quantity). Adds stock, writes movements with
+         *     reason receipt, runs margin alerts, and emits events in the same transaction.
+         *     Returns the confirmed receipt with expense_id. The same Idempotency-Key replays
+         *     the same result; another attempt to confirm returns 409 already_confirmed.
+         */
+        post: operations["confirmReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/alerts": {
         parameters: {
             query?: never;
@@ -982,7 +1122,10 @@ export interface components {
         Error: {
             /** @description Human-readable message (English; the app localizes by `code`). */
             error: string;
-            /** @example duplicate_suspected */
+            /**
+             * @description Machine code, including no_text (422), ocr_unavailable (503), already_confirmed (409).
+             * @example duplicate_suspected
+             */
             code?: string;
             details?: {
                 [key: string]: unknown;
@@ -1065,6 +1208,11 @@ export interface components {
              */
             margin_threshold_pct: number;
             /**
+             * @description Default low-stock threshold in base units; Lead only.
+             * @default 5
+             */
+            low_stock_threshold: number;
+            /**
              * @description VietQR memo prefix before the short sale code.
              * @default TH
              */
@@ -1078,6 +1226,8 @@ export interface components {
             name?: string;
             bank_account?: components["schemas"]["BankAccount"] | null;
             margin_threshold_pct?: number;
+            /** @description Default low-stock threshold in base units; Lead only. */
+            low_stock_threshold?: number;
             sales_memo_prefix?: string;
         };
         Member: {
@@ -1221,10 +1371,19 @@ export interface components {
                 search?: number;
                 total?: number;
             };
+            document: components["schemas"]["ScanDocument"];
             /** @description Ordered left-to-right, top-to-bottom. */
             detections: components["schemas"]["Detection"][];
             /** Format: date-time */
             created_at: string;
+        };
+        /** @description Present on every scan; detection runs alongside segmentation on the downsized image. */
+        ScanDocument: {
+            /** @description True when text_lines >= 6 and text_area_ratio >= 0.08. */
+            detected: boolean;
+            /** @description text_area_ratio / 0.2, clamped to [0, 1]. */
+            score: number;
+            text_lines: number;
         };
         Detection: {
             /**
@@ -1330,6 +1489,15 @@ export interface components {
              * @enum {string}
              */
             index_status: "pending" | "ready" | "failed";
+            /** @description Base-unit quantity; null means untracked. Tracked stock may be negative. */
+            stock_quantity: number | null;
+            /** @description Product override; null uses the store default. */
+            low_stock_threshold: number | null;
+            /**
+             * @description Untracked for null; out for quantity <= 0; low for quantity <= effective threshold; otherwise ok.
+             * @enum {string}
+             */
+            stock_status: "ok" | "low" | "out" | "untracked";
             archived: boolean;
             /** Format: int64 */
             version: number;
@@ -1385,7 +1553,168 @@ export interface components {
             category_id?: string | null;
             /** @description Full replacement of extra units. */
             units?: components["schemas"]["ProductUnit"][];
+            /** @description Lead only. Null restores the store default. */
+            low_stock_threshold?: number | null;
             archived?: boolean;
+        };
+        StockItem: {
+            /** Format: uuid */
+            product_id: string;
+            name: string | null;
+            /**
+             * Format: uri
+             * @description Short-lived presigned GET URL of the product photo, or null.
+             */
+            image_url: string | null;
+            /** @description Base units; null means untracked. May be negative. */
+            stock_quantity: number | null;
+            /** @description Effective product override or store default. */
+            low_stock_threshold: number;
+            /** @enum {string} */
+            status: "ok" | "low" | "out" | "untracked";
+            /** Format: date-time */
+            updated_at: string;
+        };
+        StockList: components["schemas"]["Page"] & {
+            items?: components["schemas"]["StockItem"][];
+        };
+        /** @description Exactly one of count or delta; quantities are in the product base unit. */
+        StockAdjustment: {
+            /** @description Absolute stock count. */
+            count?: number;
+            /** @description Signed nonzero change to stock. */
+            delta?: number;
+            note?: string;
+        } & (unknown | unknown);
+        StockMovement: {
+            /** Format: uuid */
+            id: string;
+            delta: number;
+            quantity_after: number;
+            /** @enum {string} */
+            reason: "receipt" | "sale" | "sale_void" | "adjustment";
+            /**
+             * Format: uuid
+             * @description Receipt or sale ID when applicable.
+             */
+            ref_id: string | null;
+            /** Format: uuid */
+            member_id: string | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        StockMovementList: components["schemas"]["Page"] & {
+            items?: components["schemas"]["StockMovement"][];
+        };
+        ReceiptCandidate: {
+            /** Format: uuid */
+            product_id: string;
+            name: string | null;
+            probability: number;
+        };
+        ReceiptLine: {
+            /** Format: uuid */
+            id: string;
+            position: number;
+            raw_text: string;
+            product_name: string;
+            /** @description Quantity in the product base unit. */
+            quantity: number;
+            /** @description Line amount in đồng */
+            cost: components["schemas"]["Money"];
+            /**
+             * Format: uuid
+             * @description Null when unmatched; map or drop before confirm.
+             */
+            product_id: string | null;
+            match_confidence: number | null;
+            candidates: components["schemas"]["ReceiptCandidate"][];
+        };
+        Receipt: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "draft" | "confirmed" | "discarded";
+            /** Format: uuid */
+            image_id: string;
+            /**
+             * Format: uri
+             * @description Short-lived presigned GET URL; generated on read, never persisted.
+             */
+            image_url: string;
+            /** @description Sum of line costs in đồng. */
+            total: components["schemas"]["Money"];
+            /** @enum {string} */
+            parser: "decisions" | "fallback";
+            /**
+             * @description Decision model ID, or null when unused.
+             * @example inception/mercury-decide:free
+             */
+            model: string | null;
+            lines: components["schemas"]["ReceiptLine"][];
+            /** @description Processing durations in milliseconds. */
+            timings: {
+                ocr: number;
+                parse: number;
+                decisions: number;
+                total: number;
+            };
+            /** Format: uuid */
+            expense_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            confirmed_at: string | null;
+        };
+        ReceiptSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "draft" | "confirmed" | "discarded";
+            total: components["schemas"]["Money"];
+            line_count: number;
+            matched_count: number;
+            /**
+             * Format: uri
+             * @description Short-lived presigned GET URL.
+             */
+            image_url: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            confirmed_at: string | null;
+            /** Format: uuid */
+            expense_id: string | null;
+        };
+        ReceiptList: components["schemas"]["Page"] & {
+            items?: components["schemas"]["ReceiptSummary"][];
+        };
+        ReceiptCreate: {
+            /**
+             * Format: uuid
+             * @description Uploaded receipt photo; reuse the scan image row.
+             */
+            image_id: string;
+        };
+        ReceiptConfirm: {
+            /** @description Full retained line set; all products must belong to this store. */
+            lines: {
+                /**
+                 * Format: uuid
+                 * @description Existing draft line, omitted for a newly added line.
+                 */
+                line_id?: string;
+                /** Format: uuid */
+                product_id: string;
+                quantity: number;
+                /** @description Line amount in đồng. */
+                cost: components["schemas"]["Money"];
+            }[];
+            /** @enum {string} */
+            paid_with: "cash_box" | "other";
+            /** Format: date-time */
+            spent_at?: string;
         };
         PriceChange: {
             /** Format: uuid */
@@ -1686,7 +2015,7 @@ export interface components {
             /** @example evt_000000000000128 */
             id: string;
             /** @enum {string} */
-            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed";
+            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed";
             version: number;
             /** Format: uuid */
             store_id: string;
@@ -1740,7 +2069,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`). */
+        /** @description State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`, `already_confirmed`). */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -1767,7 +2096,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Semantic validation failed (e.g. invalid points, references count below 3). */
+        /** @description Semantic validation failed (e.g. invalid points, references count below 3, invalid stock adjustment or receipt lines); no_text when receipt OCR finds no text. */
         UnprocessableEntity: {
             headers: {
                 [name: string]: unknown;
@@ -1806,7 +2135,7 @@ export interface components {
         };
         /**
          * @description Dependency not configured or busy: `no model loaded`, `segmenter busy`
-         *     (with `Retry-After`), `storage not configured`.
+         *     (with `Retry-After`), `storage not configured`, or `ocr_unavailable` when receipt OCR models are absent.
          */
         ServiceUnavailable: {
             headers: {
@@ -1824,6 +2153,9 @@ export interface components {
         ProductId: string;
         SaleId: string;
         AlertId: string;
+        ReceiptId: string;
+        /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+        IdempotencyKey: string;
         Limit: number;
         Cursor: string;
         /** @description Inclusive business date. */
@@ -3194,6 +3526,234 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listStock: {
+        parameters: {
+            query?: {
+                status?: "all" | "low" | "out";
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stock page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createStockAdjustment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                productId: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockAdjustment"];
+            };
+        };
+        responses: {
+            /** @description Adjustment movement, including on replay. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockMovement"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    listStockMovements: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                productId: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Movements page, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockMovementList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listReceipts: {
+        parameters: {
+            query?: {
+                status?: "draft" | "confirmed" | "discarded";
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt summaries, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createReceipt: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptCreate"];
+            };
+        };
+        responses: {
+            /** @description Parsed draft receipt, including on replay. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receiptId: components["parameters"]["ReceiptId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt with parsed lines and mapping candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    discardReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receiptId: components["parameters"]["ReceiptId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Draft discarded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    confirmReceipt: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                receiptId: components["parameters"]["ReceiptId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptConfirm"];
+            };
+        };
+        responses: {
+            /** @description Confirmed receipt, including on replay. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     listAlerts: {

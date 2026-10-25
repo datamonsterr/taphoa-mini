@@ -79,6 +79,18 @@ fn samples() -> Vec<(&'static str, Value)> {
             json!({"from_model":"a@1","to_model":"b@1"}),
         ),
         (
+            "stock.changed",
+            json!({"product_id":U1,"stock_quantity":-1,"reason":"sale"}),
+        ),
+        (
+            "stock.low",
+            json!({"product_id":U1,"name":"Coca-Cola lon","stock_quantity":5,"threshold":5}),
+        ),
+        (
+            "receipt.confirmed",
+            json!({"receipt_id":U1,"expense_id":U2,"total":204000,"line_count":1}),
+        ),
+        (
             "product.indexed",
             json!({"product_id":U1,"index_status":"ready","reference_count":3}),
         ),

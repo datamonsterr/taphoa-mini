@@ -208,9 +208,18 @@ pub struct ProductPatch {
     pub category_id: Option<Option<Uuid>>,
     pub units: Option<Vec<ProductUnitInput>>,
     pub archived: Option<bool>,
+    #[serde(default, deserialize_with = "double_option::deserialize")]
+    pub low_stock_threshold: Option<Option<i32>>,
 }
 
 pub fn validate_patch(patch: &ProductPatch) -> ApiResult<()> {
+    if patch
+        .low_stock_threshold
+        .flatten()
+        .is_some_and(|n| !(0..=100000).contains(&n))
+    {
+        return Err(ApiError::validation_failed("invalid low stock threshold"));
+    }
     if patch.price.is_some_and(|price| price < 0) {
         return Err(ApiError::validation_failed("price must not be negative"));
     }
@@ -247,6 +256,9 @@ pub struct ProductRow {
     pub barcode: Option<String>,
     pub category_id: Option<Uuid>,
     pub archived: bool,
+    pub stock_quantity: Option<i32>,
+    pub low_stock_threshold: Option<i32>,
+    pub store_stock_threshold: i32,
     pub version: i64,
     pub created_by: Uuid,
     pub updated_at: DateTime<Utc>,
@@ -272,7 +284,7 @@ pub struct ProductListRow {
 }
 
 pub const PRODUCT_FIELDS: &str = "p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, \
-     p.category_id, p.archived, p.version, p.created_by, p.updated_at, p.index_status";
+     p.category_id, p.archived, p.version, p.created_by, p.updated_at, p.stock_quantity, p.low_stock_threshold, (SELECT low_stock_threshold FROM stores WHERE id=p.store_id) AS store_stock_threshold, p.index_status";
 
 pub const UNITS_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'name', \
      u.name, 'quantity_in_base', u.quantity_in_base, 'price', u.price, 'barcode', u.barcode) \
@@ -287,7 +299,7 @@ pub const IMAGES_JSON: &str = "COALESCE((SELECT jsonb_agg(jsonb_build_object('im
 pub const PRODUCT_AGG_SELECT: &str = concat!(
     "SELECT ",
     "p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, p.archived, ",
-    "p.version, p.created_by, p.updated_at, p.index_status, ",
+    "p.version, p.created_by, p.updated_at, p.stock_quantity, p.low_stock_threshold, (SELECT low_stock_threshold FROM stores WHERE id=p.store_id) AS store_stock_threshold, p.index_status, ",
     "COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'name', u.name, 'quantity_in_base', ",
     "u.quantity_in_base, 'price', u.price, 'barcode', u.barcode) ORDER BY u.id) ",
     "FROM product_units u WHERE u.product_id = p.id), '[]'::jsonb) AS units, ",
@@ -301,7 +313,7 @@ pub const PRODUCT_AGG_SELECT: &str = concat!(
 
 pub const PRODUCT_SELECT_LOCK: &str = concat!(
     "SELECT p.id, p.name, p.price, p.cost_price, p.base_unit, p.barcode, p.category_id, ",
-    "p.archived, p.version, p.created_by, p.updated_at, p.index_status FROM products p WHERE p.id = $1 AND ",
+    "p.archived, p.version, p.created_by, p.updated_at, p.stock_quantity, p.low_stock_threshold, (SELECT low_stock_threshold FROM stores WHERE id=p.store_id) AS store_stock_threshold, p.index_status FROM products p WHERE p.id = $1 AND ",
     "p.store_id = $2 FOR UPDATE"
 );
 
@@ -322,6 +334,7 @@ pub struct PatchPlan {
     pub barcode: Option<Option<String>>,
     pub category_id: Option<Option<Uuid>>,
     pub archived: Option<bool>,
+    pub low_stock_threshold: Option<Option<i32>>,
     pub price: Option<(i64, i64)>,
     pub cost_price: Option<(Option<i64>, i64)>,
     pub cost_clear: bool,
@@ -349,6 +362,11 @@ pub fn plan_patch(
     patch: ProductPatch,
 ) -> ApiResult<PatchPlan> {
     let mut plan = PatchPlan::default();
+    if let Some(threshold) = patch.low_stock_threshold
+        && threshold != current.low_stock_threshold
+    {
+        plan.low_stock_threshold = Some(threshold);
+    }
     if let Some(price) = patch.price
         && price != current.price
     {
@@ -480,6 +498,9 @@ mod tests {
             barcode: None,
             category_id: None,
             archived: false,
+            stock_quantity: None,
+            low_stock_threshold: None,
+            store_stock_threshold: 5,
             version: 1,
             created_by: Uuid::now_v7(),
             updated_at: Utc::now(),

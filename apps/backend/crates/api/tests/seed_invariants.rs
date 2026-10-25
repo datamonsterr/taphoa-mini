@@ -89,6 +89,15 @@ async fn invariants(pool: &PgPool) -> anyhow::Result<()> {
     )
     .await?;
     assert_no_rows(&pool, "SELECT count(*) FROM outbox_events WHERE payload->>'id' <> 'evt_'||lpad(id::text,15,'0') OR payload->>'type'<>type OR payload->>'store_id'<>store_id::text OR payload->>'version'<>'1' OR NOT(payload ?& ARRAY['id','type','version','store_id','occurred_at','actor','data']) OR (payload->'actor'->>'member_id') IS NULL").await?;
+    assert_no_rows(&pool,"SELECT count(*) FROM products p WHERE p.stock_quantity IS DISTINCT FROM (SELECT sum(delta)::int FROM stock_movements m WHERE m.product_id=p.id)").await?;
+    assert_no_rows(&pool,"SELECT count(*) FROM (SELECT quantity_after,sum(delta) OVER (PARTITION BY product_id ORDER BY created_at,id) expected FROM stock_movements) ledger WHERE quantity_after<>expected").await?;
+    for store in &report.stores {
+        let (tracked, total, out, low): (i64,i64,i64,i64)=sqlx::query_as("SELECT count(stock_quantity),count(*),count(*) FILTER(WHERE stock_quantity=0),count(*) FILTER(WHERE stock_quantity BETWEEN 1 AND 5) FROM products WHERE store_id=$1").bind(store.store_id).fetch_one(&pool).await?;
+        assert!((total / 2 - 2..=total / 2 + 2).contains(&tracked));
+        assert!(out >= 1 && low >= 2);
+        let receipts: i64=sqlx::query_scalar("SELECT count(*) FROM receipts r JOIN expenses e ON e.id=r.expense_id WHERE r.store_id=$1 AND r.status='confirmed' AND r.confirmed_at IS NOT NULL AND e.category='nhap_hang' AND r.total=e.amount AND r.total=(SELECT sum(cost) FROM receipt_lines WHERE receipt_id=r.id) AND EXISTS(SELECT 1 FROM stock_movements WHERE ref_id=r.id AND reason='receipt')").bind(store.store_id).fetch_one(&pool).await?;
+        assert_eq!(receipts, 2);
+    }
     let before = fingerprints(&pool).await?;
     let (left, right) = tokio::join!(taphoa_api::seed::run(&pool), taphoa_api::seed::run(&pool));
     left?;
@@ -133,6 +142,9 @@ async fn fingerprints(pool: &PgPool) -> anyhow::Result<Vec<String>> {
         "day_closes",
         "change_log",
         "outbox_events",
+        "stock_movements",
+        "receipts",
+        "receipt_lines",
     ] {
         let value: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT md5(string_agg(row_hash,',' ORDER BY row_hash)) FROM (SELECT md5(to_jsonb(t)::text) row_hash FROM {table} t) rows"

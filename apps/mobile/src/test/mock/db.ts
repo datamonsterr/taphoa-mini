@@ -28,6 +28,8 @@ import {
 } from './fixtures';
 import { randomCode } from './ids';
 import { resetMockScenario } from './scenario';
+import { stockStatus } from './stockReceipts';
+import { resetMockEvents } from './events';
 
 let state: MockState = buildSeed();
 
@@ -40,6 +42,7 @@ export function getMockDb(): MockState {
 export function resetMockDb(): void {
   state = buildSeed();
   resetMockScenario();
+  resetMockEvents();
 }
 
 export const nowIso = () => new Date().toISOString();
@@ -68,6 +71,8 @@ export function getStore(): Store {
 
 export function patchStore(patch: StorePatch): Store {
   state.store = { ...state.store, ...patch, version: state.store.version + 1 };
+  for (const { product } of state.products)
+    product.stock_status = stockStatus(product);
   return state.store;
 }
 
@@ -89,6 +94,7 @@ export function createInvite(input: {
 // ---- images ---------------------------------------------------------------
 
 export function registerImage(input: {
+  name?: string;
   contentType: Image['content_type'];
   byteSize: number;
   purpose?: ImagePurpose | 'crop';
@@ -113,6 +119,11 @@ export function registerImage(input: {
     url_expires_at: new Date(Date.now() + IMAGE_URL_TTL_MS).toISOString(),
   };
   state.images.set(id, image);
+  if (
+    /receipt|hoa[-_ ]?don/i.test(`${input.name ?? ''} ${input.uri ?? ''}`) ||
+    input.purpose === 'expense_receipt'
+  )
+    state.documentImageIds.add(id);
   return image;
 }
 
@@ -234,6 +245,9 @@ export function createProduct(req: CreateProductRequest): {
     units: (req.units ?? []).map((u) => ({ ...u, barcode: u.barcode ?? null })),
     images,
     index_status: 'pending',
+    stock_quantity: null,
+    low_stock_threshold: null,
+    stock_status: 'untracked',
     archived: false,
     version: 1,
     created_by: state.currentMemberId,
@@ -268,6 +282,7 @@ export function patchProduct(id: string, patch: ProductPatch): Product {
     version: record.product.version + 1,
     updated_at: nowIso(),
   };
+  record.product.stock_status = stockStatus(record.product);
   return record.product;
 }
 

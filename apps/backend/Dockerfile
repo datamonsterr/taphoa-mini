@@ -4,7 +4,9 @@ FROM rust:1-slim-bookworm AS chef
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates g++ pkg-config \
     && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --locked
-ENV CARGO_BUILD_JOBS=2
+# Two workers took 19m19s for dependencies alone and hit Railway's build deadline.
+# Four workers also pass the local release gate; keep the cook and source build aligned.
+ENV CARGO_BUILD_JOBS=4
 WORKDIR /app
 
 FROM chef AS planner
@@ -43,7 +45,11 @@ ENV PORT=8080 LOG_FORMAT=json \
     ORT_DYLIB_PATH=/opt/onnxruntime/lib/libonnxruntime.so.1.23.2 \
     SAM_ENCODER_PATH=/app/models/mobile_sam_image_encoder.onnx \
     SAM_DECODER_PATH=/app/models/sam_mask_decoder_multi.onnx \
-    DINO_MODEL_PATH=/app/models/dinov2_small.onnx
+    DINO_MODEL_PATH=/app/models/dinov2_small.onnx \
+    OCR_DET_PATH=/app/models/ocr_det.onnx \
+    OCR_ENCODER_PATH=/app/models/ocr_vietocr_encoder.onnx \
+    OCR_DECODER_PATH=/app/models/ocr_vietocr_decoder.onnx \
+    OCR_VOCAB_PATH=/app/models/ocr_vietocr.json
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \

@@ -1,6 +1,7 @@
 use crate::ratelimit::{ClientIpSource, RateLimits};
 use anyhow::{Context, bail};
 use std::{path::PathBuf, sync::Arc};
+use taphoa_recognition::ocr::{PpOcrDetector, VietOcr};
 use taphoa_recognition::{DinoEmbedder, Embedder, SamOptions, SamSegmenter, Segmenter};
 
 // No Debug: contains the signing secret.
@@ -12,6 +13,11 @@ pub struct Config {
     pub encoder: Option<PathBuf>,
     pub decoder: Option<PathBuf>,
     pub dino_model: Option<PathBuf>,
+    pub ocr_det: Option<PathBuf>,
+    pub ocr_encoder: Option<PathBuf>,
+    pub ocr_decoder: Option<PathBuf>,
+    pub ocr_vocab: Option<PathBuf>,
+    pub ocr_threads: usize,
     pub jwt_secret: String,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
@@ -45,6 +51,20 @@ impl Config {
             }
             Ok(value)
         };
+        let ocr_det = get("OCR_DET_PATH").map(PathBuf::from);
+        let ocr_encoder = get("OCR_ENCODER_PATH").map(PathBuf::from);
+        let ocr_decoder = get("OCR_DECODER_PATH").map(PathBuf::from);
+        let ocr_vocab = get("OCR_VOCAB_PATH").map(PathBuf::from);
+        let configured = [&ocr_det, &ocr_encoder, &ocr_decoder, &ocr_vocab]
+            .iter()
+            .filter(|p| p.is_some())
+            .count();
+        if configured != 0 && configured != 4 {
+            bail!(
+                "set all OCR_DET_PATH, OCR_ENCODER_PATH, OCR_DECODER_PATH and OCR_VOCAB_PATH, or none"
+            );
+        }
+        let ocr_threads = positive("OCR_THREADS", 4)? as usize;
         let defaults = RateLimits::default();
         let rate_limits = RateLimits {
             store_create_per_hour: positive(
@@ -64,6 +84,11 @@ impl Config {
             hops,
         )?;
         Ok(Self {
+            ocr_det,
+            ocr_encoder,
+            ocr_decoder,
+            ocr_vocab,
+            ocr_threads,
             rate_limits,
             client_ip,
             port: get("PORT")
@@ -78,6 +103,36 @@ impl Config {
             jwt_secret,
             db_max_connections,
         })
+    }
+    /// Optional OCR adapter. Its detector() shares the detection session with scan callers.
+    pub fn ocr(&self) -> anyhow::Result<Option<Arc<VietOcr>>> {
+        match (
+            &self.ocr_det,
+            &self.ocr_encoder,
+            &self.ocr_decoder,
+            &self.ocr_vocab,
+        ) {
+            (None, None, None, None) => Ok(None),
+            (Some(det), Some(enc), Some(dec), Some(vocab)) => {
+                let paths = [det, enc, dec, vocab];
+                if paths.iter().all(|p| !p.exists()) {
+                    tracing::warn!("OCR weights absent; receipt OCR is unavailable");
+                    return Ok(None);
+                }
+                if paths.iter().any(|p| !p.is_file()) {
+                    bail!("OCR model files must all be present");
+                }
+                let detector = Arc::new(PpOcrDetector::load(det, self.ocr_threads)?);
+                Ok(Some(Arc::new(VietOcr::load(
+                    detector,
+                    enc,
+                    dec,
+                    vocab,
+                    self.ocr_threads,
+                )?)))
+            }
+            _ => bail!("set all four OCR paths, or none"),
+        }
     }
     pub fn sam_segmenter(&self) -> anyhow::Result<Option<Arc<SamSegmenter>>> {
         match (&self.encoder, &self.decoder) {
@@ -111,6 +166,50 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ocr_paths_are_all_or_none_and_threads_are_positive() {
+        let keys = [
+            "OCR_DET_PATH",
+            "OCR_ENCODER_PATH",
+            "OCR_DECODER_PATH",
+            "OCR_VOCAB_PATH",
+        ];
+        for mask in 0u8..16 {
+            let config = Config::from_lookup(|name| {
+                if name == "JWT_SECRET" {
+                    return Some("x".repeat(32));
+                }
+                keys.iter()
+                    .position(|k| *k == name)
+                    .filter(|i| mask & (1 << i) != 0)
+                    .map(|_| "/missing/ocr".into())
+            });
+            if mask == 0 || mask == 15 {
+                let config = config.unwrap();
+                assert_eq!(config.ocr_threads, 4);
+                assert!(config.ocr().unwrap().is_none());
+            } else {
+                assert!(config.err().unwrap().to_string().contains("OCR_"));
+            }
+        }
+        for value in ["0", "bad", "-1"] {
+            assert!(
+                Config::from_lookup(|name| match name {
+                    "JWT_SECRET" => Some("x".repeat(32)),
+                    "OCR_THREADS" => Some(value.into()),
+                    _ => None,
+                })
+                .is_err()
+            );
+        }
+        let config = Config::from_lookup(|name| match name {
+            "JWT_SECRET" => Some("x".repeat(32)),
+            "OCR_THREADS" => Some("2".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(config.ocr_threads, 2);
+    }
     #[test]
     fn validates_without_exposing_secret() {
         assert!(
@@ -159,6 +258,7 @@ mod tests {
                 "JWT_SECRET" => "x".repeat(32),
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
+                "OCR_THREADS" => "4".into(),
                 "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),
                 "TRUSTED_PROXY_HOPS" => "2".into(),

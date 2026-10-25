@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { Plus, SquareCheck } from 'lucide-react-native';
+import { router, type Href } from 'expo-router';
+import { Plus, ReceiptText, SquareCheck } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,11 @@ import {
   Text,
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
-import { selectIsLead, useSessionStore } from '@/stores/session';
+import {
+  selectCanEnroll,
+  selectIsLead,
+  useSessionStore,
+} from '@/stores/session';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
@@ -39,6 +43,7 @@ export function DashboardScreen() {
   const [period, setPeriod] = useState<Period>('day');
   const data = useDashboardData(period);
   const isLead = useSessionStore(selectIsLead);
+  const canEnroll = useSessionStore(selectCanEnroll);
 
   const addExpense = useCallback(() => router.push('/expense'), []);
   const closeDay = useCallback(() => router.push('/close'), []);
@@ -122,6 +127,18 @@ export function DashboardScreen() {
 
       <AlertsSection />
 
+      {canEnroll ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('receipts')}
+          onPress={() => router.push('/receipts' as Href)}
+          style={styles.receiptsButton}
+        >
+          <Icon icon={ReceiptText} color={colors.ink} />
+          <Text style={styles.retryText}>{t('receipts')}</Text>
+        </PressableScale>
+      ) : null}
+
       {isLead ? (
         <PressableScale
           accessibilityRole="button"
@@ -139,6 +156,15 @@ export function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  receiptsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
+    minHeight: size.tapMin,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
+  },
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: space[4], gap: 20 },
   header: {

@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowDownToLine, ChevronLeft, Pencil } from 'lucide-react-native';
 import { memo, useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +18,10 @@ import { useT } from '@/lib/i18n';
 import { selectIsLead, useSessionStore } from '@/stores/session';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
+import { AdjustStockSheet } from './AdjustStockSheet';
 import { EditPriceSheet } from './EditPriceSheet';
+import { StockMovements } from './StockMovements';
+import { ProductStock } from './ProductStock';
 import { PhotoCarousel } from './PhotoCarousel';
 import { fill, strings } from './strings';
 
@@ -85,6 +88,7 @@ export function ProductScreen() {
   const patch = usePatchProduct();
   // Only the Lead sets prices; the server answers 403 to anyone else.
   const isLead = useSessionStore(selectIsLead);
+  const [adjusting, setAdjusting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
 
@@ -136,6 +140,12 @@ export function ProductScreen() {
             />
           ) : null}
         </View>
+        <ProductStock
+          product={product}
+          isLead={isLead}
+          onAdjust={() => setAdjusting(true)}
+        />
+        <StockMovements productId={product.id} />
         {description ? (
           <Text testID="product-description" style={styles.description}>
             {description}
@@ -181,7 +191,20 @@ export function ProductScreen() {
           />
         ) : null}
       </View>
-      {body}
+      <ScrollView
+        testID="product-scroll"
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ gap: space[4], paddingBottom: space[6] }}
+      >
+        {body}
+      </ScrollView>
+      {adjusting && product && isLead ? (
+        <AdjustStockSheet
+          product={product}
+          onClose={() => setAdjusting(false)}
+        />
+      ) : null}
       {editing && product ? (
         <EditPriceSheet
           price={product.price}

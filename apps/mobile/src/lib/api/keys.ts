@@ -1,9 +1,23 @@
 import type { AlertStatus, ManualLineStatus, ReportPeriod } from './types';
 import type { ListProductsParams } from './products';
+import type { StockStatus } from './stock';
+import type { ReceiptStatus } from './receipts';
 
 /** React Query key factory. Every key starts with `api` so a whole mode can be reset at once. */
 export const keys = {
   all: ['api'] as const,
+  stock: {
+    all: () => [...keys.all, 'stock'] as const,
+    list: (status: StockStatus = 'all') =>
+      [...keys.stock.all(), 'list', status] as const,
+  },
+  stockMovements: (id: string) => [...keys.all, 'stock-movements', id] as const,
+  receipts: {
+    all: () => [...keys.all, 'receipts'] as const,
+    list: (status?: ReceiptStatus) =>
+      [...keys.receipts.all(), 'list', status ?? null] as const,
+    detail: (id: string) => [...keys.receipts.all(), 'detail', id] as const,
+  },
   me: () => [...keys.all, 'me'] as const,
   store: () => [...keys.all, 'store'] as const,
   members: () => [...keys.all, 'members'] as const,
