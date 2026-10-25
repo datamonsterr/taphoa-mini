@@ -17,6 +17,10 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let telemetry = taphoa_api::telemetry::init(taphoa_api::telemetry::TelemetryConfig::from_env());
     let result = serve().await;
+    if let Err(error) = &result {
+        // Startup and serve failures must reach the exported logs before the flush.
+        taphoa_api::error::log_fatal(error);
+    }
     // Flush on startup/server errors as well as after graceful task shutdown.
     telemetry.shutdown();
     result

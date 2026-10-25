@@ -193,6 +193,12 @@ macro_rules! log_db_error {
 }
 pub(crate) use {log_anyhow_error, log_db_error, log_sqlx_error};
 
+/// Last log line before the process exits, so startup and serve failures reach the
+/// exported logs. Database causes are reduced to `SqlxLog` like every other log site.
+pub fn log_fatal(error: &anyhow::Error) {
+    log_anyhow_error!(error, error, "backend stopped with error");
+}
+
 /// JSON extractor with the API's stable validation error envelope.
 pub struct ValidJson<T>(pub T);
 impl<S, T> FromRequest<S> for ValidJson<T>
@@ -346,6 +352,20 @@ mod tests {
         assert!(!line.contains("polling failed"), "{line}");
         // Errors without sqlx keep their Display text.
         assert!(line.contains("storage unreachable"), "{line}");
+    }
+
+    #[test]
+    fn fatal_errors_log_one_line_without_database_text() {
+        let line = logged(|| {
+            log_fatal(&anyhow::Error::from(leaking_error()).context("connecting"));
+            log_fatal(&anyhow::anyhow!("DATABASE_URL is required"));
+        });
+        assert_eq!(line.lines().count(), 2, "{line}");
+        assert!(line.contains("backend stopped with error"), "{line}");
+        assert!(line.contains("23505"), "{line}");
+        assert!(!line.contains(VALUE), "bound value leaked: {line}");
+        // Errors without sqlx keep their Display text (config errors name variables only).
+        assert!(line.contains("DATABASE_URL is required"), "{line}");
     }
 
     #[tokio::test]
