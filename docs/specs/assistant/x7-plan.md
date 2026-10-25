@@ -45,11 +45,16 @@ These settle what golden-set.md leaves open. Changes go through the X7 controlle
   through PRs. The nightly workflow uploads the file as an artifact and commits it to branch
   `eval/results` with an open PR. It never pushes to `main`. A push to `main` deploys
   production.
-- **Identity.** Until X1 merges, the harness uses a pluggable `AuthProvider` with a stub
-  implementation. After X1 merges, `ClerkAuth` reuses X1's `packages/e2e/src/clerk.ts`
-  client. It finds or creates `eval-lead+clerk_test@taphoa.dev` and
-  `eval-seller+clerk_test@taphoa.dev` and mints session tokens. Their Clerk user ids go into
-  the eval seed's member rows. Task T7 adapts the seed's member insert to X1's schema.
+- **Identity.** Until X1 (PR #35) merges, the harness uses a pluggable `AuthProvider` with a
+  stub implementation. After X1 merges, the eval seed creates or reuses the Clerk test users
+  through X1's public `seed::clerk::{ClerkUsers, member_email}` helpers with store key `eval`
+  (emails `seed-eval-<member key>+clerk_test@example.com`, sign-in code 424242). The harness
+  `ClerkAuth` finds those users and mints tokens with X1's rate-limited client in
+  `packages/e2e/src/clerk.ts` (`POST /v1/sessions`, then `POST /v1/sessions/{id}/tokens`).
+  Tokens are cached per role and refreshed before their 60 s expiry, because the Clerk Backend
+  API allows 100 requests per 10 s shared by every session and CI. X1's sweep deletes only
+  `e2e-*` users, so the `seed-eval-*` users persist. Task T7 adapts the seed's member insert to
+  X1's schema.
 - **Pending cases.** U23 cases (debt book) carry `pending: {on: "X5"}` until X5's tools and
   tables are on `main`. U13 digest cases call `GET /v1/assistant/digest` and carry
   `pending: {on: "X8"}`. Pending cases are listed in reports and excluded from pass bars.
