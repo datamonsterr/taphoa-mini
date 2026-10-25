@@ -214,7 +214,6 @@ fn request_body(request: &ChatRequest) -> Value {
     let mut body = json!({
         "model": request.model,
         "messages": messages,
-        "tool_choice": "auto",
         "stream": true,
         "max_tokens": request.max_tokens,
     });
@@ -234,6 +233,7 @@ fn request_body(request: &ChatRequest) -> Value {
             })
             .collect();
         body["tools"] = json!(tools);
+        body["tool_choice"] = json!("auto");
     }
     if let Some(effort) = &request.reasoning_effort {
         body["reasoning"] = json!({"effort": effort});
@@ -397,10 +397,14 @@ impl Completion {
                     name: String::new(),
                     arguments: String::new(),
                 });
-                if let Some(id) = fragment["id"].as_str() {
+                if let Some(id) = fragment["id"].as_str()
+                    && call.id.is_empty()
+                {
                     call.id.push_str(id);
                 }
-                if let Some(name) = fragment["function"]["name"].as_str() {
+                if let Some(name) = fragment["function"]["name"].as_str()
+                    && call.name != name
+                {
                     call.name.push_str(name);
                 }
                 if let Some(arguments) = fragment["function"]["arguments"].as_str() {
@@ -414,14 +418,14 @@ impl Completion {
         if self.response.finish_reason.is_empty() {
             return Err(self.failed("stream has no finish reason"));
         }
-        for mut call in self.calls.into_values() {
+        for (index, mut call) in self.calls {
+            if call.id.is_empty() {
+                call.id = format!("call_{index}");
+            }
             if call.arguments.is_empty() {
                 call.arguments = "{}".into();
             }
-            if call.id.is_empty()
-                || call.name.is_empty()
-                || serde_json::from_str::<Value>(&call.arguments).is_err()
-            {
+            if call.name.is_empty() || serde_json::from_str::<Value>(&call.arguments).is_err() {
                 return Err(ModelError::InvalidToolCall {
                     message: "incomplete tool call or invalid arguments JSON".into(),
                 });
@@ -609,6 +613,76 @@ mod tests {
         );
         assert_eq!(response.finish_reason, "tool_calls");
         assert!(response.time_to_first_token.is_some());
+    }
+
+    #[tokio::test]
+    async fn repeated_tool_ids_and_names_are_not_duplicated() {
+        let body = delta(
+            json!({"tool_calls":[{"index":0,"id":"call_a","function":{"name":"search_products","arguments":"{\"query\":"}}]}),
+            json!(null),
+        ) + &delta(
+            json!({"tool_calls":[{"index":0,"id":"call_a","function":{"name":"search_products","arguments":"\"rice\"}"}}]}),
+            json!("tool_calls"),
+        ) + "data: [DONE]\n\n";
+        let mock = canned(200, body).await;
+        let response = run(&mock).await.0.unwrap();
+        assert_eq!(
+            response.tool_calls,
+            [ToolCall {
+                id: "call_a".into(),
+                name: "search_products".into(),
+                arguments: "{\"query\":\"rice\"}".into(),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_tool_id_is_generated_from_index() {
+        let body = delta(
+            json!({"tool_calls":[{"index":7,"function":{"name":"search_","arguments":"{"}}]}),
+            json!(null),
+        ) + &delta(
+            json!({"tool_calls":[{"index":7,"function":{"name":"products","arguments":"}"}}]}),
+            json!("tool_calls"),
+        ) + "data: [DONE]\n\n";
+        let mock = canned(200, body).await;
+        let response = run(&mock).await.0.unwrap();
+        assert_eq!(
+            response.tool_calls,
+            [ToolCall {
+                id: "call_7".into(),
+                name: "search_products".into(),
+                arguments: "{}".into(),
+            }]
+        );
+
+        // An omitted id must not hide a missing name or malformed arguments.
+        for function in [
+            json!({"arguments":"{}"}),
+            json!({"name":"search_products","arguments":"{invalid"}),
+        ] {
+            let mock = canned(
+                200,
+                delta(
+                    json!({"tool_calls":[{"index":7,"function":function}]}),
+                    json!("tool_calls"),
+                ) + "data: [DONE]\n\n",
+            )
+            .await;
+            assert!(matches!(
+                run(&mock).await.0,
+                Err(ModelError::InvalidToolCall { .. })
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_choice_is_omitted_without_tools() {
+        let mut mock = canned(200, end()).await;
+        run(&mock).await.0.unwrap();
+        let (_, body) = mock.requests.recv().await.unwrap();
+        assert!(body.get("tools").is_none());
+        assert!(body.get("tool_choice").is_none());
     }
 
     #[tokio::test]
