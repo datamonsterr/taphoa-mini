@@ -25,6 +25,7 @@ import { resolveMembership, useCurrentStore } from '@/stores/currentStore';
 import { useT } from '@/lib/i18n';
 import { Frame, FormError, ActionButton } from '@/features/onboarding/kit';
 import { signedInSessions } from './deviceSessions';
+import { useCurrentSessionSignOut } from './useCurrentSessionSignOut';
 import {
   resetPersonScopedState,
   resetStoreScopedState,
@@ -32,6 +33,10 @@ import {
 import { strings } from './strings';
 
 type GateState = { signedIn: boolean; hasMembership: boolean };
+
+/** What the bridge hands out while the device is locked: Clerk may have a session, the app has none. */
+const noToken = async () => null;
+
 export function AuthGate({
   children,
 }: {
@@ -49,6 +54,7 @@ export function AuthGate({
   const userId = locked ? null : auth.userId;
   const qc = useQueryClient();
   const t = useT(strings);
+  const signOut = useCurrentSessionSignOut();
   const { token: incomingToken } = useGlobalSearchParams<{
     token?: string | string[];
   }>();
@@ -76,7 +82,9 @@ export function AuthGate({
   useLayoutEffect(() => {
     const unregister = registerAuthBridge({
       userId,
-      getToken,
+      // Locked: Clerk still has an active session (clerk-js picks one by itself on a cold start),
+      // but nobody was let in, so no request may carry that person token.
+      getToken: locked ? noToken : getToken,
       getStoreId: () => {
         if (!userId) return null;
         const data = qc.getQueryData<Me>(keys.me(userId));
@@ -92,7 +100,7 @@ export function AuthGate({
       },
     });
     return unregister;
-  }, [getToken, userId, qc]);
+  }, [getToken, locked, userId, qc]);
 
   // Clerk has nobody active but others stay signed in: the phone goes to the person picker and
   // stays locked there, also across a restart. With nobody signed in any more there is nobody to
@@ -138,11 +146,22 @@ export function AuthGate({
   if (isSignedIn && !me.data)
     return (
       <Frame title={t('title')} back={false}>
-        <FormError message={t('loadError')} />
+        <FormError
+          message={signOut.failed ? t('signOutError') : t('loadError')}
+        />
         <ActionButton
           label={t('retry')}
           onPress={() => {
             void me.refetch();
+          }}
+        />
+        <ActionButton
+          testID="auth-load-sign-out"
+          label={t('signOut')}
+          variant="secondary"
+          busy={signOut.busy}
+          onPress={() => {
+            void signOut.signOut();
           }}
         />
       </Frame>

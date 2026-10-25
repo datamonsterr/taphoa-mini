@@ -20,7 +20,12 @@ import { useQuickEnrollStore } from '@/features/camera/quickEnroll';
 import { useInviteIntent } from '@/features/onboarding/inviteIntent';
 import { useReceiptNotice } from '@/features/receipts/ReceiptToast';
 import { setApiTransport } from '@/lib/api/client';
-import { bridgeUserId, membershipRequired } from '@/lib/api/clerkBridge';
+import {
+  bridgeUserId,
+  clerkToken,
+  currentStoreId,
+  membershipRequired,
+} from '@/lib/api/clerkBridge';
 import { testSession } from '@/test/session';
 
 jest.mock('expo-router', () => ({
@@ -237,6 +242,56 @@ test('me failure offers retry and only then resolves the onboarding gate', async
   expect(await screen.findByText('onboarding')).toBeOnTheScreen();
 });
 
+describe('the me error frame', () => {
+  const failMe = () =>
+    setApiTransport((async () =>
+      Response.json(
+        { error: 'unavailable' },
+        { status: 503 },
+      )) as typeof fetch);
+  const loadError = 'Không tải được tài khoản. Kiểm tra mạng rồi thử lại.';
+
+  test('offers to sign out the current session, so the person can reach sign-in', async () => {
+    failMe();
+    await renderWithProviders(gate);
+    await screen.findByText(loadError);
+    await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+    expect(clerkMock.signOut).toHaveBeenCalledTimes(1);
+    expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    expect(useDeviceLock.getState().locked).toBe(false);
+  });
+
+  test('with other people on the phone it leaves them at the picker, locked', async () => {
+    addClerkSession({
+      id: 'sess_ut',
+      userId: 'user_ut',
+      email: 'ut@example.com',
+    });
+    failMe();
+    await renderWithProviders(gate);
+    await screen.findByText(loadError);
+    await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
+    expect(clerkMock.setActive).not.toHaveBeenCalled();
+    expect(useDeviceLock.getState().locked).toBe(true);
+  });
+
+  test('a failed sign-out says so and keeps both buttons', async () => {
+    failMe();
+    clerkMock.signOut.mockRejectedValueOnce(new Error('offline'));
+    await renderWithProviders(gate);
+    await screen.findByText(loadError);
+    await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+    expect(
+      await screen.findByText('Không đăng xuất được. Vui lòng thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Thử lại' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Đăng xuất' })).toBeOnTheScreen();
+  });
+});
+
 describe('device lock', () => {
   /** The gate without the helper that prefetches the signed-in me. */
   const mount = () =>
@@ -272,6 +327,19 @@ describe('device lock', () => {
     expect(await screen.findByText('shop')).toBeOnTheScreen();
     expect(seen).toContain('/v1/me');
     expect(bridgeUserId()).toBe('user_test');
+  });
+
+  test('while locked the bridge hands out no token and no store, not even the live one', async () => {
+    useDeviceLock.getState().lock();
+    await mount();
+    await screen.findByText('signed-out');
+    expect(await clerkToken()).toBeNull();
+    expect(await clerkToken({ skipCache: true })).toBeNull();
+    expect(currentStoreId()).toBeNull();
+    expect(clerkMock.getToken).not.toHaveBeenCalled();
+    await act(async () => useDeviceLock.getState().unlock());
+    await screen.findByText('shop');
+    expect(await clerkToken()).toBe('test-clerk-token');
   });
 
   test('locking while signed in sends the person out of the shop at once', async () => {
