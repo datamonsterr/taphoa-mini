@@ -222,40 +222,51 @@ pub async fn verify_pin(
 ) -> ApiResult<()> {
     let key = format!("pin_fail:{member_id}");
     let lock = format!("{key}:lock");
+    let window = Duration::from_secs(300);
+    let cap = state.rate_limits.pin_attempts;
+    let unavailable = |_| ApiError::unavailable();
+    let lock_out = || async {
+        let locked = state
+            .rate_limiter
+            .hit(&lock, 0, window)
+            .await
+            .map_err(unavailable)?;
+        Err(ApiError::too_many_requests(locked.retry_after_secs))
+    };
     let decision = state
         .rate_limiter
         .check(&lock, 0)
         .await
-        .map_err(|_| ApiError::unavailable())?;
+        .map_err(unavailable)?;
     if !decision.allowed {
         return Err(ApiError::too_many_requests(decision.retry_after_secs));
+    }
+    // Count the attempt before verifying it. Hashing is slow, so counting only a failure
+    // afterwards would let any number of parallel requests each try a PIN before the cap
+    // trips. The increment is atomic: at most `cap` guesses are verified per window.
+    let attempt = state
+        .rate_limiter
+        .hit(&key, cap, window)
+        .await
+        .map_err(unavailable)?;
+    if !attempt.allowed {
+        return lock_out().await;
     }
     if let Some(pin) = pin
         && verify_secret(pin, hash).await?
     {
-        state
-            .rate_limiter
-            .reset(&key)
-            .await
-            .map_err(|_| ApiError::unavailable())?;
+        state.rate_limiter.reset(&key).await.map_err(unavailable)?;
         return Ok(());
     }
-    let failed = state
+    // The last permitted guess being wrong locks the member out for the rest of the window.
+    let exhausted = !state
         .rate_limiter
-        .hit(
-            &key,
-            state.rate_limits.pin_attempts.saturating_sub(1),
-            Duration::from_secs(300),
-        )
+        .check(&key, cap.saturating_sub(1))
         .await
-        .map_err(|_| ApiError::unavailable())?;
-    if !failed.allowed {
-        let locked = state
-            .rate_limiter
-            .hit(&lock, 0, Duration::from_secs(300))
-            .await
-            .map_err(|_| ApiError::unavailable())?;
-        return Err(ApiError::too_many_requests(locked.retry_after_secs));
+        .map_err(unavailable)?
+        .allowed;
+    if exhausted {
+        return lock_out().await;
     }
     Err(ApiError::new(
         StatusCode::UNAUTHORIZED,

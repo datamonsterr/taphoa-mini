@@ -237,6 +237,44 @@ async fn pin_verify_no_pin_match_failure_reset_and_lockout() {
     );
 }
 #[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn parallel_pin_verifications_stop_at_the_attempt_cap() {
+    let w = World::new().await;
+    assert_eq!(
+        w.call("PUT", "/v1/me/pin", &w.lead, json!({"pin":"1234"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    let cap = w.state.rate_limits.pin_attempts as usize;
+    // Every request is in flight before the first hash check finishes. Counting an
+    // attempt only after verifying it would let all of them be verified.
+    let replies = futures_util::future::join_all(
+        (0..cap * 3).map(|_| w.call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))),
+    )
+    .await;
+    let verified = replies
+        .iter()
+        .filter(|r| r.status == StatusCode::NO_CONTENT)
+        .count();
+    let limited = replies
+        .iter()
+        .filter(|r| r.status == StatusCode::TOO_MANY_REQUESTS)
+        .count();
+    assert!(
+        (1..=cap).contains(&verified),
+        "{verified} verified, cap {cap}"
+    );
+    assert_eq!(verified + limited, cap * 3);
+    // The overflow locked the member out, even for the right PIN.
+    let locked = w
+        .call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))
+        .await;
+    assert_eq!(locked.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(locked.headers.contains_key("retry-after"));
+}
+
+#[tokio::test]
 async fn invalid_tokens_and_no_database_fail_closed() {
     let mut state = AppState::default();
     clerk::install(&mut state);
