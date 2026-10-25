@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { Mic } from 'lucide-react-native';
-import { memo, useEffect } from 'react';
-import { StyleSheet } from 'react-native';
+import { memo, useEffect, useState } from 'react';
+import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -12,9 +12,10 @@ import Animated, {
 
 import { Icon } from '@/components/ui/Icon';
 import { PressableScale } from '@/components/ui/PressableScale';
+import { Text } from '@/components/ui/ScaledText';
 import { t } from '@/lib/i18n';
 import type { Language } from '@/stores/settings';
-import { colors, radius, size } from '@/theme';
+import { colors, radius, size, space, typography } from '@/theme';
 
 import { voiceStrings } from './strings';
 import { useVoiceInput } from './useVoiceInput';
@@ -28,7 +29,12 @@ export type VoiceButtonProps = {
   disabled?: boolean;
 };
 
-/** Hold-to-talk microphone button (56 dp). Renders nothing when recognition is unavailable. */
+const HINT_MS = 4000;
+
+/**
+ * Hold-to-talk microphone button (56 dp). On Android and iOS it is always there: without
+ * recognition it looks disabled and a press explains why. The web renders nothing without it.
+ */
 export const VoiceButton = memo(function VoiceButton({
   language,
   onPartial,
@@ -59,7 +65,44 @@ export const VoiceButton = memo(function VoiceButton({
     if (disabled) cancel();
   }, [disabled, cancel]);
 
-  if (!available) return null;
+  const [hint, setHint] = useState(false);
+  useEffect(() => {
+    if (!hint) return;
+    const timer = setTimeout(() => setHint(false), HINT_MS);
+    return () => clearTimeout(timer);
+  }, [hint]);
+
+  if (!available) {
+    if (Platform.OS === 'web') return null;
+    const unavailable = t(voiceStrings, 'unavailable', language);
+    return (
+      <View style={styles.anchor}>
+        {hint ? (
+          <View
+            testID="voice-unavailable"
+            accessibilityLiveRegion="polite"
+            style={styles.hint}
+          >
+            <Text style={styles.hintText}>{unavailable}</Text>
+          </View>
+        ) : null}
+        <PressableScale
+          testID="voice-button"
+          accessibilityRole="button"
+          accessibilityLabel={t(voiceStrings, 'hold', language)}
+          accessibilityHint={unavailable}
+          accessibilityState={{ disabled: true }}
+          onPress={() => {
+            setHint(true);
+            AccessibilityInfo.announceForAccessibility(unavailable);
+          }}
+          style={[styles.base, styles.idle, styles.disabled]}
+        >
+          <Icon icon={Mic} color={colors.inkMuted} />
+        </PressableScale>
+      </View>
+    );
+  }
 
   return (
     <PressableScale
@@ -92,6 +135,17 @@ export const VoiceButton = memo(function VoiceButton({
 });
 
 const styles = StyleSheet.create({
+  anchor: { width: size.tapMin, height: size.tapMin },
+  hint: {
+    position: 'absolute',
+    right: 0,
+    bottom: size.tapMin + space[2],
+    width: 220,
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.ink,
+  },
+  hintText: { ...typography.caption, color: colors.onInk },
   base: {
     width: size.tapMin,
     height: size.tapMin,

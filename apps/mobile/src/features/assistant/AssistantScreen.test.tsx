@@ -1,4 +1,9 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { setAnalyticsSink } from '@/lib/analytics';
@@ -289,7 +294,9 @@ test('a receipt entry sends the fixed first message with the receipt attached, a
 
   await fireEvent.press(screen.getByLabelText(/Sting đỏ/));
   expect(input().props.value).toBe("Dòng 'Sting đỏ': ");
-  await fireEvent.press(screen.getByText('Xem dạng bảng'));
+  await fireEvent.press(
+    within(screen.getByTestId('card-receipt-lines')).getByText('Xem dạng bảng'),
+  );
   expect(router.push).toHaveBeenCalledWith(`/receipt/${receiptId}`);
 });
 

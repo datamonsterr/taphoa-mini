@@ -36,11 +36,13 @@ import { AssistantMessageView } from './chat/AssistantMessageView';
 import type { ReceiptCardLine } from './chat/cards/ReceiptLinesCard';
 import { Composer } from './chat/Composer';
 import { ErrorNotice } from './chat/ErrorNotice';
+import { ReceiptStatusRow } from './chat/ReceiptStatusRow';
 import { ThreadList } from './chat/ThreadList';
 import { UserBubble } from './chat/UserBubble';
 import type { AssistantRouteParams } from './route';
 import { dict } from './strings';
 import { useAssistantChat } from './useAssistantChat';
+import { useReceiptChat } from './useReceiptChat';
 
 const TOP_GAP = 8;
 
@@ -153,6 +155,17 @@ export function AssistantScreen() {
     setStartFailed(false);
   };
 
+  const receipt = useReceiptChat({
+    entryReceiptId: fromEntry ? params.receiptId : undefined,
+    threadId,
+    threadFailed: startFailed,
+    chat,
+    restartThread: () => {
+      if (lastTurn.current) void startTurn(lastTurn.current);
+    },
+    firstMessage: t('receiptFirstMessage'),
+  });
+
   const scroller = useRef<ScrollViewInstance>(null);
   const title =
     threads.data?.find((thread) => thread.id === threadId)?.title ?? t('title');
@@ -217,6 +230,13 @@ export function AssistantScreen() {
               onPress={() => router.back()}
             />
           </View>
+          {!showList && receipt.receiptId ? (
+            <ReceiptStatusRow
+              receiptId={receipt.receiptId}
+              state={receipt.state}
+              onRetry={receipt.retry}
+            />
+          ) : null}
           <ScrollView
             ref={scroller}
             testID="assistant-messages"

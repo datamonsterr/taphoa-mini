@@ -28,7 +28,10 @@ import { useCartStore } from '@/stores/cart';
 import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
-import { renderWithProviders } from '@/test/render';
+import {
+  createTestQueryClient,
+  renderWithProviders as render,
+} from '@/test/render';
 
 import { uploadPartsAsBlobs } from './testing';
 import { CameraScreen } from './CameraScreen';
@@ -175,6 +178,21 @@ beforeEach(() => {
   uploadPartsAsBlobs();
 });
 
+// The next-steps query resolves on its own clock, after the render that started it. Each render
+// waits for it (and for TanStack Query's zero-delay hand-off to the observers) inside `act`, so its
+// re-render is never reported as an update outside a test.
+let queryClient = createTestQueryClient();
+async function renderWithProviders(ui: React.ReactElement) {
+  const view = await render(ui, queryClient);
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return view;
+}
+beforeEach(() => {
+  queryClient = createTestQueryClient();
+});
 afterEach(() => jest.restoreAllMocks());
 
 const shutter = () =>
