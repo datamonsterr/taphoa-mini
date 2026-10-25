@@ -44,7 +44,11 @@ reference: <https://docs.expo.dev/versions/v58.0.0/>.
 `X-Store-Id`; bearer tokens come from Clerk. A token 401 is replayed once using
 `getToken({ skipCache: true })`. A second 401 returns to the caller. Wrong-PIN
 responses are not replayed, so one user action cannot consume two PIN attempts.
-`membership_required` invalidates the current user's `/me` query.
+`membership_required` invalidates the current user's `/me` query. So does a `403`
+`forbidden` on a request that carried `X-Store-Id` (a person removed from the selected
+store falls back to another membership once `/me` is re-read). While the device is locked
+the bridge registers `getToken: async () => null` and no store id, so nothing is sent with
+the live Clerk session that nobody was let in as.
 
 `useMembership` exposes the selected store/member, including role, can_enroll and
 has_pin. `useCurrentSessionSignOut` passes `{ sessionId }` to Clerk and activates
@@ -139,6 +143,10 @@ without their PIN after "Đăng xuất" and a restart. So the lock holds the pho
   unreadable `/me` keeps the screen with "Không đăng nhập được" so the person can change the
   email. A phone that was not locked asks for no PIN (the person is the active user adding
   someone, or nobody else is on the phone).
+- When `/v1/me` cannot be read for the signed-in person, the gate shows an error frame with
+  "Thử lại" and "Đăng xuất" (`auth-load-sign-out`, current session only through
+  `useCurrentSessionSignOut`, so it ends at the sign-in screen or the picker like any other
+  sign-out).
 - It cannot trap anyone: with nobody signed in on the device the gate drops a stale lock, and
   any normal sign-in clears it. Unreadable or malformed storage reads as unlocked.
 
