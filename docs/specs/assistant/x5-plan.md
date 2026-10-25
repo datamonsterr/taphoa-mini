@@ -132,19 +132,24 @@ T1 contract ──┬── T2a backend ledger ── T2b sales, void, day close
 - App analytics use `apps/mobile/src/lib/analytics.ts` once X0 lands it; until then no app
   events are added (backend debt events go through the outbox).
 
+## Workers
+
+Codex accounts hit their quota on 2026-10-25, so T2b onward run on native subagents
+(`claude-sonnet-5-5`), per the fallback rule.
+
 ## Version pins
 
 None new. The epic uses the repository's current crates and packages.
 
 ## Progress
 
-| Task | State   | Notes |
-| ---- | ------- | ----- |
-| T1   | pending |       |
-| T2a  | pending |       |
-| T2b  | pending |       |
-| T3a  | pending |       |
-| T3b  | pending |       |
-| T4   | pending |       |
-| T5   | pending |       |
-| T6   | waiting | X3    |
+| Task | State   | Notes                                                  |
+| ---- | ------- | ------------------------------------------------------ |
+| T1   | done    | `1f8f9b7` contract                                     |
+| T2a  | done    | `ec6ed33` ledger, FIFO, feed; review fixes go with T2b |
+| T2b  | pending |                                                        |
+| T3a  | done    | `d0ab9ba` pay sheet Ghi nợ, picker, mock               |
+| T3b  | pending |                                                        |
+| T4   | pending |                                                        |
+| T5   | pending |                                                        |
+| T6   | waiting | X3                                                     |
