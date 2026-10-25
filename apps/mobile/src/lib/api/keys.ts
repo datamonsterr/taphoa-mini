@@ -18,7 +18,10 @@ export const keys = {
       [...keys.receipts.all(), 'list', status ?? null] as const,
     detail: (id: string) => [...keys.receipts.all(), 'detail', id] as const,
   },
-  me: () => [...keys.all, 'me'] as const,
+  me: (userId?: string | null) =>
+    userId
+      ? ([...keys.all, 'me', userId] as const)
+      : ([...keys.all, 'me'] as const),
   store: () => [...keys.all, 'store'] as const,
   members: () => [...keys.all, 'members'] as const,
   categories: () => [...keys.all, 'categories'] as const,

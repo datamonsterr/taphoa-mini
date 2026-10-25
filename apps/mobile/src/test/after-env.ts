@@ -17,20 +17,29 @@ beforeEach(() => {
   const { setApiTransport } = require('@/lib/api/client');
   const { createMockFetch } = require('@/test/mock/fetch');
   const { resetMockDb } = require('@/test/mock/db');
-  const { initialSession, useSessionStore } = require('@/stores/session');
-  const { testSession } = require('./session');
   const { initialChrome, useChromeStore } = require('@/stores/chrome');
   const { useCartStore } = require('@/stores/cart');
   const { useLowStockAlerts } = require('@/stores/lowStockAlerts');
   const { initialSettings, useSettingsStore } = require('@/stores/settings');
   resetMockDb();
-  // The app only ever talks to the real backend; tests put the in-memory double underneath it.
-  setApiTransport(createMockFetch());
-  useSessionStore.setState({
-    ...initialSession,
-    session: testSession(),
+  require('./clerk').resetClerkMock();
+  require('@/features/auth/emailFlow').useEmailFlow.getState().reset();
+  require('@/features/onboarding/inviteIntent')
+    .useInviteIntent.getState()
+    .setToken('');
+  require('@/stores/currentStore').useCurrentStore.setState({
+    storeIds: {},
     hydrated: true,
   });
+  require('@/lib/api/clerkBridge').registerAuthBridge({
+    getToken: require('./clerk').clerkMock.getToken,
+    getStoreId: () =>
+      require('@/stores/currentStore').useCurrentStore.getState().storeIds
+        .user_test ?? require('./session').testSession().store.id,
+    membershipRequired: jest.fn(),
+  });
+  // The app only ever talks to the real backend; tests put the in-memory double underneath it.
+  setApiTransport(createMockFetch());
   useChromeStore.setState(initialChrome);
   useCartStore.setState({ lines: [] });
   useLowStockAlerts.getState().reset();

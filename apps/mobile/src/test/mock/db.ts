@@ -1,3 +1,4 @@
+import { resetMockAuth } from './auth';
 import { newUuid } from '@/lib/uuid';
 import type {
   CreateProductRequest,
@@ -41,6 +42,7 @@ export function getMockDb(): MockState {
 /** Restores the seed data and the default scan scenario. */
 export function resetMockDb(): void {
   state = buildSeed();
+  resetMockAuth();
   resetMockScenario();
   resetMockEvents();
 }
