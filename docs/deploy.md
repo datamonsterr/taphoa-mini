@@ -188,14 +188,16 @@ grep '^CLERK_SECRET_KEY=' ~/.config/taphoa-mini/secrets.env | cut -d= -f2- | tr 
   | railway variable set --stdin CLERK_SECRET_KEY --service backend --environment test --skip-deploys
 ```
 
-**CI use of the secrets.** Secrets are unavailable to fork and dependabot runs, so those jobs
-degrade with a `::notice::` instead of failing.
+**CI use of the secrets.** Secrets are unavailable to fork pull requests and dependabot runs, so
+only those two degrade with a `::notice::`. For same-repo pull requests, pushes and `main` the
+`clerk-secrets` gate job of `ci.yml` and `android-e2e.yml` fails with an error naming the
+missing secrets, so a blank secret cannot silently drop the Clerk coverage.
 
 | Workflow / job                         | Secrets and variables                                                                                                                                                     | Without the secrets                          |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `ci.yml` `docker-e2e`                  | `CLERK_PUBLISHABLE_KEY` to Compose; `CLERK_SECRET_KEY` to `apps/backend/scripts/e2e.sh`, which creates a `+clerk_test` user, mints a 10 minute token and deletes the user | Authenticated checks (store, images) skipped |
-| `ci.yml` `web-e2e`                     | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` (the export embeds it)                                                                   | Job skipped (`clerk-secrets` gate)           |
-| `android-e2e.yml` `maestro`, `expo-go` | Backend stack gets both keys; the app build and Metro get `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                             | Jobs skipped (`clerk-secrets` gate)          |
+| `ci.yml` `web-e2e`                     | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` (the export embeds it)                                                                   | Fork/dependabot: skipped; else gate fails    |
+| `android-e2e.yml` `maestro`, `expo-go` | Backend stack gets both keys; the app build and Metro get `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                             | Fork/dependabot: skipped; else gate fails    |
 | `deploy.yml` `test` (seed and e2e)     | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` for `scripts/ci/seed-test.sh` and `scripts/ci/run-e2e.sh`                                                                     | `run-e2e.sh` fails fast naming the secret    |
 | `railway-integration.yml`              | none: the integration tests run in-process                                                                                                                                | n/a                                          |
 
@@ -221,7 +223,8 @@ without recompiling. JS jobs use the pnpm store cache and a Turborepo cache
 (`.github/actions/setup-js`). `docker-build` uses buildx with the GHA cache and shares the
 image as an artifact for `docker-e2e`, whose smoke script mints a Clerk session token for the
 store and image checks; `web-e2e` signs in through Clerk, and a tiny `clerk-secrets` job gates it
-so fork and dependabot runs (no secrets) skip with a notice. Each job appends a summary (JUnit counts through
+so fork and dependabot runs (no secrets) skip with a notice while every other run fails when the
+secrets are blank. Each job appends a summary (JUnit counts through
 `scripts/ci/junit_summary.py`, duration through `scripts/ci/job-summary.sh`) and uploads
 JUnit or compose logs on failure. `ci-ok` aggregates everything (skipped counts as
 success) and prints a job timing table. The Docker image in CI is a thin wrapper (`apps/backend/Dockerfile.ci`) around a release binary built by `backend-binary` in `rust:1-bookworm` with a persistent cargo/target cache, so backend source changes stay under 3 minutes. The full cargo-chef `apps/backend/Dockerfile` that Railway builds is verified separately in `docker-full.yml` (push to main, nightly, Dockerfile changes), outside the required gate. Make `ci-ok` the only required status check.
