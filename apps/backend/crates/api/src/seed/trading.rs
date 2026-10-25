@@ -71,8 +71,8 @@ pub(super) async fn seed(tx: &mut Tx<'_>, store: Store) -> Result<()> {
                 store.at(day, 23, 0)?
             });
             let request = json!({"id":sale,"code":code,"sold_at":at,"business_date":day,"member_id":store.id(1,member),"payment_method":if cash {"cash"} else {"transfer"},"total":total,"lines":lines.iter().map(|l|json!({"product_id":(l.source!="manual").then_some(store.id(5,l.product as u64)),"source":l.source,"quantity":l.quantity,"unit_price":l.price,"quantity_in_base":l.size,"unit_id":l.unit})).collect::<Vec<_>>()});
-            sqlx::query("INSERT INTO sales (id,store_id,code,member_id,session_id,sold_at,received_at,business_date,payment_method,cash_received,total,vietqr_memo,status,void_reason,voided_by,voided_at,request_hash) VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT DO NOTHING")
-                .bind(sale).bind(store.store_id()).bind(&code).bind(store.id(1,member)).bind(store.id(2,member))
+            sqlx::query("INSERT INTO sales (id,store_id,code,member_id,clerk_session_id,sold_at,received_at,business_date,payment_method,cash_received,total,vietqr_memo,status,void_reason,voided_by,voided_at,request_hash) VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT DO NOTHING")
+                .bind(sale).bind(store.store_id()).bind(&code).bind(store.id(1,member)).bind(None::<String>)
                 .bind(at).bind(day).bind(if cash {"cash"} else {"transfer"})
                 .bind(cash.then_some(((total+9999)/10000)*10000)).bind(total)
                 .bind((!cash && store.number == 1).then(||format!("TH{code}")))

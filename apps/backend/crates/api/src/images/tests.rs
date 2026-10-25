@@ -1,5 +1,5 @@
 use super::*;
-use crate::{router, storage::tests::FakeStore};
+use crate::storage::tests::FakeStore;
 use axum::{
     body::{Body, to_bytes},
     http::Request,
@@ -42,21 +42,52 @@ impl ImageRepository for FakeRepository {
             .map(|(row, _)| row.clone()))
     }
 }
+// Handler unit tests supply an explicit actor. Real Clerk/membership extraction is
+// covered by auth_flow and storage integration tests.
 fn test_state() -> AppState {
-    AppState {
-        jwt: crate::auth::JwtKeys::from_secret(&[42; 32]),
-        ..AppState::default()
-    }
+    AppState::default()
 }
 fn test_bearer() -> String {
-    let (token, _) = test_state().jwt.issue(&Actor {
-        member_id: Uuid::nil(),
-        store_id: Uuid::nil(),
-        session_id: Uuid::nil(),
-        role: crate::auth::Role::Lead,
-        can_enroll: true,
-    });
-    format!("Bearer {token}")
+    "Bearer fixture".into()
+}
+struct FixtureActor(Actor);
+impl axum::extract::FromRequestParts<AppState> for FixtureActor {
+    type Rejection = ApiError;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &AppState,
+    ) -> Result<Self, ApiError> {
+        let store = match parts
+            .headers
+            .get("authorization")
+            .and_then(|h| h.to_str().ok())
+        {
+            Some("Bearer fixture") => Uuid::nil(),
+            Some("Bearer foreign") => Uuid::from_u128(1),
+            _ => return Err(ApiError::unauthorized()),
+        };
+        Ok(Self(Actor {
+            clerk_user_id: "user_fixture".into(),
+            member_id: Uuid::nil(),
+            store_id: store,
+            clerk_session_id: "sess_fixture".into(),
+            role: crate::auth::Role::Lead,
+            can_enroll: true,
+        }))
+    }
+}
+fn router(state: AppState) -> axum::Router {
+    use axum::{
+        extract::DefaultBodyLimit,
+        routing::{get, post},
+    };
+    axum::Router::new()
+        .route("/readyz",get(crate::readyz))
+        .route("/v1/images",post(|state:State<AppState>,FixtureActor(actor):FixtureActor,multipart:Result<Multipart,MultipartRejection>|async move {upload(state,actor,multipart).await})
+            .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(MAX_IMAGE_REQUEST_BYTES))
+            .layer(tower_http::limit::RequestBodyLimitLayer::new(MAX_IMAGE_REQUEST_BYTES)))
+        .route("/v1/images/{id}",get(|state:State<AppState>,FixtureActor(actor):FixtureActor,id:Path<String>|async move {get_image(state,actor,id).await}))
+        .with_state(state)
 }
 fn setup() -> (AppState, Arc<FakeStore>, Arc<FakeRepository>) {
     let objects = Arc::new(FakeStore::default());
@@ -348,16 +379,8 @@ async fn bearer_required_and_other_store_cannot_fetch() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let uploaded = json(response).await;
-    let actor = Actor {
-        member_id: Uuid::new_v4(),
-        store_id: Uuid::new_v4(),
-        session_id: Uuid::new_v4(),
-        role: crate::auth::Role::Seller,
-        can_enroll: false,
-    };
-    let (token, _) = state.jwt.issue(&actor);
     let request = Request::get(format!("/v1/images/{}", uploaded["id"].as_str().unwrap()))
-        .header("authorization", format!("Bearer {token}"))
+        .header("authorization", "Bearer foreign")
         .body(Body::empty())
         .unwrap();
     assert_eq!(

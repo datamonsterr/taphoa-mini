@@ -138,7 +138,7 @@ async fn event(
         conn,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ,
             version: 1,
             data,
@@ -193,8 +193,8 @@ async fn create(
     input.validate()?;
     let date = business_date(input.sold_at);
     let code = money::sale_code(input.id);
-    let won = sqlx::query("INSERT INTO sales(id,store_id,code,member_id,session_id,sold_at,business_date,payment_method,cash_received,total,vietqr_memo,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(id) DO NOTHING")
-        .bind(input.id).bind(actor.store_id).bind(&code).bind(actor.member_id).bind(actor.session_id).bind(input.sold_at).bind(date).bind(&input.payment_method).bind(input.cash_received).bind(input.total).bind(&input.vietqr_memo).bind(hash.as_slice())
+    let won = sqlx::query("INSERT INTO sales(id,store_id,code,member_id,clerk_session_id,sold_at,business_date,payment_method,cash_received,total,vietqr_memo,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(id) DO NOTHING")
+        .bind(input.id).bind(actor.store_id).bind(&code).bind(actor.member_id).bind(&actor.clerk_session_id).bind(input.sold_at).bind(date).bind(&input.payment_method).bind(input.cash_received).bind(input.total).bind(&input.vietqr_memo).bind(hash.as_slice())
         .execute(&mut *tx).await.map_err(write_error)?.rows_affected() == 1;
     if !won {
         let (store, stored): (Uuid, Vec<u8>) =

@@ -51,7 +51,8 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations"
 
 #[derive(Clone)]
 pub struct AppState {
-    pub jwt: auth::JwtKeys,
+    pub clerk: auth::ClerkVerifier,
+    pub profile: auth::profile::ProfileClient,
     pub rate_limiter: Arc<dyn ratelimit::RateLimiter>,
     pub rate_limits: ratelimit::RateLimits,
     pub client_ip: ratelimit::ClientIpSource,
@@ -79,7 +80,12 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            jwt: auth::JwtKeys::from_secret(&rand::random::<[u8; 32]>()),
+            clerk: auth::ClerkVerifier::from_jwks(
+                "https://unconfigured.invalid",
+                vec![],
+                jsonwebtoken::jwk::JwkSet { keys: vec![] },
+            ),
+            profile: auth::profile::ProfileClient::default(),
             rate_limiter: Arc::new(ratelimit::MemoryRateLimiter::default()),
             rate_limits: ratelimit::RateLimits::default(),
             client_ip: ratelimit::ClientIpSource::default(),
@@ -115,6 +121,10 @@ impl AppState {
         config: &config::Config,
         segmenter: Option<Arc<dyn Segmenter>>,
     ) -> anyhow::Result<Self> {
+        let settings = config
+            .clerk
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required"))?;
         let mut state = Self::connect_options(
             config.database_url.as_deref(),
             config.redis_url.as_deref(),
@@ -122,7 +132,9 @@ impl AppState {
             config.db_max_connections,
         )
         .await?;
-        state.jwt = auth::JwtKeys::from_secret(config.jwt_secret.as_bytes());
+        let client = reqwest::Client::new();
+        state.clerk = auth::ClerkVerifier::new(settings, client.clone());
+        state.profile = auth::profile::ProfileClient::new(settings, client);
         state.rate_limits = config.rate_limits;
         state.client_ip = config.client_ip;
         state.config = Some(Arc::new(config.clone()));
