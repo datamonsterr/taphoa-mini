@@ -85,8 +85,11 @@ export type AssistantStreamEvent =
   import('./schema').components['schemas']['AssistantStreamEvent'];
 
 export class AssistantStreamInterruptedError extends Error {
-  constructor() {
-    super('Assistant stream ended before a terminal event');
+  constructor(cause?: unknown) {
+    super(
+      'Assistant stream ended before a terminal event',
+      cause === undefined ? undefined : { cause },
+    );
     this.name = 'AssistantStreamInterruptedError';
   }
 }
@@ -114,22 +117,29 @@ export async function* readAssistantStream(
   options: StreamOptions = {},
 ): AsyncGenerator<AssistantStreamEvent> {
   const frames = parseSseStream(body, options);
-  for await (const frame of frames) {
-    if (!assistantEvents.has(frame.event as AssistantStreamEvent['event']))
-      continue;
-    let data: unknown;
-    try {
-      data = JSON.parse(frame.data);
-    } catch (cause) {
-      throw new AssistantStreamProtocolError(cause);
-    }
-    const event = { event: frame.event, data } as AssistantStreamEvent;
-    if (event.event === 'message.completed' || event.event === 'error') {
-      await frames.return(undefined);
+  try {
+    for await (const frame of frames) {
+      if (!assistantEvents.has(frame.event as AssistantStreamEvent['event']))
+        continue;
+      let data: unknown;
+      try {
+        data = JSON.parse(frame.data);
+      } catch (cause) {
+        throw new AssistantStreamProtocolError(cause);
+      }
+      const event = { event: frame.event, data } as AssistantStreamEvent;
+      if (event.event === 'message.completed' || event.event === 'error') {
+        // A failing cancel must not swallow the terminal event.
+        await frames.return(undefined).catch(() => {});
+        yield event;
+        return;
+      }
       yield event;
-      return;
     }
-    yield event;
+  } catch (error) {
+    if (error instanceof AssistantStreamProtocolError) throw error;
+    if (options.signal?.aborted) throw error;
+    throw new AssistantStreamInterruptedError(error);
   }
   throw new AssistantStreamInterruptedError();
 }

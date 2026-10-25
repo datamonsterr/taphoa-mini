@@ -190,6 +190,63 @@ it('throws interrupted on early end and protocol error on malformed JSON', async
   ).rejects.toBeInstanceOf(AssistantStreamProtocolError);
 });
 
+it('keeps the no-arg interrupted error without a cause', () => {
+  const error = new AssistantStreamInterruptedError();
+  expect(error.name).toBe('AssistantStreamInterruptedError');
+  expect(error.cause).toBeUndefined();
+  expect('cause' in error).toBe(false);
+});
+
+it('surfaces a transport error mid-stream as interrupted with the original cause', async () => {
+  const failure = new TypeError('Network request failed');
+  const delta: AssistantStreamEvent = {
+    event: 'message.delta',
+    data: { text: 'partial' },
+  };
+  let pulls = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulls++ === 0)
+        controller.enqueue(new TextEncoder().encode(wire([delta])));
+      else controller.error(failure);
+    },
+  });
+  const events = readAssistantStream(body);
+  expect(await events.next()).toEqual({ value: delta, done: false });
+  const error = await events.next().then(
+    () => undefined,
+    (e: unknown) => e,
+  );
+  expect(error).toBeInstanceOf(AssistantStreamInterruptedError);
+  expect((error as AssistantStreamInterruptedError).cause).toBe(failure);
+  expect(body.locked).toBe(false);
+});
+
+it('rethrows the abort reason instead of reporting an interruption', async () => {
+  const reason = new Error('user cancelled');
+  const controller = new AbortController();
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({ cancel });
+  const next = readAssistantStream(body, { signal: controller.signal }).next();
+  controller.abort(reason);
+  await expect(next).rejects.toBe(reason);
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(body.locked).toBe(false);
+});
+
+it('still yields message.completed when cancelling the body rejects', async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(new TextEncoder().encode(wire([completed])));
+    },
+    cancel() {
+      throw new Error('cancel failed');
+    },
+  });
+  expect(await collect(readAssistantStream(body))).toEqual([completed]);
+  expect(body.locked).toBe(false);
+});
+
 it('sends one authenticated POST with Accept and never reconnects after a drop', async () => {
   const fetchMock = vi.fn(
     async (_request: Request) =>
