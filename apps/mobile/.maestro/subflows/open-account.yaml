@@ -1,0 +1,21 @@
+appId: com.datamonsterr.taphoamini
+---
+# Opens the account tab. Starts on the camera, which is the first screen after sign-in,
+# create-store or a switch of person (the root gate rebuilds the screens around the new person);
+# when the app is already on a shop tab it only taps the tab. Ends on the top of the account
+# screen, once the person's own name is shown ("Đang dùng: <name>").
+- extendedWaitUntil:
+    visible: '(Vuốt lên: cửa hàng|Tài khoản)'
+    timeout: 60000
+- runFlow:
+    when:
+      visible: 'Vuốt lên: cửa hàng'
+    commands:
+      - tapOn: 'Vuốt lên: cửa hàng'
+      - extendedWaitUntil:
+          visible: 'Tài khoản'
+          timeout: 15000
+- tapOn: 'Tài khoản'
+- extendedWaitUntil:
+    visible: 'Đang dùng: .*'
+    timeout: 30000

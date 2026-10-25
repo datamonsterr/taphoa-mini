@@ -96,6 +96,41 @@ signed-in list, Clerk order), `account-sessions-error`, `account-add-person`,
 `account-stores`, `account-store-<storeId>`, `auth-add-cancel` (add mode of both
 auth screens). The generic `PinSheet` uses `pin-sheet` and the same parts by default.
 
+## Maestro (Android)
+
+The flows in `.maestro/` sign in through the real screens (email, then code) against the Clerk
+development instance and the real backend. CI (`.github/workflows/android-e2e.yml`) runs them on a
+release APK built with `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`; the backend started by
+`scripts/e2e/stack.sh` gets the `CLERK_*` keys. Every flow starts with `subflows/launch.yaml`
+(fresh state, camera permission, waits for `auth-email`), `subflows/sign-in.yaml` and
+`subflows/create-store.yaml`.
+
+- `sign-in.yaml` makes `e2e-maestro-<timestamp><random>+clerk_test@example.com`, types it in
+  `auth-email`, presses Enter, types `424242` in `auth-code`, presses Enter and waits for the
+  welcome screen (the camera for an address that already has a store). The optional `EMAIL`
+  env reuses an address; `output.email` holds the one used. `+clerk_test` sends no mail. The `e2e-`
+  prefix is what the e2e sweep (`packages/e2e/src/sweep.ts`) deletes, so Maestro users do not pile
+  up in the instance.
+- `create-store.yaml` runs on `/welcome`: `onboarding-create`, `create-store-name`,
+  `create-display-name`, Enter. There is no recovery code.
+- `open-account.yaml` goes from the camera to the account tab; `scroll-account-end.yaml` scrolls
+  that tab so the people list, `account-add-person` and `account-sign-out` clear the floating tab
+  bar (a tap on an element just under the bar hits the tab instead).
+- `onboarding.yaml` also signs out (`account-sign-out`, back to sign-in) and signs in again with
+  the same address, which must land on the camera with the store.
+- `multi-session.yaml`: person A signs in, creates a store and sets PIN 2468; `account-add-person`
+  (and `auth-add-cancel`, which keeps A signed in) then person B signs in and creates a store; in
+  B's account tab the row "Chuyển sang ..." opens the PIN sheet of A; a wrong PIN shows
+  "Sai mã PIN" and does not switch, the right one opens A's store; signing out A leaves B signed
+  in as the current person; signing out B shows the sign-in screen.
+- Clerk's Frontend API allows 5 sign-in creations and 3 attempts per 10 s. A flow signs in once or
+  twice, well apart: never loop a sign-in or add a retry around it. Waits for Clerk and backend
+  screens use `extendedWaitUntil` with 30 to 90 s.
+- Selectors are regular expressions matched against the whole text. Dynamic text with `(`, `)`, `.`
+  or `+` (an email, "4-6 digits") needs `.*` or escaping. The PIN digits avoid 5: the account tab
+  shows the low-stock threshold (default 5) as a text of its own, so key "5" would be ambiguous.
+- `maestro check-syntax <flow>` checks a flow without a device; only the CI run proves it.
+
 ## Dependencies
 
 - `@clerk/expo` 4.14.1
@@ -126,6 +161,9 @@ the transitive `browser-tabs-lock` and `core-js` build scripts.
 are kept in memory through sign-in and prefill the join form. `/recover` and
 `/recovery-code` are removed. The Playwright web suite is described in
 [Playwright web e2e](#playwright-web-e2e); the Maestro suite belongs to a later task.
+
+`/recovery-code` are removed. The Maestro Android flows are described under
+Maestro (Android) below.
 
 ## Jest support
 

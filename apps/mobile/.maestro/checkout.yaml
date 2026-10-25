@@ -2,6 +2,8 @@ appId: com.datamonsterr.taphoamini
 ---
 # Sell a product added by hand (so the flow does not depend on what recognition makes of the
 # emulator's virtual camera): cart -> cash payment -> the sale counts in the day's report.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
 - runFlow:
     file: subflows/create-store.yaml
     env:
