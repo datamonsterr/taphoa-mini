@@ -179,7 +179,7 @@ apps/backend/crates/
 │   ├── main.rs            config, tracing, startup, graceful shutdown
 │   ├── lib.rs             AppState, router assembly, middleware
 │   ├── error.rs           ApiError { status, code, message } -> JSON
-│   ├── auth/              JWT, sessions, invites, recovery, PIN, extractor `Actor`
+│   ├── auth/              Clerk JWKS verifier, invites, PIN, extractors `ClerkIdentity`, `Actor`
 │   ├── store/             store settings, members
 │   ├── images/            ObjectStore trait, S3 + in-memory adapters, presign
 │   ├── catalog/           products, units, images, price history, categories
@@ -426,18 +426,19 @@ flowchart LR
 
 ## 8. Security
 
-| Topic         | Design                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity      | No phone number or email needed. A member is a display name inside a store. Devices hold a session created by store creation, invite join or recovery.       |
-| Tokens        | Access JWT HS256, 15 min (`JWT_SECRET` from Railway). Refresh token opaque, 90 days, rotating, SHA-256 hashed in `sessions`; reuse revokes the session.      |
-| Token storage | `expo-secure-store` on the phone.                                                                                                                            |
-| Invites       | 128-bit random token, hashed, single use, 10 min default, shown as QR on the Lead's phone.                                                                   |
-| Recovery      | One recovery code per store, Argon2id-hashed, shown once at creation, rotated on use.                                                                        |
-| PIN           | Optional 4–6 digits, Argon2id; 5 failures lock the member 5 min (Redis).                                                                                     |
-| Images        | Private bucket; only presigned GET URLs (15 min). Clients never hold bucket credentials.                                                                     |
-| Transport     | HTTPS only on Railway domains. CORS stays permissive only while there is no web client.                                                                      |
-| Secrets       | Railway variables (`JWT_SECRET`, `AWS_*`) kept with `preserve()`; never in git.                                                                              |
-| Personal data | Member display names and device names only. Photos are of products. Store deletion removes all rows and objects (Decree 13/2023 request handling, proposed). |
+| Topic         | Design                                                                                                                                                                                                                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity      | Clerk (email verification code, Google). The person is the Clerk user id (`sub`); a member is that user's membership in a store, with role and `can_enroll` in Postgres. Clerk Organizations are not used.                                                                                      |
+| Tokens        | Clerk session JWT, RS256, verified on every request against the instance JWKS (cached, an unknown `kid` refetches at most once a minute): `exp`/`nbf` with 5 s leeway, `iss`, `azp` when `CLERK_AUTHORIZED_PARTIES` is set, pending sessions rejected. The backend issues and stores no tokens. |
+| Store choice  | `X-Store-Id` selects the store: required when the Clerk user has several memberships, optional with one. No active membership in that store gives 403.                                                                                                                                          |
+| Token storage | Clerk's token cache on `expo-secure-store` on the phone.                                                                                                                                                                                                                                        |
+| Invites       | 128-bit random token, hashed, single use, 10 min default, shown as QR on the Lead's phone.                                                                                                                                                                                                      |
+| Recovery      | Clerk owns account recovery (email code, Google); the backend keeps no recovery code and no refresh tokens.                                                                                                                                                                                     |
+| PIN           | Optional 4–6 digits, Argon2id; 5 failures lock the member 5 min (Redis). `POST /v1/me/pin/verify` is the lock before switching person on a shared phone.                                                                                                                                        |
+| Images        | Private bucket; only presigned GET URLs (15 min). Clients never hold bucket credentials.                                                                                                                                                                                                        |
+| Transport     | HTTPS only on Railway domains. CORS stays permissive only while there is no web client.                                                                                                                                                                                                         |
+| Secrets       | Railway variables (`CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `AWS_*`) kept with `preserve()`, GitHub secrets for CI; never in git (see [deploy.md](deploy.md#clerk-identity)).                                                                                                               |
+| Personal data | Member display names in Postgres; email addresses stay in Clerk and reach the backend only as a cached profile read, never in logs or span attributes. Photos are of products. Store deletion removes all rows and objects (Decree 13/2023 request handling, proposed).                         |
 
 Permission matrix:
 
@@ -734,8 +735,11 @@ sequenceDiagram
 | `AWS_*`, `S3_FORCE_PATH_STYLE`, `S3_CREATE_BUCKET`, `IMAGE_URL_TTL_SECONDS` | backend | Spec'd      | Object storage ([spec](specs/object-storage.md)) |
 | `EMBEDDER_MODEL_PATH`                                                       | backend | Proposed    | DINOv2 ONNX weights                              |
 | `MATCH_THRESHOLD`, `MATCH_MARGIN`, `MATCH_FLOOR`, `DUPLICATE_THRESHOLD`     | backend | Proposed    | Recognition tuning (§5.3)                        |
-| `JWT_SECRET`                                                                | backend | Implemented | ≥ 32 random bytes                                |
+| `CLERK_PUBLISHABLE_KEY`                                                     | backend | Implemented | Required; yields the issuer and JWKS URL         |
+| `CLERK_SECRET_KEY`, `CLERK_API_URL`                                         | backend | Implemented | Optional: Backend API key and base URL (profile) |
+| `CLERK_AUTHORIZED_PARTIES`, `CLERK_ISSUER`, `CLERK_JWKS_URL`                | backend | Implemented | Optional: `azp` origins, issuer, JWKS overrides  |
 | `EXPO_PUBLIC_API_URL`                                                       | mobile  | Implemented | Backend base URL                                 |
+| `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`                                         | mobile  | Implemented | Same Clerk instance as the backend               |
 
 ## 11. Quality attributes
 
@@ -755,7 +759,7 @@ sequenceDiagram
 | D1  | Embedding model                                         | DINOv2 ViT-S/14, 384-d                    | A1 benchmark on 50 products |
 | D2  | SAM variant on CPU within 3 s                           | Current SAM ONNX; smaller variant if slow | Latency test on Railway     |
 | D3  | Railway region for services                             | Move to an Asian region                   | Before pilot                |
-| D4  | Auth model: device sessions + invite QR + recovery code | As in §8                                  | ADR 0003                    |
+| D4  | Auth model: Clerk identity + invite QR + Postgres roles | As in §8                                  | ADR 0004 (accepted)         |
 | D5  | Sync: REST outbox + change feed + SSE hints             | As in §6.2                                | ADR 0004                    |
 | D6  | Helpers enroll or only flag (PRD Q5)                    | Per-member `can_enroll` flag, default off | Family trial                |
 | D7  | Weighted goods (PRD Q3)                                 | Not modeled; integer quantities only      | Product decision            |
