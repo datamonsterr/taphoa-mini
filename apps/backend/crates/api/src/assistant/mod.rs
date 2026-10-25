@@ -3,6 +3,7 @@
 pub mod config;
 pub mod eval;
 pub mod model;
+pub mod next_steps;
 pub mod quota;
 pub mod threads;
 pub mod tools;
@@ -44,6 +45,7 @@ impl Language {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/v1/assistant/next-steps", get(next_steps::list))
         .route(
             "/v1/assistant/threads",
             get(threads::list).post(threads::create),
