@@ -3,6 +3,7 @@
 //! A store is inserted atomically with its entire 30-day snapshot. Existing fixture
 //! store IDs are skipped, even on later dates: reruns preserve counts and edits.
 mod catalog;
+pub mod eval;
 mod stock;
 mod trading;
 
