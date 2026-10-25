@@ -143,13 +143,13 @@ None new. The epic uses the repository's current crates and packages.
 
 ## Progress
 
-| Task | State   | Notes                                                                       |
-| ---- | ------- | --------------------------------------------------------------------------- |
-| T1   | done    | `1f8f9b7` contract                                                          |
-| T2a  | done    | `ec6ed33` ledger, FIFO, feed; review fixes go with T2b                      |
-| T2b  | done    | `f01fcd6` credit sales, void reversal, day close; `8fcaede` review fixes    |
-| T3a  | done    | `d0ab9ba` pay sheet Ghi nợ, picker, mock                                    |
-| T3b  | done    | `51ea497` debt book, customer screen, reminder, dashboard card, close lines |
-| T4   | pending |                                                                             |
-| T5   | pending |                                                                             |
-| T6   | waiting | X3                                                                          |
+| Task | State       | Notes                                                                                                    |
+| ---- | ----------- | -------------------------------------------------------------------------------------------------------- |
+| T1   | done        | `1f8f9b7` contract                                                                                       |
+| T2a  | done        | `ec6ed33` ledger, FIFO, feed; review fixes go with T2b                                                   |
+| T2b  | done        | `f01fcd6` credit sales, void reversal, day close; `8fcaede` review fixes                                 |
+| T3a  | done        | `d0ab9ba` pay sheet Ghi nợ, picker, mock                                                                 |
+| T3b  | done        | `51ea497` debt book, customer screen, reminder, dashboard card, close lines                              |
+| T4   | done        | `9417b8f`, `109f07b`, `55597d0`; debts e2e 9/9 on `test`, Playwright and Maestro debts flows green in CI |
+| T5   | in progress | PR #32; review fixes `f377736`, `7cf83e5`, `0eee87e`                                                     |
+| T6   | waiting     | X3                                                                                                       |
