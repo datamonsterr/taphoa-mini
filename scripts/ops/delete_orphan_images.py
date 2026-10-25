@@ -286,7 +286,13 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run(args: argparse.Namespace, env: Mapping[str, str], secrets: list[str]) -> int:
+def run(
+    args: argparse.Namespace,
+    env: Mapping[str, str],
+    secrets: list[str],
+    *,
+    now: datetime | None = None,
+) -> int:
     # Imported here so the core logic above needs neither package.
     import boto3  # noqa: PLC0415
     import psycopg  # noqa: PLC0415
@@ -313,8 +319,12 @@ def run(args: argparse.Namespace, env: Mapping[str, str], secrets: list[str]) ->
 
     prefixes = managed_prefixes(make_list_root_prefixes_fn(s3, bucket)())
     print(f"Listing bucket prefixes: {', '.join(prefixes)}")
+    current = now if now is not None else datetime.now(tz=timezone.utc)
     bucket_objects = collect_bucket_keys(
-        make_list_objects_fn(s3, bucket), prefixes, min_age_minutes=args.min_age_minutes
+        make_list_objects_fn(s3, bucket),
+        prefixes,
+        min_age_minutes=args.min_age_minutes,
+        cutoff=current - timedelta(minutes=args.min_age_minutes),
     )
     print(f"  Objects last modified more than {args.min_age_minutes} min ago: {len(bucket_objects)}")
     orphans = find_orphans(bucket_objects, referenced)
@@ -349,7 +359,8 @@ def run(args: argparse.Namespace, env: Mapping[str, str], secrets: list[str]) ->
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
+    """Entry point. ``now`` is injected by tests; production uses the real clock."""
     args = parse_args(argv)
     env = dict(os.environ)
 
@@ -360,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
 
     secrets = secret_values(env)
     try:
-        return run(args, env, secrets)
+        return run(args, env, secrets, now=now)
     except ImportError as exc:
         print(
             "Error: boto3 and psycopg are required; run with "

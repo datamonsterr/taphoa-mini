@@ -188,6 +188,7 @@ def run_main(
     referenced: list[str] | tuple[str, ...] = (),
     env: dict[str, str] | None = None,
     connect_error: Exception | None = None,
+    now: datetime = NOW,
 ) -> Run:
     client_calls: list[dict] = []
     queries: list[str] = []
@@ -217,7 +218,7 @@ def run_main(
         contextlib.redirect_stdout(out),
         contextlib.redirect_stderr(err),
     ):
-        rc = ops.main(argv)
+        rc = ops.main(argv, now=now)
     return Run(rc, out.getvalue(), err.getvalue(), client_calls, queries)
 
 
