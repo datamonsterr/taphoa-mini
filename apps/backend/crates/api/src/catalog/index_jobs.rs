@@ -137,7 +137,7 @@ async fn worker_loop(
                 Ok(true) => continue,
                 Ok(false) => break,
                 Err(error) => {
-                    tracing::warn!(%error, "index job iteration failed");
+                    crate::error::log_anyhow_error!(warn, &error, "index job iteration failed");
                     // Do not spin on database errors even with a busy notification stream.
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     break;
@@ -199,7 +199,13 @@ pub async fn process_next(
         let result = run_job(pool, embedder, storage, inference_slots, &job).await;
         outcome.finish(result.is_ok());
         if let Err(error) = result {
-            tracing::warn!(job_id=%job.id, %error, attempts=job.attempts, "index job failed");
+            crate::error::log_anyhow_error!(
+                warn,
+                &error,
+                job_id = %job.id,
+                attempts = job.attempts,
+                "index job failed"
+            );
             schedule_retry(pool, &job, format!("{error:#}"), config).await?;
         }
         Ok::<_, anyhow::Error>(())

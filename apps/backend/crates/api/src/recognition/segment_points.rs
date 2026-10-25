@@ -84,7 +84,7 @@ fn storage_failure(e: anyhow::Error) -> ApiError {
 }
 
 fn database_failure(e: sqlx::Error) -> ApiError {
-    tracing::error!(%e, "database failure");
+    crate::error::log_sqlx_error!(error, &e, "database failure");
     ApiError::new(
         StatusCode::INTERNAL_SERVER_ERROR,
         "internal",

@@ -104,10 +104,94 @@ impl IntoResponse for ApiError {
 }
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
-        tracing::error!(%error, "database operation failed");
+        log_sqlx_error!(error, &error, "database operation failed");
         Self::internal()
     }
 }
+
+/// Log-safe summary of a sqlx error. Logs are exported, and Postgres messages echo bound
+/// values (`invalid input syntax for type uuid: "<value>"`, `Key (name)=(<value>) already
+/// exists`), so the Display text must never be logged. Only the SQLSTATE, the constraint
+/// name (schema metadata) and a stable kind are kept.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SqlxLog {
+    pub kind: &'static str,
+    pub sqlstate: Option<String>,
+    pub constraint: Option<String>,
+}
+impl SqlxLog {
+    pub(crate) fn of(error: &sqlx::Error) -> Self {
+        let database = error.as_database_error();
+        Self {
+            kind: sqlx_kind(error),
+            sqlstate: database
+                .and_then(|e| e.code())
+                .map(|code| code.into_owned()),
+            constraint: database.and_then(|e| e.constraint()).map(str::to_owned),
+        }
+    }
+    /// The sqlx error anywhere in an anyhow chain, with or without added context.
+    pub(crate) fn in_chain(error: &anyhow::Error) -> Option<Self> {
+        error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<sqlx::Error>())
+            .map(Self::of)
+    }
+}
+fn sqlx_kind(error: &sqlx::Error) -> &'static str {
+    use sqlx::Error as E;
+    match error {
+        E::Database(_) => "database",
+        E::Io(_) => "io",
+        E::Tls(_) => "tls",
+        E::Protocol(_) => "protocol",
+        E::RowNotFound => "row_not_found",
+        E::PoolTimedOut => "pool_timed_out",
+        E::PoolClosed => "pool_closed",
+        E::WorkerCrashed => "worker_crashed",
+        E::Configuration(_) => "configuration",
+        E::InvalidArgument(_) => "invalid_argument",
+        E::TypeNotFound { .. } => "type_not_found",
+        E::ColumnIndexOutOfBounds { .. } => "column_index_out_of_bounds",
+        E::ColumnNotFound(_) => "column_not_found",
+        E::ColumnDecode { .. } => "column_decode",
+        E::Encode(_) => "encode",
+        E::Decode(_) => "decode",
+        E::Migrate(_) => "migrate",
+        _ => "other",
+    }
+}
+
+/// `log_sqlx_error!(level, &sqlx_error, [fields,] "message")`: log a sqlx error through
+/// `SqlxLog` instead of its Display text.
+macro_rules! log_sqlx_error {
+    ($level:ident, $error:expr, $($rest:tt)+) => {
+        $crate::error::log_db_error!($level, &$crate::error::SqlxLog::of($error), $($rest)+)
+    };
+}
+/// `log_anyhow_error!(level, &anyhow_error, [fields,] "message")`: like `log_sqlx_error!`
+/// when the chain holds a sqlx error, otherwise logs the error's Display as before.
+macro_rules! log_anyhow_error {
+    ($level:ident, $error:expr, $($rest:tt)+) => {{
+        let error: &anyhow::Error = $error;
+        match $crate::error::SqlxLog::in_chain(error) {
+            Some(safe) => $crate::error::log_db_error!($level, &safe, $($rest)+),
+            None => tracing::$level!(%error, $($rest)+),
+        }
+    }};
+}
+macro_rules! log_db_error {
+    ($level:ident, $safe:expr, $($rest:tt)+) => {{
+        let safe: &$crate::error::SqlxLog = $safe;
+        tracing::$level!(
+            db.error.kind = safe.kind,
+            db.sqlstate = safe.sqlstate.as_deref(),
+            db.constraint = safe.constraint.as_deref(),
+            $($rest)+
+        )
+    }};
+}
+pub(crate) use {log_anyhow_error, log_db_error, log_sqlx_error};
 
 /// JSON extractor with the API's stable validation error envelope.
 pub struct ValidJson<T>(pub T);
@@ -135,7 +219,134 @@ mod tests {
         routing::post,
     };
     use serde::Deserialize;
+    use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
+
+    const VALUE: &str = "Nguyen Van A private customer";
+
+    /// Postgres messages echo bound values: `Key (name)=(...) already exists`.
+    #[derive(Debug)]
+    struct PgError(String);
+    impl std::fmt::Display for PgError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+    impl std::error::Error for PgError {}
+    impl sqlx::error::DatabaseError for PgError {
+        fn message(&self) -> &str {
+            &self.0
+        }
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some("23505".into())
+        }
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+        fn constraint(&self) -> Option<&str> {
+            Some("customers_store_id_name_key")
+        }
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::UniqueViolation
+        }
+    }
+    fn leaking_error() -> sqlx::Error {
+        sqlx::Error::Database(Box::new(PgError(format!(
+            "duplicate key value violates unique constraint \"customers_store_id_name_key\": \
+             Key (name)=({VALUE}) already exists"
+        ))))
+    }
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+        type Writer = Captured;
+        fn make_writer(&'a self) -> Captured {
+            self.clone()
+        }
+    }
+    /// Everything logged while `work` runs, as the local fmt layer would print it.
+    fn logged(work: impl FnOnce()) -> String {
+        let out = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(out.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, work);
+        let bytes = out.0.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn database_errors_are_logged_without_their_message_text() {
+        let line = logged(|| {
+            let response = ApiError::from(leaking_error());
+            assert_eq!(response.code, "internal");
+        });
+        assert!(line.contains("database operation failed"), "{line}");
+        assert!(line.contains("23505"), "{line}");
+        assert!(line.contains("customers_store_id_name_key"), "{line}");
+        assert!(!line.contains(VALUE), "bound value leaked: {line}");
+        assert!(!line.contains("already exists"), "message leaked: {line}");
+    }
+
+    #[test]
+    fn sqlx_log_keeps_sqlstate_constraint_and_stable_kind_only() {
+        assert_eq!(
+            SqlxLog::of(&leaking_error()),
+            SqlxLog {
+                kind: "database",
+                sqlstate: Some("23505".into()),
+                constraint: Some("customers_store_id_name_key".into()),
+            }
+        );
+        for (error, kind) in [
+            (sqlx::Error::PoolTimedOut, "pool_timed_out"),
+            (sqlx::Error::RowNotFound, "row_not_found"),
+            (sqlx::Error::Io(std::io::Error::other(VALUE)), "io"),
+            (sqlx::Error::Protocol(VALUE.into()), "protocol"),
+            (
+                sqlx::Error::ColumnNotFound(VALUE.into()),
+                "column_not_found",
+            ),
+        ] {
+            let safe = SqlxLog::of(&error);
+            assert_eq!(safe.kind, kind);
+            assert_eq!((safe.sqlstate, safe.constraint), (None, None));
+        }
+    }
+
+    #[test]
+    fn anyhow_chains_with_a_sqlx_error_are_logged_without_its_text() {
+        let line = logged(|| {
+            let error = anyhow::Error::from(leaking_error()).context("polling failed");
+            log_anyhow_error!(warn, &error, job_id = 7, "index job failed");
+            let plain = anyhow::anyhow!("storage unreachable");
+            log_anyhow_error!(warn, &plain, "storage step failed");
+        });
+        assert!(line.contains("index job failed"), "{line}");
+        assert!(line.contains("job_id=7"), "{line}");
+        assert!(line.contains("23505"), "{line}");
+        assert!(!line.contains(VALUE), "bound value leaked: {line}");
+        assert!(!line.contains("polling failed"), "{line}");
+        // Errors without sqlx keep their Display text.
+        assert!(line.contains("storage unreachable"), "{line}");
+    }
 
     #[tokio::test]
     async fn errors_have_stable_codes_and_retry_header() {

@@ -391,7 +391,7 @@ async fn create_scan(
         .into_iter()
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| {
-            tracing::error!(%error, "vector search failed");
+            crate::error::log_anyhow_error!(error, &error, "vector search failed");
             ApiError::internal()
         })?;
     let search_ms = search_wall.elapsed().as_secs_f64() * 1000.0;

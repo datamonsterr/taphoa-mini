@@ -50,7 +50,7 @@ pub async fn run_once(pool: &PgPool) -> anyhow::Result<RetentionReport> {
         }
         .await;
         if let Err(error) = &result {
-            tracing::error!(%error, "retention job failed");
+            crate::error::log_anyhow_error!(error, error, "retention job failed");
         }
         result
     })
