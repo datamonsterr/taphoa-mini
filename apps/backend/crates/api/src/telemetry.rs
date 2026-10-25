@@ -127,15 +127,12 @@ impl TelemetryGuard {
     }
 }
 
-/// Install the global subscriber. A bad exporter configuration must not crash-loop the
-/// service: it degrades to the plain fmt subscriber, logs one error and exports nothing.
-/// Only failing to install any subscriber at all panics.
+/// Install the global subscriber. The caller installs the rustls ring provider first (see
+/// `main`); the exporter's TLS client needs it. A bad exporter configuration must not
+/// crash-loop the service: it degrades to the plain fmt subscriber, logs one error and
+/// exports nothing. Only failing to install any subscriber at all panics.
 pub fn init(config: TelemetryConfig) -> TelemetryGuard {
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
-    if config.enabled() {
-        // reqwest's provider-neutral TLS feature shares the existing ring provider.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    }
     let (guard, failure) = export_guard(&config);
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("taphoa_api=info,tower_http=info"));

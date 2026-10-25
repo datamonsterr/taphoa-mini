@@ -12,6 +12,9 @@ use taphoa_api::{
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Both ring and aws-lc-rs are linked, so rustls cannot pick a process default itself.
+    // Install ring before anything builds a TLS client (telemetry, sqlx, S3, reqwest).
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let telemetry = taphoa_api::telemetry::init(taphoa_api::telemetry::TelemetryConfig::from_env());
     let result = serve().await;
     // Flush on startup/server errors as well as after graceful task shutdown.
