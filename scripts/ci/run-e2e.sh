@@ -3,6 +3,8 @@
 #   BACKEND_URL        required; base URL, no trailing path
 #   E2E_DIR            suite directory (default packages/e2e, created by epic E1)
 #   LATENCY_P95_MS     hot-endpoint p95 budget in ms (default 200)
+#   READYZ_P95_MS      /readyz p95 budget in ms (default 500); it pings Postgres, Redis and the
+#                      bucket, so it is a dependency check, not a hot endpoint
 #   LATENCY_SAMPLES    samples per latency probe (default 20)
 # When the suite exists it runs through pnpm (`pnpm --filter @taphoa/e2e test`); until then a
 # notice is emitted and a smoke check plus latency probe runs so the pipeline stays meaningful.
@@ -17,6 +19,7 @@ base="${BACKEND_URL%/}"
 suite="${E2E_DIR:-$repo/packages/e2e}"
 samples="${LATENCY_SAMPLES:-20}"
 budget="${LATENCY_P95_MS:-200}"
+readyz_budget="${READYZ_P95_MS:-500}"
 
 if [ -f "$suite/package.json" ]; then
   echo "Running e2e suite in $suite against $base"
@@ -29,7 +32,6 @@ else
   WAIT_ATTEMPTS=3 WAIT_INTERVAL=5 bash "$here/wait-healthy.sh" "$base"
 fi
 
-echo "Latency probes (budget p95 <= ${budget}ms)"
-for path in /healthz /readyz; do
-  python3 -I "$here/latency_check.py" "$base" "$path" "$samples" "$budget"
-done
+echo "Latency probes (budget p95 <= ${budget}ms; /readyz <= ${readyz_budget}ms)"
+python3 -I "$here/latency_check.py" "$base" /healthz "$samples" "$budget"
+python3 -I "$here/latency_check.py" "$base" /readyz "$samples" "$readyz_budget"
