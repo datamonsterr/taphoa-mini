@@ -169,8 +169,13 @@ release APK built with `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`; the backend started 
 - `multi-session.yaml`: person A signs in, creates a store and sets PIN 2468; `account-add-person`
   (and `auth-add-cancel`, which keeps A signed in) then person B signs in and creates a store; in
   B's account tab the row "Chuyển sang ..." opens the PIN sheet of A; a wrong PIN shows
-  "Sai mã PIN" and does not switch, the right one opens A's store; signing out A leaves B signed
-  in as the current person; signing out B shows the sign-in screen.
+  "Sai mã PIN" and does not switch, the right one opens A's store. Signing out A activates nobody:
+  the sign-in screen shows the person picker `auth-device-sessions` with B in it (and no shop
+  screen behind it); tapping `auth-device-session-0` opens B's store at once, because B has no PIN.
+  Signing out B, the last person, shows the sign-in screen without the picker. The picker's PIN
+  sheet (`auth-switch-pin`) is not driven here: A and B each end for good when they sign out, so
+  it would take a third Clerk sign-in; Jest covers it (`signOutPicker.route.test.tsx`,
+  `DevicePeople.test.tsx`).
 - Clerk's Frontend API allows 5 sign-in creations and 3 attempts per 10 s. A flow signs in once or
   twice, well apart: never loop a sign-in or add a retry around it. Waits for Clerk and backend
   screens use `extendedWaitUntil` with 30 to 90 s.
