@@ -261,6 +261,8 @@ async fn repayment_adjustment_idempotency_validation_and_concurrency() {
         json!({"amount":-1,"method":"cash"}),
         json!({"amount":1,"method":"card"}),
         json!({"amount":1,"method":"cash","paid_at":"bad"}),
+        json!({"amount":1,"method":"cash","paid_at":null}),
+        json!([1, "cash"]),
         json!({}),
     ] {
         let invalid = keyed(
@@ -289,6 +291,8 @@ async fn repayment_adjustment_idempotency_validation_and_concurrency() {
         json!({"amount":0,"reason":"x"}),
         json!({"amount":1,"reason":""}),
         json!({"amount":1,"reason":"x".repeat(201)}),
+        json!({"amount":1,"reason":"x","adjusted_at":null}),
+        json!([1, "reason"]),
     ] {
         keyed(
             &w,
@@ -301,12 +305,13 @@ async fn repayment_adjustment_idempotency_validation_and_concurrency() {
         )
         .await;
     }
-    let tasks = (0..20).map(|i| {
+    let keys: Vec<_> = (0..20).map(|i| format!("parallel-{i}")).collect();
+    let tasks = keys.iter().map(|key| {
         keyed(
             &w,
             id,
             "repayments",
-            Some(Box::leak(format!("parallel-{i}").into_boxed_str())),
+            Some(key),
             json!({"amount":7,"method":"transfer"}),
             &w.seller,
             StatusCode::CREATED,
@@ -519,6 +524,15 @@ async fn search_aging_sort_pagination_summary_feed_and_private_events() {
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn customer_input_validation() {
     let w = World::new().await;
+    w.checked(
+        "POST",
+        "/v1/customers",
+        "/v1/customers",
+        &w.seller,
+        json!([Uuid::now_v7(), "Array Name", null, null, null]),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
     for fields in [
         json!({"name":" "}),
         json!({"name":"x".repeat(81)}),

@@ -206,6 +206,7 @@ pub fn router(state: AppState) -> Router {
         .merge(catalog::router())
         .merge(recognition::router())
         .merge(sales::router())
+        .merge(debts::router())
         .merge(stock::router())
         .merge(expenses::router())
         .merge(receipts::router())

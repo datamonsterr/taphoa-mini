@@ -315,7 +315,7 @@ async fn create(
 }
 
 async fn sale(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiResult<Value> {
-    let mut value: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'code',code,'sold_at',sold_at,'received_at',received_at,'business_date',business_date,'member_id',member_id,'payment_method',payment_method,'cash_received',cash_received,'total',total,'vietqr_memo',vietqr_memo,'status',status,'void',CASE WHEN status='voided' THEN jsonb_build_object('reason',void_reason,'voided_by',voided_by,'voided_at',voided_at) ELSE NULL END) FROM sales WHERE store_id=$1 AND id=$2")
+    let mut value: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'code',code,'sold_at',sold_at,'received_at',received_at,'business_date',business_date,'member_id',member_id,'payment_method',payment_method,'cash_received',cash_received,'total',total,'credit_amount',credit_amount,'customer_id',customer_id,'vietqr_memo',vietqr_memo,'status',status,'void',CASE WHEN status='voided' THEN jsonb_build_object('reason',void_reason,'voided_by',voided_by,'voided_at',voided_at) ELSE NULL END) FROM sales WHERE store_id=$1 AND id=$2")
         .bind(store).bind(id).fetch_optional(&mut *conn).await?.ok_or_else(ApiError::not_found)?;
     let total = value["total"].as_i64().ok_or_else(ApiError::internal)?;
     value["change_given"] = json!(
@@ -374,7 +374,7 @@ async fn list(
     let f = query(filters)?;
     if f.payment_method
         .as_deref()
-        .is_some_and(|s| !matches!(s, "cash" | "transfer"))
+        .is_some_and(|s| !matches!(s, "cash" | "transfer" | "credit"))
         || f.status
             .as_deref()
             .is_some_and(|s| !matches!(s, "completed" | "voided"))
