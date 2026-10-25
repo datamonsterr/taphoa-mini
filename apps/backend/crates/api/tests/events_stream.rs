@@ -458,23 +458,61 @@ async fn replay_pages_through_a_backlog_larger_than_one_page() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn stream_ends_after_its_own_session_is_revoked() {
-    let (server, _) = start().await;
+async fn stream_ends_after_its_member_is_deactivated() {
+    let (server, state) = start().await;
     let lead = create_store(&server.base).await;
     let token = lead["access_token"].as_str().unwrap();
     let mut mine = open(&server.base, token, None).await;
     let mut buf = String::new();
 
-    let logout = reqwest::Client::new()
-        .post(format!("{}/v1/auth/logout", server.base))
-        .bearer_auth(token)
-        .send()
-        .await
-        .unwrap();
-    assert!(logout.status().is_success());
-    let (_, name, data) = event(&mut mine, &mut buf).await;
-    assert_eq!(name, "session.revoked");
-    assert_eq!(data["data"]["reason"], "logout");
+    let store: Uuid = lead["store"]["id"].as_str().unwrap().parse().unwrap();
+    let member: Uuid = lead["member"]["id"].as_str().unwrap().parse().unwrap();
+    let mut tx = state.postgres.as_ref().unwrap().begin().await.unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":Uuid::new_v4(),"change":"deactivated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":member,"change":"updated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":member,"change":"deactivated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    for change in ["deactivated", "updated", "deactivated"] {
+        let (_, name, data) = event(&mut mine, &mut buf).await;
+        assert_eq!(name, "member.changed");
+        assert_eq!(data["data"]["change"], change);
+    }
     // Only heartbeats may still be buffered; the stream must then reach EOF.
     loop {
         let chunk = timeout(Duration::from_secs(5), mine.chunk())

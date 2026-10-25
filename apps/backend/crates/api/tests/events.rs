@@ -30,7 +30,7 @@ async fn emits_complete_envelope_atomically_and_notifies_on_commit() {
     .execute(&pool)
     .await
     .unwrap();
-    let actor = (Uuid::new_v4(), Uuid::new_v4());
+    let actor = (Uuid::new_v4(), "sess_clerk_event".to_string());
     let mut tx = pool.begin().await.unwrap();
     let emitted = emit(&mut tx, event(store_id, Some(actor), true))
         .await

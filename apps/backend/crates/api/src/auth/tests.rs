@@ -79,3 +79,29 @@ async fn pin_failure_counter_locks_and_success_resets() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn legacy_session_routes_are_removed() {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    for path in [
+        "/v1/auth/recover",
+        "/v1/auth/refresh",
+        "/v1/auth/switch",
+        "/v1/auth/logout",
+    ] {
+        let response = crate::router(crate::AppState::default())
+            .oneshot(
+                Request::post(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+}

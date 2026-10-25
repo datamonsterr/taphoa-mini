@@ -52,4 +52,5 @@ impl Contract {
         );
     }
 }
+pub mod clerk;
 pub mod world;
