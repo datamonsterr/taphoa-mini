@@ -223,7 +223,6 @@ async fn health_span_access_log_resource_and_remote_parent() {
         ("service.name", "contract-api"),
         ("service.version", "test-sha"),
         ("deployment.environment.name", "test"),
-        ("langfuse.environment", "test"),
     ] {
         assert_eq!(
             log.resource.get(&Key::from_static_str(key)),
@@ -238,6 +237,10 @@ async fn health_span_access_log_resource_and_remote_parent() {
             Some(value.into())
         );
     }
+    // Langfuse is no longer a destination; its resource attribute must not be exported.
+    let langfuse = Key::from_static_str("langfuse.environment");
+    assert_eq!(log.resource.get(&langfuse), None);
+    assert_eq!(capture.resource.lock().unwrap().get(&langfuse), None);
 }
 
 #[tokio::test(flavor = "current_thread")]

@@ -103,7 +103,6 @@ impl TelemetryConfig {
                 KeyValue::new("service.name", self.service_name.clone()),
                 KeyValue::new("service.version", self.version.clone()),
                 KeyValue::new("deployment.environment.name", self.environment.clone()),
-                KeyValue::new("langfuse.environment", self.environment.clone()),
             ])
             .build()
     }
