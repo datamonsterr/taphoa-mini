@@ -6,6 +6,13 @@ import path from 'node:path';
 const PORT = Number(process.env.E2E_WEB_PORT ?? 8099);
 const isCi = !!process.env.CI;
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
+// The web export embeds the Clerk publishable key of the development instance (public by design).
+// CI and the shell supply it as CLERK_PUBLISHABLE_KEY, the name the backend and global-setup use.
+// The secret key is never read here: it stays in the environment of the test processes.
+const CLERK_PUBLISHABLE_KEY =
+  process.env.CLERK_PUBLISHABLE_KEY ??
+  process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ??
+  '';
 // The .y4m/.mjpeg clip the fake camera plays (see e2e-web/fixtures/make-video.sh). The product
 // photo is the default when the script has been run; without a clip Chromium's own test pattern
 // plays and the recognition specs fail on purpose.
@@ -22,6 +29,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCi,
   retries: isCi ? 1 : 0,
+  // Clerk's Frontend API allows 5 sign-ins per 10 s per IP and the Backend API 100 requests per
+  // 10 s for every holder of the secret key: two workers stay under both (sign-in retries back off).
   workers: isCi ? 2 : undefined,
   globalSetup: './e2e-web/global-setup.ts',
   reporter: [
@@ -70,7 +79,11 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !isCi,
     timeout: 300_000,
-    // The export embeds EXPO_PUBLIC_* values: the app talks to the real backend at API_URL.
-    env: { EXPO_PUBLIC_API_URL: API_URL },
+    // The export embeds EXPO_PUBLIC_* values: the app talks to the real backend at API_URL and
+    // signs in through the Clerk development instance.
+    env: {
+      EXPO_PUBLIC_API_URL: API_URL,
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: CLERK_PUBLISHABLE_KEY,
+    },
   },
 });

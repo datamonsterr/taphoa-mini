@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./clerk": "./src/clerk.ts"
+  },
   "scripts": {
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

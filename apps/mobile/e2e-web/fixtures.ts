@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   expect,
   test as base,
+  type Browser,
   type BrowserContext,
   type Locator,
   type Page,
@@ -12,20 +13,26 @@ import {
 } from '@playwright/test';
 
 import { formatVnd } from '../src/lib/format';
+import { createClerkUser, signInPage, type TestUser } from './clerk-auth';
+
+export { TEST_CODE, deleteClerkUsersByEmail, uniqueEmail } from './clerk-auth';
+export type { TestUser } from './clerk-auth';
 
 /**
  * Every spec here drives the real UI against the real backend (scripts/e2e/stack.sh): a tap makes
  * a real HTTP request, the backend answers, the screen shows the answer. Nothing intercepts or
  * fakes an API call; the specs only observe them (`callApi`, `waitForApi`) and compare the UI
  * with what the response said.
+ *
+ * Identity is real too: every store belongs to a Clerk user of the development instance, created
+ * through the Clerk Backend API (clerk-auth.ts). The node side calls the backend with that user's
+ * session token; the browser signs in as the same user with the `@clerk/testing` helper, so the app
+ * runs its own Clerk session and sends its own bearer and `X-Store-Id`.
  */
 
 export const API_URL = (
   process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080'
 ).replace(/\/$/, '');
-
-/** Where src/stores/session.ts keeps the session on the web (localStorage). */
-export const SESSION_STORAGE_KEY = 'taphoa-session';
 
 export { formatVnd };
 
@@ -42,11 +49,14 @@ export type Product = {
   [field: string]: any;
 };
 
+/** A Clerk user's membership in one store, with the bearer the node side calls the API with. */
 export type Session = {
+  /** Clerk session token (one hour). */
   access_token: string;
-  refresh_token: string;
   member: Json;
   store: Json;
+  clerk_user_id: string;
+  email: string;
 };
 
 export class ApiError extends Error {
@@ -58,8 +68,6 @@ export class ApiError extends Error {
     super(`${what} answered ${status}: ${JSON.stringify(body)}`);
   }
 }
-
-const DEVICE = { name: 'Playwright', platform: 'web' } as const;
 
 /** Plain `fetch` to the backend with an optional bearer token. */
 export async function http<T = any>(
@@ -93,17 +101,35 @@ export class Api {
     return this.session.access_token;
   }
 
+  /** The store the token's user acts in (required by the API once a user has several stores). */
+  private get headers(): Record<string, string> {
+    return { 'x-store-id': String(this.session.store.id) };
+  }
+
   get = <T = any>(route: string) =>
-    http<T>('GET', route, { token: this.token });
+    http<T>('GET', route, { token: this.token, headers: this.headers });
   post = <T = any>(
     route: string,
     body?: unknown,
     headers?: Record<string, string>,
-  ) => http<T>('POST', route, { token: this.token, body, headers });
+  ) =>
+    http<T>('POST', route, {
+      token: this.token,
+      body,
+      headers: { ...this.headers, ...headers },
+    });
   put = <T = any>(route: string, body?: unknown) =>
-    http<T>('PUT', route, { token: this.token, body });
+    http<T>('PUT', route, {
+      token: this.token,
+      body,
+      headers: this.headers,
+    });
   patch = <T = any>(route: string, body?: unknown) =>
-    http<T>('PATCH', route, { token: this.token, body });
+    http<T>('PATCH', route, {
+      token: this.token,
+      body,
+      headers: this.headers,
+    });
 
   /** Product creation is asynchronous: a scan must wait for real embeddings. */
   async waitForIndex(id: string) {
@@ -127,7 +153,7 @@ export class Api {
     form.append('purpose', purpose);
     const response = await fetch(`${API_URL}/v1/images`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${this.token}` },
+      headers: { authorization: `Bearer ${this.token}`, ...this.headers },
       body: form,
     });
     const body = (await response.json()) as Json;
@@ -245,38 +271,138 @@ export const BANK = {
   account_name: 'NGUYEN THI BA',
 } as const;
 
-/** POST /v1/stores: a Lead and an empty store, signed in. */
+/** The session of a Clerk user from the answer to POST /v1/stores or /v1/auth/join. */
+function sessionOf(
+  user: TestUser,
+  membership: { member: Json; store: Json },
+): Session {
+  return {
+    access_token: user.token,
+    member: membership.member,
+    store: membership.store,
+    clerk_user_id: user.userId,
+    email: user.email,
+  };
+}
+
+/** POST /v1/stores: a new Clerk user becomes the Lead of an empty store. */
 export async function createStoreViaApi(
   storeName = `Tạp hóa E2E ${crypto.randomUUID().slice(0, 8)}`,
   displayName = 'Cô Ba',
-): Promise<{ session: Session; recoveryCode: string; api: Api }> {
+): Promise<StoreFixture> {
+  const user = await createClerkUser();
   const body = await http('POST', '/v1/stores', {
-    body: { store_name: storeName, display_name: displayName, device: DEVICE },
+    token: user.token,
+    body: { store_name: storeName, display_name: displayName },
   });
-  const session: Session = {
-    access_token: body.access_token,
-    refresh_token: body.refresh_token,
-    member: body.member,
-    store: body.store,
-  };
-  return { session, recoveryCode: body.recovery_code, api: new Api(session) };
+  const session = sessionOf(user, body);
+  return { session, api: new Api(session), user };
 }
+
+/** The Lead invites a seller; a new Clerk user redeems the invite through POST /v1/auth/join. */
+export async function joinStoreViaApi(
+  lead: Api,
+  displayName = 'Bé Út',
+): Promise<StoreFixture & { invite: Json }> {
+  const invite = await lead.post('/v1/invites', {
+    role: 'seller',
+    can_enroll: false,
+    ttl_seconds: 600,
+  });
+  const user = await createClerkUser();
+  const body = await http('POST', '/v1/auth/join', {
+    token: user.token,
+    body: { invite_token: invite.token, display_name: displayName },
+  });
+  const session = sessionOf(user, body);
+  return { session, api: new Api(session), user, invite };
+}
+
+/** A Clerk user with no store yet: signing in lands on the welcome screen. */
+export const createNewcomer = () => createClerkUser();
 
 // ---- Playwright fixtures ---------------------------------------------------------------
 
+type StoreFixture = {
+  session: Session;
+  api: Api;
+  user: TestUser;
+};
+
 type Fixtures = {
   consoleGuard: void;
+  /** Creates the test's store once, on first use (`store` and the signed-in `page` share it). */
+  storeFactory: () => Promise<StoreFixture>;
   /**
-   * A fresh store created through the API, so every test owns its data and tests stay parallel
-   * safe. The browser context starts signed in to it (see `storageState`). The onboarding spec
-   * does not use it: it creates its stores through the UI.
+   * A fresh store created through the API (a new Clerk user is its Lead), so every test owns its
+   * data and tests stay parallel safe. Unless `signedIn` is switched off, `page` starts signed in
+   * to it. The onboarding spec creates its stores and users through the sign-in screens.
    */
-  store: {
-    session: Session;
-    recoveryCode: string;
-    api: Api;
-  };
+  store: StoreFixture;
 };
+
+type Options = {
+  /** Signs the page in as the Lead of `store` before the test body (default). */
+  signedIn: boolean;
+};
+
+/** The API client of the user a page was signed in as (for specs that wait on server state). */
+const apiOfPage = new WeakMap<Page, Api>();
+
+/** The shop home: only a signed-in member with a store sees it. */
+export const shopHome = (page: Page) =>
+  page.getByRole('button', { name: 'Chụp', exact: true });
+
+/** The screen of a signed-in user without a store. */
+export const welcomeScreen = (page: Page) =>
+  page.getByTestId('onboarding-welcome-screen');
+
+/** The first screen of a signed-out visitor. */
+export const signInScreen = (page: Page) =>
+  page.getByTestId('auth-sign-in-screen');
+
+/**
+ * Signs `page` in as `user` through Clerk (no typing) and waits for the screen the account
+ * lands on: the shop for a member, the welcome screen for a user without a store.
+ */
+export async function signInAs(
+  page: Page,
+  user: { email: string },
+  api?: Api,
+): Promise<void> {
+  await signInPage(page, user.email);
+  if (api) apiOfPage.set(page, api);
+  await expect(shopHome(page).or(welcomeScreen(page))).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.evaluate(() => document.fonts.ready);
+}
+
+/**
+ * A second browser (own cookies and storage) signed in as `user`: another phone. The caller
+ * closes the context.
+ */
+export async function openSignedInPhone(
+  browser: Browser,
+  baseURL: string | undefined,
+  user: { email: string },
+  api?: Api,
+): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext({
+    baseURL,
+    permissions: ['camera'],
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    await trackApiBodies(context);
+    const page = await context.newPage();
+    await signInAs(page, user, api);
+    return { context, page };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
 
 /** Failed requests that are not problems: a navigation aborts what was still in flight. */
 const benignFailure = (error: string | undefined) =>
@@ -285,32 +411,33 @@ const benignFailure = (error: string | undefined) =>
 const CLIENT_ERROR_LOG =
   /^Failed to load resource: the server responded with a status of 4\d\d/;
 
-export const test = base.extend<Fixtures>({
-  store: async ({}, use) => {
-    await use(await createStoreViaApi());
+export const test = base.extend<Fixtures & Options>({
+  signedIn: [true, { option: true }],
+  storeFactory: async ({}, use) => {
+    let made: Promise<StoreFixture> | undefined;
+    await use(() => (made ??= createStoreViaApi()));
   },
-  // The session the app reads from localStorage on start: exactly the shape the session store
-  // persists after a real create/join/recover.
+  store: async ({ storeFactory }, use) => {
+    await use(await storeFactory());
+  },
   context: async ({ context }, use) => {
     await trackApiBodies(context);
     await use(context);
   },
-  storageState: async ({ store, baseURL }, use) => {
-    await use({
-      cookies: [],
-      origins: [
-        {
-          origin: new URL(baseURL!).origin,
-          localStorage: [
-            {
-              name: SESSION_STORAGE_KEY,
-              value: JSON.stringify(store.session),
-            },
-          ],
-        },
-      ],
-    });
-  },
+  // The browser signs in as the Lead of `store` with Clerk's own session (clerk-auth.ts), the
+  // way a phone does after the sign-in screens; nothing is written to storage by hand.
+  page: [
+    async ({ page, signedIn, storeFactory }, use) => {
+      if (signedIn) {
+        const { user, api } = await storeFactory();
+        await signInAs(page, user, api);
+      }
+      await use(page);
+    },
+    // Creating the user, the store and the Clerk session takes seconds and may back off:
+    // that is setup, not test time.
+    { scope: 'test', timeout: 120_000 },
+  ],
   consoleGuard: [
     async ({ page }, use) => {
       const problems: string[] = [];
@@ -345,10 +472,17 @@ export { expect };
  * untouched). `callApi` reads the record back so a spec can assert what the app sent.
  */
 export async function trackApiBodies(context: BrowserContext) {
-  await context.addInitScript(() => {
+  await context.addInitScript((apiUrl: string) => {
     const log: { method: string; url: string; body: unknown }[] = [];
     (window as any).__apiBodies = log;
     const original = window.fetch;
+    const parse = (text: string) => {
+      try {
+        return text ? JSON.parse(text) : null;
+      } catch {
+        return text;
+      }
+    };
     window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
       try {
         const request = input instanceof Request ? input : null;
@@ -360,6 +494,9 @@ export async function trackApiBodies(context: BrowserContext) {
             : new URL(String(input), location.href).href,
           body: null as unknown,
         };
+        // Only the backend's calls: Clerk's own Frontend API traffic is not the specs' business.
+        if (!entry.url.startsWith(apiUrl))
+          return original.apply(this, [input, init] as never);
         log.push(entry);
         const type = request?.headers.get('content-type') ?? '';
         if (request && type.includes('multipart')) {
@@ -387,17 +524,17 @@ export async function trackApiBodies(context: BrowserContext) {
             .clone()
             .text()
             .then((text) => {
-              entry.body = text ? JSON.parse(text) : null;
+              entry.body = parse(text);
             });
         } else if (typeof init?.body === 'string') {
-          entry.body = JSON.parse(init.body);
+          entry.body = parse(init.body);
         }
       } catch {
         // observing must never break the app
       }
       return original.apply(this, [input, init] as never);
     };
-  });
+  }, API_URL);
 }
 
 // ---- observing API traffic -------------------------------------------------------------
@@ -726,11 +863,10 @@ export async function saveEnroll(page: Page, photos = 1) {
   await expect(page).not.toHaveURL(/\/enroll/);
   const images = await uploads.stop();
   expect(images, 'one upload per photo').toHaveLength(photos);
-  const session = await page.evaluate(
-    (key) => JSON.parse(localStorage.getItem(key)!),
-    SESSION_STORAGE_KEY,
-  );
-  await new Api(session).waitForIndex(product.body.id);
+  const api = apiOfPage.get(page);
+  if (!api)
+    throw new Error('saveEnroll needs a page signed in by the fixtures');
+  await api.waitForIndex(product.body.id);
   return { images, product };
 }
 

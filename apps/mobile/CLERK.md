@@ -124,8 +124,8 @@ the transitive `browser-tabs-lock` and `core-js` build scripts.
 
 `taphoa://join?token=...` remains supported. Invitations opened while signed out
 are kept in memory through sign-in and prefill the join form. `/recover` and
-`/recovery-code` are removed. Playwright and Maestro suites are owned by later
-tasks and were intentionally left unchanged.
+`/recovery-code` are removed. The Playwright web suite is described in
+[Playwright web e2e](#playwright-web-e2e); the Maestro suite belongs to a later task.
 
 ## Jest support
 
@@ -140,6 +140,61 @@ For several people, `addClerkSession()` adds a session with its own `getToken`
 removes only that session and leaves nobody active, like clerk-js. `src/test/people.ts`
 stands in for the network other people's sessions use: it keys `/v1/me` and
 `/v1/me/pin/verify` by bearer token and records token, `X-Store-Id` and body.
+
+## Playwright web e2e
+
+`e2e-web/` drives the real web export against the real backend and the real Clerk
+**development** instance. Checked against the current
+[Playwright overview](https://clerk.com/docs/guides/development/testing/playwright/overview),
+[test helpers](https://clerk.com/docs/guides/development/testing/playwright/test-helpers)
+and the installed `@clerk/testing` 2.2.50 declarations (`clerkSetup`,
+`setupClerkTestingToken`, `clerk.signIn`).
+
+Environment, exported in the shell that runs Playwright (never written to a file, a log or
+a commit): `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` of the instance the backend
+verifies against. The backend must run with the same `CLERK_PUBLISHABLE_KEY`;
+`playwright.config.ts` passes it to the export as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` (public
+by design) and `global-setup.ts` stops the run with the fix in the message when either key
+or the backend is missing.
+
+- `global-setup.ts`: `clerkSetup()` fetches the testing token (`CLERK_TESTING_TOKEN`,
+  `CLERK_FAPI` in `process.env`, inherited by the workers). It also creates a tracking
+  directory: `@taphoa/e2e/clerk` (`packages/e2e/src/clerk.ts`) appends the id of every user
+  it creates, and the teardown deletes them all even after failed specs. A failed deletion
+  warns and leaves the ids; `pnpm --filter @taphoa/e2e clerk:sweep` removes `+clerk_test`
+  users older than 24 h.
+- `fixtures.ts`: `store` is a new Clerk user (Backend API: user, session, one 1 h session
+  token) who is the Lead of a new store (`POST /v1/stores` with that bearer). `page` starts
+  signed in as that user: `setupClerkTestingToken({ page })`, open `/sign-in` (unprotected, so
+  Clerk loads) and `clerk.signIn({ page, emailAddress })`, which redeems a Backend API
+  sign-in token in the page: no typing, the app then runs its own Clerk session and sends
+  its own bearer and `X-Store-Id`. Specs that cover the sign-in screens use
+  `test.use({ signedIn: false })`. Other users: `createNewcomer()` (no store),
+  `joinStoreViaApi(lead)` (seller), `signInAs(page, user)` and `openSignedInPhone(browser,
+baseURL, user)` (a second browser).
+- Sign-in through the screens uses a `+clerk_test` address and the code `424242`
+  (`TEST_CODE`). `onboarding.spec.ts` covers the signed-out redirect, a user without a store
+  creating one, a returning member, a Lead's invite, joining from an invite link opened
+  while signed out, and "Đăng xuất". `account.spec.ts` checks that "Đăng xuất" ends only
+  this phone's session. The multi-session switcher and its PIN lock are not covered here.
+- Limits: the Frontend API allows 5 sign-ins and 3 first-factor attempts per 10 s per IP,
+  the Backend API 100 requests per 10 s for every holder of the secret key (Railway
+  environments, seed and CI share it). CI keeps 2 workers; the Backend API helper queues
+  requests below 8 per second and honours `Retry-After`; `signInPage` and the screen
+  helpers back off and retry on rate limits. Locally prefer `--workers=2`.
+- A brand-new address signs up with email code only. While the dashboard requires another
+  attribute at sign-up (it requires a password today), Clerk leaves the sign-up in
+  `missing_requirements` and the app shows "Tài khoản cần thêm bước xác minh". Global setup
+  reads `/v1/environment`, warns, and the spec of that path skips itself with the list as
+  the reason; it runs by itself once the dashboard makes the attribute optional (or the app
+  supplies it).
+
+Run (the stack script is owned by the CI task; start the backend with the Clerk keys, then):
+
+```bash
+export CLERK_PUBLISHABLE_KEY=... CLERK_SECRET_KEY=...   # from your secrets store
+pnpm --filter @taphoa/mobile test:e2e:web -- --project=chromium --workers=2
+```
 
 ## File inventory
 
