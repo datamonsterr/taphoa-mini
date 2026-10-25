@@ -402,7 +402,7 @@ async fn segment(
 
 /// reqwest uses `rustls-no-provider`; install ring (as `main` does) so library callers and
 /// tests can build a client without prior process-wide setup.
-pub(crate) fn http_client() -> reqwest::Client {
+pub fn http_client() -> reqwest::Client {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::new()
 }

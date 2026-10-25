@@ -52,7 +52,7 @@ async fn profile_cache_and_failure_fallback() {
         authorized_parties: vec![],
         secret_key: Some("test-secret".into()),
     };
-    let client = ProfileClient::new(&settings, reqwest::Client::new());
+    let client = ProfileClient::new(&settings, taphoa_api::http_client());
     let id = common::clerk::user();
     let profile = client.get(&id, Some(&redis)).await.unwrap();
     assert_eq!(profile.display_name.as_deref(), Some("Lan Nguyễn"));
@@ -66,7 +66,7 @@ async fn profile_cache_and_failure_fallback() {
     let mut failed_settings = settings.clone();
     failed_settings.api_url = format!("http://{addr}/fail");
     assert!(
-        ProfileClient::new(&failed_settings, reqwest::Client::new())
+        ProfileClient::new(&failed_settings, taphoa_api::http_client())
             .get("failure", Some(&redis))
             .await
             .is_none()
@@ -74,7 +74,7 @@ async fn profile_cache_and_failure_fallback() {
     let mut missing_secret = settings.clone();
     missing_secret.secret_key = None;
     assert!(
-        ProfileClient::new(&missing_secret, reqwest::Client::new())
+        ProfileClient::new(&missing_secret, taphoa_api::http_client())
             .get(&id, Some(&redis))
             .await
             .is_none()
@@ -148,11 +148,11 @@ async fn clerk_failures_are_cached_in_redis_for_every_instance() {
         secret_key: Some("test-secret".into()),
     };
     let id = common::clerk::user();
-    let first = ProfileClient::new(&settings, reqwest::Client::new());
+    let first = ProfileClient::new(&settings, taphoa_api::http_client());
     assert!(first.get(&id, Some(&redis)).await.is_none());
     assert!(first.get(&id, Some(&redis)).await.is_none());
     // A second instance has its own memory and shares only Redis.
-    let second = ProfileClient::new(&settings, reqwest::Client::new());
+    let second = ProfileClient::new(&settings, taphoa_api::http_client());
     assert!(second.get(&id, Some(&redis)).await.is_none());
     assert_eq!(
         clerk.calls.load(Ordering::SeqCst),
@@ -173,7 +173,7 @@ async fn clerk_failures_are_cached_in_redis_for_every_instance() {
     // The failure marker expires, then Clerk is asked again and the profile is cached.
     let id = common::clerk::user();
     clerk.status.store(500, Ordering::SeqCst);
-    let brief = ProfileClient::new(&settings, reqwest::Client::new())
+    let brief = ProfileClient::new(&settings, taphoa_api::http_client())
         .with_failure_ttl(std::time::Duration::from_secs(1));
     assert!(brief.get(&id, Some(&redis)).await.is_none());
     clerk.status.store(200, Ordering::SeqCst);

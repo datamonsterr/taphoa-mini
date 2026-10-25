@@ -246,7 +246,7 @@ impl Server {
 }
 async fn create_store(base: &str) -> Value {
     let token = common::clerk::token();
-    let response = reqwest::Client::new()
+    let response = taphoa_api::http_client()
         .post(format!("{base}/v1/stores"))
         .bearer_auth(&token)
         .json(&json!({"store_name":"SSE","display_name":"Lead"}))
@@ -260,7 +260,7 @@ async fn create_store(base: &str) -> Value {
 }
 
 async fn open(base: &str, token: &str, last_event_id: Option<&str>) -> reqwest::Response {
-    let mut request = reqwest::Client::new()
+    let mut request = taphoa_api::http_client()
         .get(format!("{base}/v1/events"))
         .bearer_auth(token);
     if let Some(id) = last_event_id {
@@ -305,7 +305,7 @@ async fn event(response: &mut reqwest::Response, buf: &mut String) -> (String, S
     }
 }
 async fn patch_store(base: &str, token: &str, name: &str) {
-    let response = reqwest::Client::new()
+    let response = taphoa_api::http_client()
         .patch(format!("{base}/v1/store"))
         .bearer_auth(token)
         .json(&json!({"name":name}))
@@ -357,7 +357,7 @@ async fn store_patch_reaches_the_sse_client_and_stays_inside_its_store() {
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn requires_a_valid_bearer_token_and_sends_heartbeats() {
     let (server, _) = start().await;
-    let anonymous = reqwest::Client::new()
+    let anonymous = taphoa_api::http_client()
         .get(format!("{}/v1/events", server.base))
         .send()
         .await
