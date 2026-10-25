@@ -226,3 +226,25 @@ test('next steps query honours enabled and passes the flags', async () => {
   await waitFor(() => expect(on.result.current.isSuccess).toBe(true));
   expect(on.result.current.data?.items.length).toBeGreaterThan(0);
 });
+
+test('next steps keep showing the previous chips while a changed flag refetches', async () => {
+  const { wrapper } = setup();
+  const hook = await renderHook(
+    (props: { documentDetected: boolean }) =>
+      useNextSteps(
+        { screen: 'camera', documentDetected: props.documentDetected },
+        { enabled: true },
+      ),
+    { wrapper, initialProps: { documentDetected: false } },
+  );
+  await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+  const before = hook.result.current.data;
+  await hook.rerender({ documentDetected: true });
+  // No render in between shows an empty list: the old chips stay until the new ones arrive.
+  expect(hook.result.current.data).toBe(before);
+  expect(hook.result.current.isPlaceholderData).toBe(true);
+  await waitFor(() =>
+    expect(hook.result.current.isPlaceholderData).toBe(false),
+  );
+  expect(hook.result.current.data?.items.length).toBeGreaterThan(0);
+});

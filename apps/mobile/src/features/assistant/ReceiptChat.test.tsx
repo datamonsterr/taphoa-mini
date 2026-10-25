@@ -217,10 +217,12 @@ test('a confirm the server refuses as stale shows the expired status', async () 
   await openReceiptChat((id) =>
     receiptReply(
       id,
-      proposal(id, { expires_at: new Date(Date.now() - 1000).toISOString() }),
+      proposal(id, { expires_at: new Date(Date.now() + 600).toISOString() }),
     ),
   );
   await status('Kiểm tra các dòng chưa khớp rồi bấm Xác nhận');
+  // The proposal lapses while the card is open (the server reads it as expired on confirm).
+  await new Promise((resolve) => setTimeout(resolve, 700));
   await fireEvent.press(screen.getByTestId('action-confirm'));
   await status('Hóa đơn đã thay đổi, mở lại để kiểm tra');
 });
@@ -306,6 +308,16 @@ test('a proposal that failed on the server shows the action error and Retry asks
   setNextAssistantReply(receiptReply(receipt.id, proposal(receipt.id)));
   await fireEvent.press(screen.getByTestId('receipt-status-retry'));
   await status('Kiểm tra các dòng chưa khớp rồi bấm Xác nhận');
+});
+
+test('Retry after a failed proposal ends in reviewing when the new reply has only lines', async () => {
+  const { receipt } = await openReceiptChat((id) =>
+    receiptReply(id, proposal(id, { status: 'failed' })),
+  );
+  await status('Không nhập hàng được. Hãy thử lại.');
+  setNextAssistantReply(receiptReply(receipt.id));
+  await fireEvent.press(screen.getByTestId('receipt-status-retry'));
+  await status('Đã đọc xong, xem các dòng bên dưới');
 });
 
 test('the status row speaks English when the app does', async () => {

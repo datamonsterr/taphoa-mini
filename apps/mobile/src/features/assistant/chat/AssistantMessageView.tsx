@@ -94,7 +94,10 @@ export const AssistantMessageView = memo(function AssistantMessageView({
         <ActionCard key={action.id} action={action} onUpdate={onActionUpdate} />
       ))}
       {message.status === 'error' && message.error ? (
-        <ErrorNotice error={message.error} onRetry={onRetry} />
+        <ErrorNotice
+          error={message.error}
+          {...(message.retried ? {} : { onRetry })}
+        />
       ) : null}
       {message.status === 'done' && message.remote ? (
         <FeedbackButtons

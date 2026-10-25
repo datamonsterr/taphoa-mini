@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   AssistantStreamInterruptedError,
   AssistantStreamProtocolError,
@@ -30,12 +30,13 @@ export type SendOptions = {
 export type AssistantChat = {
   messages: ChatMessage[];
   streaming: boolean;
-  send: (content: string, options: SendOptions) => void;
+  /** Starts a turn; false when it was refused (still loading, or a turn is running). */
+  send: (content: string, options: SendOptions) => boolean;
   /** Sends the last user message again as a new turn. */
   retry: () => void;
   updateAction: (action: AssistantAction) => void;
   setFeedback: (messageId: string, rating: FeedbackRating | null) => void;
-  /** True while the stored thread is loading for the first time. */
+  /** True until the stored thread of this visit has been read into the chat. */
   loading: boolean;
 };
 
@@ -43,7 +44,8 @@ const isAbort = (error: unknown) =>
   error instanceof Error && error.name === 'AbortError';
 
 /**
- * One thread's chat: hydrates the stored messages once, streams each turn with the shared API
+ * One thread's chat: hydrates from the stored thread fetched after mount (and again while idle
+ * when fresher data arrives), streams each turn with the shared API
  * client and never re-sends a stream by itself.
  */
 export function useAssistantChat({
@@ -58,8 +60,18 @@ export function useAssistantChat({
   const thread = useAssistantThread(threadId);
   const stateRef = useRef(state);
   const hydratedFor = useRef<string | undefined>(undefined);
+  const hydratedAt = useRef(0);
+  /** The thread whose stored messages are in the chat; drives `loading`. */
+  const [hydratedId, setHydratedId] = useState<string | undefined>();
   const controller = useRef<AbortController | null>(null);
   const active = useRef(false);
+
+  // `isFetchedAfterMount` also guards a switch back to a thread this hook hydrated before.
+  const loading =
+    Boolean(threadId) &&
+    !(hydratedId === threadId && thread.isFetchedAfterMount) &&
+    !thread.isError;
+  const loadingRef = useRef(loading);
 
   useEffect(() => {
     stateRef.current = state;
@@ -68,6 +80,7 @@ export function useAssistantChat({
   // A thread change (or unmount) drops the old stream and chat.
   useEffect(() => {
     hydratedFor.current = undefined;
+    hydratedAt.current = 0;
     active.current = false;
     dispatch({ type: 'reset' });
     return () => {
@@ -77,40 +90,40 @@ export function useAssistantChat({
     };
   }, [threadId]);
 
-  // Hydrate once per thread; later refetches (and a turn already started) never overwrite it.
+  // Hydrate from data fetched after mount, never from what an earlier visit cached. Later fresh
+  // data replaces the chat only while idle and when no failed turn is on screen (a failed turn
+  // is the local truth until the user retries).
   useEffect(() => {
-    if (!threadId || !thread.data || hydratedFor.current === threadId) return;
+    if (!threadId || !thread.data || !thread.isFetchedAfterMount) return;
+    if (active.current || thread.dataUpdatedAt <= hydratedAt.current) return;
+    if (
+      hydratedFor.current === threadId &&
+      stateRef.current.messages.some(
+        (m) =>
+          (m.kind === 'assistant' && m.status === 'error') ||
+          (m.kind === 'user' && m.status === 'failed'),
+      )
+    )
+      return;
     hydratedFor.current = threadId;
+    hydratedAt.current = thread.dataUpdatedAt;
     dispatch({ type: 'hydrate', detail: thread.data });
-  }, [threadId, thread.data]);
+    setHydratedId(threadId);
+  }, [threadId, thread.data, thread.dataUpdatedAt, thread.isFetchedAfterMount]);
 
-  const start = useCallback(
+  // A failed thread query must not block the chat forever: sending works without history.
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  /** Streams one turn into the chat; `active` is held by the caller until this ends. */
+  const run = useCallback(
     async (
+      abort: AbortController,
+      id: string,
       content: string,
-      input: 'text' | 'voice',
       attachments: AssistantAttachment[],
-      retry: boolean,
     ) => {
-      if (!threadId || active.current) return;
-      active.current = true;
-      hydratedFor.current = threadId;
-      const turns = stateRef.current.messages.filter(
-        (m) => m.kind === 'user',
-      ).length;
-      capture('assistant_message_sent', {
-        input,
-        thread_turn: retry ? turns : turns + 1,
-      });
-      dispatch({
-        type: 'send',
-        userId: newUuid(),
-        assistantId: newUuid(),
-        content,
-        attachments,
-        retry,
-      });
-      const abort = new AbortController();
-      controller.current = abort;
       const startedAt = Date.now();
       let tools = 0;
       let errorCode: Parameters<
@@ -122,7 +135,7 @@ export function useAssistantChat({
       };
       try {
         const result = await getApiClient().sendAssistantMessage(
-          threadId,
+          id,
           {
             content,
             language,
@@ -162,13 +175,50 @@ export function useAssistantChat({
         error_code: errorCode,
       });
       void queryClient.invalidateQueries({ queryKey: assistantKeys.threads() });
+      // The server now holds this turn: the cached thread must hold it too.
+      void queryClient.invalidateQueries({
+        queryKey: assistantKeys.thread(id),
+      });
     },
-    [threadId, language, queryClient],
+    [language, queryClient],
+  );
+
+  const start = useCallback(
+    (
+      content: string,
+      input: 'text' | 'voice',
+      attachments: AssistantAttachment[],
+      retry: boolean,
+    ): boolean => {
+      if (!threadId || active.current || loadingRef.current) return false;
+      active.current = true;
+      hydratedFor.current = threadId;
+      const turns = stateRef.current.messages.filter(
+        (m) => m.kind === 'user',
+      ).length;
+      capture('assistant_message_sent', {
+        input,
+        thread_turn: retry ? turns : turns + 1,
+      });
+      dispatch({
+        type: 'send',
+        userId: newUuid(),
+        assistantId: newUuid(),
+        content,
+        attachments,
+        retry,
+      });
+      const abort = new AbortController();
+      controller.current = abort;
+      void run(abort, threadId, content, attachments);
+      return true;
+    },
+    [threadId, run],
   );
 
   const send = useCallback(
     (content: string, options: SendOptions) => {
-      void start(content, options.input, options.attachments ?? [], false);
+      return start(content, options.input, options.attachments ?? [], false);
     },
     [start],
   );
@@ -177,7 +227,7 @@ export function useAssistantChat({
     const { messages } = stateRef.current;
     const last = messages.findLast((m) => m.kind === 'user');
     if (last?.kind !== 'user') return;
-    void start(last.content, 'text', last.attachments, true);
+    start(last.content, 'text', last.attachments, true);
   }, [start]);
 
   const updateAction = useCallback(
@@ -199,6 +249,6 @@ export function useAssistantChat({
     retry,
     updateAction,
     setFeedback,
-    loading: Boolean(threadId) && thread.isPending,
+    loading,
   };
 }

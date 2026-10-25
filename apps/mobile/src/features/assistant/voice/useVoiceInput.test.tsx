@@ -184,6 +184,33 @@ test('releasing before permission resolves starts nothing', async () => {
   expect(captured).toHaveLength(0);
 });
 
+test('a release and a new press during the permission prompt start one session', async () => {
+  let grant: (value: unknown) => void = () => {};
+  mod.requestPermissionsAsync.mockReturnValueOnce(
+    new Promise((resolve) => {
+      grant = resolve;
+    }),
+  );
+  const hook = await setup();
+  let first: Promise<void> = Promise.resolve();
+  let second: Promise<void> = Promise.resolve();
+  await act(() => {
+    first = hook.result.current.start();
+  });
+  await act(() => hook.result.current.stop());
+  await act(() => {
+    second = hook.result.current.start();
+  });
+  await act(async () => {
+    grant({ granted: true, status: 'granted' });
+    await Promise.all([first, second]);
+  });
+  expect(mod.start).toHaveBeenCalledTimes(1);
+  expect(mod.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  await act(() => speechMock.emitStart());
+  expect(hook.result.current.listening).toBe(true);
+});
+
 test('ignores a second start while listening', async () => {
   const hook = await setup();
   await startAndListen(hook);

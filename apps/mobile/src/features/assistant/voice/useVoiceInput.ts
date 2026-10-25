@@ -103,6 +103,8 @@ export function useVoiceInput({
 
   /** True from `start()` until the hold ends; lets a quick release beat the permission prompt. */
   const holding = useRef(false);
+  /** True while `start()` runs (for example during the permission prompt). */
+  const starting = useRef(false);
   /** True while a recognition session is live (between `module.start` and `end`). */
   const active = useRef(false);
   const permitted = useRef(false);
@@ -210,34 +212,42 @@ export function useVoiceInput({
   const start = useCallback(async () => {
     if (holding.current) return;
     holding.current = true;
-    setError(null);
-    if (!permitted.current) {
-      let granted = false;
-      try {
-        granted = (await speech!.requestPermissionsAsync()).granted;
-      } catch {
-        granted = false;
+    // A press during the permission prompt only re-arms the hold: the start in flight begins
+    // the session, so two `speech.start` calls cannot happen.
+    if (starting.current) return;
+    starting.current = true;
+    try {
+      setError(null);
+      if (!permitted.current) {
+        let granted = false;
+        try {
+          granted = (await speech!.requestPermissionsAsync()).granted;
+        } catch {
+          granted = false;
+        }
+        if (!granted) {
+          holding.current = false;
+          setError('permission');
+          return;
+        }
+        permitted.current = true;
       }
-      if (!granted) {
-        holding.current = false;
-        setError('permission');
-        return;
+      // Released while the permission prompt was open: do not start a session nobody holds.
+      if (!holding.current) return;
+      locale.current = voiceLocale(language);
+      committed.current = '';
+      current.current = '';
+      failure.current = null;
+      startedAt.current = Date.now();
+      fellBack.current = false;
+      retryNetwork.current = false;
+      active.current = true;
+      if (!begin(readOnDevice(speech))) {
+        reset();
+        setError('failed');
       }
-      permitted.current = true;
-    }
-    // Released while the permission prompt was open: do not start a session nobody holds.
-    if (!holding.current) return;
-    locale.current = voiceLocale(language);
-    committed.current = '';
-    current.current = '';
-    failure.current = null;
-    startedAt.current = Date.now();
-    fellBack.current = false;
-    retryNetwork.current = false;
-    active.current = true;
-    if (!begin(readOnDevice(speech))) {
-      reset();
-      setError('failed');
+    } finally {
+      starting.current = false;
     }
   }, [language, reset, begin, speech]);
 

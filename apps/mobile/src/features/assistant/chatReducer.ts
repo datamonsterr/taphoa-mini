@@ -42,6 +42,8 @@ export type AssistantChatMessage = {
   model?: string;
   /** True once the server has acknowledged this message (`message.created`) or stored it. */
   remote: boolean;
+  /** A later turn re-sent the user message after this reply failed: it shows no Retry button. */
+  retried?: boolean;
 };
 
 export type ChatMessage = UserChatMessage | AssistantChatMessage;
@@ -58,7 +60,10 @@ export type ChatAction =
       assistantId: string;
       content: string;
       attachments: AssistantAttachment[];
-      /** Replace the failed last turn instead of appending a second one. */
+      /**
+       * Re-sends the last user message. A turn the server never stored (failed before
+       * `message.created`) is replaced; a stored one stays and a new turn is appended.
+       */
       retry?: boolean;
     }
   | { type: 'event'; event: AssistantStreamEvent }
@@ -208,7 +213,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (action.retry) {
         let lastUser = messages.length - 1;
         while (lastUser >= 0 && messages[lastUser].kind !== 'user') lastUser--;
-        if (lastUser >= 0) messages = messages.slice(0, lastUser);
+        const reply = messages[lastUser + 1];
+        if (lastUser >= 0 && reply?.kind === 'assistant' && reply.remote)
+          messages = messages.map((m, i) =>
+            i === lastUser + 1 ? { ...reply, retried: true } : m,
+          );
+        else if (lastUser >= 0) messages = messages.slice(0, lastUser);
       }
       return {
         messages: [

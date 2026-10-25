@@ -15,6 +15,7 @@ import {
 
 import type { AssistantAction } from '@taphoa/api-client';
 
+import { assistantKeys } from './api';
 import type { AssistantChatMessage } from './chatReducer';
 import { useAssistantChat } from './useAssistantChat';
 
@@ -32,8 +33,10 @@ async function newThread() {
   return created.data!.id;
 }
 
-function setup(threadId: string | undefined) {
-  const queryClient = createTestQueryClient();
+function setup(
+  threadId: string | undefined,
+  queryClient = createTestQueryClient(),
+) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -146,6 +149,8 @@ test('a quota reply shows the error and reports its code', async () => {
 
 test('a non-OK response fails the turn; retry sends the message as a new turn', async () => {
   const hook = await setup(newUuid());
+  // The thread does not exist: its query fails, and the chat then works without history.
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
   await act(async () => {
     hook.result.current.send('Xin chào', { input: 'text' });
   });
@@ -174,7 +179,9 @@ test('retry resends the last user message', async () => {
     hook.result.current.retry();
   });
   await waitFor(() => expect(hook.result.current.streaming).toBe(false));
-  expect(hook.result.current.messages).toHaveLength(2);
+  // The mock server keeps the refused first user message, and the idle chat now shows the
+  // server's list: that user message, then the retried turn.
+  expect(hook.result.current.messages).toHaveLength(3);
   expect(lastAssistant(hook.result.current.messages).status).toBe('done');
   expect(sink.capture).toHaveBeenLastCalledWith(
     'assistant_reply_received',
@@ -248,4 +255,162 @@ test('changing thread resets the chat', async () => {
   await hook.rerender({ id: b });
   await waitFor(() => expect(hook.result.current.loading).toBe(false));
   expect(hook.result.current.messages).toHaveLength(0);
+});
+
+async function sendAndSettle(
+  hook: Awaited<ReturnType<typeof setup>>,
+  content: string,
+) {
+  await act(async () => {
+    hook.result.current.send(content, { input: 'text' });
+  });
+  await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+}
+
+async function sendThroughClient(id: string, content: string) {
+  const sent = await getApiClient().sendAssistantMessage(id, {
+    content,
+    language: 'vi',
+  });
+  for await (const event of sent.events!) void event;
+}
+
+test('reopening a thread within the cache lifetime shows every turn', async () => {
+  const id = await newThread();
+  const queryClient = createTestQueryClient();
+  const first = await setup(id, queryClient);
+  await waitFor(() => expect(first.result.current.loading).toBe(false));
+  await sendAndSettle(first, 'Một');
+  await first.unmount();
+  const second = await setup(id, queryClient);
+  await waitFor(() => expect(second.result.current.messages).toHaveLength(2));
+  await sendAndSettle(second, 'Hai');
+  await second.unmount();
+  const third = await setup(id, queryClient);
+  await waitFor(() => expect(third.result.current.messages).toHaveLength(4));
+  expect(third.result.current.messages[2]).toMatchObject({ content: 'Hai' });
+});
+
+test('switching threads and back shows the turns of the first thread', async () => {
+  const a = await newThread();
+  const b = await newThread();
+  const hook = await setup(a);
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  await sendAndSettle(hook, 'Một');
+  await hook.rerender({ id: b });
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(hook.result.current.messages).toHaveLength(0);
+  await hook.rerender({ id: a });
+  await waitFor(() => expect(hook.result.current.messages).toHaveLength(2));
+  expect(hook.result.current.messages[0]).toMatchObject({ content: 'Một' });
+});
+
+test('fresh server data re-hydrates an idle chat', async () => {
+  const id = await newThread();
+  const queryClient = createTestQueryClient();
+  const hook = await setup(id, queryClient);
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  await sendThroughClient(id, 'Từ máy khác');
+  await act(async () => {
+    await queryClient.invalidateQueries({ queryKey: assistantKeys.thread(id) });
+  });
+  await waitFor(() => expect(hook.result.current.messages).toHaveLength(2));
+  expect(hook.result.current.messages[0]).toMatchObject({
+    content: 'Từ máy khác',
+  });
+});
+
+test('a refetch that lands during a turn does not replace it', async () => {
+  const id = await newThread();
+  const queryClient = createTestQueryClient();
+  const hook = await setup(id, queryClient);
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  await act(async () => {
+    hook.result.current.send('Hỏi', { input: 'text' });
+    await queryClient.invalidateQueries({ queryKey: assistantKeys.thread(id) });
+  });
+  await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+  expect(hook.result.current.messages).toHaveLength(2);
+  expect(hook.result.current.messages[1]).toMatchObject({ status: 'done' });
+});
+
+test('a send while the thread is loading is refused and never skips hydration', async () => {
+  const id = await newThread();
+  await sendThroughClient(id, 'Cũ');
+  const hook = await setup(id);
+  expect(hook.result.current.loading).toBe(true);
+  let accepted: boolean | undefined;
+  await act(async () => {
+    accepted = hook.result.current.send('Quá sớm', { input: 'text' });
+  });
+  expect(accepted).toBe(false);
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(hook.result.current.messages).toHaveLength(2);
+  expect(hook.result.current.messages[0]).toMatchObject({ content: 'Cũ' });
+  await act(async () => {
+    accepted = hook.result.current.send('Đúng lúc', { input: 'text' });
+  });
+  expect(accepted).toBe(true);
+  await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+  expect(hook.result.current.messages).toHaveLength(4);
+});
+
+test('a second send while a turn runs is refused', async () => {
+  const id = await newThread();
+  const hook = await setup(id);
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  const results: boolean[] = [];
+  await act(async () => {
+    results.push(hook.result.current.send('Một', { input: 'text' }));
+    results.push(hook.result.current.send('Hai', { input: 'text' }));
+  });
+  expect(results).toEqual([true, false]);
+  await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+  expect(hook.result.current.messages).toHaveLength(2);
+});
+
+test('retry after a mid-stream error keeps the stored turn, so a reload shows the same list', async () => {
+  const id = await newThread();
+  const inner = createMockFetch();
+  let cut = true;
+  setApiTransport(async (input, init) => {
+    const response = await inner(input, init);
+    const req = input as Request;
+    if (!cut || req.method !== 'POST' || !req.url.endsWith('/messages'))
+      return response;
+    cut = false;
+    const text = await response.text();
+    return new Response(
+      text.slice(0, text.indexOf('event: message.completed')),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  });
+  const queryClient = createTestQueryClient();
+  const hook = await setup(id, queryClient);
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  await sendAndSettle(hook, 'Hỏi');
+  expect(lastAssistant(hook.result.current.messages).status).toBe('error');
+  await act(async () => {
+    hook.result.current.retry();
+  });
+  await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+  const local = hook.result.current.messages;
+  expect(local.map((m) => m.kind)).toEqual([
+    'user',
+    'assistant',
+    'user',
+    'assistant',
+  ]);
+  expect(local[1]).toMatchObject({ status: 'error', retried: true });
+  expect(lastAssistant(local).status).toBe('done');
+  await hook.unmount();
+  const reload = await setup(id, queryClient);
+  await waitFor(() => expect(reload.result.current.messages).toHaveLength(4));
+  const shape = (list: typeof local) =>
+    list.map((m) => (m.kind === 'user' ? m.content : m.text));
+  expect(shape(reload.result.current.messages)).toEqual(shape(local));
+  setApiTransport(createMockFetch());
 });

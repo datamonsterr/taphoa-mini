@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -59,6 +60,9 @@ export const useAssistantThread = (threadId: string | undefined) =>
         }),
       ),
     enabled: Boolean(threadId),
+    // Turns change the stored thread behind this key's back: every mount reads it again, and the
+    // chat hydrates only from data fetched after mount (`isFetchedAfterMount`).
+    refetchOnMount: 'always',
   });
 
 export const useCreateAssistantThread = () => {
@@ -188,4 +192,6 @@ export const useNextSteps = (
         }),
       ),
     enabled,
+    // A flipped flag changes the key: keep the old chips on screen until the new ones arrive.
+    placeholderData: keepPreviousData,
   });

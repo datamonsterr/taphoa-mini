@@ -81,22 +81,37 @@ export function AssistantScreen() {
   const createThread = useCreateAssistantThread();
   const chat = useAssistantChat({ threadId, language });
 
-  if (phase === 'auto' && threads.isSuccess) {
+  // Leave `auto` with the newest thread, or with an empty new chat when the list failed.
+  if (phase === 'auto' && (threads.isSuccess || threads.isError)) {
     setPhase('chosen');
-    setThreadId(threads.data[0]?.id);
+    if (threads.isSuccess) setThreadId(threads.data[0]?.id);
   }
 
+  /** True while a thread is being created or a created thread's first turn is not yet sent. */
+  const starting = useRef(false);
+  /** Bumped when the user leaves the chat, so a thread created for it is not adopted late. */
+  const epoch = useRef(0);
+
+  /** Returns whether the turn was accepted (the composer clears its text only then). */
   const startTurn = useCallback(
-    async (turn: Turn) => {
-      lastTurn.current = turn;
-      setStartFailed(false);
+    (turn: Turn): boolean => {
+      if (starting.current) return false;
+      // The user chose: a late threads list must not replace this chat.
+      setPhase('chosen');
       if (threadId) {
-        chat.send(turn.content, {
+        const accepted = chat.send(turn.content, {
           input: turn.input,
           ...(turn.attachments ? { attachments: turn.attachments } : {}),
         });
-        return;
+        if (accepted) {
+          lastTurn.current = turn;
+          setStartFailed(false);
+        }
+        return accepted;
       }
+      lastTurn.current = turn;
+      setStartFailed(false);
+      starting.current = true;
       const context: CreateAssistantThreadInput['context'] = fromEntry
         ? {
             screen: params.screen ?? 'chat',
@@ -104,28 +119,39 @@ export function AssistantScreen() {
             ...(params.receiptId ? { receipt_id: params.receiptId } : {}),
           }
         : { screen: 'chat' };
-      try {
-        const thread = await createThread.mutateAsync({ context });
-        pending.current = { ...turn, threadId: thread.id };
-        setThreadId(thread.id);
-      } catch {
-        setStartFailed(true);
-      }
+      const mine = epoch.current;
+      createThread.mutateAsync({ context }).then(
+        (thread) => {
+          if (mine !== epoch.current) {
+            starting.current = false;
+            return;
+          }
+          pending.current = { ...turn, threadId: thread.id };
+          setThreadId(thread.id);
+        },
+        () => {
+          starting.current = false;
+          setStartFailed(true);
+        },
+      );
+      return true;
     },
     [threadId, chat, fromEntry, params, createThread],
   );
 
   // Send the turn that created the thread once the chat is bound to the new thread.
-  const { send } = chat;
+  const { send, loading: loadingChat } = chat;
   useEffect(() => {
     const turn = pending.current;
-    if (!turn || turn.threadId !== threadId) return;
+    // The chat refuses a send until the new thread's (empty) history has been read.
+    if (!turn || turn.threadId !== threadId || loadingChat) return;
     pending.current = null;
+    starting.current = false;
     send(turn.content, {
       input: turn.input,
       ...(turn.attachments ? { attachments: turn.attachments } : {}),
     });
-  }, [threadId, send]);
+  }, [threadId, send, loadingChat]);
 
   // Once per open: analytics, then the entry's own first message. The event reads the latest
   // props; the effect itself never runs twice.
@@ -133,13 +159,13 @@ export function AssistantScreen() {
   const onOpen = useEffectEvent(() => {
     capture('assistant_opened', { entry: params.entry ?? 'button' });
     if (params.receiptId)
-      void startTurn({
+      startTurn({
         content: t('receiptFirstMessage'),
         input: 'text',
         attachments: [{ receipt_id: params.receiptId }],
       });
     else if (params.prompt)
-      void startTurn({ content: params.prompt, input: 'text' });
+      startTurn({ content: params.prompt, input: 'text' });
   });
   useEffect(() => {
     if (opened.current) return;
@@ -148,6 +174,9 @@ export function AssistantScreen() {
   }, []);
 
   const openThread = (id: string | undefined) => {
+    epoch.current++;
+    starting.current = false;
+    pending.current = null;
     setThreadId(id);
     setPhase('chosen');
     setFromEntry(false);
@@ -161,7 +190,7 @@ export function AssistantScreen() {
     threadFailed: startFailed,
     chat,
     restartThread: () => {
-      if (lastTurn.current) void startTurn(lastTurn.current);
+      if (lastTurn.current) startTurn(lastTurn.current);
     },
     firstMessage: t('receiptFirstMessage'),
   });
@@ -280,7 +309,7 @@ export function AssistantScreen() {
                   <ErrorNotice
                     error={{ code: 'network' }}
                     onRetry={() => {
-                      if (lastTurn.current) void startTurn(lastTurn.current);
+                      if (lastTurn.current) startTurn(lastTurn.current);
                     }}
                   />
                 ) : null}
@@ -289,8 +318,8 @@ export function AssistantScreen() {
           </ScrollView>
           {showList ? null : (
             <Composer
-              streaming={chat.streaming || createThread.isPending}
-              onSend={(content, input) => void startTurn({ content, input })}
+              streaming={chat.streaming || createThread.isPending || loading}
+              onSend={(content, input) => startTurn({ content, input })}
               prefill={prefill}
             />
           )}

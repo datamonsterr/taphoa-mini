@@ -25,6 +25,18 @@ test('send is disabled when empty and sends typed text as text', async () => {
   expect(input().props.value).toBe('');
 });
 
+test('the text stays when the send was refused and clears when it was accepted', async () => {
+  const onSend = jest.fn(() => false);
+  await render(<Composer streaming={false} onSend={onSend} />);
+  await fireEvent.changeText(input(), 'Doanh thu?');
+  await fireEvent.press(send());
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(input().props.value).toBe('Doanh thu?');
+  onSend.mockReturnValue(true);
+  await fireEvent.press(send());
+  expect(input().props.value).toBe('');
+});
+
 test('whitespace only cannot be sent', async () => {
   const onSend = jest.fn();
   await render(<Composer streaming={false} onSend={onSend} />);

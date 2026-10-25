@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   screen,
   waitFor,
@@ -17,7 +18,7 @@ import {
   quotaReply,
   setNextAssistantReply,
 } from '@/test/mock';
-import { renderWithProviders } from '@/test/render';
+import { createTestQueryClient, renderWithProviders } from '@/test/render';
 
 import { AssistantScreen } from './AssistantScreen';
 import type { AssistantRouteParams } from './route';
@@ -180,7 +181,13 @@ test('Retry after an interrupted stream sends the message again', async () => {
     await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
   ).toBeTruthy();
   expect(screen.queryByTestId('assistant-retry')).toBeNull();
-  expect(screen.getAllByText('Doanh thu?')).toHaveLength(1);
+  // The list shows what the server stores (it keeps the user message of the cut turn too),
+  // never more than that.
+  const [thread] = await threads();
+  const stored = (await detail(thread.id)).messages.filter(
+    (m) => m.role === 'user',
+  );
+  expect(screen.getAllByText('Doanh thu?')).toHaveLength(stored.length);
 });
 
 test('opens the newest thread when there is no thread id', async () => {
@@ -336,4 +343,122 @@ test('a failed thread creation shows a Retry that sends again', async () => {
     await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
   ).toBeTruthy();
   jest.restoreAllMocks();
+});
+
+/** Holds the threads list request until `release` is called. */
+function holdThreadsList() {
+  const raw = client().raw;
+  const real = raw.GET.bind(raw) as (...args: unknown[]) => Promise<unknown>;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  jest
+    .spyOn(raw, 'GET')
+    .mockImplementation(((path: string, ...rest: unknown[]) =>
+      path === '/v1/assistant/threads'
+        ? gate.then(() => real(path, ...rest))
+        : real(path, ...rest)) as never);
+  return release;
+}
+
+const sendDisabled = () =>
+  screen.getByTestId('assistant-send').props.accessibilityState.disabled;
+
+test('a failed threads query leaves the spinner for an empty new chat', async () => {
+  const raw = client().raw;
+  const real = raw.GET.bind(raw) as (...args: unknown[]) => Promise<unknown>;
+  jest
+    .spyOn(raw, 'GET')
+    .mockImplementation(((path: string, ...rest: unknown[]) =>
+      path === '/v1/assistant/threads'
+        ? Promise.reject(new Error('offline'))
+        : real(path, ...rest)) as never);
+  await renderWithProviders(<AssistantScreen />);
+  expect(await screen.findByTestId('assistant-empty')).toBeTruthy();
+  await fireEvent.changeText(input(), 'Doanh thu?');
+  expect(sendDisabled()).toBe(false);
+  jest.restoreAllMocks();
+});
+
+test('the composer is off while the newest thread is being looked up, and a new chat is not overwritten when the list lands', async () => {
+  await seedThread('Cũ', 'câu hỏi cũ');
+  const release = holdThreadsList();
+  await renderWithProviders(<AssistantScreen />);
+  await fireEvent.changeText(input(), 'Doanh thu?');
+  expect(sendDisabled()).toBe(true);
+  await fireEvent.press(screen.getByTestId('assistant-new-chat'));
+  expect(await screen.findByTestId('assistant-empty')).toBeTruthy();
+  expect(sendDisabled()).toBe(false);
+  release();
+  await waitFor(() =>
+    expect(screen.getByTestId('assistant-empty')).toBeTruthy(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(screen.queryByText('câu hỏi cũ')).toBeNull();
+  expect(screen.getByTestId('assistant-empty')).toBeTruthy();
+  jest.restoreAllMocks();
+});
+
+test('two rapid presses of Send create one thread and one turn', async () => {
+  await renderWithProviders(<AssistantScreen />);
+  await waitFor(() =>
+    expect(screen.getByTestId('assistant-empty')).toBeTruthy(),
+  );
+  await fireEvent.changeText(input(), 'Doanh thu?');
+  // Two taps in one frame: both run before React re-renders the Composer.
+  const press = screen.getByTestId('assistant-send').props
+    .onClick as () => void;
+  await act(async () => {
+    press();
+    press();
+  });
+  expect(
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+  ).toBeTruthy();
+  const all = await threads();
+  expect(all).toHaveLength(1);
+  expect((await detail(all[0].id)).messages).toHaveLength(2);
+  expect(screen.getAllByText('Doanh thu?')).toHaveLength(1);
+});
+
+test('reopening the sheet shows the turns of the thread created in the last visit', async () => {
+  const queryClient = createTestQueryClient();
+  const first = await renderWithProviders(<AssistantScreen />, queryClient);
+  await waitFor(() =>
+    expect(screen.getByTestId('assistant-empty')).toBeTruthy(),
+  );
+  await typeAndSend('Doanh thu?');
+  await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.');
+  await waitFor(() => expect(screen.getByTestId('feedback-up')).toBeTruthy());
+  await first.unmount();
+  await renderWithProviders(<AssistantScreen />, queryClient);
+  expect(await screen.findByText('Doanh thu?')).toBeTruthy();
+  expect(
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+  ).toBeTruthy();
+});
+
+test('Retry after a failure mid-reply keeps the stored turn without a second Retry button', async () => {
+  await renderWithProviders(<AssistantScreen />);
+  await waitFor(() =>
+    expect(screen.getByTestId('assistant-empty')).toBeTruthy(),
+  );
+  setNextAssistantReply([
+    {
+      event: 'message.created',
+      data: { message_id: newUuid(), thread_id: 't' },
+    },
+    { event: 'message.delta', data: { text: 'Hôm nay' } },
+    {
+      event: 'error',
+      data: { code: 'internal', message_vi: 'Lỗi giữa chừng' },
+    },
+  ]);
+  await typeAndSend('Doanh thu?');
+  await fireEvent.press(await screen.findByTestId('assistant-retry'));
+  expect(
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+  ).toBeTruthy();
+  expect(screen.getAllByText('Doanh thu?')).toHaveLength(2);
+  expect(screen.getByText('Lỗi giữa chừng')).toBeTruthy();
+  expect(screen.queryByTestId('assistant-retry')).toBeNull();
 });
