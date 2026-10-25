@@ -254,8 +254,8 @@ jobs:
           pr="$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')"
           if [ -z "$pr" ]; then
             if ! gh pr create --base main --head "$branch" --title "chore(eval): nightly results" --body-file "$RUNNER_TEMP/pr-body.md"; then
-              echo "::error title=Pull request not created::The results are pushed to $branch. Allow GitHub Actions to create pull requests (Settings, Actions, General, Workflow permissions), or open the pull request by hand."
-              exit 1
+              # Actions may not create pull requests in this repo; the pushed branch is the record.
+              echo "::warning title=Pull request not created::The results are pushed to $branch. Allow GitHub Actions to create pull requests (Settings, Actions, General, Workflow permissions), or open the pull request by hand."
             fi
           else
             gh pr edit "$pr" --body-file "$RUNNER_TEMP/pr-body.md"
