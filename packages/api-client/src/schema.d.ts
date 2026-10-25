@@ -2256,7 +2256,7 @@ export interface components {
         AssistantThread: {
             /** Format: uuid */
             id: string;
-            title: string;
+            title: string | null;
             context: components["schemas"]["AssistantThreadContext"] | null;
             /** Format: date-time */
             created_at: string;
@@ -2292,6 +2292,8 @@ export interface components {
             /** @enum {string} */
             role: "user" | "assistant";
             content: string;
+            /** @description Attachments sent by the user; empty for assistant messages. */
+            attachments: components["schemas"]["AssistantAttachment"][];
             tool_calls: components["schemas"]["AssistantToolCallSummary"][];
             cards: components["schemas"]["AssistantCard"][];
             model: string | null;
@@ -2362,6 +2364,8 @@ export interface components {
                 cost: components["schemas"]["Money"] | null;
                 /** Format: uuid */
                 product_id: string | null;
+                /** @description Matched catalog product name; null when unmatched. */
+                product_name: string | null;
                 confidence: number | null;
             }[];
         } | {
@@ -2383,9 +2387,12 @@ export interface components {
             /** @constant */
             type: "chart_bars";
             title_vi: string;
+            /** @enum {string} */
+            unit: "dong" | "units";
             bars: {
                 label: string;
-                value: components["schemas"]["Money"];
+                /** Format: int64 */
+                value: number;
             }[];
         };
         AssistantMessageCreated: {

@@ -3472,7 +3472,7 @@ components:
           type: string
           format: uuid
         title:
-          type: string
+          type: [string, 'null']
         context:
           anyOf:
             - $ref: '#/components/schemas/AssistantThreadContext'
@@ -3561,6 +3561,7 @@ components:
         - thread_id
         - role
         - content
+        - attachments
         - tool_calls
         - cards
         - model
@@ -3580,6 +3581,11 @@ components:
             - assistant
         content:
           type: string
+        attachments:
+          type: array
+          description: Attachments sent by the user; empty for assistant messages.
+          items:
+            $ref: '#/components/schemas/AssistantAttachment'
         tool_calls:
           type: array
           items:
@@ -3766,6 +3772,7 @@ components:
                   - quantity
                   - cost
                   - product_id
+                  - product_name
                   - confidence
                 properties:
                   line_id:
@@ -3787,6 +3794,9 @@ components:
                       - string
                       - 'null'
                     format: uuid
+                  product_name:
+                    type: [string, 'null']
+                    description: Matched catalog product name; null when unmatched.
                   confidence:
                     type:
                       - number
@@ -3846,6 +3856,7 @@ components:
           required:
             - type
             - title_vi
+            - unit
             - bars
           properties:
             type:
@@ -3853,6 +3864,9 @@ components:
               const: chart_bars
             title_vi:
               type: string
+            unit:
+              type: string
+              enum: [dong, units]
             bars:
               type: array
               items:
@@ -3865,8 +3879,9 @@ components:
                   label:
                     type: string
                   value:
-                    $ref: '#/components/schemas/Money'
-          description: Bars represent amounts in integer VND.
+                    type: integer
+                    format: int64
+          description: Bars contain signed integers in the declared unit (VND or item units); profit bars may be negative.
     AssistantMessageCreated:
       type: object
       additionalProperties: false

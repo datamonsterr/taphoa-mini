@@ -14,23 +14,23 @@ const REJECT: &str = "/v1/assistant/actions/{actionId}/reject";
 const FEEDBACK: &str = "/v1/assistant/messages/{messageId}/feedback";
 
 fn thread() -> Value {
-    json!({"id":ID,"title":"Nhập hàng hôm nay","context":{"screen":"camera","next_step_id":"restock","receipt_id":ID,"image_id":ID},"created_at":AT,"updated_at":AT})
+    json!({"id":ID,"title":null,"context":{"screen":"camera","next_step_id":"restock","receipt_id":ID,"image_id":ID},"created_at":AT,"updated_at":AT})
 }
 fn action() -> Value {
     json!({"id":ID,"thread_id":ID,"message_id":ID,"kind":"expense","status":"proposed","payload":{"amount":150000,"category":"dien","note":"Tiền điện","paid_with":"cash_box"},"summary_vi":"Ghi chi phí điện 150.000 ₫","proposed_by":ID,"decided_by":null,"decided_at":null,"result":null,"error":null,"expires_at":"2026-10-26T08:00:00+07:00","created_at":AT})
 }
 fn message() -> Value {
-    json!({"id":ID,"thread_id":ID,"role":"assistant","content":"Cần nhập thêm Coca.","tool_calls":[{"call_id":"call_1","tool":"get_restock_plan","ok":true,"summary_vi":"Có 1 mặt hàng sắp hết"}],"cards":[cards()[1].clone()],"model":"provider/model","feedback":null,"created_at":AT})
+    json!({"id":ID,"thread_id":ID,"role":"assistant","content":"Cần nhập thêm Coca.","attachments":[],"tool_calls":[{"call_id":"call_1","tool":"get_restock_plan","ok":true,"summary_vi":"Có 1 mặt hàng sắp hết"}],"cards":[cards()[1].clone()],"model":"provider/model","feedback":null,"created_at":AT})
 }
 fn next_step() -> Value {
     json!({"id":"restock","kind":"restock","title_vi":"Nhập hàng","subtitle_vi":null,"priority":10,"action":{"type":"chat","prompt_vi":"Lên danh sách nhập hàng","context":{"screen":"camera","next_step_id":"restock"}}})
 }
 fn cards() -> Vec<Value> {
     vec![
-        json!({"type":"receipt_lines","receipt_id":ID,"lines":[{"line_id":ID,"name":"Coca lon","quantity":24,"cost":204000,"product_id":ID,"confidence":0.96}]}),
+        json!({"type":"receipt_lines","receipt_id":ID,"lines":[{"line_id":ID,"name":"Coca lon","quantity":24,"cost":204000,"product_id":ID,"product_name":"Coca-Cola lon","confidence":0.96}]}),
         json!({"type":"restock_list","items":[{"product_id":ID,"name":"Coca lon","quantity":24,"unit_cost":8500,"total_cost":204000}],"total_cost":204000}),
         json!({"type":"debt_list","items":[{"customer_id":ID,"name":"Cô Lan","total":120000,"overdue_days":8}]}),
-        json!({"type":"chart_bars","title_vi":"Doanh thu","bars":[{"label":"Hôm qua","value":1200000}]}),
+        json!({"type":"chart_bars","title_vi":"Lợi nhuận","unit":"dong","bars":[{"label":"Hôm qua","value":-120000}]}),
     ]
 }
 #[test]
@@ -118,12 +118,28 @@ fn assistant_thread_responses_match_contract() {
         StatusCode::OK,
         &json!({"items":[thread()],"next_cursor":null}),
     );
+    let mut user_message = message();
+    user_message["role"] = json!("user");
+    user_message["content"] = json!("Xem hóa đơn này");
+    user_message["attachments"] = json!([{"image_id":ID},{"receipt_id":ID}]);
+    user_message["tool_calls"] = json!([]);
+    user_message["cards"] = json!([]);
+    user_message["model"] = Value::Null;
     c.assert_conforms(
         THREAD,
         "get",
         StatusCode::OK,
-        &json!({"thread":thread(),"messages":[message()],"actions":[action()]}),
+        &json!({"thread":thread(),"messages":[user_message,message()],"actions":[action()]}),
     );
+    let mut missing_attachments = message();
+    missing_attachments
+        .as_object_mut()
+        .unwrap()
+        .remove("attachments");
+    assert!(!c.schema_accepts("AssistantMessage", &missing_attachments));
+    let mut missing_title = thread();
+    missing_title.as_object_mut().unwrap().remove("title");
+    assert!(!c.schema_accepts("AssistantThread", &missing_title));
 }
 #[test]
 fn assistant_action_decision_responses_match_contract() {
@@ -206,6 +222,24 @@ fn assistant_cards_enforce_discriminators_and_integer_money() {
     for card in cards() {
         assert!(c.schema_accepts("AssistantCard", &card), "{card}");
     }
+    let mut chart = cards()[3].clone();
+    chart["unit"] = json!("units");
+    assert!(c.schema_accepts("AssistantCard", &chart));
+    chart.as_object_mut().unwrap().remove("unit");
+    assert!(!c.schema_accepts("AssistantCard", &chart));
+    chart["unit"] = json!("percent");
+    assert!(!c.schema_accepts("AssistantCard", &chart));
+    chart["unit"] = json!("dong");
+    chart["bars"][0]["value"] = json!(1.5);
+    assert!(!c.schema_accepts("AssistantCard", &chart));
+    let mut receipt = cards()[0].clone();
+    receipt["lines"][0]["product_name"] = Value::Null;
+    assert!(c.schema_accepts("AssistantCard", &receipt));
+    receipt["lines"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("product_name");
+    assert!(!c.schema_accepts("AssistantCard", &receipt));
     let mut bad = cards()[1].clone();
     bad["total_cost"] = json!(20.5);
     assert!(!c.schema_accepts("AssistantCard", &bad));
