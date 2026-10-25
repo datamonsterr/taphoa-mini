@@ -167,9 +167,10 @@ instance. The backend no longer signs tokens or reads `JWT_SECRET`.
 | `CLERK_AUTHORIZED_PARTIES`       | no       | Comma-separated origins allowed in the token's `azp` claim                          |
 | `CLERK_ISSUER`, `CLERK_JWKS_URL` | no       | Override the values derived from the publishable key (tests point them at a stub)   |
 
-Startup fails when no issuer can be derived. The publishable key is public by design (it ships in
-the app bundle), so Compose, `scripts/e2e/stack.sh` and the backend `.env.example` default to the
-development instance key; the secret key is never committed.
+Startup fails when no issuer can be derived. An empty or whitespace-only `CLERK_*` value counts as
+unset. The publishable key is public by design (it ships in the app bundle), so Compose,
+`scripts/e2e/stack.sh` and the backend `.env.example` default to the development instance key; the
+secret key is never committed.
 
 **Where each value lives.**
 
@@ -304,7 +305,7 @@ build and Maestro workflows.
 
 ## Client IP and auth rate limits
 
-Per-IP limits on store creation, join and recover never trust a client-set header.
+Per-IP limits on store creation and join never trust a client-set header.
 
 | Variable                           | Default | Meaning                                                                                                |
 | ---------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
@@ -312,7 +313,6 @@ Per-IP limits on store creation, join and recover never trust a client-set heade
 | `TRUSTED_PROXY_HOPS`               | `1`     | Only for `x-forwarded-for`                                                                             |
 | `RATE_LIMIT_STORE_CREATE_PER_HOUR` | `10`    | `POST /v1/stores` per client IP                                                                        |
 | `RATE_LIMIT_JOIN_PER_HOUR`         | `10`    | `POST /v1/auth/join` per client IP                                                                     |
-| `RATE_LIMIT_RECOVER_PER_10MIN`     | `5`     | `POST /v1/auth/recover` per client IP                                                                  |
 | `RATE_LIMIT_PIN_ATTEMPTS`          | `5`     | Wrong PINs before a 5 minute member lock                                                               |
 
 Railway's edge sets `X-Real-IP` to the client address and does not set `X-Forwarded-For`
@@ -320,4 +320,4 @@ Railway's edge sets `X-Real-IP` to the client address and does not set `X-Forwar
 so the production `backend` service must set `CLIENT_IP_SOURCE=x-real-ip`. With the default
 `peer`, every request appears to come from the Railway proxy and all clients share one bucket.
 This is deliberately not in `.railway/railway.ts`; set it as a service variable. The Railway
-test environment and local compose raise the three `RATE_LIMIT_*` limits (compose defaults to 100000) so e2e suites can create many stores; never raise them in production.
+test environment and local compose raise the two per-IP `RATE_LIMIT_*` limits (compose defaults to 100000) so e2e suites can create many stores; never raise them in production.

@@ -228,7 +228,6 @@ jobs:
       # Many suites create stores from one IP; raise the per-IP auth limits for the run.
       RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
       RATE_LIMIT_JOIN_PER_HOUR: '100000'
-      RATE_LIMIT_RECOVER_PER_10MIN: '100000'
       DATABASE_URL: postgres://taphoa:taphoa@localhost:5432/taphoa
       REDIS_URL: redis://localhost:6379
       AWS_ENDPOINT_URL: http://localhost:9000
@@ -255,7 +254,7 @@ jobs:
         if: matrix.partition == 1
         working-directory: apps/backend
         run: >-
-          env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR -u RATE_LIMIT_RECOVER_PER_10MIN
+          env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
           --profile ci --run-ignored only --test-threads 1 --no-tests=pass
           -E 'test(validation_invite_expiry_and_ip_limits)'

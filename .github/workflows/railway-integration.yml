@@ -63,7 +63,6 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
           RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
           RATE_LIMIT_JOIN_PER_HOUR: '100000'
-          RATE_LIMIT_RECOVER_PER_10MIN: '100000'
         run: >-
           ../../scripts/ci/with-railway-test-services.sh
           cargo nextest run --locked --workspace --profile ci --run-ignored only --test-threads 1 --no-tests=pass -E 'not test(validation_invite_expiry_and_ip_limits)'

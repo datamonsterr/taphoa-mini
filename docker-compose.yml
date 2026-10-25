@@ -60,7 +60,6 @@ services:
       # Local/e2e only: raise per-IP auth limits so test suites can create many stores.
       RATE_LIMIT_STORE_CREATE_PER_HOUR: ${RATE_LIMIT_STORE_CREATE_PER_HOUR:-100000}
       RATE_LIMIT_JOIN_PER_HOUR: ${RATE_LIMIT_JOIN_PER_HOUR:-100000}
-      RATE_LIMIT_RECOVER_PER_10MIN: ${RATE_LIMIT_RECOVER_PER_10MIN:-100000}
       AWS_ENDPOINT_URL: http://storage:9000
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-taphoa-local}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-taphoa-local-secret}

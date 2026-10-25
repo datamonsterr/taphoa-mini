@@ -41,9 +41,7 @@ async fn main() -> Result<()> {
             store.invite_token_hint
         );
     }
-    println!(
-        "\nRecovery rotates the code. Reruns preserve stored data; printed hints are the original fixture credentials."
-    );
+    println!("\nReruns preserve stored data; printed hints are the original fixture credentials.");
     pool.close().await;
     Ok(())
 }
