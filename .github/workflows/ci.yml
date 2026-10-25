@@ -31,6 +31,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       docker: ${{ steps.filter.outputs.docker }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      otel-collector: ${{ steps.filter.outputs.otel-collector }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -68,6 +69,9 @@ jobs:
               - 'rust-toolchain.toml'
               - 'docker-compose*.yml'
               - '.dockerignore'
+              - '.github/workflows/ci.yml'
+            otel-collector:
+              - 'infra/otel-collector/**'
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/**'
@@ -715,6 +719,29 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: scripts/ci/job-summary.sh "web-e2e" "Playwright chromium + real backend with SAM/DINO models"
 
+  # ---------- OpenTelemetry Collector ----------
+
+  otel-collector:
+    needs: changes
+    if: needs.changes.outputs.otel-collector == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Validate collector config
+        run: infra/otel-collector/validate.sh
+      - name: Collector routing and redaction tests
+        run: python3 -m unittest discover -s infra/otel-collector/tests -v
+      - name: Build collector image
+        run: docker build -f infra/otel-collector/Dockerfile .
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "otel-collector" "collector 0.163.2 validate, Docker routing tests and image build"
+
   # ---------- Workflows and CI scripts ----------
 
   actionlint:
@@ -778,6 +805,7 @@ jobs:
       - web-e2e
       - actionlint
       - ci-scripts
+      - otel-collector
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

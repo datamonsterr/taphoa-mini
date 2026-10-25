@@ -1,0 +1,108 @@
+extensions:
+  bearertokenauth:
+    scheme: Bearer
+    token: ${env:COLLECTOR_BEARER_TOKEN}
+  basicauth/langfuse:
+    client_auth:
+      username: ${env:LANGFUSE_PUBLIC_KEY}
+      password: ${env:LANGFUSE_SECRET_KEY}
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: '[::]:4318'
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  transform/redact:
+    error_mode: ignore
+    trace_statements:
+      - 'delete_matching_keys(resource.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+      - 'delete_matching_keys(span.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+    log_statements:
+      - 'delete_matching_keys(resource.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+      - 'delete_matching_keys(log.attributes, "(?i)^(http[.]request[.]header[.]authorization|.*cookie.*|(.+[.])?(token|secret))$")'
+      - 'replace_pattern(log.body, "[0-9]{9,15}", "[REDACTED]") where IsString(log.body)'
+  resource/defaults:
+    attributes:
+      - key: deployment.environment.name
+        value: unknown
+        action: insert
+  filter/langfuse:
+    error_mode: ignore
+    trace_conditions:
+      - 'scope.name != "taphoa.assistant" and span.attributes["gen_ai.operation.name"] == nil'
+  transform/langfuse:
+    error_mode: ignore
+    trace_statements:
+      - 'set(span.parent_span_id, SpanID(0x0000000000000000)) where span.attributes["gen_ai.operation.name"] == "invoke_agent"'
+      - 'set(span.attributes["langfuse.environment"], resource.attributes["deployment.environment.name"]) where span.attributes["langfuse.environment"] == nil'
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+exporters:
+  otlphttp/langfuse:
+    endpoint: ${env:LANGFUSE_OTLP_ENDPOINT}
+    auth:
+      authenticator: basicauth/langfuse
+    headers:
+      x-langfuse-ingestion-version: '4'
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+  otlphttp/posthog:
+    traces_endpoint: ${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/traces
+    logs_endpoint: ${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/logs
+    headers:
+      Authorization: Bearer ${env:POSTHOG_PROJECT_TOKEN}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+
+service:
+  extensions: [bearertokenauth, basicauth/langfuse]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: none
+      readers: []
+  pipelines:
+    traces/langfuse:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - transform/redact
+        - resource/defaults
+        - filter/langfuse
+        - transform/langfuse
+        - batch
+      exporters: [otlphttp/langfuse]
+    traces/posthog:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/redact, resource/defaults, batch]
+      exporters: [otlphttp/posthog]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/redact, resource/defaults, batch]
+      exporters: [otlphttp/posthog]
