@@ -138,6 +138,128 @@ class RailwayEnv(unittest.TestCase):
         self.assertNotIn("RUST_LOG", env)
 
 
+FAKE_RAILWAY = textwrap.dedent(
+    """\
+    #!/usr/bin/env python3
+    import json, os, pathlib, sys
+    state = pathlib.Path(os.environ["FAKE_STATE"])
+    calls = int(state.read_text()) if state.exists() else 0
+    args = sys.argv[1:]
+    if args[:2] == ["deployment", "list"]:
+        state.write_text(str(calls + 1))
+        statuses = os.environ["FAKE_STATUSES"].split(",")
+        rows = [{"id": "old", "status": "SUCCESS"}]
+        if calls > 0:
+            rows.insert(0, {"id": "new", "status": statuses[min(calls - 1, len(statuses) - 1)]})
+        print(json.dumps(rows))
+    elif args[:1] == ["logs"]:
+        print("fake build log")
+    """
+)
+
+
+class RailwayDeploy(unittest.TestCase):
+    def deploy(self, statuses, timeout="5"):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "railway")
+            fake.write_text(FAKE_RAILWAY)
+            fake.chmod(0o755)
+            return run(
+                ["python3", "-I", str(HERE / "railway_deploy.py"), "backend", "test"],
+                env={
+                    "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "FAKE_STATE": str(pathlib.Path(tmp, "state")),
+                    "FAKE_STATUSES": statuses,
+                    "RAILWAY_POLL_INTERVAL": "0",
+                    "RAILWAY_DEPLOY_TIMEOUT": timeout,
+                },
+            )
+
+    def test_success_after_building(self):
+        out = self.deploy("BUILDING,DEPLOYING,SUCCESS")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("new SUCCESS", out.stdout)
+
+    def test_skipped_returns_instead_of_hanging(self):
+        out = self.deploy("SKIPPED")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("SKIPPED", out.stdout)
+
+    def test_failed_prints_build_log(self):
+        out = self.deploy("BUILDING,FAILED")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("fake build log", out.stdout)
+
+    def test_times_out_without_terminal_status(self):
+        out = self.deploy("BUILDING", timeout="0.2")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("No terminal deployment status", out.stderr)
+
+
+FAKE_GH = textwrap.dedent(
+    """\
+    #!/usr/bin/env python3
+    import json, os, pathlib, sys
+    state = pathlib.Path(os.environ["FAKE_STATE"])
+    calls = int(state.read_text()) if state.exists() else 0
+    path = sys.argv[2]
+    runs = json.loads(os.environ["FAKE_RUNS"])  # {"id": {"status": ..., "test": [job statuses per poll]}}
+    if "/jobs" in path:
+        run_id = path.split("/runs/")[1].split("/")[0]
+        seq = runs[run_id]["test"]
+        status = seq[min(calls, len(seq) - 1)]
+        print(json.dumps({"jobs": [{"name": "test", "status": status}] if status else []}))
+    else:
+        if "status=in_progress" in path:
+            state.write_text(str(calls + 1))
+        wanted = path.split("status=")[1]
+        print(json.dumps({"workflow_runs": [{"id": int(k)} for k, v in runs.items() if v["status"] == wanted]}))
+    """
+)
+
+
+class WaitTurn(unittest.TestCase):
+    def wait(self, runs, timeout="5"):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "gh")
+            fake.write_text(FAKE_GH)
+            fake.chmod(0o755)
+            return run(
+                ["python3", "-I", str(HERE / "wait_turn.py"), "deploy.yml"],
+                env={
+                    "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "FAKE_STATE": str(pathlib.Path(tmp, "state")),
+                    "FAKE_RUNS": json.dumps(runs),
+                    "GITHUB_REPOSITORY": "o/r",
+                    "GITHUB_RUN_ID": "100",
+                    "WAIT_TURN_INTERVAL": "0",
+                    "WAIT_TURN_TIMEOUT": timeout,
+                },
+            )
+
+    def test_waits_for_older_test_job_then_continues(self):
+        out = self.wait({"90": {"status": "in_progress", "test": ["in_progress", "in_progress", "completed"]}})
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("Waiting for older runs", out.stdout)
+
+    def test_ignores_newer_runs_and_finished_test_jobs(self):
+        out = self.wait(
+            {
+                "120": {"status": "queued", "test": ["in_progress"]},
+                "80": {"status": "in_progress", "test": ["completed"]},
+            }
+        )
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertNotIn("Waiting", out.stdout)
+
+    def test_older_run_without_jobs_blocks_until_timeout(self):
+        out = self.wait({"95": {"status": "queued", "test": [None]}}, timeout="0.2")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("Still waiting on runs [95]", out.stderr)
+
+
 class WaitHealthy(unittest.TestCase):
     def test_succeeds_against_healthy_server(self):
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
