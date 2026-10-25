@@ -43,10 +43,11 @@ export function currentRange(period: Period, now?: Date) {
   return { from, to };
 }
 
+/** Money actually paid by `method`: a credit sale's unpaid part is debt, not cash or transfer. */
 const sumBy = (sales: readonly Sale[], method: Sale['payment_method']) =>
   sales
     .filter((sale) => sale.payment_method === method)
-    .reduce((total, sale) => total + sale.total, 0);
+    .reduce((total, sale) => total + sale.total - sale.credit_amount, 0);
 
 /**
  * Everything the report screen shows for a period. Day: today's report. Week and month: the

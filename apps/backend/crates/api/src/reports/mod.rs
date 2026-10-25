@@ -61,6 +61,7 @@ s AS (
     SELECT COALESCE(sum(total),0)::bigint revenue, count(*) sales_count,
         COALESCE(sum(total-credit_amount) FILTER (WHERE payment_method='cash'),0)::bigint cash_revenue,
         COALESCE(sum(total-credit_amount) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue,
+        COALESCE(sum(credit_amount),0)::bigint credit_sales,
         count(*) FILTER (WHERE received_at > (SELECT closed_at FROM close)) late_sales_count
     FROM sales WHERE store_id=$1 AND business_date=$2 AND status='completed'
 ), v AS (
@@ -86,6 +87,7 @@ struct DailyRow {
     sales_count: i64,
     cash_revenue: i64,
     transfer_revenue: i64,
+    credit_sales: i64,
     voided_count: i64,
     expenses: i64,
     cash_expenses: i64,
@@ -110,6 +112,7 @@ async fn today(
     Ok(Json(
         json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
         "voided_count":r.voided_count,"cash_revenue":r.cash_revenue,"transfer_revenue":r.transfer_revenue,
+        "cash_repayments":r.cash_repayments,"credit_sales":r.credit_sales,
         "expenses":r.expenses,"net":r.revenue-r.expenses,
         "expected_cash":money::expected_cash(r.opening_float,r.cash_revenue,0,r.cash_repayments,r.cash_expenses),
         "manual_lines_open":r.manual_lines_open,"day_close":r.day_close}),

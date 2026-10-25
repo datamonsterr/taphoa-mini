@@ -1682,6 +1682,13 @@ paths:
       tags: [Reports]
       operationId: getDailyReport
       summary: Today screen (R1)
+      description: |
+        `revenue` is the full sale total (credit sales are revenue). `cash_revenue` and
+        `transfer_revenue` count only the paid part (`total − credit_amount`) of cash and
+        transfer sales. `cash_repayments` sums cash repayments of that business date and
+        `credit_sales` sums credit_amount of completed sales of that date, so the day close
+        screen can show both before the day is closed. `expected_cash` includes
+        `cash_repayments`.
       parameters:
         - name: date
           in: query
@@ -3667,6 +3674,8 @@ components:
           expenses,
           net,
           expected_cash,
+          cash_repayments,
+          credit_sales,
         ]
       properties:
         business_date: { type: string, format: date }
@@ -3675,6 +3684,8 @@ components:
         voided_count: { type: integer }
         cash_revenue: { $ref: '#/components/schemas/Money' }
         transfer_revenue: { $ref: '#/components/schemas/Money' }
+        cash_repayments: { $ref: '#/components/schemas/Money' }
+        credit_sales: { $ref: '#/components/schemas/Money' }
         expenses: { $ref: '#/components/schemas/Money' }
         net:
           {
