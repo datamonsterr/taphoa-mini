@@ -24,13 +24,18 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 use tracing::{
-    Instrument, Subscriber,
+    Instrument, Level, Metadata, Subscriber,
     field::{Field, Visit},
+    level_filters::LevelFilter,
     span::{Attributes, Id, Record},
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{
-    EnvFilter, Layer, filter::filter_fn, layer::Context, prelude::*, registry::LookupSpan,
+    EnvFilter, Layer,
+    filter::{FilterFn, filter_fn},
+    layer::Context,
+    prelude::*,
+    registry::LookupSpan,
 };
 
 const INHERITED: &[&str] = &[
@@ -201,23 +206,43 @@ where
     let tracer = traces.tracer("taphoa.backend");
     tracing_opentelemetry::layer()
         .with_tracer(tracer.clone())
-        .with_filter(filter_fn(|m| m.is_span()))
+        .with_filter(exported_spans())
         .and_then(
             OpenTelemetryTracingBridge::builder(logs)
                 .with_tracing_span_attributes(TracingSpanAttributes::allowlist(
                     INHERITED.iter().copied(),
                 ))
                 .build()
-                .with_filter(filter_fn(|m| {
-                    m.is_span()
-                        || (m.target() != "sqlx::query" && *m.level() <= tracing::Level::INFO)
-                })),
+                .with_filter(
+                    filter_fn(|m| {
+                        *m.level() <= Level::INFO && (m.is_span() || m.target() != SQLX_QUERY)
+                    })
+                    .with_max_level_hint(LevelFilter::INFO),
+                ),
         )
-        .and_then(InheritanceLayer::default().with_filter(filter_fn(|m| m.is_span())))
+        .and_then(InheritanceLayer::default().with_filter(exported_spans()))
         .and_then(
-            SqlxLayer(tracer)
-                .with_filter(filter_fn(|m| m.is_span() || m.target() == "sqlx::query")),
+            SqlxLayer(tracer).with_filter(
+                filter_fn(|m| {
+                    if m.is_span() {
+                        *m.level() <= Level::INFO
+                    } else {
+                        m.target() == SQLX_QUERY && *m.level() <= Level::DEBUG
+                    }
+                })
+                .with_max_level_hint(LevelFilter::DEBUG),
+            ),
         )
+}
+
+const SQLX_QUERY: &str = "sqlx::query";
+
+/// Spans at INFO or above. Dependency debug/trace spans (AWS SDK, h2, hyper) stay local.
+/// The level hint keeps the subscriber's global max level below TRACE: filter_fn alone
+/// has no hint, which would make every dependency trace! callsite evaluate.
+fn exported_spans() -> FilterFn<impl Fn(&Metadata<'_>) -> bool> {
+    filter_fn(|m: &Metadata<'_>| m.is_span() && *m.level() <= Level::INFO)
+        .with_max_level_hint(LevelFilter::INFO)
 }
 
 #[derive(Clone, Default)]
@@ -485,7 +510,7 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
-        if event.metadata().target() != "sqlx::query" {
+        if event.metadata().target() != SQLX_QUERY {
             return;
         }
         // Background pollers query outside any span; a db span there would be a root trace.

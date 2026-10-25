@@ -441,6 +441,65 @@ fn sqlx_events_export_db_spans_only_below_an_active_span() {
     assert_eq!(db.span_context.trace_id(), request.span_context.trace_id());
 }
 
+fn nested_levels() {
+    // Dependency-style debug and trace spans (AWS SDK, h2, hyper) must stay local.
+    let debug = tracing::debug_span!(target: "h2::codec", "debug child");
+    let _debug = debug.enter();
+    let trace = tracing::trace_span!(target: "hyper::proto", "trace child");
+    let _trace = trace.enter();
+    let info = tracing::info_span!("info under debug");
+    let _info = info.enter();
+    tracing::info!("log inside info span");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn only_info_and_above_spans_are_exported_and_global_max_level_is_bounded() {
+    use axum::{Router, routing::get};
+    use tracing::{Subscriber as _, level_filters::LevelFilter};
+    let capture = Capture::new();
+    let subscriber = capture.subscriber();
+    // A filter without a level hint would raise the global max level to TRACE and make
+    // every dependency trace! callsite evaluate. sqlx::query events need DEBUG.
+    assert!(
+        matches!(subscriber.max_level_hint(), Some(level) if level <= LevelFilter::DEBUG),
+        "{:?}",
+        subscriber.max_level_hint()
+    );
+    let _default = tracing::subscriber::set_default(subscriber);
+    let app = Router::new()
+        .route(
+            "/levels",
+            get(|| async {
+                nested_levels();
+            }),
+        )
+        .layer(axum::middleware::from_fn(telemetry::http_span));
+    assert_eq!(
+        app.oneshot(Request::get("/levels").body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let spans = capture.spans.get_finished_spans().unwrap();
+    let mut names: Vec<&str> = spans.iter().map(|s| &*s.name).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["GET /levels", "info under debug"]);
+    let server = spans.iter().find(|s| s.name == "GET /levels").unwrap();
+    let info = spans.iter().find(|s| s.name == "info under debug").unwrap();
+    assert_eq!(info.parent_span_id, server.span_context.span_id());
+    let logs = capture.logs.get_emitted_logs().unwrap();
+    let inside = logs
+        .iter()
+        .find(|log| {
+            log.record
+                .trace_context()
+                .is_some_and(|c| c.span_id == info.span_context.span_id())
+        })
+        .expect("log inside the info span");
+    assert!(inside.record.body().is_some());
+}
+
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "requires DATABASE_URL pointing to PostgreSQL"]
 async fn real_sqlx_query_produces_db_span() {
