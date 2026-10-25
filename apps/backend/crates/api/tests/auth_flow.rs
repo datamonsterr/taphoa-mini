@@ -244,8 +244,12 @@ async fn invalid_tokens_and_no_database_fail_closed() {
     let now = jsonwebtoken::get_current_timestamp();
     for token in [
         "garbage".into(),
-        clerk::sign(json!({"sub":"user","sid":"sess","iss":clerk::TEST_ISSUER,"exp":now-30})),
-        clerk::sign(json!({"sub":"user","sid":"sess","iss":"https://foreign.test","exp":now+1000})),
+        clerk::sign(
+            json!({"sub":"user","sid":"sess","iss":clerk::TEST_ISSUER,"exp":now-30,"nbf":now-100}),
+        ),
+        clerk::sign(
+            json!({"sub":"user","sid":"sess","iss":"https://foreign.test","exp":now+1000,"nbf":now-100}),
+        ),
     ] {
         assert_eq!(
             send(&app, "GET", "/v1/me", Some(&token), Value::Null)
@@ -270,5 +274,286 @@ async fn invalid_tokens_and_no_database_fail_closed() {
             send(&app, "POST", path, None, json!({})).await.status,
             StatusCode::NOT_FOUND
         );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn validation_invite_expiry_and_ip_limits() {
+    let (_, mut state) = setup().await;
+    state.rate_limiter = std::sync::Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
+    state.client_ip = taphoa_api::ratelimit::ClientIpSource::Peer;
+    state.rate_limits.store_create_per_hour = 2;
+    state.rate_limits.join_per_hour = 2;
+    let app = router(state);
+    let token = clerk::token();
+    for (path, body, status) in [
+        (
+            "/v1/stores",
+            json!({"store_name":"","display_name":"Lead"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/v1/auth/join",
+            json!({"invite_token":"unknown","display_name":"Seller"}),
+            StatusCode::GONE,
+        ),
+    ] {
+        for n in 0..3 {
+            // send() changes the forwarded IP each time, but peer mode keeps one counter.
+            let r = send(&app, "POST", path, Some(&token), body.clone()).await;
+            assert_eq!(
+                r.status,
+                if n < 2 {
+                    status
+                } else {
+                    StatusCode::TOO_MANY_REQUESTS
+                },
+                "{}",
+                r.body
+            );
+            if n == 2 {
+                assert!(r.headers.contains_key("retry-after"));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn member_and_store_lifecycle_and_single_use_invite_concurrency() {
+    let w = World::new().await;
+    let initial:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM change_log WHERE store_id=$1),(SELECT count(*) FROM outbox_events WHERE store_id=$1 AND type='member.changed')").bind(w.store_id).fetch_one(w.pool()).await.unwrap();
+    assert_eq!(initial, (3, 2));
+    for (path, method, body, code) in [
+        (
+            "/v1/store".to_owned(),
+            "PATCH",
+            json!({"name":"foreign"}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "/v1/invites".to_owned(),
+            "POST",
+            json!({}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("/v1/members/{}", w.lead_id),
+            "DELETE",
+            Value::Null,
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        assert_eq!(w.call(method, &path, &w.seller, body).await.status, code);
+    }
+    for method in ["PATCH", "DELETE"] {
+        let r = w
+            .call(
+                method,
+                &format!("/v1/members/{}", w.lead_id),
+                &w.lead,
+                json!({"role":"seller"}),
+            )
+            .await;
+        assert_eq!(r.status, StatusCode::CONFLICT);
+        assert_eq!(r.body["code"], "last_lead");
+    }
+    let changed=w.call("PATCH","/v1/store",&w.lead,json!({"name":"New","margin_threshold_pct":12.5,"bank_account":{"bank_bin":"970436","account_number":"AB1234","account_name":"CO BA"}})).await;
+    assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+    assert_eq!(changed.body["version"], 2);
+    let same = w.call("PATCH", "/v1/store", &w.lead, json!({})).await;
+    assert_eq!(same.body["version"], 2);
+    let malformed=send(&w.app,"POST","/v1/stores",Some(&clerk::token()),json!({"store_name":"s","display_name":"d","bank_account":{"bank_bin":"bad","account_number":"1234","account_name":"A"}})).await;
+    assert_eq!(malformed.status, StatusCode::BAD_REQUEST);
+    let invite = w.call("POST", "/v1/invites", &w.lead, json!({})).await.body;
+    let body = json!({"invite_token":invite["token"],"display_name":"Concurrent"});
+    let a = clerk::token();
+    let b = clerk::token();
+    let (a, b) = tokio::join!(
+        w.call("POST", "/v1/auth/join", &a, body.clone()),
+        w.call("POST", "/v1/auth/join", &b, body)
+    );
+    assert!([a.status, b.status].contains(&StatusCode::CREATED));
+    assert!([a.status, b.status].contains(&StatusCode::GONE));
+    let token = clerk::token();
+    let me = send(&w.app, "GET", "/v1/me", Some(&token), Value::Null).await;
+    assert_eq!(me.status, StatusCode::OK);
+    assert_eq!(me.body["memberships"], json!([]));
+    for path in ["/v1/stores", "/v1/auth/join"] {
+        assert_eq!(
+            send(&w.app, "POST", path, None, json!({})).await.status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sales_and_event_actor_persist_the_clerk_session_id() {
+    let w = World::new().await;
+    let product = w.product("Clerk sale", 10000, None).await;
+    let id = Uuid::now_v7();
+    let input = common::world::sale_body(
+        id,
+        &common::world::now_iso(),
+        "cash",
+        &[(product, 1, 10000)],
+    );
+    let r = w.call("POST", "/v1/sales", &w.seller, input).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let sid = w.state.clerk.verify(&w.seller).await.unwrap().session_id;
+    let persisted: Option<String> =
+        sqlx::query_scalar("SELECT clerk_session_id FROM sales WHERE id=$1")
+            .bind(id)
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(persisted.as_deref(), Some(sid.as_str()));
+    let actor: Value = sqlx::query_scalar(
+        "SELECT payload->'actor' FROM outbox_events WHERE store_id=$1 AND type='sale.created'",
+    )
+    .bind(w.store_id)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert_eq!(actor, json!({"member_id":w.seller_id,"session_id":sid}));
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL; prints local latency evidence"]
+async fn local_postgres_endpoint_latencies() {
+    let w = World::new().await;
+    for path in ["/v1/me", "/v1/store"] {
+        let mut micros = Vec::new();
+        for _ in 0..200 {
+            let start = std::time::Instant::now();
+            let r = w.call("GET", path, &w.lead, Value::Null).await;
+            assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+            micros.push(start.elapsed().as_micros());
+        }
+        micros.sort_unstable();
+        println!("{path} n=200 p50={}us p95={}us", micros[99], micros[189]);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn membership_permissions_update_without_reissuing_the_token() {
+    let w = World::new().await;
+    let path = format!("/v1/members/{}", w.seller_id);
+    assert_eq!(
+        w.call(
+            "PATCH",
+            &path,
+            &w.lead,
+            json!({"role":"lead","can_enroll":false})
+        )
+        .await
+        .body["can_enroll"],
+        true
+    );
+    assert_eq!(
+        w.call("POST", "/v1/invites", &w.seller, json!({}))
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        w.call(
+            "PATCH",
+            &path,
+            &w.lead,
+            json!({"role":"seller","can_enroll":false})
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        w.call("POST", "/v1/invites", &w.seller, json!({}))
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+}
+
+struct ImageObjects;
+#[async_trait::async_trait]
+impl taphoa_api::storage::ObjectStore for ImageObjects {
+    async fn put(&self, _: &str, _: &str, _: Vec<u8>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn get(&self, _: &str) -> anyhow::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+    async fn head_bucket(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn presign_get(
+        &self,
+        key: &str,
+        ttl: std::time::Duration,
+    ) -> anyhow::Result<taphoa_api::storage::SignedUrl> {
+        Ok(taphoa_api::storage::SignedUrl {
+            url: format!("https://images.test/{key}"),
+            expires_at: (std::time::SystemTime::now() + ttl).into(),
+        })
+    }
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL; object storage is an in-memory stub"]
+async fn persisted_images_are_owned_by_token_store_and_uploader() {
+    let (_, mut state) = setup().await;
+    state.storage = Some(std::sync::Arc::new(ImageObjects));
+    let app = router(state.clone());
+    let token_a = clerk::token();
+    let token_b = clerk::token();
+    let a = create(&app, &token_a).await;
+    let b = create(&app, &token_b).await;
+    let mut body=format!("--b\r\nContent-Disposition: form-data; name=\"store_id\"\r\n\r\n{}\r\n--b\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n",b["store"]["id"].as_str().unwrap()).into_bytes();
+    body.extend_from_slice(include_bytes!("../../../tests/fixtures/sample.png"));
+    body.extend_from_slice(b"\r\n--b--\r\n");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/images")
+                .header("authorization", format!("Bearer {}", token_a.as_str()))
+                .header("content-type", "multipart/form-data; boundary=b")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let uploaded: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 1 << 20).await.unwrap()).unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{uploaded}");
+    Contract::load().assert_conforms("/v1/images", "post", status, &uploaded);
+    let image_id: Uuid = uploaded["id"].as_str().unwrap().parse().unwrap();
+    let owner: (Uuid, Uuid) = sqlx::query_as("SELECT store_id,uploaded_by FROM images WHERE id=$1")
+        .bind(image_id)
+        .fetch_one(state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(owner.0.to_string(), a["store"]["id"].as_str().unwrap());
+    assert_eq!(owner.1.to_string(), a["member"]["id"].as_str().unwrap());
+    for (token, expected) in [
+        (token_a.as_str(), StatusCode::OK),
+        (token_b.as_str(), StatusCode::NOT_FOUND),
+    ] {
+        let r = send(
+            &app,
+            "GET",
+            &format!("/v1/images/{image_id}"),
+            Some(token),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(r.status, expected);
+        Contract::load().assert_conforms("/v1/images/{imageId}", "get", r.status, &r.body);
     }
 }

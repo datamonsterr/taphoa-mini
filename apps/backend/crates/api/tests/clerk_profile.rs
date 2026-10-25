@@ -25,6 +25,7 @@ async fn profile_cache_and_failure_fallback() {
     }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let stub_calls = calls.clone();
     let task = tokio::spawn(async move {
         axum::serve(
             listener,
@@ -34,7 +35,7 @@ async fn profile_cache_and_failure_fallback() {
                     "/fail/v1/users/{id}",
                     get(|| async { StatusCode::BAD_GATEWAY }),
                 )
-                .with_state(calls.clone()),
+                .with_state(stub_calls),
         )
         .await
         .unwrap();
@@ -56,6 +57,28 @@ async fn profile_cache_and_failure_fallback() {
     let profile = client.get(&id, Some(&redis)).await.unwrap();
     assert_eq!(profile.display_name.as_deref(), Some("Lan Nguyễn"));
     assert_eq!(profile.email.as_deref(), Some("lan@example.com"));
+    assert_eq!(client.get(&id, Some(&redis)).await, Some(profile.clone()));
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "cache hit must not call Clerk twice"
+    );
+    let mut failed_settings = settings.clone();
+    failed_settings.api_url = format!("http://{addr}/fail");
+    assert!(
+        ProfileClient::new(&failed_settings, reqwest::Client::new())
+            .get("failure", Some(&redis))
+            .await
+            .is_none()
+    );
+    let mut missing_secret = settings.clone();
+    missing_secret.secret_key = None;
+    assert!(
+        ProfileClient::new(&missing_secret, reqwest::Client::new())
+            .get(&id, Some(&redis))
+            .await
+            .is_none()
+    );
     task.abort(); // Cached reads continue after the HTTP server is gone.
     assert_eq!(client.get(&id, Some(&redis)).await, Some(profile));
     assert!(
