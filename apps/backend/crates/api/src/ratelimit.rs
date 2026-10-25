@@ -92,52 +92,72 @@ pub trait RateLimiter: Send + Sync {
         window: Duration,
     ) -> Result<RateDecision, anyhow::Error>;
 }
-pub struct RedisRateLimiter(pub ConnectionManager);
+pub struct RedisRateLimiter {
+    connection: ConnectionManager,
+    server_address: String,
+}
+impl RedisRateLimiter {
+    pub fn new(connection: ConnectionManager, url: &str) -> Self {
+        Self {
+            connection,
+            server_address: crate::telemetry::server_address(url),
+        }
+    }
+}
 #[async_trait]
 impl RateLimiter for RedisRateLimiter {
     async fn reset(&self, key: &str) -> anyhow::Result<()> {
-        redis::cmd("DEL")
-            .arg(key)
-            .query_async::<i64>(&mut self.0.clone())
-            .await?;
-        Ok(())
+        crate::telemetry::client("redis DEL", &self.server_address, async {
+            redis::cmd("DEL")
+                .arg(key)
+                .query_async::<i64>(&mut self.connection.clone())
+                .await?;
+            Ok(())
+        })
+        .await
     }
     async fn check(&self, key: &str, limit: u32) -> anyhow::Result<RateDecision> {
-        let (count, ttl): (u64, i64) = redis::Script::new(
-            "return {tonumber(redis.call('GET',KEYS[1]) or '0'),redis.call('PTTL',KEYS[1])}",
-        )
-        .key(key)
-        .invoke_async(&mut self.0.clone())
-        .await?;
-        Ok(RateDecision {
-            allowed: count <= u64::from(limit),
-            retry_after_secs: if count <= u64::from(limit) {
-                0
-            } else {
-                (ttl.max(1) as u64).div_ceil(1000)
-            },
+        crate::telemetry::client("redis EVAL", &self.server_address, async {
+            let (count, ttl): (u64, i64) = redis::Script::new(
+                "return {tonumber(redis.call('GET',KEYS[1]) or '0'),redis.call('PTTL',KEYS[1])}",
+            )
+            .key(key)
+            .invoke_async(&mut self.connection.clone())
+            .await?;
+            Ok(RateDecision {
+                allowed: count <= u64::from(limit),
+                retry_after_secs: if count <= u64::from(limit) {
+                    0
+                } else {
+                    (ttl.max(1) as u64).div_ceil(1000)
+                },
+            })
         })
+        .await
     }
     async fn hit(&self, key: &str, limit: u32, window: Duration) -> anyhow::Result<RateDecision> {
-        let millis = window_millis(window)?;
-        // Lua makes the increment and expiry inseparable, including under concurrency.
-        let script = redis::Script::new(
-            "local count = redis.call('INCR', KEYS[1]); redis.call('PEXPIRE', KEYS[1], ARGV[1], 'NX'); return {count, redis.call('PTTL', KEYS[1])}",
-        );
-        let (count, ttl): (u64, i64) = script
-            .key(key)
-            .arg(millis)
-            .invoke_async(&mut self.0.clone())
-            .await?;
-        let allowed = count <= u64::from(limit);
-        Ok(RateDecision {
-            allowed,
-            retry_after_secs: if allowed {
-                0
-            } else {
-                u64::try_from(ttl.max(1))?.div_ceil(1000)
-            },
-        })
+        let work = async {
+            let millis = window_millis(window)?;
+            // Lua makes the increment and expiry inseparable, including under concurrency.
+            let script = redis::Script::new(
+                "local count = redis.call('INCR', KEYS[1]); redis.call('PEXPIRE', KEYS[1], ARGV[1], 'NX'); return {count, redis.call('PTTL', KEYS[1])}",
+            );
+            let (count, ttl): (u64, i64) = script
+                .key(key)
+                .arg(millis)
+                .invoke_async(&mut self.connection.clone())
+                .await?;
+            let allowed = count <= u64::from(limit);
+            Ok(RateDecision {
+                allowed,
+                retry_after_secs: if allowed {
+                    0
+                } else {
+                    u64::try_from(ttl.max(1))?.div_ceil(1000)
+                },
+            })
+        };
+        crate::telemetry::client("redis EVAL", &self.server_address, work).await
     }
 }
 fn window_millis(window: Duration) -> anyhow::Result<u64> {
@@ -255,9 +275,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires REDIS_URL"]
     async fn redis_atomic_window() {
-        let client = redis::Client::open(std::env::var("REDIS_URL").unwrap()).unwrap();
+        let url = std::env::var("REDIS_URL").unwrap();
+        let client = redis::Client::open(url.as_str()).unwrap();
         let connection = ConnectionManager::new(client).await.unwrap();
-        let limiter = std::sync::Arc::new(RedisRateLimiter(connection));
+        let limiter = std::sync::Arc::new(RedisRateLimiter::new(connection, &url));
         let key = format!("test:rate:{}", uuid::Uuid::new_v4());
         let mut tasks = Vec::new();
         for _ in 0..12 {
