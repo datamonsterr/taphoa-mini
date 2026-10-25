@@ -1,3 +1,5 @@
+import type { components } from '@taphoa/api-client';
+
 export type NextStepKind =
   | 'receipt_detected'
   | 'unknown_product'
@@ -11,6 +13,9 @@ export type NextStepKind =
   | 'margin_alert';
 
 export type SignInMethod = 'email_code' | 'google';
+
+type AssistantStreamErrorCode =
+  components['schemas']['AssistantStreamError']['code'];
 
 /**
  * Product event properties supplied by the app. The PostHog sink in X6 adds
@@ -30,7 +35,7 @@ export type AppEventProps = {
   assistant_reply_received: {
     latency_ms: number;
     tools_count: number;
-    error_code: string | null;
+    error_code: AssistantStreamErrorCode | null;
   };
   assistant_feedback_given: { rating: 'up' | 'down' };
   next_step_shown: { kind: NextStepKind; position: number };

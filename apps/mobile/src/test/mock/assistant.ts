@@ -11,6 +11,7 @@ type S = components['schemas'];
 export type AssistantReplyScript = S['AssistantStreamEvent'][];
 type ThreadRecord = { owner: string; detail: S['AssistantThreadDetail'] };
 const threads = new Map<string, ThreadRecord>();
+/** Keyed by `memberId:token`: one push token may be registered by several members. */
 const devices = new Map<string, S['Device']>();
 const confirmations = new Map<string, S['AssistantAction']>();
 let nextReply: AssistantReplyScript | undefined;
@@ -153,6 +154,15 @@ function context(value: unknown): S['AssistantThreadContext'] {
       : { image_id: uuid(o.image_id, 'image_id') }),
   };
 }
+/** Expiry is lazy: a proposed action past `expires_at` becomes `expired` when read. */
+function expireIfStale(action: S['AssistantAction']) {
+  if (
+    action.status === 'proposed' &&
+    Date.parse(action.expires_at) <= Date.now()
+  )
+    action.status = 'expired';
+  return action;
+}
 export function createThread(value: unknown): S['AssistantThread'] {
   const o = asObject(value);
   keys(o, ['title', 'context']);
@@ -174,6 +184,7 @@ export function getThread(id: string): S['AssistantThreadDetail'] {
   const record = threads.get(id);
   if (!record || record.owner !== getMockDb().currentMemberId)
     throw notFound('Thread');
+  record.detail.actions.forEach(expireIfStale);
   return record.detail;
 }
 export function listThreads(query: URLSearchParams): S['AssistantThreadPage'] {
@@ -230,6 +241,8 @@ export function sendMessage(id: string, value: unknown): AssistantReplyScript {
   const script = nextReply ?? defaultReply(id, assistant.id);
   nextReply = undefined;
   const events: AssistantReplyScript = [];
+  // Proposals are stored with the assistant message, only if the reply completes.
+  const proposed: S['AssistantAction'][] = [];
   for (const original of script) {
     let event = original;
     if (event.event === 'message.created')
@@ -248,15 +261,17 @@ export function sendMessage(id: string, value: unknown): AssistantReplyScript {
         message_id: assistant.id,
         proposed_by: getMockDb().currentMemberId,
       };
-      detail.actions.push(action);
+      proposed.push(action);
       event = { event: 'action.proposed', data: action };
     }
     events.push(event);
     if (event.event === 'message.completed' || event.event === 'error') break;
   }
   detail.messages.push(user);
-  if (events.some((e) => e.event === 'message.completed'))
+  if (events.some((e) => e.event === 'message.completed')) {
     detail.messages.push(assistant);
+    detail.actions.push(...proposed);
+  }
   detail.thread.updated_at = nowIso();
   return events;
 }
@@ -265,7 +280,7 @@ function findAction(id: string): S['AssistantAction'] {
   for (const { owner, detail } of threads.values()) {
     if (owner !== getMockDb().currentMemberId) continue;
     const action = detail.actions.find((a) => a.id === id);
-    if (action) return action;
+    if (action) return expireIfStale(action);
   }
   throw notFound('Action');
 }
@@ -279,13 +294,10 @@ export function decideAction(
   const replayKey = `${getMockDb().currentMemberId}:${id}:${key}`;
   if (confirm && confirmations.has(replayKey))
     return confirmations.get(replayKey)!;
-  if (action.status !== 'proposed' && action.status !== 'expired')
-    throw conflict('already_decided', 'Action is already decided');
-  if (
-    action.status === 'expired' ||
-    Date.parse(action.expires_at) <= Date.now()
-  )
+  if (action.status === 'expired')
     throw conflict('action_stale', 'Action has expired');
+  if (action.status !== 'proposed')
+    throw conflict('already_decided', 'Action is already decided');
   const result: S['AssistantAction']['result'] = confirm ? { ok: true } : null;
   if (confirm && action.kind === 'stock_adjustment') {
     const productId = uuid(action.payload.product_id, 'product_id');
@@ -387,6 +399,7 @@ export function getDigest(query: URLSearchParams): S['Digest'] {
     read_at: null,
   };
 }
+const deviceKey = (token: string) => `${getMockDb().currentMemberId}:${token}`;
 export function registerDevice(value: unknown): S['Device'] {
   const o = asObject(value);
   keys(o, ['token', 'platform', 'app_version', 'language']);
@@ -398,14 +411,15 @@ export function registerDevice(value: unknown): S['Device'] {
     app_version: string(o.app_version, 'app_version'),
     language: language(o.language),
   };
+  const key = deviceKey(input.token);
   const device: S['Device'] = {
     ...input,
-    created_at: devices.get(input.token)?.created_at ?? nowIso(),
+    created_at: devices.get(key)?.created_at ?? nowIso(),
     updated_at: nowIso(),
   };
-  devices.set(input.token, device);
+  devices.set(key, device);
   return device;
 }
 export function deleteDevice(token: string) {
-  devices.delete(token);
+  devices.delete(deviceKey(token));
 }

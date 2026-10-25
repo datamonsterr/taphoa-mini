@@ -335,3 +335,167 @@ test('raw mock SSE response is readable with readAssistantStream', async () => {
   expect(events[0]!.event).toBe('message.created');
   expect(events.at(-1)!.event).toBe('message.completed');
 });
+
+type Proposed = Extract<AssistantStreamEvent, { event: 'action.proposed' }>;
+const proposalIn = (events: AssistantStreamEvent[]) =>
+  events.find((e): e is Proposed => e.event === 'action.proposed')!.data;
+const readThread = (threadId: string) =>
+  api().raw.GET('/v1/assistant/threads/{threadId}', {
+    params: { path: { threadId } },
+  });
+
+test('an action proposed in a reply that does not complete is never stored', async () => {
+  const id = await thread();
+  const proposal = proposalReply();
+  setNextAssistantReply([
+    proposal[0]!,
+    proposal.find((e) => e.event === 'action.proposed')!,
+    ...quotaReply(),
+  ]);
+  const events = await reply(id);
+  expect(events.map((e) => e.event)).toEqual([
+    'message.created',
+    'action.proposed',
+    'error',
+  ]);
+  const detail = await readThread(id);
+  expect(detail.data!.actions).toEqual([]);
+  expect(detail.data!.messages.map((m) => m.role)).toEqual(['user']);
+  const confirm = await api().raw.POST(
+    '/v1/assistant/actions/{actionId}/confirm',
+    {
+      params: {
+        path: { actionId: proposalIn(events).id },
+        header: { 'Idempotency-Key': 'never-stored' },
+      },
+    },
+  );
+  expect(confirm.response.status).toBe(404);
+});
+
+test('a completed reply stores its proposed action with the assistant message', async () => {
+  const id = await thread();
+  setNextAssistantReply(proposalReply());
+  const action = proposalIn(await reply(id));
+  const detail = await readThread(id);
+  expect(detail.data!.actions.map((a) => a.id)).toEqual([action.id]);
+  expect(detail.data!.actions[0]!.message_id).toBe(
+    detail.data!.messages[1]!.id,
+  );
+});
+
+test('a proposal that is already past expires_at reads back as expired', async () => {
+  const id = await thread();
+  const script = proposalReply();
+  for (const event of script)
+    if (event.event === 'action.proposed')
+      event.data.expires_at = '2000-01-01T00:00:00Z';
+  setNextAssistantReply(script);
+  await reply(id);
+  const detail = await readThread(id);
+  expect(detail.data!.actions.map((a) => a.status)).toEqual(['expired']);
+});
+
+test.each(['confirm', 'reject'] as const)(
+  '%s of a proposal that expired after streaming is stale and marks it expired',
+  async (decision) => {
+    const id = await thread();
+    setNextAssistantReply(proposalReply());
+    const action = proposalIn(await reply(id));
+    expect((await readThread(id)).data!.actions[0]!.status).toBe('proposed');
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(action.expires_at) + 1);
+    try {
+      const result =
+        decision === 'confirm'
+          ? await api().raw.POST('/v1/assistant/actions/{actionId}/confirm', {
+              params: {
+                path: { actionId: action.id },
+                header: { 'Idempotency-Key': 'late' },
+              },
+            })
+          : await api().raw.POST('/v1/assistant/actions/{actionId}/reject', {
+              params: { path: { actionId: action.id } },
+            });
+      expect(result.response.status).toBe(409);
+      expect(result.error?.code).toBe('action_stale');
+    } finally {
+      clock.mockRestore();
+    }
+    // The status was set when the action was read, so it sticks without the clock.
+    expect((await readThread(id)).data!.actions[0]!.status).toBe('expired');
+  },
+);
+
+test('a proposal is marked expired when the thread is read after expires_at', async () => {
+  const id = await thread();
+  setNextAssistantReply(proposalReply());
+  const action = proposalIn(await reply(id));
+  const clock = jest
+    .spyOn(Date, 'now')
+    .mockReturnValue(Date.parse(action.expires_at) + 1);
+  try {
+    expect((await readThread(id)).data!.actions[0]!.status).toBe('expired');
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test('devices are keyed by member and token, and delete only removes the caller registration', async () => {
+  // Only fake Date: the mock fetch and streams still need real timers.
+  jest.useFakeTimers({
+    now: Date.parse('2026-10-25T00:00:00Z'),
+    doNotFake: [
+      'hrtime',
+      'nextTick',
+      'performance',
+      'queueMicrotask',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'requestIdleCallback',
+      'cancelIdleCallback',
+      'setImmediate',
+      'clearImmediate',
+      'setInterval',
+      'clearInterval',
+      'setTimeout',
+      'clearTimeout',
+    ],
+  });
+  const owner = getMockDb().currentMemberId;
+  try {
+    const other = getMockDb().members.find((m) => m.id !== owner)!.id;
+    const body = {
+      token: 'ExponentPushToken[shared]',
+      platform: 'ios' as const,
+      app_version: '1.0',
+      language: 'vi' as const,
+    };
+    const register = () => api().raw.POST('/v1/devices', { body });
+    const remove = () =>
+      api().raw.DELETE('/v1/devices/{token}', {
+        params: { path: { token: body.token } },
+      });
+    const first = await register();
+    expect(first.data!.created_at).toBe('2026-10-25T00:00:00.000Z');
+
+    jest.setSystemTime(Date.parse('2026-10-25T01:00:00Z'));
+    getMockDb().currentMemberId = other;
+    // The same token under another member is a separate registration.
+    expect((await register()).data!.created_at).toBe(
+      '2026-10-25T01:00:00.000Z',
+    );
+    expect((await remove()).response.status).toBe(204);
+    // Deleting an absent registration is still a 204.
+    expect((await remove()).response.status).toBe(204);
+
+    jest.setSystemTime(Date.parse('2026-10-25T02:00:00Z'));
+    getMockDb().currentMemberId = owner;
+    // The first member's registration survived the other member's delete.
+    expect((await register()).data!.created_at).toBe(first.data!.created_at);
+  } finally {
+    getMockDb().currentMemberId = owner;
+    jest.useRealTimers();
+  }
+});

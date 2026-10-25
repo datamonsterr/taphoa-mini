@@ -50,5 +50,21 @@ describe('product analytics', () => {
     capture('assistant_opened', { entry: 'menu' });
     // @ts-expect-error signed_out method must be a declared sign-in method
     capture('signed_out', { method: 'password' });
+    capture('assistant_reply_received', {
+      latency_ms: 1,
+      tools_count: 0,
+      error_code: 'quota',
+    });
+    capture('assistant_reply_received', {
+      latency_ms: 1,
+      tools_count: 0,
+      error_code: null,
+    });
+    capture('assistant_reply_received', {
+      latency_ms: 1,
+      tools_count: 0,
+      // @ts-expect-error error_code must be an AssistantStreamError code
+      error_code: 'rate_limited',
+    });
   });
 });
