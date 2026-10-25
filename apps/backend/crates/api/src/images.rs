@@ -74,7 +74,7 @@ fn storage_error(error: anyhow::Error) -> ApiError {
     )
 }
 fn database_error(error: sqlx::Error) -> ApiError {
-    tracing::error!(%error, "image reference query failed");
+    crate::error::log_sqlx_error!(error, &error, "image reference query failed");
     ApiError::new(
         StatusCode::INTERNAL_SERVER_ERROR,
         "internal",

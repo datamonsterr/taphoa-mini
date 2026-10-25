@@ -133,7 +133,7 @@ pub async fn load_price_list(pool: &PgPool, store_id: Uuid) -> Result<PriceList,
     .fetch_optional(pool)
     .await
     .map_err(|error| {
-        tracing::error!(%error, "price list query failed");
+        crate::error::log_sqlx_error!(error, &error, "price list query failed");
         ApiError::internal()
     })?;
     let (store_name, sqlx::types::Json(products)) = row.unwrap_or_default();

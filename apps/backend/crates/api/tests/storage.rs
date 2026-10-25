@@ -14,6 +14,7 @@ use uuid::Uuid;
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
 async fn real_upload_reference_and_presigned_download() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let (Ok(database), Ok(redis)) = (std::env::var("DATABASE_URL"), std::env::var("REDIS_URL"))
     else {
         eprintln!("SKIP storage integration: set DATABASE_URL and REDIS_URL");
