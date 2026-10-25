@@ -21,8 +21,10 @@ for (let offset = 0; ; offset += 100) {
     ...users.filter(
       (user) =>
         user.created_at < cutoff &&
-        user.email_addresses.some((email) =>
-          email.email_address.includes('+clerk_test'),
+        user.email_addresses.some(
+          (email) =>
+            email.email_address.startsWith('e2e-') &&
+            email.email_address.includes('+clerk_test'),
         ),
     ),
   );

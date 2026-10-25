@@ -64,10 +64,12 @@ pnpm --filter @taphoa/e2e run clerk:sweep --max-age-hours 48
 ```
 
 The sweep uses the same secret environment and client. It lists Clerk users with
-an email containing `+clerk_test`, checks the email again locally, and deletes only
-users older than the cutoff (24 hours by default). It gathers pages before deleting
-to avoid skipping records as offsets shift. This intentionally covers test emails
-from other runs, so choose the cutoff to exceed the longest active run.
+an email containing `+clerk_test`, keeps only addresses that also start with `e2e-`
+(the harness and the docker smoke script create those), and deletes only users
+older than the cutoff (24 hours by default). Seed users (`seed-*`) and eval users
+are never touched. It gathers pages before deleting to avoid skipping records as
+offsets shift. This covers e2e emails from other runs, so choose the cutoff to
+exceed the longest active run.
 
 ## Rate limits and live timing
 

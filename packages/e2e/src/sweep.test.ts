@@ -11,7 +11,7 @@ const now = Date.now();
 const user = (
   id: string,
   ageHours: number,
-  email = `${id}+clerk_test@example.com`,
+  email = `e2e-${id}+clerk_test@example.com`,
 ) => ({
   id,
   created_at: now - ageHours * 3600000,
@@ -46,6 +46,15 @@ it('deletes only test emails strictly older than the default 24h cutoff', async 
     offset: 0,
   });
   expect(deleteUser.mock.calls).toEqual([['old']]);
+});
+
+it('keeps seed and eval test users even when older than the cutoff', async () => {
+  listUsers.mockResolvedValue([
+    user('seed', 25, 'seed-coba-me+clerk_test@example.com'),
+    user('e2e', 25, 'e2e-abc123+clerk_test@example.com'),
+  ]);
+  await import('./sweep.js');
+  expect(deleteUser.mock.calls).toEqual([['e2e']]);
 });
 
 it('gathers all pages before deleting and honors a custom cutoff', async () => {
