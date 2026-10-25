@@ -2,8 +2,10 @@
 //! (`Propose`); it never changes anything itself. Each batch file adds its tools to `all()`.
 pub mod catalog;
 pub mod help;
+mod holidays;
 pub mod ops;
 pub mod propose;
+mod queries;
 pub mod sales;
 pub mod stock;
 pub mod tax;
