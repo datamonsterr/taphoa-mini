@@ -53,7 +53,8 @@ through the program controller.
 - `apps/mobile/src/lib/analytics.ts`: `capture(event, props)` typed over the app-sent product
   events; a swappable sink, no-op by default (X6 plugs in PostHog).
 - `apps/backend/crates/api/src/analytics.rs`: `ProductEvent` enum of backend-sent product events,
-  `Analytics` trait, `NoopAnalytics`, `AppState.analytics` (X6 plugs in PostHog).
+  `CaptureEvent` and `Analytics::capture_event` for any event including `$ai_*` LLM analytics
+  events, `Analytics` trait, `NoopAnalytics`, `AppState.analytics` (X6 plugs in PostHog).
 - `MIGRATOR` ignores versions applied in the database but missing from the source tree, so a
   branch deploy to the shared `test` database does not break the next `main` deploy.
 

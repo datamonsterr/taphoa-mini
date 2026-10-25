@@ -1,7 +1,12 @@
-//! Typed backend product analytics. The PostHog implementation arrives in X6.
+//! Backend analytics sink. The PostHog implementation arrives in X6.
 //!
-//! Event properties must never carry names, emails, phone numbers, bank numbers,
-//! tokens or OCR text. Common environment/app_version/language props belong to X6.
+//! Every PostHog capture goes through [`Analytics::capture_event`]: typed
+//! [`ProductEvent`]s (via [`CaptureEvent::product`]) and LLM analytics events such as
+//! `$ai_trace`, `$ai_span`, `$ai_generation` or `assistant_quota_hit`.
+//!
+//! Product-event properties must never carry names, emails, phone numbers, bank numbers,
+//! tokens or OCR text. Message content is allowed only in `$ai_*` events, and callers mask
+//! 9-15 digit sequences there first. Common environment/app_version/language props belong to X6.
 //!
 //! X0 choices: enrollment sources are enroll, quick_enroll, review_queue and receipt;
 //! debt methods are cash, transfer, credit_sale and adjustment. Amount buckets use
@@ -276,9 +281,49 @@ pub struct EventContext {
     pub role: Role,
 }
 
+/// One PostHog capture call: any event name, including `$ai_*` LLM analytics events.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaptureEvent {
+    pub distinct_id: String,
+    pub event: String,
+    pub properties: Map<String, Value>,
+    /// PostHog groups, e.g. `{"store": "<store uuid>"}`.
+    pub groups: Map<String, Value>,
+}
+
+impl CaptureEvent {
+    /// Maps a typed product event: distinct_id from ctx, `groups.store` = store id,
+    /// properties = event properties plus `member_id` and `role` (snake_case string, same as serde).
+    ///
+    /// `member_joined` carries its own `role` (the role of the joining member, not of the
+    /// acting member in `ctx`); the event's own value wins over the actor's role.
+    pub fn product(ctx: &EventContext, event: &ProductEvent) -> Self {
+        let mut properties = Map::new();
+        properties.insert("member_id".to_owned(), json!(ctx.member_id.to_string()));
+        properties.insert("role".to_owned(), json!(ctx.role));
+        // Own properties are inserted last so they replace the actor defaults above.
+        properties.extend(event.properties());
+        let mut groups = Map::new();
+        groups.insert("store".to_owned(), json!(ctx.store_id.to_string()));
+        Self {
+            distinct_id: ctx.distinct_id.clone(),
+            event: event.name().to_owned(),
+            properties,
+            groups,
+        }
+    }
+}
+
 #[async_trait]
 pub trait Analytics: Send + Sync {
-    async fn capture(&self, ctx: &EventContext, event: ProductEvent) -> anyhow::Result<()>;
+    /// Sends one event of any name. The PostHog sink (X6) adds `environment`, `app_version`
+    /// and `language`; callers mask 9-15 digit sequences in `$ai_*` content first.
+    async fn capture_event(&self, event: CaptureEvent) -> anyhow::Result<()>;
+
+    /// Typed product event, routed through `capture_event`.
+    async fn capture(&self, ctx: &EventContext, event: ProductEvent) -> anyhow::Result<()> {
+        self.capture_event(CaptureEvent::product(ctx, &event)).await
+    }
 }
 
 #[derive(Debug, Default)]
@@ -286,7 +331,7 @@ pub struct NoopAnalytics;
 
 #[async_trait]
 impl Analytics for NoopAnalytics {
-    async fn capture(&self, _ctx: &EventContext, _event: ProductEvent) -> anyhow::Result<()> {
+    async fn capture_event(&self, _event: CaptureEvent) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -526,6 +571,116 @@ mod tests {
     async fn noop_capture_succeeds() {
         NoopAnalytics
             .capture(&context(), ProductEvent::StoreCreated)
+            .await
+            .unwrap();
+    }
+
+    #[derive(Default)]
+    struct Recorder(std::sync::Mutex<Vec<CaptureEvent>>);
+
+    #[async_trait]
+    impl Analytics for Recorder {
+        async fn capture_event(&self, event: CaptureEvent) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(event);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn product_capture_event_maps_sale_completed() {
+        let ctx = context();
+        let sale = ProductEvent::SaleCompleted {
+            total: 123456,
+            line_count: 2,
+            payment_method: PaymentMethod::Cash,
+            has_credit: false,
+            manual_lines: 1,
+        };
+        let captured = CaptureEvent::product(&ctx, &sale);
+        assert_eq!(captured.event, "sale_completed");
+        assert_eq!(captured.distinct_id, ctx.distinct_id);
+        assert_eq!(
+            captured.groups,
+            json!({"store": ctx.store_id.to_string()})
+                .as_object()
+                .unwrap()
+                .clone()
+        );
+        assert_eq!(captured.properties["total"].as_i64(), Some(123456));
+        assert_eq!(
+            captured.properties["member_id"],
+            json!(ctx.member_id.to_string())
+        );
+        assert_eq!(captured.properties["role"], json!("lead"));
+        assert_eq!(captured.properties["payment_method"], json!("cash"));
+    }
+
+    #[test]
+    fn product_capture_event_keeps_event_role_over_actor_role() {
+        let mut ctx = context();
+        ctx.role = Role::Lead;
+        let joined = ProductEvent::MemberJoined {
+            role: Role::Seller,
+            can_enroll: true,
+        };
+        let captured = CaptureEvent::product(&ctx, &joined);
+        assert_eq!(captured.properties["role"], json!("seller"));
+        assert_eq!(captured.properties["can_enroll"], json!(true));
+        assert_eq!(
+            captured.properties["member_id"],
+            json!(ctx.member_id.to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn default_capture_routes_through_capture_event() {
+        let recorder = Recorder::default();
+        let ctx = context();
+        recorder
+            .capture(&ctx, ProductEvent::StoreCreated)
+            .await
+            .unwrap();
+        let events = recorder.0.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0],
+            CaptureEvent::product(&ctx, &ProductEvent::StoreCreated)
+        );
+    }
+
+    #[tokio::test]
+    async fn ai_generation_event_passes_through_unchanged() {
+        let recorder = Recorder::default();
+        let event = CaptureEvent {
+            distinct_id: "user_123".to_owned(),
+            event: "$ai_generation".to_owned(),
+            properties: json!({
+                "$ai_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+                "$ai_model": "openrouter/free",
+                "$ai_input_tokens": 120,
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+            groups: json!({"store": uuid::Uuid::new_v4().to_string()})
+                .as_object()
+                .unwrap()
+                .clone(),
+        };
+        recorder.capture_event(event.clone()).await.unwrap();
+        let events = recorder.0.lock().unwrap();
+        assert_eq!(events.as_slice(), [event]);
+    }
+
+    #[tokio::test]
+    async fn noop_capture_event_succeeds() {
+        NoopAnalytics
+            .capture_event(CaptureEvent {
+                distinct_id: "user_123".to_owned(),
+                event: "$ai_trace".to_owned(),
+                properties: Map::new(),
+                groups: Map::new(),
+            })
             .await
             .unwrap();
     }
