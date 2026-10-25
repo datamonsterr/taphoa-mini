@@ -1,4 +1,5 @@
 import { resetMockAuth } from './auth';
+import { resetAssistantMock } from './assistant';
 import { newUuid } from '@/lib/uuid';
 import type {
   CreateProductRequest,
@@ -45,6 +46,7 @@ export function resetMockDb(): void {
   resetMockAuth();
   resetMockScenario();
   resetMockEvents();
+  resetAssistantMock();
 }
 
 export const nowIso = () => new Date().toISOString();

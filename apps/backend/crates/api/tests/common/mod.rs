@@ -12,6 +12,42 @@ impl Contract {
         let text = std::fs::read_to_string(path).expect("read docs/api/openapi.yaml");
         Self(serde_norway::from_str(&text).expect("parse OpenAPI document"))
     }
+    /// Inspect an operation, including bodyless responses and required headers.
+    #[allow(dead_code)]
+    pub fn operation(&self, template: &str, method: &str) -> &Value {
+        let operation = &self.0["paths"][template][method];
+        assert!(operation.is_object(), "missing {method} {template}");
+        operation
+    }
+    /// Validate a standalone component using the document's local references.
+    #[allow(dead_code)]
+    pub fn schema_accepts(&self, name: &str, body: &Value) -> bool {
+        let schema = &self.0["components"]["schemas"][name];
+        assert!(schema.is_object(), "missing schema {name}");
+        self.validator(schema).is_valid(body)
+    }
+    fn validator(&self, schema: &Value) -> jsonschema::Validator {
+        let root = json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "components": self.0["components"],
+            "allOf": [schema],
+        });
+        jsonschema::draft202012::options()
+            .should_validate_formats(true)
+            .build(&root)
+            .expect("build validator")
+    }
+    /// Validate the JSON event/data representation of an SSE frame.
+    #[allow(dead_code)]
+    pub fn assert_stream_conforms(&self, template: &str, body: &Value) {
+        let response = &self.operation(template, "post")["responses"]["200"];
+        let schema = &self.resolve(response)["content"]["text/event-stream"]["schema"];
+        assert!(schema.is_object(), "missing SSE schema");
+        assert!(
+            self.validator(schema).is_valid(body),
+            "invalid SSE frame: {body}"
+        );
+    }
     /// Follow a local `#/...` reference (JSON Pointer).
     fn resolve<'a>(&'a self, mut node: &'a Value) -> &'a Value {
         while let Some(reference) = node.get("$ref").and_then(Value::as_str) {

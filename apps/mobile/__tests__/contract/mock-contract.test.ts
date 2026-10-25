@@ -1,3 +1,9 @@
+import { createApiClient } from '@taphoa/api-client';
+import { createMockFetch } from '../../src/test/mock/fetch';
+import {
+  proposalReply,
+  setNextAssistantReply,
+} from '../../src/test/mock/assistant';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -12,7 +18,13 @@ import { getMockDb, resetMockDb } from '../../src/test/mock/db';
 import { MOCK_ROUTES } from '../../src/test/mock/routes';
 import { setMockScenario } from '../../src/test/mock/scenario';
 
-type Recorded = { method: string; path: string; status: number; body: unknown };
+type Recorded = {
+  method: string;
+  path: string;
+  status: number;
+  body: unknown;
+  stream?: boolean;
+};
 const recorded: Recorded[] = [];
 
 jest.mock('../../src/test/mock/fetch', () => {
@@ -23,12 +35,30 @@ jest.mock('../../src/test/mock/fetch', () => {
       const mockFetch = actual.createMockFetch(options) as typeof fetch;
       return async (input: Request) => {
         const response = await mockFetch(input);
+        const stream =
+          response.headers.get('content-type') === 'text/event-stream';
         const text = await response.clone().text();
+        let body: unknown;
+        if (stream) {
+          const { readAssistantStream } =
+            jest.requireActual('@taphoa/api-client');
+          const events = [];
+          const iterator = readAssistantStream(new Response(text).body!);
+          let next = await iterator.next();
+          while (!next.done) {
+            events.push(next.value);
+            next = await iterator.next();
+          }
+          body = events;
+        } else {
+          body = text ? JSON.parse(text) : undefined;
+        }
         recorded.push({
           method: input.method,
           path: new URL(input.url).pathname,
           status: response.status,
-          body: text ? JSON.parse(text) : undefined,
+          body,
+          stream,
         });
         return response;
       };
@@ -99,7 +129,14 @@ function validate(entry: Recorded) {
       `mock served ${entry.method} ${entry.path}, which is not in the spec`,
     );
   expect(Object.keys(found.op.responses)).toContain(String(entry.status));
-  const schema = responseSchema(found.op, entry.status);
+  const schema = entry.stream
+    ? {
+        type: 'array',
+        items:
+          found.op.responses[String(entry.status)].content['text/event-stream']
+            .schema,
+      }
+    : responseSchema(found.op, entry.status);
   if (!schema) {
     expect(entry.body).toBeUndefined();
     return found.template;
@@ -774,6 +811,108 @@ describe('stock and receipts', () => {
     expect((await api.getReceipt(another.id)).status).toBe('discarded');
     await call(() => api.createReceipt({ image_id: newUuid() }), 404);
     await call(() => api.getReceipt(newUuid()), 404);
+  });
+});
+
+describe('assistant and devices', () => {
+  test('threads, streamed proposal, decisions, feedback, next steps, digest and device registration match schemas', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://mock.local',
+      fetch: createMockFetch(),
+    });
+    const created = await call(
+      () =>
+        client.raw.POST('/v1/assistant/threads', {
+          body: { title: 'Nhập hàng', context: { screen: 'camera' } },
+        }),
+      201,
+    );
+    const threadId = created.data.data!.id;
+    await call(() => client.raw.GET('/v1/assistant/threads'), 200);
+    setNextAssistantReply(proposalReply());
+    await call(
+      () =>
+        client.sendAssistantMessage(threadId, {
+          content: 'Nhập thêm mì',
+          language: 'vi',
+        }),
+      200,
+    );
+    const detail = await call(
+      () =>
+        client.raw.GET('/v1/assistant/threads/{threadId}', {
+          params: { path: { threadId } },
+        }),
+      200,
+    );
+    const actionId = detail.data.data!.actions[0]!.id;
+    const messageId = detail.data.data!.messages[1]!.id;
+    await call(
+      () =>
+        client.raw.POST('/v1/assistant/actions/{actionId}/confirm', {
+          params: {
+            path: { actionId },
+            header: { 'Idempotency-Key': 'assistant-contract' },
+          },
+        }),
+      200,
+    );
+    await call(
+      () =>
+        client.raw.POST('/v1/assistant/actions/{actionId}/reject', {
+          params: { path: { actionId } },
+        }),
+      409,
+    );
+    await call(
+      () =>
+        client.raw.POST('/v1/assistant/messages/{messageId}/feedback', {
+          params: { path: { messageId } },
+          body: { rating: 'up' },
+        }),
+      204,
+    );
+    await call(
+      () =>
+        client.raw.GET('/v1/assistant/next-steps', {
+          params: { query: { screen: 'camera' } },
+        }),
+      200,
+    );
+    await call(() => client.raw.GET('/v1/assistant/digest'), 200);
+    await call(
+      () =>
+        client.raw.GET('/v1/assistant/digest', {
+          params: { query: { business_date: '2000-01-01' } },
+        }),
+      404,
+    );
+    await call(
+      () =>
+        client.raw.POST('/v1/devices', {
+          body: {
+            token: 'ExponentPushToken[contract]',
+            platform: 'android',
+            app_version: '1.0',
+            language: 'vi',
+          },
+        }),
+      200,
+    );
+    await call(
+      () =>
+        client.raw.DELETE('/v1/devices/{token}', {
+          params: { path: { token: 'ExponentPushToken[contract]' } },
+        }),
+      204,
+    );
+    await call(
+      () =>
+        client.raw.DELETE('/v1/assistant/threads/{threadId}', {
+          params: { path: { threadId } },
+        }),
+      204,
+    );
   });
 });
 

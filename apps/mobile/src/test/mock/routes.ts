@@ -5,6 +5,8 @@ import {
   mockSetPin,
   mockVerifyPin,
 } from './auth';
+import type { AssistantStreamEvent } from '@taphoa/api-client';
+import * as assistant from './assistant';
 import { businessDate } from '@/lib/date';
 import type {
   AlertStatus,
@@ -44,7 +46,9 @@ export type RouteContext = {
   params: Record<string, string>;
   query: URLSearchParams;
 };
-export type RouteResult = { status: number; body?: unknown };
+export type RouteResult =
+  | { status: number; body?: unknown }
+  | { status: 200; sse: AssistantStreamEvent[] };
 export type MockRoute = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** OpenAPI path template, e.g. `/v1/products/{productId}`. */
@@ -224,6 +228,88 @@ export const MOCK_ROUTES: MockRoute[] = [
     path: '/v1/me/pin/verify',
     handler: async ({ request }) => {
       mockVerifyPin(request, await readJson(request));
+      return { status: 204 };
+    },
+  },
+  {
+    method: 'GET',
+    path: '/v1/assistant/threads',
+    handler: ({ query }) => ok(assistant.listThreads(query)),
+  },
+  {
+    method: 'POST',
+    path: '/v1/assistant/threads',
+    handler: async ({ request }) =>
+      created(assistant.createThread(await readJson(request))),
+  },
+  {
+    method: 'GET',
+    path: '/v1/assistant/threads/{threadId}',
+    handler: ({ params }) => ok(assistant.getThread(params.threadId!)),
+  },
+  {
+    method: 'DELETE',
+    path: '/v1/assistant/threads/{threadId}',
+    handler: ({ params }) => {
+      assistant.deleteThread(params.threadId!);
+      return { status: 204 };
+    },
+  },
+  {
+    method: 'POST',
+    path: '/v1/assistant/threads/{threadId}/messages',
+    handler: async ({ params, request }) => ({
+      status: 200,
+      sse: assistant.sendMessage(params.threadId!, await readJson(request)),
+    }),
+  },
+  {
+    method: 'POST',
+    path: '/v1/assistant/actions/{actionId}/confirm',
+    handler: ({ params, request }) =>
+      ok(
+        assistant.decideAction(
+          params.actionId!,
+          true,
+          request.headers.get('Idempotency-Key'),
+        ),
+      ),
+  },
+  {
+    method: 'POST',
+    path: '/v1/assistant/actions/{actionId}/reject',
+    handler: ({ params }) =>
+      ok(assistant.decideAction(params.actionId!, false)),
+  },
+  {
+    method: 'POST',
+    path: '/v1/assistant/messages/{messageId}/feedback',
+    handler: async ({ params, request }) => {
+      assistant.saveFeedback(params.messageId!, await readJson(request));
+      return { status: 204 };
+    },
+  },
+  {
+    method: 'GET',
+    path: '/v1/assistant/next-steps',
+    handler: ({ query }) => ok(assistant.nextSteps(query)),
+  },
+  {
+    method: 'GET',
+    path: '/v1/assistant/digest',
+    handler: ({ query }) => ok(assistant.getDigest(query)),
+  },
+  {
+    method: 'POST',
+    path: '/v1/devices',
+    handler: async ({ request }) =>
+      ok(assistant.registerDevice(await readJson(request))),
+  },
+  {
+    method: 'DELETE',
+    path: '/v1/devices/{token}',
+    handler: ({ params }) => {
+      assistant.deleteDevice(params.token!);
       return { status: 204 };
     },
   },

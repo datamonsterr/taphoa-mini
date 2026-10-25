@@ -1,5 +1,20 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { components, paths } from './schema';
+import {
+  AssistantStreamInterruptedError,
+  readAssistantStream,
+  type AssistantStreamEvent,
+  type StreamOptions,
+} from './sse.ts';
+export {
+  parseSseStream,
+  readAssistantStream,
+  AssistantStreamInterruptedError,
+  AssistantStreamProtocolError,
+  type SseFrame,
+  type StreamOptions,
+  type AssistantStreamEvent,
+} from './sse.ts';
 
 export type { components, paths };
 export type Image = components['schemas']['Image'];
@@ -15,6 +30,11 @@ export interface ApiClientOptions {
     string | null | undefined | Promise<string | null | undefined>;
   /** Injected for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
+}
+
+/** Fails on first read; avoids a ReadableStream constructor, absent in React Native. */
+async function* interruptedStream(): AsyncGenerator<AssistantStreamEvent> {
+  throw new AssistantStreamInterruptedError();
 }
 
 export function createApiClient(options: ApiClientOptions) {
@@ -49,6 +69,32 @@ export function createApiClient(options: ApiClientOptions) {
 
   return {
     raw: client,
+    sendAssistantMessage: async (
+      threadId: string,
+      body: components['schemas']['SendAssistantMessage'],
+      streamOptions: StreamOptions = {},
+    ) => {
+      const result = await client.POST(
+        '/v1/assistant/threads/{threadId}/messages',
+        {
+          params: { path: { threadId } },
+          body,
+          headers: { Accept: 'text/event-stream' },
+          parseAs: 'stream',
+          signal: streamOptions.signal,
+        },
+      );
+      if (!result.response.ok)
+        return { error: result.error, response: result.response };
+      // A successful empty response still represents an interrupted assistant stream.
+      return {
+        events:
+          result.data == null
+            ? interruptedStream()
+            : readAssistantStream(result.data, streamOptions),
+        response: result.response,
+      };
+    },
     getHealth: () => client.GET('/healthz'),
     getImage: (imageId: string) =>
       client.GET('/v1/images/{imageId}', {
@@ -69,3 +115,17 @@ export function createApiClient(options: ApiClientOptions) {
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+export type AssistantAction = components['schemas']['AssistantAction'];
+
+export type AssistantMessage = components['schemas']['AssistantMessage'];
+
+export type AssistantThread = components['schemas']['AssistantThread'];
+
+export type AssistantCard = components['schemas']['AssistantCard'];
+
+export type NextStep = components['schemas']['NextStep'];
+
+export type Digest = components['schemas']['Digest'];
+
+export type Device = components['schemas']['Device'];

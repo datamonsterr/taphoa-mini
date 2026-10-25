@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod auth;
 pub mod catalog;
 pub mod config;
@@ -47,12 +48,20 @@ pub use crate::vector::{InMemoryVectorIndex, VectorIndex};
 pub use error::{ApiError, ApiResult};
 
 pub const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
-pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+// Branch deployments can apply versions absent from the next main deployment.
+// Only relax missing-version validation; retain checksum checks and default locking.
+pub static MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
+    std::sync::LazyLock::new(|| {
+        let mut migrator = sqlx::migrate!("../../migrations");
+        migrator.set_ignore_missing(true);
+        migrator
+    });
 
 #[derive(Clone)]
 pub struct AppState {
     pub clerk: auth::ClerkVerifier,
     pub profile: auth::profile::ProfileClient,
+    pub analytics: Arc<dyn analytics::Analytics>,
     pub rate_limiter: Arc<dyn ratelimit::RateLimiter>,
     pub rate_limits: ratelimit::RateLimits,
     pub client_ip: ratelimit::ClientIpSource,
@@ -86,6 +95,7 @@ impl Default for AppState {
                 jsonwebtoken::jwk::JwkSet { keys: vec![] },
             ),
             profile: auth::profile::ProfileClient::default(),
+            analytics: Arc::new(analytics::NoopAnalytics),
             rate_limiter: Arc::new(ratelimit::MemoryRateLimiter::default()),
             rate_limits: ratelimit::RateLimits::default(),
             client_ip: ratelimit::ClientIpSource::default(),
