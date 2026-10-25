@@ -2,7 +2,12 @@
 //!
 //! A store is inserted atomically with its entire 30-day snapshot. Existing fixture
 //! store IDs are skipped, even on later dates: reruns preserve counts and edits.
+//!
+//! With a [`ClerkUsers`] client every member is linked to a Clerk test user (created or
+//! reused by deterministic `+clerk_test` email), also for stores that already exist.
+//! Without one, new members get placeholder Clerk ids and cannot sign in.
 mod catalog;
+pub mod clerk;
 mod stock;
 mod trading;
 
@@ -16,14 +21,25 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use catalog::{CATEGORIES, PRODUCTS};
+pub use clerk::{ClerkUsers, member_email};
 
 const SEED: &str = "taphoa-mini/local-development/seed-v1";
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 type Tx<'a> = Transaction<'a, Postgres>;
+/// Member key (used in the Clerk email) and display name, in seeding order. The first one
+/// is the Lead.
+const MEMBERS: [(&str, &str); 4] = [
+    ("me", "Mẹ"),
+    ("ba-noi", "Bà nội"),
+    ("con-trai", "Con trai"),
+    ("co-lan", "Cô Lan"),
+];
 
 /// Contains local credentials. Deliberately does not implement Debug or Serialize.
 pub struct SeedReport {
     pub stores: Vec<StoreReport>,
+    /// True when members were linked to Clerk users; false when placeholders were kept.
+    pub clerk_linked: bool,
 }
 
 /// Plaintext hints must only be printed to the seed CLI's stdout.
@@ -40,6 +56,10 @@ pub struct MemberReport {
     pub role: String,
     pub can_enroll: bool,
     pub pin: Option<String>,
+    /// Clerk test-user email (`+clerk_test`, verification code 424242).
+    pub email: String,
+    /// The linked Clerk user id; `None` when the seed ran without a Clerk client.
+    pub clerk_user_id: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -73,19 +93,26 @@ impl Store {
         }
     }
 
+    /// Store part of the Clerk emails.
+    fn key(self) -> &'static str {
+        if self.number == 1 { "coba" } else { "minhkhai" }
+    }
+
     fn report(self) -> StoreReport {
         StoreReport {
             store_id: self.store_id(),
             name: self.name().into(),
-            members: ["Mẹ", "Bà nội", "Con trai", "Cô Lan"]
+            members: MEMBERS
                 .iter()
                 .enumerate()
-                .map(|(n, name)| MemberReport {
+                .map(|(n, (key, name))| MemberReport {
                     member_id: self.id(1, n as u64),
                     display_name: (*name).into(),
                     role: if n == 0 { "lead" } else { "seller" }.into(),
                     can_enroll: n <= 1,
                     pin: (n == 2).then(|| "2468".into()),
+                    email: member_email(self.key(), key),
+                    clerk_user_id: None,
                 })
                 .collect(),
             invite_token_hint: format!(
@@ -107,26 +134,54 @@ impl Store {
     }
 }
 
+/// Seed two stores without Clerk: members keep placeholder Clerk ids and cannot sign in.
+pub async fn run(pool: &PgPool) -> Result<SeedReport> {
+    run_with(pool, None).await
+}
+
 /// Seed two stores in separate transactions, serializing competing seed invocations.
 /// Dates end on today's Asia/Ho_Chi_Minh business date on the first successful run.
 /// Later runs skip existing stores entirely and return the same deterministic hints.
-pub async fn run(pool: &PgPool) -> Result<SeedReport> {
+///
+/// With `clerk`, every member's Clerk user is found or created first (nothing is written
+/// to the database when Clerk fails), then new members are inserted with that id and
+/// existing members are relinked when their id differs, which upgrades placeholders.
+/// Without it nothing about Clerk changes, so a keyless rerun never downgrades real ids.
+pub async fn run_with(pool: &PgPool, clerk: Option<&ClerkUsers>) -> Result<SeedReport> {
     let now = Utc::now();
     let today = now.with_timezone(&Ho_Chi_Minh).date_naive();
-    let mut reports = Vec::with_capacity(2);
+    let mut stores = Vec::with_capacity(2);
     for number in 1..=2 {
         let store = Store { number, today, now };
-        let report = store.report();
+        let mut report = store.report();
+        if let Some(clerk) = clerk {
+            for member in &mut report.members {
+                member.clerk_user_id = Some(
+                    clerk
+                        .find_or_create(&member.email, &member.display_name)
+                        .await
+                        .with_context(|| format!("Clerk test user for {}", member.email))?,
+                );
+            }
+        }
+        stores.push((store, report));
+    }
+    let mut reports = Vec::with_capacity(2);
+    for (store, report) in stores {
         let mut tx = pool.begin().await.context("begin seed store transaction")?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(7_063_000_i64 + number as i64)
+            .bind(7_063_000_i64 + store.number as i64)
             .execute(&mut *tx)
             .await?;
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM stores WHERE id=$1)")
             .bind(store.store_id())
             .fetch_one(&mut *tx)
             .await?;
-        if !exists {
+        if exists {
+            link_members(&mut tx, store, &report)
+                .await
+                .with_context(|| format!("link Clerk users of {}", store.name()))?;
+        } else {
             seed_store(&mut tx, store, &report)
                 .await
                 .with_context(|| format!("seed store {}", store.name()))?;
@@ -134,7 +189,27 @@ pub async fn run(pool: &PgPool) -> Result<SeedReport> {
         tx.commit().await.context("commit seed store transaction")?;
         reports.push(report);
     }
-    Ok(SeedReport { stores: reports })
+    Ok(SeedReport {
+        stores: reports,
+        clerk_linked: clerk.is_some(),
+    })
+}
+
+/// Points existing fixture members at their Clerk users. Rows that already match, and
+/// reports without Clerk ids, change nothing.
+async fn link_members(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Result<()> {
+    for member in &report.members {
+        let Some(user) = &member.clerk_user_id else {
+            continue;
+        };
+        sqlx::query("UPDATE members SET clerk_user_id=$3 WHERE id=$1 AND store_id=$2 AND clerk_user_id IS DISTINCT FROM $3")
+            .bind(member.member_id)
+            .bind(store.store_id())
+            .bind(user)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn seed_store(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Result<()> {
@@ -153,7 +228,7 @@ async fn seed_store(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Resu
     for member in &report.members {
         sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,created_at,updated_at,clerk_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8) ON CONFLICT DO NOTHING")
             .bind(member.member_id).bind(store.store_id()).bind(&member.display_name).bind(&member.role)
-            .bind(member.can_enroll).bind(member.pin.as_ref().map(|_| pin_hash.as_str())).bind(start).bind(format!("seed_{}",member.member_id))
+            .bind(member.can_enroll).bind(member.pin.as_ref().map(|_| pin_hash.as_str())).bind(start).bind(member.clerk_user_id.clone().unwrap_or_else(|| format!("seed_{}",member.member_id)))
             .execute(&mut **tx).await?;
         change(tx, store, "member", member.member_id, start).await?;
     }
