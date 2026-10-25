@@ -3,7 +3,8 @@
 Set `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` when building the app. A missing key renders
 `auth-configuration-error`. Keys must never be committed. Clerk owns credentials
 and its secure token cache; `taphoa-current-store` stores only the selected store
-IDs keyed by Clerk user ID. `/v1/me` owns the membership and permission data.
+IDs keyed by Clerk user ID, and `taphoa-device-lock` only the device lock flag (see Device
+lock below). `/v1/me` owns the membership and permission data.
 
 The root gate waits for Clerk and preference hydration, then routes signed-out
 users to `/sign-in`, users without memberships to `/welcome`, and members to `/`.
@@ -91,10 +92,31 @@ left, or only ended / pending sessions, the list is hidden. `flow="add"` (the si
 "add a person" route) never shows it. The welcome screen's "Đăng xuất" uses the same hook,
 so it behaves the same.
 
-Known limit: clerk-js picks the initial session on app launch (`lastActiveSessionId`, else
-the first signed-in session). After "Đăng xuất" and a cold start, someone who is still
-signed in can therefore become active without their PIN. Guarding that needs a persisted
-"locked" flag consumed by the gate; it is not part of this change.
+Device lock (`src/stores/deviceLock.ts`, persisted as `taphoa-device-lock`, hydrated before
+the gate decides anything). clerk-js activates a session by itself when the app starts
+(`lastActiveSessionId`, else the first signed-in one), which would hand the phone to someone
+without their PIN after "Đăng xuất" and a restart. So the lock holds the phone on the picker:
+
+- It is set when "Đăng xuất" succeeds while other signed-in sessions remain (not when nobody
+  does), and by the gate whenever Clerk has no active session but others are signed in (for
+  example the active session was revoked), which is "the app went to the person picker".
+- While `locked`, `AuthGate` acts as if nobody were signed in even though Clerk has an active
+  session: `signedIn` is false, the auth bridge has no user, and that person's `/me` is not
+  read. Every shop and onboarding route redirects to `/sign-in`, whose picker also lists the
+  auto-activated person, who is asked for their PIN like the others.
+- It lifts only after a successful pick followed by `setActive` (`useSwitchSession`, PIN 204
+  or no PIN), or after a fresh sign-in completes: email `finalize` in `VerifyCodeScreen`, or
+  Google's `setActive` in `SignInScreen`. A wrong PIN, a lockout, a closed sheet or a failed
+  `setActive` leave it locked.
+- It cannot trap anyone: with nobody signed in on the device the gate drops a stale lock, and
+  any normal sign-in clears it. Unreadable or malformed storage reads as unlocked.
+
+Checked in clerk-js 6.40.1: `setActive` with a `navigate` callback clears `clerk.session`
+(emitting a signed-out state) before it sets the new one, and `signOut` of the only session
+does the same before the client drops it. The gate therefore sees brief signed-out moments in
+the middle of a switch or sign-in and may lock for an instant; each of those flows calls
+`unlock` once its `setActive` / `finalize` has resolved, and the gate drops the lock when no
+session is left, so the end state is right.
 
 Store picker: with more than one membership a "Cửa hàng" list appears; choosing one
 calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity on
@@ -105,7 +127,8 @@ the new `X-Store-Id`.
 T6 files: `src/features/account/{DeviceSessions,SwitchPinSheet,StorePicker}.tsx`,
 `useSwitchSession.ts` (plus `PinSheet` ids and `clearKey`), `src/features/auth/{sessionApi,
 deviceSessions,addPerson}.ts`, `AddPersonLayout.tsx`, `src/app/add-person/*`, and the
-`flow="add"` mode of `SignInScreen` / `VerifyCodeScreen`. The sign-out fix reuses
+`flow="add"` mode of `SignInScreen` / `VerifyCodeScreen`. The device lock adds
+`src/stores/{deviceLock,preferenceStorage}.ts`, shared by `currentStore`. The sign-out fix reuses
 `DeviceSessions` (`variant`, optional `onAdd`), `SwitchPinSheet` (`testID`) and
 `useSwitchSession` from `SignInScreen`; tests are `src/features/auth/DevicePeople.test.tsx`
 and `signOutPicker.route.test.tsx`.
