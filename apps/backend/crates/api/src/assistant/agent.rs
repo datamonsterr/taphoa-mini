@@ -5,7 +5,7 @@ use super::{
     model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage},
     quota::{self, QuotaOutcome},
     stream::{self, Sender, StreamEvent},
-    threads,
+    telemetry, threads,
     tools::{ToolContext, ToolError, ToolKind},
 };
 use crate::{
@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
 pub const PROMPT_VERSION: &str = "1";
@@ -34,6 +35,9 @@ const TOOL_CHARS: usize = 24_000;
 
 #[derive(Debug, Clone)]
 pub struct ModelAttempt {
+    pub span_id: String,
+    pub request: ChatRequest,
+    pub content: String,
     pub model: String,
     pub fallback_index: usize,
     pub latency: Duration,
@@ -45,6 +49,7 @@ pub struct ModelAttempt {
 }
 #[derive(Debug, Clone)]
 pub struct ToolRecord {
+    pub span_id: String,
     pub name: String,
     pub call_id: String,
     pub kind: Option<ToolKind>,
@@ -62,9 +67,13 @@ pub struct ToolSummary {
     pub ok: bool,
     pub summary_vi: String,
 }
-/// T8 consumes this record through `turn_finished`; it is not stored as telemetry yet.
+/// Completed turn data consumed by the asynchronous telemetry hook.
 #[derive(Debug, Clone)]
 pub struct TurnRecord {
+    pub span_id: Option<String>,
+    pub input: String,
+    pub context: Option<Value>,
+    pub latency: Duration,
     pub actor: Actor,
     pub today: NaiveDate,
     pub language: Language,
@@ -83,8 +92,10 @@ pub struct TurnRecord {
     pub usage: Usage,
     pub error: Option<&'static str>,
 }
-/// Telemetry hook filled by T8. Do not log model or tool data here.
-pub async fn turn_finished(_state: &AppState, _record: &TurnRecord) {}
+/// Dispatch telemetry without blocking the reply on the analytics sink.
+pub async fn turn_finished(state: &AppState, record: &TurnRecord) {
+    telemetry::turn_finished(state, record);
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -201,47 +212,59 @@ pub(crate) async fn send_message(
         .bind(message_id).bind(thread_id).bind(actor.store_id).execute(&mut *tx).await?;
     tx.commit().await?;
     let (tx, rx) = mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        stream::send(
-            &tx,
-            StreamEvent::Created {
-                message_id,
-                thread_id,
-            },
-        );
-        let ctx = ToolContext {
-            state: state.clone(),
-            actor,
-            today,
-            language: input.language,
-            thread_id,
-            message_id,
-            trace_id: Some(Uuid::new_v4().simple().to_string()),
-        };
-        let mut record = run_turn(&ctx, eval, messages, &tx).await;
-        if persist(&state, &record).await.is_err() {
-            record.error = Some("internal");
-        }
-        turn_finished(&state, &record).await;
-        if let Some(code) = record.error {
+    let span = telemetry::invoke_span(thread_id, thread.context.as_ref());
+    let trace_id = telemetry::trace_id(&span);
+    tokio::spawn(
+        async move {
+            crate::telemetry::record_identity(&actor);
             stream::send(
                 &tx,
-                StreamEvent::Error {
-                    code,
-                    message_vi: error_text(code, input.language).into(),
-                },
-            );
-        } else {
-            stream::send(
-                &tx,
-                StreamEvent::Completed {
+                StreamEvent::Created {
                     message_id,
-                    model: record.model.unwrap_or_default(),
-                    usage: record.usage,
+                    thread_id,
                 },
             );
+            let ctx = ToolContext {
+                state: state.clone(),
+                actor,
+                today,
+                language: input.language,
+                thread_id,
+                message_id,
+                trace_id: Some(trace_id),
+            };
+            let mut record = run_turn(&ctx, eval, messages, &tx).await;
+            record.context = thread.context;
+            tracing::Span::current().record(
+                "taphoa.assistant.use_cases",
+                telemetry::use_cases(record.tools.iter().map(|t| t.name.as_str())).join(","),
+            );
+            if persist(&state, &record).await.is_err() {
+                record.error = Some("internal");
+            }
+            turn_finished(&state, &record).await;
+            if let Some(code) = record.error {
+                stream::send(
+                    &tx,
+                    StreamEvent::Error {
+                        code,
+                        message_vi: error_text(code, input.language).into(),
+                    },
+                );
+            } else {
+                stream::send(
+                    &tx,
+                    StreamEvent::Completed {
+                        message_id,
+                        model: record.model.unwrap_or_default(),
+                        usage: record.usage,
+                    },
+                );
+            }
         }
-    });
+        .instrument(span)
+        .with_current_subscriber(),
+    );
     Ok(stream::response(rx))
 }
 
@@ -421,12 +444,32 @@ fn text(record: &mut TurnRecord, tx: &Sender, value: String) {
 pub async fn run_turn(
     ctx: &ToolContext,
     eval: Option<EvalContext>,
+    messages: Vec<ChatMessage>,
+    tx: &Sender,
+) -> TurnRecord {
+    let started = Instant::now();
+    let mut record = run_turn_inner(ctx, eval, messages, tx).await;
+    record.latency = started.elapsed();
+    record
+}
+async fn run_turn_inner(
+    ctx: &ToolContext,
+    eval: Option<EvalContext>,
     mut messages: Vec<ChatMessage>,
     tx: &Sender,
 ) -> TurnRecord {
     let state = &ctx.state;
     let config = &state.assistant.config;
     let mut record = TurnRecord {
+        span_id: telemetry::span_id(&tracing::Span::current()),
+        input: messages
+            .iter()
+            .rev()
+            .find(|m| m.role == ChatRole::User)
+            .and_then(|m| m.content.clone())
+            .unwrap_or_default(),
+        context: None,
+        latency: Duration::ZERO,
         actor: ctx.actor.clone(),
         today: ctx.today,
         language: ctx.language,
@@ -448,7 +491,8 @@ pub async fn run_turn(
         usage: Usage::default(),
         error: None,
     };
-    let quota = if quota::openrouter_exhausted(state).await {
+    let openrouter_exhausted = quota::openrouter_exhausted(state).await;
+    let quota = if openrouter_exhausted {
         Ok(QuotaOutcome::Exceeded)
     } else if record.eval.is_some() {
         Ok(QuotaOutcome::Allowed { used: 0 })
@@ -463,6 +507,18 @@ pub async fn run_turn(
     };
     match quota {
         Ok(QuotaOutcome::Exceeded) => {
+            telemetry::quota_hit(
+                state,
+                &ctx.actor,
+                &record.trace_id,
+                ctx.thread_id,
+                record.eval.as_ref(),
+                if openrouter_exhausted {
+                    "openrouter"
+                } else {
+                    "store"
+                },
+            );
             record.error = Some("quota");
             text(&mut record, tx, error_text("quota", ctx.language).into());
             return record;
@@ -505,15 +561,19 @@ pub async fn run_turn(
             };
             let (deltas, mut rx) = mpsc::unbounded_channel();
             let started = Instant::now();
-            let call = model.chat(&request, &deltas);
+            let span = telemetry::chat_span(id, index, model.server_address());
+            let attempt_span_id =
+                telemetry::span_id(&span).unwrap_or_else(|| Uuid::new_v4().simple().to_string());
+            let call = model.chat(&request, &deltas).instrument(span.clone());
             tokio::pin!(call);
             let mut emitted = false;
             let mut first_token = None;
+            let mut attempt_content = String::new();
             let result = loop {
                 tokio::select! {
                     delta = rx.recv() => if let Some(delta) = delta {
                         first_token.get_or_insert_with(||started.elapsed());
-                        emitted |= !delta.is_empty(); text(&mut record,tx,delta);
+                        emitted |= !delta.is_empty(); attempt_content.push_str(&delta); text(&mut record,tx,delta);
                     },
                     result = &mut call => break result,
                 }
@@ -521,9 +581,13 @@ pub async fn run_turn(
             while let Ok(delta) = rx.try_recv() {
                 first_token.get_or_insert_with(|| started.elapsed());
                 emitted |= !delta.is_empty();
+                attempt_content.push_str(&delta);
                 text(&mut record, tx, delta);
             }
             let mut attempt = ModelAttempt {
+                span_id: attempt_span_id,
+                request: request.clone(),
+                content: attempt_content,
                 model: id.clone(),
                 fallback_index: index,
                 latency: started.elapsed(),
@@ -534,6 +598,8 @@ pub async fn run_turn(
                 finish_reason: None,
             };
             if let Ok(response) = &result {
+                attempt.model = response.model.clone();
+                attempt.content = response.content.clone();
                 attempt.http_status = Some(response.http_status);
                 attempt.usage = response.usage;
                 attempt.time_to_first_token = response.time_to_first_token.or(first_token);
@@ -563,6 +629,7 @@ pub async fn run_turn(
             match result {
                 Ok(response) => {
                     first_model_index = index;
+                    telemetry::attempt_finished(&span, &attempt);
                     record.attempts.push(attempt);
                     answer = Some((response, emitted));
                     break;
@@ -571,9 +638,18 @@ pub async fn run_turn(
                     all_timeouts &= matches!(error, ModelError::Timeout);
                     attempt.http_status = error.http_status().or(attempt.http_status);
                     attempt.error = Some(error.clone());
+                    telemetry::attempt_finished(&span, &attempt);
                     record.attempts.push(attempt);
                     if matches!(error, ModelError::DailyQuota { .. }) {
                         quota::mark_openrouter_exhausted(state).await;
+                        telemetry::quota_hit(
+                            state,
+                            &ctx.actor,
+                            &record.trace_id,
+                            ctx.thread_id,
+                            record.eval.as_ref(),
+                            "openrouter",
+                        );
                         record.error = Some("quota");
                         text(&mut record, tx, error_text("quota", ctx.language).into());
                         return record;
@@ -640,6 +716,20 @@ pub async fn run_turn(
 }
 
 async fn run_tool(
+    ctx: &ToolContext,
+    call: &ToolCall,
+    tx: &Sender,
+) -> (ChatMessage, ToolRecord, ToolSummary, Option<Value>) {
+    let kind = ctx
+        .state
+        .assistant
+        .registry
+        .get(&call.name)
+        .map(|t| t.kind());
+    let span = telemetry::tool_span(&call.name, &call.id, kind);
+    run_tool_inner(ctx, call, tx).instrument(span).await
+}
+async fn run_tool_inner(
     ctx: &ToolContext,
     call: &ToolCall,
     tx: &Sender,
@@ -711,7 +801,12 @@ async fn run_tool(
             summary_vi: summary_vi.clone(),
         },
     );
+    let span = tracing::Span::current();
+    span.record("taphoa.tool.ok", ok);
+    span.record("taphoa.tool.rows", rows as i64);
+    span.record("taphoa.tool.denied", denied);
     let record = ToolRecord {
+        span_id: telemetry::span_id(&span).unwrap_or_else(|| Uuid::new_v4().simple().to_string()),
         name: call.name.clone(),
         call_id: call.id.clone(),
         kind: tool.map(|t| t.kind()),
@@ -736,10 +831,10 @@ async fn run_tool(
 }
 async fn persist(state: &AppState, record: &TurnRecord) -> ApiResult<()> {
     let mut tx = pool(state)?.begin().await?;
-    sqlx::query("UPDATE assistant_messages SET content=$2,tool_calls=$3,transcript=$4,cards=$5,model=$6,input_tokens=$7,output_tokens=$8,trace_id=$9,status=$10 WHERE id=$1")
+    sqlx::query("UPDATE assistant_messages SET content=$2,tool_calls=$3,transcript=$4,cards=$5,model=$6,input_tokens=$7,output_tokens=$8,trace_id=$9,status=$10,span_id=COALESCE(span_id,$11) WHERE id=$1")
         .bind(record.message_id).bind(&record.content).bind(json!(record.tool_calls)).bind(json!(record.transcript)).bind(json!(record.cards)).bind(&record.model)
         .bind(i32::try_from(record.usage.input_tokens).unwrap_or(i32::MAX)).bind(i32::try_from(record.usage.output_tokens).unwrap_or(i32::MAX)).bind(&record.trace_id)
-        .bind(if record.error.is_some() {"failed"} else {"complete"}).execute(&mut *tx).await?;
+        .bind(if record.error.is_some() {"failed"} else {"complete"}).bind(&record.span_id).execute(&mut *tx).await?;
     sqlx::query(
         "UPDATE assistant_threads SET updated_at=now(),title=COALESCE(title,(SELECT left(content,60) FROM assistant_messages WHERE thread_id=$1 AND role='user' ORDER BY created_at,id LIMIT 1)) WHERE id=$1",
     )

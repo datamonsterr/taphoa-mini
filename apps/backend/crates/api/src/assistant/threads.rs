@@ -44,7 +44,7 @@ macro_rules! message_select {
 macro_rules! action_columns {
     () => {
         "id, thread_id, message_id, kind, status, payload, summary_vi, proposed_by, decided_by, \
-         decided_at, result, error, expires_at, created_at"
+         decided_at, result, error, expires_at, created_at, trace_id, span_id"
     };
 }
 // The agent loop and the action handlers import these; until they land nothing outside this file does.
@@ -75,6 +75,8 @@ pub(crate) struct MessageRow {
 }
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct ActionRow {
+    pub(crate) trace_id: Option<String>,
+    pub(crate) span_id: Option<String>,
     pub(crate) id: Uuid,
     pub(crate) thread_id: Uuid,
     pub(crate) message_id: Uuid,
@@ -123,7 +125,7 @@ pub(crate) fn message_json(row: &MessageRow) -> Value {
         "created_at": row.created_at,
     })
 }
-/// `AssistantAction`. Server-only columns (idempotency key hash, trace id) are not selected.
+/// `AssistantAction`. Server-only trace and span ids are omitted from the response.
 pub(crate) fn action_json(row: &ActionRow) -> Value {
     json!({
         "id": row.id,
@@ -347,13 +349,14 @@ pub(crate) struct FeedbackBody {
 
 /// Hook for the PostHog LLM feedback events (T8). Runs after the rating is stored.
 pub(crate) fn feedback_recorded(
-    _state: &AppState,
-    _actor: &Actor,
-    _message_id: Uuid,
-    _trace_id: Option<&str>,
-    _rating: Rating,
-    _comment: Option<&str>,
+    state: &AppState,
+    actor: &Actor,
+    message_id: Uuid,
+    trace_id: Option<&str>,
+    rating: Rating,
+    comment: Option<&str>,
 ) {
+    super::telemetry::feedback(state, actor, message_id, trace_id, rating, comment);
 }
 
 pub(crate) async fn feedback(

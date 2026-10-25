@@ -8,6 +8,7 @@ pub mod model;
 pub mod next_steps;
 pub mod quota;
 pub mod stream;
+pub mod telemetry;
 pub mod threads;
 pub mod tools;
 
@@ -31,6 +32,7 @@ pub struct AssistantState {
 }
 impl Default for AssistantState {
     fn default() -> Self {
+        telemetry::initialize();
         Self {
             config: Arc::new(AssistantConfig::default()),
             model: None,

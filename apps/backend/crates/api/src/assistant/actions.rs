@@ -1,8 +1,9 @@
 //! Explicit decisions on assistant proposals. Business writes go through the normal router.
+use super::telemetry;
 use super::threads::{ActionRow, action_columns, action_json, parse_id};
 use crate::{
     ApiError, ApiResult, AppState,
-    analytics::{ActionDecision, ActionKind, EventContext, ProductEvent},
+    analytics::{ActionDecision, ActionKind, ProductEvent},
     auth::{Action, Actor, data::pool},
     events::{Event, emit},
     idempotency::request_hash,
@@ -17,6 +18,7 @@ use futures_util::future::BoxFuture;
 use serde_json::{Value, json};
 use sqlx::{PgConnection, PgExecutor};
 use tower::ServiceExt;
+use tracing::Instrument;
 use uuid::Uuid;
 
 struct ExecutionError {
@@ -176,79 +178,84 @@ pub(crate) async fn confirm(
         .await?;
     let mut tx = pool(&state)?.begin().await?;
     let mut row = load(&mut tx, &actor, id).await?;
-    let recovery = row.status == "executing";
-    if row.status == "expired" {
-        return Err(stale());
-    }
-    if row.status != "proposed" {
-        let stored: Option<Vec<u8>> =
-            sqlx::query_scalar("SELECT idempotency_key_hash FROM assistant_actions WHERE id=$1")
-                .bind(id)
-                .fetch_one(&mut *tx)
-                .await?;
-        if stored.as_deref() != Some(hash.as_slice()) {
-            return Err(decided());
-        }
-        match row.status.as_str() {
-            "done" | "failed" => return Ok(Json(action_json(&row))),
-            "executing" => {}
-            _ => return Err(decided()),
-        }
-    } else {
-        if row.expires_at < chrono::Utc::now() || changed(&mut tx, &actor, &row).await? {
-            let updated = expire(&mut tx, id).await?;
-            tx.commit().await?;
-            after_decision(&state, &actor, &updated, ActionDecision::Expired);
+    let span = telemetry::action_span(&row);
+    async move {
+        let recovery = row.status == "executing";
+        if row.status == "expired" {
             return Err(stale());
         }
-        row = sqlx::query_as(concat!("UPDATE assistant_actions SET status='executing',decided_by=$2,decided_at=clock_timestamp(),idempotency_key_hash=$3 WHERE id=$1 RETURNING ",action_columns!()))
-            .bind(id).bind(actor.member_id).bind(hash.as_slice()).fetch_one(&mut *tx).await?;
-    }
-    tx.commit().await?;
-    let execution = if recovery && row.kind == "invite" {
-        Err(ApiError::conflict(
-            "invite_outcome_unknown",
-            "Không thể xác định kết quả lời mời trước đó; vui lòng kiểm tra trước khi tạo lại",
-        )
-        .into())
-    } else if matches!(row.kind.as_str(), "receipt_line_update" | "reorder_list") {
-        // The assistant-owned write and action finalization share this transaction.
-        let mut tx = pool(&state)?.begin().await?;
-        let result = owned(&mut tx, &actor, &row).await;
-        match result {
-            Ok(result) => {
-                let updated = finish(&mut tx, &actor, id, Ok(result)).await?;
+        if row.status != "proposed" {
+            let stored: Option<Vec<u8>> =
+                sqlx::query_scalar("SELECT idempotency_key_hash FROM assistant_actions WHERE id=$1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if stored.as_deref() != Some(hash.as_slice()) {
+                return Err(decided());
+            }
+            match row.status.as_str() {
+                "done" | "failed" => return Ok(Json(action_json(&row))),
+                "executing" => {}
+                _ => return Err(decided()),
+            }
+        } else {
+            if row.expires_at < chrono::Utc::now() || changed(&mut tx, &actor, &row).await? {
+                let updated = expire(&mut tx, id).await?;
                 tx.commit().await?;
-                after_decision(&state, &actor, &updated, ActionDecision::Confirmed);
-                return Ok(Json(action_json(&updated)));
+                after_decision(&state, &actor, &updated, ActionDecision::Expired);
+                return Err(stale());
             }
-            Err(error) => {
-                tx.rollback().await?;
-                Err(error.into())
-            }
+            row = sqlx::query_as(concat!("UPDATE assistant_actions SET status='executing',decided_by=$2,decided_at=clock_timestamp(),idempotency_key_hash=$3 WHERE id=$1 RETURNING ",action_columns!()))
+                .bind(id).bind(actor.member_id).bind(hash.as_slice()).fetch_one(&mut *tx).await?;
         }
-    } else {
-        execute(state.clone(), actor.clone(), row.clone(), headers).await
-    };
-    let mut tx = pool(&state)?.begin().await?;
-    if execution
-        .as_ref()
-        .is_err_and(|e| e.status == StatusCode::FORBIDDEN)
-    {
-        sqlx::query("UPDATE assistant_actions SET status='proposed',decided_by=NULL,decided_at=NULL,idempotency_key_hash=NULL,result=NULL,error=NULL WHERE id=$1")
-            .bind(id).execute(&mut *tx).await?;
         tx.commit().await?;
-        return Err(ApiError::forbidden());
+        let execution = if recovery && row.kind == "invite" {
+            Err(ApiError::conflict(
+                "invite_outcome_unknown",
+                "Không thể xác định kết quả lời mời trước đó; vui lòng kiểm tra trước khi tạo lại",
+            )
+            .into())
+        } else if matches!(row.kind.as_str(), "receipt_line_update" | "reorder_list") {
+            // The assistant-owned write and action finalization share this transaction.
+            let mut tx = pool(&state)?.begin().await?;
+            let result = owned(&mut tx, &actor, &row).await;
+            match result {
+                Ok(result) => {
+                    let updated = finish(&mut tx, &actor, id, Ok(result)).await?;
+                    tx.commit().await?;
+                    after_decision(&state, &actor, &updated, ActionDecision::Confirmed);
+                    return Ok(Json(action_json(&updated)));
+                }
+                Err(error) => {
+                    tx.rollback().await?;
+                    Err(error.into())
+                }
+            }
+        } else {
+            execute(state.clone(), actor.clone(), row.clone(), headers).await
+        };
+        let mut tx = pool(&state)?.begin().await?;
+        if execution
+            .as_ref()
+            .is_err_and(|e| e.status == StatusCode::FORBIDDEN)
+        {
+            sqlx::query("UPDATE assistant_actions SET status='proposed',decided_by=NULL,decided_at=NULL,idempotency_key_hash=NULL,result=NULL,error=NULL WHERE id=$1")
+                .bind(id).execute(&mut *tx).await?;
+            tx.commit().await?;
+            return Err(ApiError::forbidden());
+        }
+        let updated = finish(&mut tx, &actor, id, execution).await?;
+        tx.commit().await?;
+        let decision = if updated.status == "done" {
+            ActionDecision::Confirmed
+        } else {
+            ActionDecision::Failed
+        };
+        after_decision(&state, &actor, &updated, decision);
+        Ok(Json(action_json(&updated)))
     }
-    let updated = finish(&mut tx, &actor, id, execution).await?;
-    tx.commit().await?;
-    let decision = if updated.status == "done" {
-        ActionDecision::Confirmed
-    } else {
-        ActionDecision::Failed
-    };
-    after_decision(&state, &actor, &updated, decision);
-    Ok(Json(action_json(&updated)))
+    .instrument(span)
+    .await
 }
 
 async fn owned(conn: &mut PgConnection, actor: &Actor, row: &ActionRow) -> ApiResult<Value> {
@@ -514,37 +521,31 @@ pub(crate) async fn reject(
     let id = parse_id(&id)?;
     let mut tx = pool(&state)?.begin().await?;
     let row = load(&mut tx, &actor, id).await?;
-    if row.status == "expired" {
-        return Err(stale());
-    }
-    if row.status != "proposed" {
-        return Err(decided());
-    }
-    if row.expires_at < chrono::Utc::now() || changed(&mut tx, &actor, &row).await? {
-        let updated = expire(&mut tx, id).await?;
-        tx.commit().await?;
-        after_decision(&state, &actor, &updated, ActionDecision::Expired);
-        return Err(stale());
-    }
-    let updated:ActionRow=sqlx::query_as(concat!("UPDATE assistant_actions SET status='rejected',decided_by=$2,decided_at=clock_timestamp() WHERE id=$1 RETURNING ",action_columns!())).bind(id).bind(actor.member_id).fetch_one(&mut *tx).await?;
-    emit_decision(&mut tx, &actor, &updated, "rejected").await?;
-    tx.commit().await?;
-    after_decision(&state, &actor, &updated, ActionDecision::Rejected);
-    Ok(Json(action_json(&updated)))
-}
-pub(crate) fn capture(state: &AppState, actor: &Actor, event: ProductEvent) {
-    let analytics = state.analytics.clone();
-    let ctx = EventContext {
-        distinct_id: actor.member_id.to_string(),
-        store_id: actor.store_id,
-        member_id: actor.member_id,
-        role: actor.role,
-    };
-    tokio::spawn(async move {
-        if analytics.capture(&ctx, event).await.is_err() {
-            tracing::warn!("assistant product event capture failed");
+    let span = telemetry::action_span(&row);
+    async move {
+        if row.status == "expired" {
+            return Err(stale());
         }
-    });
+        if row.status != "proposed" {
+            return Err(decided());
+        }
+        if row.expires_at < chrono::Utc::now() || changed(&mut tx, &actor, &row).await? {
+            let updated = expire(&mut tx, id).await?;
+            tx.commit().await?;
+            after_decision(&state, &actor, &updated, ActionDecision::Expired);
+            return Err(stale());
+        }
+        let updated:ActionRow=sqlx::query_as(concat!("UPDATE assistant_actions SET status='rejected',decided_by=$2,decided_at=clock_timestamp() WHERE id=$1 RETURNING ",action_columns!())).bind(id).bind(actor.member_id).fetch_one(&mut *tx).await?;
+        emit_decision(&mut tx, &actor, &updated, "rejected").await?;
+        tx.commit().await?;
+        after_decision(&state, &actor, &updated, ActionDecision::Rejected);
+        Ok(Json(action_json(&updated)))
+    }
+    .instrument(span)
+    .await
+}
+pub(crate) fn capture(state: &AppState, actor: &Actor, event: ProductEvent, trace: Option<&str>) {
+    telemetry::product(state, actor, &event, trace);
 }
 fn after_decision(state: &AppState, actor: &Actor, row: &ActionRow, decision: ActionDecision) {
     if let Some(kind) = analytics_kind(&row.kind) {
@@ -552,6 +553,7 @@ fn after_decision(state: &AppState, actor: &Actor, row: &ActionRow, decision: Ac
             state,
             actor,
             ProductEvent::AssistantActionDecided { kind, decision },
+            row.trace_id.as_deref(),
         );
     }
     let decision = match decision {
@@ -562,8 +564,10 @@ fn after_decision(state: &AppState, actor: &Actor, row: &ActionRow, decision: Ac
     };
     action_decided(state, actor, row, decision);
 }
-/// T8 attaches the assistant trace and LLM analytics here.
-fn action_decided(_state: &AppState, _actor: &Actor, _row: &ActionRow, _decision: &str) {}
+/// Record the terminal status on the span enclosing the committed decision.
+fn action_decided(_state: &AppState, _actor: &Actor, _row: &ActionRow, decision: &str) {
+    tracing::Span::current().record("taphoa.action.status", decision);
+}
 
 pub(crate) fn analytics_kind(kind: &str) -> Option<ActionKind> {
     Some(match kind {

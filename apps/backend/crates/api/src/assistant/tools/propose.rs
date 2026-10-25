@@ -331,17 +331,20 @@ impl Tool for Propose {
             }
         };
         // Enforce the context's ownership even when called directly, outside the loop.
-        let row: ActionRow = sqlx::query_as(concat!("INSERT INTO assistant_actions(id,store_id,thread_id,message_id,kind,payload,summary_vi,proposed_by,trace_id,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '24 hours' WHERE EXISTS(SELECT 1 FROM assistant_threads t JOIN assistant_messages m ON m.thread_id=t.id AND m.store_id=t.store_id WHERE t.id=$3 AND t.store_id=$2 AND t.member_id=$8 AND m.id=$4 AND m.role='assistant') RETURNING ",action_columns!()))
+        let row: ActionRow = sqlx::query_as(concat!("INSERT INTO assistant_actions(id,store_id,thread_id,message_id,kind,payload,summary_vi,proposed_by,trace_id,span_id,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()+interval '24 hours' WHERE EXISTS(SELECT 1 FROM assistant_threads t JOIN assistant_messages m ON m.thread_id=t.id AND m.store_id=t.store_id WHERE t.id=$3 AND t.store_id=$2 AND t.member_id=$8 AND m.id=$4 AND m.role='assistant') RETURNING ",action_columns!()))
             .bind(Uuid::now_v7()).bind(ctx.actor.store_id).bind(ctx.thread_id).bind(ctx.message_id)
-            .bind(self.action_kind()).bind(payload).bind(&summary).bind(ctx.actor.member_id).bind(&ctx.trace_id)
+            .bind(self.action_kind()).bind(payload).bind(&summary).bind(ctx.actor.member_id).bind(&ctx.trace_id).bind(super::super::telemetry::span_id(&tracing::Span::current()))
             .fetch_optional(pool(&ctx.state)?).await?.ok_or_else(||ToolError::NotFound("Không tìm thấy cuộc trò chuyện".into()))?;
         if let Some(kind) = actions::analytics_kind(self.action_kind()) {
             actions::capture(
                 &ctx.state,
                 &ctx.actor,
                 crate::analytics::ProductEvent::AssistantActionProposed { kind },
+                ctx.trace_id.as_deref(),
             );
         }
+        sqlx::query("UPDATE assistant_messages SET span_id=COALESCE(span_id,$2) WHERE id=$1 AND store_id=$3")
+            .bind(ctx.message_id).bind(&row.span_id).bind(ctx.actor.store_id).execute(pool(&ctx.state)?).await?;
         let mut output = ToolOutput::new(
             json!({"action_id":row.id,"status":"proposed","summary_vi":summary,"note":"Chờ chủ cửa hàng bấm Xác nhận"}),
             summary,
