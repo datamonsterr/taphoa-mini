@@ -24,6 +24,7 @@ beforeEach(() => {
   resetMockDb();
   require('./clerk').resetClerkMock();
   require('@/features/auth/emailFlow').useEmailFlow.getState().reset();
+  require('@/features/auth/addPerson').useAddPerson.getState().end();
   require('@/features/onboarding/inviteIntent')
     .useInviteIntent.getState()
     .setToken('');

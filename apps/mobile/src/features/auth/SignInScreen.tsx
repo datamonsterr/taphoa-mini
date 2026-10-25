@@ -11,15 +11,18 @@ import {
   ActionButton,
   FormError,
 } from '@/features/onboarding/kit';
+import { flowPaths, useCancelAddPerson, type AuthFlow } from './addPerson';
 import { useEmailFlow } from './emailFlow';
 import { authErrorKey, clerkErrorCode } from './errors';
 import { strings } from './strings';
 
 WebBrowser.maybeCompleteAuthSession();
 
-export function SignInScreen() {
+export function SignInScreen({ flow }: { flow?: AuthFlow }) {
   const t = useT(strings);
   const router = useRouter();
+  const paths = flowPaths(flow);
+  const cancelAdd = useCancelAddPerson();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const { startSSOFlow } = useSSO();
@@ -56,7 +59,7 @@ export function SignInScreen() {
         if (sent.error) throw sent.error;
       }
       useEmailFlow.getState().begin(address, mode);
-      router.push('/verify-code');
+      router.push(paths.code);
     } catch (failure) {
       setError(t(authErrorKey(failure)));
     } finally {
@@ -70,7 +73,10 @@ export function SignInScreen() {
       // This route also runs maybeCompleteAuthSession in the web popup callback.
       const result = await startSSOFlow({
         strategy: 'oauth_google',
-        redirectUrl: makeRedirectUri({ scheme: 'taphoa', path: 'sign-in' }),
+        redirectUrl: makeRedirectUri({
+          scheme: 'taphoa',
+          path: paths.callback,
+        }),
       });
       if (result.createdSessionId && result.setActive)
         await result.setActive({
@@ -89,7 +95,11 @@ export function SignInScreen() {
     }
   };
   return (
-    <Frame testID="auth-sign-in-screen" title={t('title')} back={false}>
+    <Frame
+      testID="auth-sign-in-screen"
+      title={t(flow === 'add' ? 'addTitle' : 'title')}
+      back={false}
+    >
       <Field
         testID="auth-email"
         label={t('email')}
@@ -123,6 +133,17 @@ export function SignInScreen() {
           void google();
         }}
       />
+      {flow === 'add' ? (
+        <ActionButton
+          testID="auth-add-cancel"
+          label={t('cancel')}
+          variant="secondary"
+          disabled={busy}
+          onPress={() => {
+            void cancelAdd();
+          }}
+        />
+      ) : null}
     </Frame>
   );
 }

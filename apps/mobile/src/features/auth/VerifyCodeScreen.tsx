@@ -8,13 +8,16 @@ import {
   ActionButton,
   FormError,
 } from '@/features/onboarding/kit';
+import { flowPaths, useCancelAddPerson, type AuthFlow } from './addPerson';
 import { useEmailFlow } from './emailFlow';
 import { authErrorKey } from './errors';
 import { strings } from './strings';
 
-export function VerifyCodeScreen() {
+export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
   const t = useT(strings);
   const router = useRouter();
+  const paths = flowPaths(flow);
+  const cancelAdd = useCancelAddPerson();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const mode = useEmailFlow((s) => s.mode);
@@ -22,7 +25,9 @@ export function VerifyCodeScreen() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!email) return <Redirect href="/sign-in" />;
+  // Cancelling clears the email; the pop animation must not bounce back to the form.
+  const [leaving, setLeaving] = useState(false);
+  if (!email && !leaving) return <Redirect href={paths.form} />;
   const verify = async () => {
     if (!/^\d{6}$/.test(code)) {
       setError(t('invalidCode'));
@@ -70,7 +75,7 @@ export function VerifyCodeScreen() {
     await signIn.reset();
     await signUp.reset();
     useEmailFlow.getState().reset();
-    router.replace('/sign-in');
+    router.replace(paths.form);
   };
   return (
     <Frame testID="auth-code-screen" title={t('codeTitle')} subtitle={email}>
@@ -114,6 +119,18 @@ export function VerifyCodeScreen() {
           void changeEmail();
         }}
       />
+      {flow === 'add' ? (
+        <ActionButton
+          testID="auth-add-cancel"
+          label={t('cancel')}
+          variant="secondary"
+          disabled={busy}
+          onPress={() => {
+            setLeaving(true);
+            void cancelAdd();
+          }}
+        />
+      ) : null}
     </Frame>
   );
 }
