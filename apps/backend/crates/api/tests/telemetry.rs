@@ -404,6 +404,43 @@ async fn identity_child_logs_db_events_and_job_contract() {
     );
 }
 
+fn poll_outbox_query() {
+    tracing::debug!(
+        target: "sqlx::query",
+        summary = "SELECT id FROM outbox_events",
+        db.statement = "SELECT id FROM outbox_events WHERE published_at IS NULL LIMIT 100",
+        rows_affected = 0_u64,
+        rows_returned = 0_u64,
+        elapsed_secs = 0.001_f64
+    );
+}
+
+#[test]
+fn sqlx_events_export_db_spans_only_below_an_active_span() {
+    let capture = Capture::new();
+    let _default = tracing::subscriber::set_default(capture.subscriber());
+    // Background pollers (outbox relay, index worker) query before they open a job span.
+    poll_outbox_query();
+    assert!(
+        capture.spans.get_finished_spans().unwrap().is_empty(),
+        "a query outside any span must not export a root db trace"
+    );
+    {
+        let request = tracing::info_span!("request");
+        let _entered = request.enter();
+        poll_outbox_query();
+    }
+    let spans = capture.spans.get_finished_spans().unwrap();
+    assert_eq!(spans.len(), 2, "{spans:?}");
+    let request = spans.iter().find(|s| s.name == "request").unwrap();
+    let db = spans
+        .iter()
+        .find(|s| s.name == "db SELECT outbox_events")
+        .expect("db span below a request span");
+    assert_eq!(db.parent_span_id, request.span_context.span_id());
+    assert_eq!(db.span_context.trace_id(), request.span_context.trace_id());
+}
+
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "requires DATABASE_URL pointing to PostgreSQL"]
 async fn real_sqlx_query_produces_db_span() {

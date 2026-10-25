@@ -7,7 +7,7 @@ use axum::{
 use opentelemetry::{
     KeyValue,
     propagation::{Extractor, TextMapPropagator},
-    trace::{Span as _, SpanKind, Tracer, TracerProvider},
+    trace::{Span as _, SpanKind, TraceContextExt as _, Tracer, TracerProvider},
 };
 use opentelemetry_appender_tracing::layer::{OpenTelemetryTracingBridge, TracingSpanAttributes};
 use opentelemetry_otlp::{Protocol, WithExportConfig};
@@ -488,6 +488,11 @@ where
         if event.metadata().target() != "sqlx::query" {
             return;
         }
+        // Background pollers query outside any span; a db span there would be a root trace.
+        let parent = opentelemetry::Context::current();
+        if !parent.span().span_context().is_valid() {
+            return;
+        }
         let mut query = Query::default();
         event.record(&mut query);
         let sql = if query.statement.is_empty() {
@@ -521,7 +526,6 @@ where
             || format!("db {operation}"),
             |t| format!("db {operation} {t}"),
         );
-        let parent = opentelemetry::Context::current();
         let mut span = self.0.build_with_context(
             self.0
                 .span_builder(name)
