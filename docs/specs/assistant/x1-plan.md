@@ -61,7 +61,9 @@ memberships: [{store, member}]}` (active memberships only, ordered by join time)
    Clerk session id string. `session.revoked` is removed from AsyncAPI and code. The event
    stream of a member closes when `member.changed` arrives with `{member_id: <self>, change:
 "deactivated"}`; removed members get `403` on the next request because the extractor reads
-   active memberships every time.
+   active memberships every time. The token is checked once at connect, so every stream also
+   ends cleanly after 15 minutes (`MAX_STREAM_AGE`); clients reconnect with a fresh token and
+   resume with `Last-Event-ID`.
 7. **Migration `0701_clerk_identity.sql`.** Truncate every store-scoped table (stores cascade
    plus any table without a foreign key to `stores`, for example outbox, images, idempotency
    rows), then: `members.clerk_user_id TEXT NOT NULL`, unique `(store_id, clerk_user_id)`,

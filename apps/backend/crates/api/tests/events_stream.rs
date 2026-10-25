@@ -193,6 +193,9 @@ struct Server {
     tasks: Vec<JoinHandle<()>>,
 }
 async fn start() -> (Server, AppState) {
+    start_with(Hub::with_heartbeat(Duration::from_millis(300))).await
+}
+async fn start_with(hub: Hub) -> (Server, AppState) {
     let config = Config::from_lookup(|key| match key {
         "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
         "CLERK_SECRET_KEY" => None,
@@ -202,7 +205,7 @@ async fn start() -> (Server, AppState) {
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
     common::clerk::install(&mut state);
-    state.hub = Hub::with_heartbeat(Duration::from_millis(300));
+    state.hub = hub;
     let (shutdown, rx) = watch::channel(false);
     let mut tasks = spawn_background(&state, rx.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -459,6 +462,53 @@ async fn replay_pages_through_a_backlog_larger_than_one_page() {
         count += 1;
     }
     cleanup(pool, store).await;
+    server.stop().await;
+}
+
+/// The token is verified once at connect, so every stream has a bounded lifetime:
+/// clients then reconnect with a fresh token and resume from their last event id.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn stream_ends_at_its_lifetime_cap_and_resumes_by_event_id() {
+    assert_eq!(
+        taphoa_api::events::MAX_STREAM_AGE,
+        Duration::from_secs(15 * 60)
+    );
+    let cap = Duration::from_millis(1500);
+    let (server, _) = start_with(Hub::with_limits(Duration::from_millis(300), cap)).await;
+    let lead = create_store(&server.base).await;
+    let token = lead["access_token"].as_str().unwrap();
+    let opened = std::time::Instant::now();
+    let mut stream = open(&server.base, token, None).await;
+    let mut buf = String::new();
+    patch_store(&server.base, token, "before").await;
+    let (seen, _, _) = event(&mut stream, &mut buf).await;
+
+    // Idle apart from heartbeats, the stream must still end cleanly at the cap.
+    loop {
+        let chunk = timeout(Duration::from_secs(5), stream.chunk())
+            .await
+            .expect("stream ends at its lifetime cap")
+            .expect("server closes the stream cleanly, not with a transport error");
+        if chunk.is_none() {
+            break;
+        }
+    }
+    let lived = opened.elapsed();
+    assert!(lived >= cap, "closed early after {lived:?}");
+    assert!(
+        lived < cap + Duration::from_secs(3),
+        "closed late: {lived:?}"
+    );
+
+    // A reconnect resumes from the last received id, without gaps.
+    patch_store(&server.base, token, "while-closed").await;
+    let mut resumed = open(&server.base, token, Some(&seen)).await;
+    let mut buf = String::new();
+    let (missed, name, data) = event(&mut resumed, &mut buf).await;
+    assert!(seen < missed);
+    assert_eq!(name, "store.changed");
+    assert_eq!(data["data"]["fields"], json!(["name"]));
     server.stop().await;
 }
 

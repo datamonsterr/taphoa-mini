@@ -31,6 +31,8 @@ channels:
       `id: <envelope.id>`, `event: <envelope.type>`, `data: <envelope JSON>`.
       Heartbeat comment `: ping` every 25 s. Reconnect with `Last-Event-ID`.
       Only events of the store selected by `X-Store-Id` (or the only active membership) are sent. The stream closes when `member.changed` deactivates the connected member.
+      The bearer token is checked only when the stream opens, so the server also closes every stream cleanly after 15 minutes;
+      the client reconnects with a fresh token and `Last-Event-ID`.
     servers:
       - $ref: '#/servers/api'
     messages:
