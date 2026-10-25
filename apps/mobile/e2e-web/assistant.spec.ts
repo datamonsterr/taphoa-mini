@@ -11,6 +11,7 @@ import {
   openShop,
   test,
   uuid7,
+  withScanSlot,
   type Api,
 } from './fixtures';
 
@@ -96,6 +97,32 @@ test.beforeEach(async ({ request, store }) => {
     `Backend answers with model ${JSON.stringify(model)}, not the scripted model`,
   );
 });
+
+/**
+ * OCR shares the backend's one segmenter with scans and with the background indexing of products
+ * that parallel specs just created: take the scan lock and retry while the answer is "busy".
+ */
+async function createReceipt(api: Api, imageId: string) {
+  const key = uuid7();
+  const deadline = Date.now() + 45_000;
+  for (;;) {
+    try {
+      return await withScanSlot(() =>
+        api.post(
+          '/v1/receipts',
+          { image_id: imageId },
+          { 'Idempotency-Key': key },
+        ),
+      );
+    } catch (error) {
+      const busy =
+        error instanceof ApiError &&
+        JSON.stringify(error.body).includes('segmenter busy');
+      if (!busy || Date.now() > deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
 
 /** Shop tab bar -> chat button -> the assistant sheet. */
 async function openChat(page: import('@playwright/test').Page) {
@@ -188,8 +215,12 @@ test('stock adjustment: tool line, action card, confirm changes the stock once',
   await openChat(page);
   await ask(page, 'Điều chỉnh tồn kho');
 
-  // the get_stock_levels tool line ends in its ok state, then the proposal shows
-  await expect(page.getByTestId(/^tool-line-.*-ok$/)).toBeVisible();
+  // the scripted model calls get_stock_levels, then the propose tool: both lines end in ok
+  // (their ids are the call ids rule_1 and rule_2), then the proposal shows
+  await expect(page.getByTestId(/^tool-line-.*-ok$/)).toHaveCount(2);
+  await expect(page.getByTestId(/^tool-line-.*-(running|failed)$/)).toHaveCount(
+    0,
+  );
   const card = actionCard(page);
   await expect(card).toBeVisible();
   await expect(card.getByText('Chờ xác nhận')).toBeVisible();
@@ -245,14 +276,10 @@ test('receipt chat: lines card, table view and back, confirm imports the receipt
       cost_price: product.price / 2,
     });
   }
-  const imageId = await store.api.uploadImage(RECEIPT_PHOTO, 'receipt');
+  const imageId = await store.api.uploadImage(RECEIPT_PHOTO, 'expense_receipt');
   let receipt;
   try {
-    receipt = await store.api.post(
-      '/v1/receipts',
-      { image_id: imageId },
-      { 'Idempotency-Key': uuid7() },
-    );
+    receipt = await createReceipt(store.api, imageId);
   } catch (error) {
     if (
       error instanceof ApiError &&
