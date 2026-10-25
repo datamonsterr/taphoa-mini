@@ -575,17 +575,17 @@ where
         if let Some(table) = &table {
             attributes.push(KeyValue::new("db.collection.name", table.clone()));
         }
-        if let Some(scope) = ctx.event_scope(event) {
-            for span in scope.from_root() {
-                if let Some(inherited) = span.extensions().get::<Inherited>() {
-                    attributes.extend(
-                        inherited
-                            .0
-                            .iter()
-                            .map(|(k, v)| KeyValue::new(*k, v.clone())),
-                    );
-                }
-            }
+        // Inherited is cumulative per span: the innermost span already holds every
+        // ancestor's identity, and walking the whole scope would repeat each key.
+        if let Some(span) = ctx.event_scope(event).and_then(|mut scope| scope.next())
+            && let Some(inherited) = span.extensions().get::<Inherited>()
+        {
+            attributes.extend(
+                inherited
+                    .0
+                    .iter()
+                    .map(|(k, v)| KeyValue::new(*k, v.clone())),
+            );
         }
         let now = SystemTime::now();
         let elapsed = Duration::try_from_secs_f64(query.elapsed).unwrap_or_default();

@@ -509,6 +509,47 @@ async fn only_info_and_above_spans_are_exported_and_global_max_level_is_bounded(
     assert!(inside.record.body().is_some());
 }
 
+#[test]
+fn db_spans_carry_each_identity_attribute_once_under_nested_spans() {
+    let capture = Capture::new();
+    let _default = tracing::subscriber::set_default(capture.subscriber());
+    let identity = [
+        ("taphoa.store.id", "store-1"),
+        ("taphoa.member.id", "member-1"),
+        ("taphoa.member.role", "seller"),
+        ("session.id", "session-1"),
+    ];
+    {
+        let request = tracing::info_span!(
+            "request",
+            taphoa.store.id = identity[0].1,
+            taphoa.member.id = identity[1].1,
+            taphoa.member.role = identity[2].1,
+            session.id = identity[3].1
+        );
+        let _request = request.enter();
+        let service = tracing::info_span!("service");
+        let _service = service.enter();
+        let repository = tracing::info_span!("repository");
+        let _repository = repository.enter();
+        poll_outbox_query();
+    }
+    let spans = capture.spans.get_finished_spans().unwrap();
+    let db = spans
+        .iter()
+        .find(|s| s.name == "db SELECT outbox_events")
+        .expect("db span");
+    for (key, value) in identity {
+        let values: Vec<_> = db
+            .attributes
+            .iter()
+            .filter(|kv| kv.key.as_str() == key)
+            .map(|kv| kv.value.clone())
+            .collect();
+        assert_eq!(values, [Value::from(value)], "{key}: {:?}", db.attributes);
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "requires DATABASE_URL pointing to PostgreSQL"]
 async fn real_sqlx_query_produces_db_span() {
