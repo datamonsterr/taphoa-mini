@@ -80,6 +80,11 @@ tags:
   - name: Sync
     description: Offline-first change feed and live event stream (G4).
 
+  - name: Assistant
+    description: Private chat threads, proposed actions, next steps and daily digest.
+  - name: Devices
+    description: Expo push token registrations.
+
 paths:
   # ---------------------------------------------------------------- Health
   /healthz:
@@ -1685,6 +1690,360 @@ paths:
               schema: { $ref: '#/components/schemas/StoreEvent' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ---------------------------------------------------------------- Assistant and devices
+  /v1/assistant/threads:
+    post:
+      tags:
+        - Assistant
+      operationId: createAssistantThread
+      summary: Create an assistant thread
+      description: Create a private thread for the caller, optionally seeded with screen or receipt context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssistantThread'
+      responses:
+        '201':
+          description: Thread created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantThread'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    get:
+      tags:
+        - Assistant
+      operationId: listAssistantThreads
+      summary: List own assistant threads
+      description: Cursor pagination of the caller threads, newest first.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantThreadPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/assistant/threads/{threadId}:
+    get:
+      tags:
+        - Assistant
+      operationId: getAssistantThread
+      summary: Read a thread with messages and actions
+      description: Only the owning member can read a thread in the current store.
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantThreadDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Assistant
+      operationId: deleteAssistantThread
+      summary: Delete own assistant thread
+      description: Delete own assistant thread.
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Thread deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/assistant/threads/{threadId}/messages:
+    post:
+      tags:
+        - Assistant
+      operationId: sendAssistantMessage
+      summary: Send a message and stream the assistant reply
+      description:
+        'Each SSE frame has event: <name> and one JSON data: line. Validation, ownership and
+        not-found errors are JSON before the stream starts. Quota and model failures are error events inside
+        the 200 stream. message.completed and error terminate the stream. No resumption or Last-Event-ID;
+        clients never automatically resend this POST.'
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendAssistantMessage'
+      responses:
+        '200':
+          description: SSE frames with event name and one JSON data line.
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/AssistantStreamEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/assistant/actions/{actionId}/confirm:
+    post:
+      tags:
+        - Assistant
+      operationId: confirmAssistantAction
+      summary: Confirm and execute a proposed action
+      description:
+        Execute with the confirming member permissions. A replay returns the first result. Expired
+        or changed targets return 409 action_stale; an already decided action returns 409 already_decided.
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Updated action, or the first result on an idempotent replay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantAction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/assistant/actions/{actionId}/reject:
+    post:
+      tags:
+        - Assistant
+      operationId: rejectAssistantAction
+      summary: Reject a proposed action
+      description:
+        Reject a proposal in an accessible thread. A stale or already decided action returns
+        409 action_stale or already_decided.
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Updated rejected action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantAction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/assistant/messages/{messageId}/feedback:
+    post:
+      tags:
+        - Assistant
+      operationId: submitAssistantFeedback
+      summary: Rate an assistant message
+      description: Save thumbs up or down and an optional comment for an assistant message in an own thread.
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedback'
+      responses:
+        '204':
+          description: Feedback saved.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/assistant/next-steps:
+    get:
+      tags:
+        - Assistant
+      operationId: listAssistantNextSteps
+      summary: List ranked next-step chips
+      description:
+        At most eight permission-filtered chips ranked by priority. Computed by rules without
+        a model call; the phone puts its on-device context chips first.
+      parameters:
+        - name: screen
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Current app screen, for example camera.
+        - name: document_detected
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Whether the phone detected a receipt in the current frame.
+        - name: unknown_product
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Whether the current frame has an unknown product.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NextStepList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/assistant/digest:
+    get:
+      tags:
+        - Assistant
+      operationId: getAssistantDigest
+      summary: Read the daily digest
+      description:
+        Return the stored daily digest, using a template when model generation is unavailable.
+        Profit and cost fields are null for members without cost permission.
+      parameters:
+        - name: business_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Digest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/devices:
+    post:
+      tags:
+        - Devices
+      operationId: registerDevice
+      summary: Register or update an Expo push token
+      description:
+        Upsert by token for the authenticated member and current store; update platform, app
+        version and language.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDevice'
+      responses:
+        '200':
+          description: Device registration upserted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/devices/{token}:
+    delete:
+      tags:
+        - Devices
+      operationId: unregisterDevice
+      summary: Remove an Expo push token
+      description: Idempotently remove the caller push registration for this token.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Expo push token, URL-encoded as a path segment.
+      responses:
+        '204':
+          description: Registration removed, including when the token was already absent.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1786,7 +2145,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Conflict:
-      description: State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`, `already_confirmed`).
+      description: State conflict (`id_conflict`, `last_lead`, `image_limit`, `alert_closed`, `already_confirmed`, `action_stale`, `already_decided`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1846,7 +2205,7 @@ components:
           }
         code:
           type: string
-          description: Machine code, including no_text (422), ocr_unavailable (503), already_confirmed (409).
+          description: Machine code, including no_text (422), ocr_unavailable (503), already_confirmed (409), action_stale (409; proposal expired or target changed), already_decided (409; proposal already confirmed or rejected).
           example: duplicate_suspected
         details: { type: object, additionalProperties: true }
     Readiness:
@@ -3049,6 +3408,8 @@ components:
             - stock.changed
             - stock.low
             - receipt.confirmed
+            - assistant.action.confirmed
+            - assistant.action.rejected
         version: { type: integer, minimum: 1 }
         store_id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }
@@ -3063,3 +3424,858 @@ components:
             description: 'Change-feed cursor after this event, when relevant.',
           }
         data: { type: object }
+
+    # Assistant and devices
+    AssistantLanguage:
+      type: string
+      enum:
+        - vi
+        - en
+    AssistantThreadContext:
+      type: object
+      additionalProperties: false
+      required:
+        - screen
+      properties:
+        screen:
+          type: string
+          minLength: 1
+        next_step_id:
+          type: string
+        receipt_id:
+          type: string
+          format: uuid
+        image_id:
+          type: string
+          format: uuid
+    CreateAssistantThread:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        title:
+          type: string
+          minLength: 1
+        context:
+          $ref: '#/components/schemas/AssistantThreadContext'
+    AssistantThread:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - context
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        context:
+          anyOf:
+            - $ref: '#/components/schemas/AssistantThreadContext'
+            - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AssistantThreadPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          additionalProperties: false
+          required:
+            - items
+            - next_cursor
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AssistantThread'
+            next_cursor:
+              type:
+                - string
+                - 'null'
+    AssistantThreadDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - thread
+        - messages
+        - actions
+      properties:
+        thread:
+          $ref: '#/components/schemas/AssistantThread'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantMessage'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantAction'
+    AssistantAttachment:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - image_id
+          properties:
+            image_id:
+              type: string
+              format: uuid
+        - type: object
+          additionalProperties: false
+          required:
+            - receipt_id
+          properties:
+            receipt_id:
+              type: string
+              format: uuid
+    SendAssistantMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - content
+        - language
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantAttachment'
+        language:
+          $ref: '#/components/schemas/AssistantLanguage'
+    AssistantMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - thread_id
+        - role
+        - content
+        - tool_calls
+        - cards
+        - model
+        - feedback
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+        content:
+          type: string
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantToolCallSummary'
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantCard'
+        model:
+          type:
+            - string
+            - 'null'
+        feedback:
+          anyOf:
+            - $ref: '#/components/schemas/AssistantFeedback'
+            - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    AssistantToolCallSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - call_id
+        - tool
+        - ok
+        - summary_vi
+      properties:
+        call_id:
+          type: string
+        tool:
+          type: string
+        ok:
+          type: boolean
+        summary_vi:
+          type: string
+    AssistantAction:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - thread_id
+        - message_id
+        - kind
+        - status
+        - payload
+        - summary_vi
+        - proposed_by
+        - decided_by
+        - decided_at
+        - result
+        - error
+        - expires_at
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - stock_adjustment
+            - expense
+            - price_change
+            - threshold_update
+            - reorder_list
+            - receipt_line_update
+            - receipt_confirm
+            - repayment
+            - debt_adjustment
+            - invite
+        status:
+          type: string
+          enum:
+            - proposed
+            - executing
+            - done
+            - failed
+            - rejected
+            - expired
+        payload:
+          type: object
+          additionalProperties: true
+          description: Validated tool arguments. Shape depends on kind; proposing never executes a write.
+        summary_vi:
+          type: string
+        proposed_by:
+          type: string
+          format: uuid
+        decided_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        decided_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        result:
+          anyOf:
+            - type: object
+              additionalProperties: true
+              description: Execution result, including created or updated entity ids.
+            - type: 'null'
+        error:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+            - type: 'null'
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      description:
+        A proposal expires after 24 hours or when its target changes. Decisions use the deciding
+        member permissions.
+    AssistantRestockItem:
+      type: object
+      additionalProperties: false
+      required:
+        - product_id
+        - name
+        - quantity
+        - unit_cost
+        - total_cost
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unit_cost:
+          anyOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        total_cost:
+          anyOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+      description: Suggested base-unit quantity. Cost fields are null when the caller cannot view costs.
+    AssistantCard:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+            - receipt_id
+            - lines
+          properties:
+            type:
+              type: string
+              const: receipt_lines
+            receipt_id:
+              type: string
+              format: uuid
+            lines:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - line_id
+                  - name
+                  - quantity
+                  - cost
+                  - product_id
+                  - confidence
+                properties:
+                  line_id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  quantity:
+                    type:
+                      - number
+                      - 'null'
+                    exclusiveMinimum: 0
+                  cost:
+                    anyOf:
+                      - $ref: '#/components/schemas/Money'
+                      - type: 'null'
+                  product_id:
+                    type:
+                      - string
+                      - 'null'
+                    format: uuid
+                  confidence:
+                    type:
+                      - number
+                      - 'null'
+                    minimum: 0
+                    maximum: 1
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+            - items
+            - total_cost
+          properties:
+            type:
+              type: string
+              const: restock_list
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AssistantRestockItem'
+            total_cost:
+              anyOf:
+                - $ref: '#/components/schemas/Money'
+                - type: 'null'
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+            - items
+          properties:
+            type:
+              type: string
+              const: debt_list
+            items:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - customer_id
+                  - name
+                  - total
+                  - overdue_days
+                properties:
+                  customer_id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  total:
+                    $ref: '#/components/schemas/Money'
+                  overdue_days:
+                    type: integer
+                    minimum: 0
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+            - title_vi
+            - bars
+          properties:
+            type:
+              type: string
+              const: chart_bars
+            title_vi:
+              type: string
+            bars:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - label
+                  - value
+                properties:
+                  label:
+                    type: string
+                  value:
+                    $ref: '#/components/schemas/Money'
+          description: Bars represent amounts in integer VND.
+    AssistantMessageCreated:
+      type: object
+      additionalProperties: false
+      required:
+        - message_id
+        - thread_id
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+    AssistantMessageDelta:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          type: string
+    AssistantToolStarted:
+      type: object
+      additionalProperties: false
+      required:
+        - call_id
+        - tool
+        - label_vi
+      properties:
+        call_id:
+          type: string
+        tool:
+          type: string
+        label_vi:
+          type: string
+    AssistantToolFinished:
+      type: object
+      additionalProperties: false
+      required:
+        - call_id
+        - tool
+        - ok
+        - summary_vi
+      properties:
+        call_id:
+          type: string
+        tool:
+          type: string
+        ok:
+          type: boolean
+        summary_vi:
+          type: string
+    AssistantMessageCompleted:
+      type: object
+      additionalProperties: false
+      required:
+        - message_id
+        - model
+        - usage
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+        usage:
+          type: object
+          additionalProperties: false
+          required:
+            - input_tokens
+            - output_tokens
+          properties:
+            input_tokens:
+              type: integer
+              minimum: 0
+            output_tokens:
+              type: integer
+              minimum: 0
+    AssistantStreamError:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message_vi
+      properties:
+        code:
+          type: string
+          enum:
+            - quota
+            - model_unavailable
+            - timeout
+            - internal
+        message_vi:
+          type: string
+    AssistantStreamEvent:
+      description:
+        'Parsed SSE frame: event name and one JSON data payload. message.completed and error are
+        terminal. No Last-Event-ID or automatic POST retries.'
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: message.created
+            data:
+              $ref: '#/components/schemas/AssistantMessageCreated'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: message.delta
+            data:
+              $ref: '#/components/schemas/AssistantMessageDelta'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: tool.started
+            data:
+              $ref: '#/components/schemas/AssistantToolStarted'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: tool.finished
+            data:
+              $ref: '#/components/schemas/AssistantToolFinished'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: action.proposed
+            data:
+              $ref: '#/components/schemas/AssistantAction'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: card
+            data:
+              $ref: '#/components/schemas/AssistantCard'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: message.completed
+            data:
+              $ref: '#/components/schemas/AssistantMessageCompleted'
+        - type: object
+          additionalProperties: false
+          required:
+            - event
+            - data
+          properties:
+            event:
+              type: string
+              const: error
+            data:
+              $ref: '#/components/schemas/AssistantStreamError'
+    AssistantFeedback:
+      type: object
+      additionalProperties: false
+      required:
+        - rating
+      properties:
+        rating:
+          type: string
+          enum:
+            - up
+            - down
+        comment:
+          type: string
+    NextStep:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - title_vi
+        - subtitle_vi
+        - priority
+        - action
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - receipt_detected
+            - unknown_product
+            - restock
+            - draft_receipts
+            - overdue_debts
+            - day_close
+            - review_queue
+            - digest
+            - setup
+            - margin_alert
+        title_vi:
+          type: string
+        subtitle_vi:
+          type:
+            - string
+            - 'null'
+        priority:
+          type: integer
+          description: Lower values appear first.
+        action:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - type
+                - route
+              properties:
+                type:
+                  type: string
+                  const: navigate
+                route:
+                  type: string
+                  minLength: 1
+            - type: object
+              additionalProperties: false
+              required:
+                - type
+                - prompt_vi
+                - context
+              properties:
+                type:
+                  type: string
+                  const: chat
+                prompt_vi:
+                  type: string
+                context:
+                  $ref: '#/components/schemas/AssistantThreadContext'
+    NextStepList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NextStep'
+          maxItems: 8
+    Digest:
+      type: object
+      additionalProperties: false
+      required:
+        - business_date
+        - generated_at
+        - source
+        - summary_vi
+        - sales
+        - restock
+        - overdue_debts
+        - open_drafts
+        - read_at
+      properties:
+        business_date:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum:
+            - model
+            - template
+        summary_vi:
+          type: string
+        sales:
+          type: object
+          additionalProperties: false
+          required:
+            - revenue
+            - sale_count
+            - gross_profit
+            - change_pct
+          properties:
+            revenue:
+              $ref: '#/components/schemas/Money'
+            sale_count:
+              type: integer
+              minimum: 0
+            gross_profit:
+              type:
+                - integer
+                - 'null'
+              format: int64
+              description: Signed VND profit; null when the caller cannot view profit.
+            change_pct:
+              type:
+                - number
+                - 'null'
+              description: Revenue change versus the preceding business date; null without a comparison.
+        restock:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantRestockItem'
+        overdue_debts:
+          type: object
+          additionalProperties: false
+          required:
+            - count
+            - total
+          properties:
+            count:
+              type: integer
+              minimum: 0
+            total:
+              $ref: '#/components/schemas/Money'
+        open_drafts:
+          type: object
+          additionalProperties: false
+          required:
+            - count
+          properties:
+            count:
+              type: integer
+              minimum: 0
+        read_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    RegisterDevice:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+        - platform
+        - app_version
+        - language
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: Expo push token, unique across registrations.
+          example: ExponentPushToken[example]
+        platform:
+          type: string
+          enum:
+            - android
+            - ios
+        app_version:
+          type: string
+          minLength: 1
+        language:
+          $ref: '#/components/schemas/AssistantLanguage'
+    Device:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+        - platform
+        - app_version
+        - language
+        - created_at
+        - updated_at
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: Expo push token, unique across registrations.
+          example: ExponentPushToken[example]
+        platform:
+          type: string
+          enum:
+            - android
+            - ios
+        app_version:
+          type: string
+          minLength: 1
+        language:
+          $ref: '#/components/schemas/AssistantLanguage'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

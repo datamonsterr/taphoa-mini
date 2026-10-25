@@ -20,6 +20,14 @@ const U2: &str = "0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c02";
 
 fn samples() -> Vec<(&'static str, Value)> {
     vec![
+        (
+            "assistant.action.confirmed",
+            json!({"action_id":U1,"kind":"expense","thread_id":U2,"decided_by":U2,"result":{"expense_id":U1}}),
+        ),
+        (
+            "assistant.action.rejected",
+            json!({"action_id":U1,"kind":"price_change","thread_id":U2,"decided_by":U2}),
+        ),
         ("catalog.changed", json!({"entity":"product","ids":[U1,U2]})),
         (
             "price.changed",
@@ -186,4 +194,26 @@ fn openapi_store_event_enum_matches_the_store_channel_messages() {
         })
         .collect();
     assert_eq!(from_openapi, from_channel);
+}
+
+#[test]
+fn assistant_action_events_require_the_decision_and_result() {
+    let doc = load("asyncapi.yaml");
+    for (kind, data) in samples()
+        .into_iter()
+        .filter(|(kind, _)| kind.starts_with("assistant.action."))
+    {
+        let v = validator(&doc, message_for(&doc, kind));
+        let mut bad = envelope(kind, data.clone());
+        bad["data"].as_object_mut().unwrap().remove("decided_by");
+        assert!(!v.is_valid(&bad), "decision member is required");
+        let mut bad = envelope(kind, data);
+        bad["data"]["kind"] = json!("propose_expense");
+        assert!(!v.is_valid(&bad), "kind uses the settled action enum");
+        if kind.ends_with("confirmed") {
+            bad["data"]["kind"] = json!("expense");
+            bad["data"].as_object_mut().unwrap().remove("result");
+            assert!(!v.is_valid(&bad), "confirmed result is required");
+        }
+    }
 }

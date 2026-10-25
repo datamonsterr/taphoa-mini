@@ -53,6 +53,10 @@ channels:
       stockChanged: { $ref: '#/components/messages/stockChanged' }
       stockLow: { $ref: '#/components/messages/stockLow' }
       receiptConfirmed: { $ref: '#/components/messages/receiptConfirmed' }
+      assistantActionConfirmed:
+        { $ref: '#/components/messages/assistantActionConfirmed' }
+      assistantActionRejected:
+        { $ref: '#/components/messages/assistantActionRejected' }
   storeEventBus:
     address: 'store:{storeId}:events'
     title: Store event bus (Redis pub/sub)
@@ -82,6 +86,10 @@ channels:
       stockChanged: { $ref: '#/components/messages/stockChanged' }
       stockLow: { $ref: '#/components/messages/stockLow' }
       receiptConfirmed: { $ref: '#/components/messages/receiptConfirmed' }
+      assistantActionConfirmed:
+        { $ref: '#/components/messages/assistantActionConfirmed' }
+      assistantActionRejected:
+        { $ref: '#/components/messages/assistantActionRejected' }
   internalEvents:
     address: internal:events
     title: Internal events (Redis pub/sub)
@@ -534,3 +542,86 @@ components:
                   expense_id: { $ref: '#/components/schemas/Uuid' }
                   total: { $ref: '#/components/schemas/Money' }
                   line_count: { type: integer, minimum: 1, maximum: 100 }
+
+    assistantActionConfirmed:
+      name: assistant.action.confirmed
+      summary: Assistant proposal confirmed by a member.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type:
+                const: assistant.action.confirmed
+              data:
+                type: object
+                additionalProperties: false
+                required:
+                  - action_id
+                  - kind
+                  - thread_id
+                  - decided_by
+                  - result
+                properties:
+                  action_id:
+                    $ref: '#/components/schemas/Uuid'
+                  kind:
+                    type: string
+                    enum:
+                      - stock_adjustment
+                      - expense
+                      - price_change
+                      - threshold_update
+                      - reorder_list
+                      - receipt_line_update
+                      - receipt_confirm
+                      - repayment
+                      - debt_adjustment
+                      - invite
+                  thread_id:
+                    $ref: '#/components/schemas/Uuid'
+                  decided_by:
+                    $ref: '#/components/schemas/Uuid'
+                  result:
+                    type: object
+                    additionalProperties: true
+    assistantActionRejected:
+      name: assistant.action.rejected
+      summary: Assistant proposal rejected by a member.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type:
+                const: assistant.action.rejected
+              data:
+                type: object
+                additionalProperties: false
+                required:
+                  - action_id
+                  - kind
+                  - thread_id
+                  - decided_by
+                properties:
+                  action_id:
+                    $ref: '#/components/schemas/Uuid'
+                  kind:
+                    type: string
+                    enum:
+                      - stock_adjustment
+                      - expense
+                      - price_change
+                      - threshold_update
+                      - reorder_list
+                      - receipt_line_update
+                      - receipt_confirm
+                      - repayment
+                      - debt_adjustment
+                      - invite
+                  thread_id:
+                    $ref: '#/components/schemas/Uuid'
+                  decided_by:
+                    $ref: '#/components/schemas/Uuid'
