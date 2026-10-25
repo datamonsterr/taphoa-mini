@@ -16,6 +16,8 @@ pub struct ClerkSettings {
 }
 impl ClerkSettings {
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Option<Self>> {
+        // A blank value (an empty `.env` line, a whitespace-only secret) counts as unset.
+        let get = |name: &str| get(name).filter(|value| !value.trim().is_empty());
         let derived_issuer = get("CLERK_PUBLISHABLE_KEY")
             .map(|key| -> anyhow::Result<String> {
                 let encoded = key
@@ -310,6 +312,59 @@ mod tests {
             );
         }
     }
+    const BLANKS: [&str; 4] = ["", " ", "\t", " \n "];
+
+    #[test]
+    fn blank_clerk_values_are_unset() {
+        let issuer = "https://test.clerk.accounts.dev";
+        for blank in BLANKS {
+            let settings = ClerkSettings::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some(issuer.into()),
+                n if n.starts_with("CLERK_") => Some(blank.into()),
+                _ => None,
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(settings.issuer, issuer);
+            assert_eq!(settings.jwks_url, format!("{issuer}/.well-known/jwks.json"));
+            assert_eq!(settings.api_url, "https://api.clerk.com");
+            assert!(settings.authorized_parties.is_empty());
+            assert!(settings.secret_key.is_none(), "{blank:?}");
+        }
+        for blank in BLANKS {
+            let derived = ClerkSettings::from_lookup(|name| match name {
+                "CLERK_PUBLISHABLE_KEY" => Some("pk_test_dGVzdC5jbGVyay5hY2NvdW50cy5kZXYk".into()),
+                n if n.starts_with("CLERK_") => Some(blank.into()),
+                _ => None,
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(derived.issuer, issuer, "{blank:?}");
+        }
+    }
+
+    #[test]
+    fn blank_publishable_key_without_issuer_is_not_configured() {
+        for blank in BLANKS {
+            let lookup = |name: &str| match name {
+                "CLERK_PUBLISHABLE_KEY" | "CLERK_ISSUER" | "CLERK_SECRET_KEY" => {
+                    Some(blank.to_string())
+                }
+                _ => None,
+            };
+            assert!(ClerkSettings::from_lookup(lookup).unwrap().is_none());
+            let error = Config::from_lookup(lookup).err().unwrap().to_string();
+            assert_eq!(error, "CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required");
+        }
+        let config = Config::from_lookup(|name| match name {
+            "CLERK_PUBLISHABLE_KEY" => Some(" ".into()),
+            "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(config.clerk.unwrap().secret_key.is_none());
+    }
+
     #[test]
     fn reads_service_and_model_settings() {
         let config = Config::from_lookup(|name| {
