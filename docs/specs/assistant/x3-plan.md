@@ -45,10 +45,37 @@ These settle what the spec leaves open. Vendor facts were checked on 2026-10-25.
   `assistant:quota:{store}:{business_date}` (TTL 48 h; in-memory counter without Redis). Requests
   with honoured eval headers skip the store cap (the eval store runs about 140 cases a day) but
   still respect the OpenRouter flag. A quota stop sends `error: quota` with a Vietnamese message.
-- **Eval headers.** With `ASSISTANT_ALLOW_EVAL_HEADERS=1` only, `X-Taphoa-Eval-Run: <run id>` and
-  `X-Taphoa-Today: YYYY-MM-DD` set the turn's `today` (prompt and every tool) and tag `$ai_*`
-  events `environment=eval`, `eval_run_id=<run id>`. Otherwise both headers are ignored. Tools take
-  `today` from the tool context and never call `now()` for business dates.
+- **Eval hooks (X7).** Active only with `ASSISTANT_ALLOW_EVAL_HEADERS=1` (Railway `test` and
+  local, never `production`); with the flag off every header below is ignored, and tests prove it.
+  - `X-Taphoa-Eval-Run: <run id>` (1-64 chars `[A-Za-z0-9._:-]`) and `X-Taphoa-Today: YYYY-MM-DD`,
+    both required for an eval turn. The pinned date is the turn's `today` for the system prompt
+    and every tool (restock sales speed, dead stock, forecast, any relative window such as "hôm
+    qua" or "tuần này"). Tools take `today` from the tool context and never call `now()` for
+    business dates. `$ai_*` events of the turn carry `environment=eval` and `eval_run_id`.
+  - `X-Taphoa-Eval-Model: <model id>` (optional, must end in `:free`, else ignored) replaces
+    `ASSISTANT_MODELS` for that turn with no fallback, so a model comparison is clean.
+  - Eval turns skip the `ASSISTANT_DAILY_MESSAGES_PER_STORE` cap; the OpenRouter quota flag still
+    applies.
+  - `message.completed.model` and `$ai_generation.$ai_model` report the model that actually
+    answered, after any fallback.
+- **Scripted provider for e2e (X4).** `ASSISTANT_MODEL_PROVIDER=scripted` (default `openrouter`)
+  swaps the OpenRouter client for a deterministic rule model that never calls the network, like
+  `EMBEDDER=mock`. It is set in the local e2e stack (`scripts/e2e/stack.sh` and its compose env)
+  used by CI web-e2e and android-e2e, and never on Railway `production`. It runs the real tools
+  and the real action lifecycle. Triggers, checked in this order on the latest user message and
+  the thread context:
+  1. Thread `context.receipt_id` or an attachment `{receipt_id}`: call `get_receipt` (emits a
+     `receipt_lines` card), stream "Mình đã đọc hóa đơn. Bạn kiểm tra các dòng rồi bấm Xác nhận
+     nhé.", then call `propose_receipt_confirm` for that receipt.
+  2. Text containing "nhập hàng" (accent-insensitive): call `get_restock_plan`, stream a short
+     reply naming the item count, then call `propose_reorder_list` with the plan's items (no
+     proposal when the plan is empty).
+  3. Text containing "điều chỉnh": call `get_stock_levels` (`filter: all`), then
+     `propose_stock_adjustment` for the first tracked product with `delta: 1` and reason
+     "Điều chỉnh thử từ trợ lý".
+  4. Anything else: stream "Xin chào! Mình là trợ lý của cửa hàng." with no tools.
+     The reply's `model` is `scripted`. A trigger whose tool is hidden for the caller streams the
+     tool's denied message instead.
 - **Confirm runs the normal handler.** `POST /v1/assistant/actions/{id}/confirm` replays the write
   through the in-process router (`crate::router(state)` + `tower::ServiceExt::oneshot`) with the
   caller's own auth headers, so the existing handler, its `auth::can` check, validation and
@@ -121,10 +148,11 @@ avoid the shared target lock, and deletes it when done. TDD in every task: faili
 | T6   | Propose tools (stock adjustment, expense, price change, threshold, reorder list, receipt line update, receipt confirm, invite); action lifecycle; confirm through the router; reject; expiry and stale; outbox events; product events                                              | `tests/assistant_actions.rs`                                                | T1                    | native sonnet      |
 | T7   | Next-steps rules and endpoint; p95 < 50 ms on the seed                                                                                                                                                                                                                             | `tests/assistant_next_steps.rs`                                             | T1                    | superorchestrator  |
 | T8   | GenAI spans; `$ai_trace`/`$ai_generation`/`$ai_span`, feedback, `assistant_action_decided`, `assistant_quota_hit` events; masking; telemetry contract doc update                                                                                                                   | `tests/assistant_telemetry.rs` (X2 in-memory exporter, recording analytics) | T2, T3, T6, X2 merged | native sonnet      |
-| T9   | Railway `ASSISTANT_*` in `.railway/railway.ts`, `.env.example`; e2e `assistant.test.ts`; PostHog feedback survey; variables on `test` and `production`                                                                                                                             | e2e spec                                                                    | T2-T8                 | controller + haiku |
+| T9   | Railway `ASSISTANT_*` in `.railway/railway.ts`, `.env.example`; e2e `assistant.test.ts`; PostHog feedback survey; variables on `test` and `production`                                                                                                                             | e2e spec                                                                    | T2-T8, T10            | controller + haiku |
+| T10  | Scripted provider (`ASSISTANT_MODEL_PROVIDER=scripted`, triggers above) and its wiring in the local e2e stack                                                                                                                                                                      | `tests/assistant_scripted.rs`                                               | T2, T4, T5, T6        | native sonnet      |
 
-Waves: T1 alone; then T2, T3, T6 (three parallel builds); then T4, T5, T7; then T8 after X2 merges;
-then T9, the branch deploy, review and merge. Rebase on `main` after each wave (X1 changes the
+Waves: T1 alone; then T2, T3, T6 (three parallel builds); then T4, T5, T7; then T10; then T8 after X2
+merges; then T9, the branch deploy, review and merge. Rebase on `main` after each wave (X1 changes the
 `Actor`, X2 adds telemetry).
 
 ## Acceptance (epic)
@@ -144,5 +172,9 @@ then T9, the branch deploy, review and merge. Rebase on `main` after each wave (
 - X5: adds `tools/debts.rs` (registered in `tools::all()`) and `next_steps/overdue_debts.rs`.
 - X6: confirmed actions run the normal handlers, which report `via: manual`; X6 can read the
   internal `X-Taphoa-Via: assistant` header that confirm adds to the replayed request.
-- X7: eval headers skip the per-store cap; the OpenRouter daily flag still applies.
+- X1: adds an `X-Store-Id` header to the assistant operations; the assistant resolves the store
+  only through the `Actor` extractor, and confirm forwards the header to the replayed request.
+- X4: scripted provider triggers above; U14 entry creates the receipt (`POST /v1/receipts`), then
+  the thread with `context.receipt_id`; messages may also carry `attachments: [{receipt_id}]`.
+- X7: eval hooks above.
 - X8: adds `next_steps/digest.rs` and reuses U1, U2 tools.
