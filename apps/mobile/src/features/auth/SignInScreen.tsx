@@ -1,10 +1,15 @@
-import { useSignIn, useSignUp, useSSO } from '@clerk/expo';
+import { useSessionList, useSignIn, useSignUp, useSSO } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import { Platform, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { ScaledText } from '@/components/ui';
+import { DeviceSessions } from '@/features/account/DeviceSessions';
+import { SwitchPinSheet } from '@/features/account/SwitchPinSheet';
+import { useSwitchSession } from '@/features/account/useSwitchSession';
 import { useT } from '@/lib/i18n';
+import { useDeviceLock } from '@/stores/deviceLock';
 import {
   Frame,
   Field,
@@ -12,6 +17,7 @@ import {
   FormError,
 } from '@/features/onboarding/kit';
 import { flowPaths, useCancelAddPerson, type AuthFlow } from './addPerson';
+import { signedInSessions } from './deviceSessions';
 import { useEmailFlow } from './emailFlow';
 import { authErrorKey, clerkErrorCode } from './errors';
 import { strings } from './strings';
@@ -26,6 +32,11 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const { startSSOFlow } = useSSO();
+  // After "Đăng xuất" nobody is active, but others may still be signed in on this phone. They
+  // are picked here, behind their own PIN; adding a person while signed in has the account tab.
+  const { sessions } = useSessionList();
+  const people = flow === 'add' ? [] : signedInSessions(sessions);
+  const switcher = useSwitchSession();
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     void WebBrowser.warmUpAsync();
@@ -78,12 +89,14 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
           path: paths.callback,
         }),
       });
-      if (result.createdSessionId && result.setActive)
+      if (result.createdSessionId && result.setActive) {
         await result.setActive({
           session: result.createdSessionId,
           navigate: async () => {},
         });
-      else if (
+        // A fresh sign-in proves who is holding the phone, so it lifts the device lock.
+        useDeviceLock.getState().unlock();
+      } else if (
         result.authSessionResult?.type !== 'cancel' &&
         result.authSessionResult?.type !== 'dismiss'
       )
@@ -95,55 +108,85 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
     }
   };
   return (
-    <Frame
-      testID="auth-sign-in-screen"
-      title={t(flow === 'add' ? 'addTitle' : 'title')}
-      back={false}
-    >
-      <Field
-        testID="auth-email"
-        label={t('email')}
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        autoComplete="email"
-        onSubmitEditing={() => {
-          void submit();
-        }}
-      />
-      {Platform.OS === 'web' ? (
-        <View testID="auth-captcha" nativeID="clerk-captcha" />
-      ) : null}
-      <FormError message={error} />
-      <ActionButton
-        testID="auth-send-code"
-        label={t('send')}
-        busy={busy}
-        onPress={() => {
-          void submit();
-        }}
-      />
-      <ActionButton
-        testID="auth-google"
-        label={t('google')}
-        variant="secondary"
-        disabled={busy}
-        onPress={() => {
-          void google();
-        }}
-      />
-      {flow === 'add' ? (
+    <View style={styles.fill}>
+      <Frame
+        testID="auth-sign-in-screen"
+        title={t(flow === 'add' ? 'addTitle' : 'title')}
+        back={false}
+      >
+        {people.length ? (
+          <>
+            <DeviceSessions
+              variant="signIn"
+              sessions={people}
+              currentId={null}
+              busy={switcher.busy}
+              error={switcher.target ? null : switcher.error}
+              onSwitch={switcher.begin}
+            />
+            <ScaledText variant="label" accessibilityRole="header">
+              {t('otherEmail')}
+            </ScaledText>
+          </>
+        ) : null}
+        <Field
+          testID="auth-email"
+          label={t('email')}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoComplete="email"
+          onSubmitEditing={() => {
+            void submit();
+          }}
+        />
+        {Platform.OS === 'web' ? (
+          <View testID="auth-captcha" nativeID="clerk-captcha" />
+        ) : null}
+        <FormError message={error} />
         <ActionButton
-          testID="auth-add-cancel"
-          label={t('cancel')}
+          testID="auth-send-code"
+          label={t('send')}
+          busy={busy}
+          onPress={() => {
+            void submit();
+          }}
+        />
+        <ActionButton
+          testID="auth-google"
+          label={t('google')}
           variant="secondary"
           disabled={busy}
           onPress={() => {
-            void cancelAdd();
+            void google();
           }}
         />
+        {flow === 'add' ? (
+          <ActionButton
+            testID="auth-add-cancel"
+            label={t('cancel')}
+            variant="secondary"
+            disabled={busy}
+            onPress={() => {
+              void cancelAdd();
+            }}
+          />
+        ) : null}
+      </Frame>
+      {switcher.target ? (
+        <SwitchPinSheet
+          testID="auth-switch-pin"
+          target={switcher.target}
+          error={switcher.error}
+          busy={switcher.busy}
+          attempt={switcher.attempt}
+          onSubmit={switcher.submitPin}
+          onClose={switcher.cancel}
+        />
       ) : null}
-    </Frame>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({ fill: { flex: 1 } });

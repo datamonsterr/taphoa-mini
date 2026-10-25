@@ -2,6 +2,7 @@ import { useSignIn, useSignUp } from '@clerk/expo';
 import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { useDeviceLock } from '@/stores/deviceLock';
 import {
   Frame,
   Field,
@@ -48,6 +49,8 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
       }
       const finalized = await resource.finalize({ navigate: async () => {} });
       if (finalized.error) throw finalized.error;
+      // A fresh sign-in proves who is holding the phone, so it lifts the device lock.
+      useDeviceLock.getState().unlock();
       useEmailFlow.getState().reset();
     } catch (failure) {
       setError(t(authErrorKey(failure)));

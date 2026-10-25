@@ -1,4 +1,11 @@
-import { act, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+} from '@testing-library/react-native';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Text } from 'react-native';
 import { AuthGate } from './AuthGate';
 import { renderWithProviders, createTestQueryClient } from '@/test/render';
@@ -6,9 +13,10 @@ import { useCurrentStore } from '@/stores/currentStore';
 import { useCartStore } from '@/stores/cart';
 import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import { keys } from '@/lib/api/keys';
-import { setClerkState } from '@/test/clerk';
+import { addClerkSession, clerkMock, setClerkState } from '@/test/clerk';
+import { useDeviceLock } from '@/stores/deviceLock';
 import { setApiTransport } from '@/lib/api/client';
-import { membershipRequired } from '@/lib/api/clerkBridge';
+import { bridgeUserId, membershipRequired } from '@/lib/api/clerkBridge';
 import { testSession } from '@/test/session';
 
 jest.mock('expo-router', () => ({
@@ -122,4 +130,126 @@ test('me failure offers retry and only then resolves the onboarding gate', async
   fail = false;
   await fireEvent.press(screen.getByRole('button', { name: 'Thử lại' }));
   expect(await screen.findByText('onboarding')).toBeOnTheScreen();
+});
+
+describe('device lock', () => {
+  /** The gate without the helper that prefetches the signed-in me. */
+  const mount = () =>
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        {gate}
+      </QueryClientProvider>,
+    );
+  const otherPerson = () =>
+    addClerkSession({
+      id: 'sess_ut',
+      userId: 'user_ut',
+      email: 'ut@example.com',
+    });
+
+  test('an active session is not let in while locked, and is not even read', async () => {
+    const seen: string[] = [];
+    setApiTransport((async (input: RequestInfo | URL) => {
+      seen.push(new URL(new Request(input).url).pathname);
+      return Response.json({
+        clerk_user_id: 'user_test',
+        profile: null,
+        memberships: [testSession()],
+      });
+    }) as typeof fetch);
+    useDeviceLock.getState().lock();
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    expect(seen).toEqual([]);
+    expect(bridgeUserId()).toBeNull();
+    // Picking a person lifts the lock: only then is the session read and let in.
+    await act(async () => useDeviceLock.getState().unlock());
+    expect(await screen.findByText('shop')).toBeOnTheScreen();
+    expect(seen).toContain('/v1/me');
+    expect(bridgeUserId()).toBe('user_test');
+  });
+
+  test('locking while signed in sends the person out of the shop at once', async () => {
+    await mount();
+    await screen.findByText('shop');
+    await act(async () => useDeviceLock.getState().lock());
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+  });
+
+  test('waits for the stored lock before deciding anything', async () => {
+    useDeviceLock.setState({ hydrated: false });
+    await mount();
+    expect(await screen.findByTestId('auth-loading')).toBeOnTheScreen();
+    expect(screen.queryByText('shop')).toBeNull();
+    await act(async () => useDeviceLock.setState({ hydrated: true }));
+    expect(await screen.findByText('shop')).toBeOnTheScreen();
+  });
+
+  test('locks as soon as Clerk has nobody active while others stay signed in', async () => {
+    otherPerson();
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    await waitFor(() => expect(useDeviceLock.getState().locked).toBe(true));
+  });
+
+  test('losing the active session mid-use locks the phone too', async () => {
+    otherPerson();
+    await mount();
+    await screen.findByText('shop');
+    expect(useDeviceLock.getState().locked).toBe(false);
+    await act(async () => clerkMock.signOut({ sessionId: 'sess_test' }));
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    await waitFor(() => expect(useDeviceLock.getState().locked).toBe(true));
+  });
+
+  test('does not lock when nobody else is signed in', async () => {
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    expect(useDeviceLock.getState().locked).toBe(false);
+  });
+
+  test('ended and pending sessions are not people to protect', async () => {
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    addClerkSession({
+      id: 'sess_old',
+      userId: 'user_old',
+      email: 'old@example.com',
+      status: 'ended',
+    });
+    addClerkSession({
+      id: 'sess_wait',
+      userId: 'user_wait',
+      email: 'wait@example.com',
+      status: 'pending',
+    });
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    expect(useDeviceLock.getState().locked).toBe(false);
+  });
+
+  test('does not lock a signed-in phone', async () => {
+    otherPerson();
+    await mount();
+    expect(await screen.findByText('shop')).toBeOnTheScreen();
+    expect(useDeviceLock.getState().locked).toBe(false);
+  });
+
+  test('a stale lock with nobody signed in at all is dropped, not a trap', async () => {
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    useDeviceLock.getState().lock();
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    await waitFor(() => expect(useDeviceLock.getState().locked).toBe(false));
+  });
+
+  test('a lock stays while somebody is still signed in', async () => {
+    otherPerson();
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    useDeviceLock.getState().lock();
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    expect(useDeviceLock.getState().locked).toBe(true);
+  });
 });

@@ -11,6 +11,7 @@ import { fetchSessionMe, verifySessionPin } from '@/features/auth/sessionApi';
 import { isApiError } from '@/lib/api/errors';
 import { useT } from '@/lib/i18n';
 import { resolveMembership, useCurrentStore } from '@/stores/currentStore';
+import { useDeviceLock } from '@/stores/deviceLock';
 
 import { fill, strings } from './strings';
 
@@ -37,7 +38,8 @@ function waitText(
 /**
  * Switching to another person on this phone. Someone with a PIN in the store they last used
  * must enter it first; the PIN is checked with *their* session token and store, and only a 204
- * activates their Clerk session. Anyone else is switched to directly.
+ * activates their Clerk session. Anyone else is switched to directly. After `setActive` the
+ * device lock is lifted: this is how the sign-in screen's person picker lets somebody in.
  */
 export function useSwitchSession() {
   const t = useT(strings);
@@ -53,6 +55,8 @@ export function useSwitchSession() {
     async (session: DeviceSession): Promise<boolean> => {
       try {
         await setActive({ session: session.id, navigate: async () => {} });
+        // The picked person is in: only now does the device lock (if any) lift.
+        useDeviceLock.getState().unlock();
         return true;
       } catch {
         setError(t('sessions.error'));

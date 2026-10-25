@@ -3,6 +3,7 @@ export const strings: Dict = {
   vi: {
     title: 'Đăng nhập',
     addTitle: 'Thêm người trên máy này',
+    otherEmail: 'Hoặc đăng nhập bằng email khác',
     cancel: 'Hủy',
     email: 'Địa chỉ email',
     send: 'Gửi mã',
@@ -30,6 +31,7 @@ export const strings: Dict = {
   en: {
     title: 'Sign in',
     addTitle: 'Add a person on this device',
+    otherEmail: 'Or sign in with another email',
     cancel: 'Cancel',
     email: 'Email address',
     send: 'Send code',

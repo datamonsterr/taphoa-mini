@@ -32,6 +32,10 @@ beforeEach(() => {
     storeIds: {},
     hydrated: true,
   });
+  require('@/stores/deviceLock').useDeviceLock.setState({
+    locked: false,
+    hydrated: true,
+  });
   require('@/lib/api/clerkBridge').registerAuthBridge({
     getToken: require('./clerk').clerkMock.getToken,
     getStoreId: () =>
