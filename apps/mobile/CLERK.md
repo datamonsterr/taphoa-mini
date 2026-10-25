@@ -36,9 +36,65 @@ responses are not replayed, so one user action cannot consume two PIN attempts.
 `membership_required` invalidates the current user's `/me` query.
 
 `useMembership` exposes the selected store/member, including role, can_enroll and
-has_pin. `useCurrentSessionSignOut` passes `{ sessionId }` to Clerk. The
-`account-sessions` container marks the integration point for T6's device session
-switcher and PIN lock. Neither is implemented in T4.
+has_pin. `useCurrentSessionSignOut` passes `{ sessionId }` to Clerk and then
+activates the next signed-in person (see Multi-session below).
+
+## Multi-session switcher and PIN lock (T6)
+
+Multi-session must be on in the Clerk dashboard. The account tab shows
+"Người dùng trên máy này": every `useSessionList().sessions` entry with
+`status === 'active'` (`client.sessions` also keeps ended, removed and pending
+sessions). Each other person's name comes from `GET /v1/me` fetched with that
+session's own `session.getToken()` (cached per session with React Query under
+`['api', 'device-me', sessionId]`); the current person reuses the app's `/me`.
+The name is `profile.display_name`, else the Clerk email, else "Người dùng".
+
+Switching: the target's `/me` is re-read on every tap (never trust a cached
+`has_pin`). The target's store is `currentStore.storeIds[<their Clerk user id>]`
+or their first membership. Without a PIN (or without any store) `setActive({ session })`
+runs at once. With a PIN the account PIN sheet opens and `POST /v1/me/pin/verify`
+is sent with the **target** session's token and `X-Store-Id` of that store
+(`src/features/auth/sessionApi.ts`, a one-off client beside the active one; one 401
+replay with `getToken({ skipCache: true })`, never for `invalid_pin`). Only 204 calls
+`setActive`. 401 `invalid_pin` shows "Sai mã PIN" and clears the digits; 429 shows
+the lockout with the `Retry-After` wait ("5 phút" / "45 giây"); any other failure
+shows a retry message. If `/me` cannot be read nobody is switched.
+
+"Thêm người trên máy này" pushes `/add-person` (`src/app/add-person/*`), which
+reuses `SignInScreen` and `VerifyCodeScreen` with `flow="add"` and never signs
+anyone out. The route is not declared in the root `Stack.Protected` groups, so it
+stays reachable while signed in. When the new session is finalized AuthGate swaps
+to its loading view and rebuilds the stack around the new person, so the add routes
+do not navigate during that: `AddPersonLayout` remembers the session that was active
+when the flow began (`useAddPerson`) and redirects to `/` once a different one is,
+and the root gate then picks the shop or `/welcome`. Cancel resets the sign-in
+attempt and `dismissTo('/account')`. Google's callback in this mode is
+`taphoa://add-person` (web: `<origin>/add-person`), because the callback route must
+render while signed in; register it next to the `sign-in` callback in Clerk.
+
+Sign out passes `{ sessionId }` of the current session. Checked in clerk-js 6.40.1
+(`@clerk/expo` 4.14.1): with several signed-in sessions it removes only that one and
+leaves **no** session active (clerk-js reselects one only when it loads), so the
+hook calls `setActive({ session })` for the first remaining signed-in person right
+after. That hand-over has no PIN check by design of the task; a stricter product
+rule would route it through the switch sheet instead.
+
+Store picker: with more than one membership a "Cửa hàng" list appears; choosing one
+calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity on
+`<user id>:<store id>`, so both a person switch and a store switch run the existing
+cache-clearing effect (queries, cart, low-stock alerts), and the next request carries
+the new `X-Store-Id`.
+
+T6 files: `src/features/account/{DeviceSessions,SwitchPinSheet,StorePicker}.tsx`,
+`useSwitchSession.ts` (plus `PinSheet` ids and `clearKey`), `src/features/auth/{sessionApi,
+deviceSessions,addPerson}.ts`, `AddPersonLayout.tsx`, `src/app/add-person/*`, and the
+`flow="add"` mode of `SignInScreen` / `VerifyCodeScreen`.
+
+Stable test IDs: `account-sessions`, `account-session-<index>` (position in the
+signed-in list, Clerk order), `account-sessions-error`, `account-add-person`,
+`account-switch-pin` with parts `-dots`, `-error`, `-keypad`, `-submit`,
+`account-stores`, `account-store-<storeId>`, `auth-add-cancel` (add mode of both
+auth screens). The generic `PinSheet` uses `pin-sheet` and the same parts by default.
 
 ## Dependencies
 
@@ -63,7 +119,8 @@ the transitive `browser-tabs-lock` and `core-js` build scripts.
 | `/welcome`        | `onboarding-welcome-screen` | `onboarding-create`, `onboarding-join`, `onboarding-sign-out`                                                                    |
 | `/create`         | `create-store-screen`       | `create-store-name`, `create-display-name`, `create-bank-bin`, `create-bank-number`, `create-bank-holder`, `create-store-submit` |
 | `/join?token=...` | `join-store-screen`         | `join-invite-token`, `join-display-name`, `join-store-submit`                                                                    |
-| `/account`        | Existing account screen     | `account-sign-out`, `account-sessions`                                                                                           |
+| `/account`        | Existing account screen     | `account-sign-out`, `account-sessions`, `account-session-<index>`, `account-add-person`, `account-store-<storeId>`               |
+| `/add-person`     | `auth-sign-in-screen`       | `auth-email`, `auth-send-code`, `auth-google`, `auth-add-cancel`; then `/add-person/verify-code` (`auth-code-screen`)            |
 
 `taphoa://join?token=...` remains supported. Invitations opened while signed out
 are kept in memory through sign-in and prefill the join form. `/recover` and
@@ -77,6 +134,12 @@ tasks and were intentionally left unchanged.
 provides membership fixtures; it contains no credentials. Screen providers resolve
 `/me` before mounting shop UI, matching the root gate. The mock API implements
 Clerk create/join/me and PIN endpoints and contract tests validate their responses.
+
+For several people, `addClerkSession()` adds a session with its own `getToken`
+(`token_<id>`); `setActive` switches the mocked user and `signOut({ sessionId })`
+removes only that session and leaves nobody active, like clerk-js. `src/test/people.ts`
+stands in for the network other people's sessions use: it keys `/v1/me` and
+`/v1/me/pin/verify` by bearer token and records token, `X-Store-Id` and body.
 
 ## File inventory
 
