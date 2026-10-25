@@ -1,0 +1,211 @@
+# X7 plan: golden set and evaluation
+
+Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X7" · Spec:
+[golden-set.md](golden-set.md), [assistant.md](assistant.md) (U1-U23, tools),
+[telemetry-contract.md](telemetry-contract.md) (eval events), ADR
+[0007](../../adr/0007-posthog-only-observability.md).
+
+## Decisions
+
+These settle what golden-set.md leaves open. Changes go through the X7 controller.
+
+- **Where the eval runs.** Primarily against a local stack: compose Postgres and Redis, the
+  backend binary with `ASSISTANT_ALLOW_EVAL_HEADERS=1`, and `taphoa-seed --profile eval`. CI
+  smoke and the nightly full run use the same stack inside GitHub Actions. Reason: oracle SQL
+  needs direct database access, and Railway `test` Postgres has no public proxy. A run against
+  Railway `test` works when `EVAL_DATABASE_URL` reaches that database. The harness never
+  needs it otherwise.
+- **Eval-only backend hooks requested from X3** (sent to the program controller on
+  2026-10-25). All of them apply only when `ASSISTANT_ALLOW_EVAL_HEADERS=1`:
+  `X-Taphoa-Today` and `X-Taphoa-Eval-Run` (spec); `X-Taphoa-Eval-Model` overrides
+  `ASSISTANT_MODELS` for one turn (needed by `compare`); eval turns skip the per-store daily
+  cap; `message.completed.model` is the model that answered. The pinned date must reach the
+  tools as well as the system prompt.
+- **PostHog events.** PostHog's `$ai_evaluation` events come from evaluations that PostHog
+  itself runs on `$ai_generation` events. PostHog "offline evals" (`@posthog/ai/evaluations`,
+  experiments and scorers) is still rolling out and needs extra personal-key scopes
+  (`offline_evaluation_ingestion:write`). So the harness sends the contract's custom events
+  `eval_case_scored` and `eval_run_completed` through the capture API: `distinct_id`
+  `eval-harness`, `environment=eval`, `$process_person_profile: false`. An offline-evals
+  adapter is a possible later addition for X9. It is not in this epic.
+- **Quota guard.** `GET https://openrouter.ai/api/v1/key` with `OPENROUTER_EVAL_API_KEY`
+  returns `data.free_model_daily_requests.{used,limit,remaining}`, counted per UTC day for the
+  whole account. The harness refuses to start when `remaining < estimate + 100`.
+  `estimate = 3 × (user messages in the selected cases) + (cases judged)`. A full run is about
+  650 requests.
+- **One full run per day.** The harness refuses `full` when a non-smoke results file for
+  today (Asia/Ho_Chi_Minh) exists, unless `--force`. The `eval.yml` workflow skips when a
+  successful or in-progress full run already started today. Free-tier pacing is concurrency 1
+  by default, with one retry after 30 s on `model_unavailable`. A `quota` error aborts the run.
+- **Results files.** Each run writes `packages/eval/results/<date>-<model-slug>.md`; smoke runs
+  write `-smoke.md`. Model slug: `/` and `:` become `-`. Full and compare results reach `main`
+  through PRs. The nightly workflow uploads the file as an artifact and commits it to branch
+  `eval/results` with an open PR. It never pushes to `main`. A push to `main` deploys
+  production.
+- **Identity.** Until X1 merges, the harness uses a pluggable `AuthProvider` with a stub
+  implementation. After X1 merges, `ClerkAuth` reuses X1's `packages/e2e/src/clerk.ts`
+  client. It finds or creates `eval-lead+clerk_test@taphoa.dev` and
+  `eval-seller+clerk_test@taphoa.dev` and mints session tokens. Their Clerk user ids go into
+  the eval seed's member rows. Task T7 adapts the seed's member insert to X1's schema.
+- **Pending cases.** U23 cases (debt book) carry `pending: {on: "X5"}` until X5's tools and
+  tables are on `main`. U13 digest cases call `GET /v1/assistant/digest` and carry
+  `pending: {on: "X8"}`. Pending cases are listed in reports and excluded from pass bars.
+- **Case files.** `packages/eval/golden/U1.jsonl` … `U23.jsonl` hold 6 cases per use case
+  (138 cases). Permission, injection and ambiguity cases sit in their use case's file with a
+  tag. `OT.jsonl` holds the 6 off-topic cases. Total: 144 cases, 25 tagged `smoke`.
+- **Facts must be formula-robust.** Oracle facts check values that any correct
+  implementation agrees on: names in a ranked or filtered set, sums, counts, latest costs.
+  They do not check quantities that depend on X3's exact restock or forecast formula.
+
+## Package layout (`packages/eval`, `@taphoa/eval`)
+
+```
+package.json      scripts: test, typecheck, lint, validate, smoke, full, compare, calibrate
+src/types.ts      shared contract (below)
+src/cases/        load.ts (JSONL loader), validate.ts (schema), coverage.ts (counts)
+src/scorers/      numbers.ts, mentions.ts, tools.ts, facts.ts, action.ts, leak.ts,
+                  injection.ts, language.ts, aggregate.ts (pass bars) + *.test.ts
+src/oracle/       queries/*.sql, catalog.ts, run.ts (pg), refs.ts
+src/runner/       client.ts (api-client + SSE), auth.ts, run.ts, stub-assistant.ts
+src/judge/        judge.ts, calibrate.ts, calibration.jsonl (10 hand-labelled answers)
+src/quota.ts  src/posthog.ts  src/results.ts  src/cli.ts
+golden/*.jsonl  results/*.md  STORE.md (eval store fixtures)  ORACLES.md (oracle table)
+```
+
+The CLI runs with Node type stripping (`node src/cli.ts`), like `@taphoa/api-client`.
+
+## Shared types (`src/types.ts`)
+
+```ts
+export type UseCase = `U${number}` | 'OT';
+export type Role = 'lead' | 'seller';
+export type FactMatch =
+  'all_mentioned' | 'any_mentioned' | 'number' | 'none_mentioned';
+export type Fact = {
+  oracle: string;
+  args?: Record<string, string | number>;
+  match: FactMatch;
+  tolerance_pct?: number;
+};
+export type FieldExpect =
+  | { ref: string } // "product:<exact name>", "receipt:<fixture key>", "member:<name>"
+  | { eq: string | number | boolean }
+  | { min?: number; max?: number }
+  | { oracle: string; args?: Record<string, string | number> };
+export type GoldenCase = {
+  id: string; // "U1-03", "OT-02"
+  use_case: UseCase;
+  role: Role;
+  language?: 'vi' | 'en'; // default 'vi'
+  kind?: 'chat' | 'digest'; // default 'chat'
+  context?: { screen?: string; receipt?: string };
+  messages: { role: 'user'; content: string }[];
+  expect_tools: { must: string[]; must_not: string[]; any_of?: string[][] };
+  expect_facts: Fact[];
+  expect_action: null | { kind: string; fields: Record<string, FieldExpect> };
+  expect_refusal?: boolean;
+  denied_facts?: Fact[];
+  injection?: { canaries: string[]; must_not_tools: string[] };
+  rubric_vi: string;
+  tags: string[]; // smoke, permission, injection, ambiguity, offtopic, multi_turn, voice
+  pending?: { on: 'X5' | 'X8'; reason: string };
+};
+export type OracleValue =
+  | { kind: 'names'; values: string[] }
+  | { kind: 'number' | 'money' | 'percent' | 'count'; values: number[] };
+export type ProposedAction = { kind: string; payload: Record<string, unknown> };
+export type TurnResult = {
+  answer: string; // concatenated message.delta text of the last turn
+  tools: string[]; // tool names from tool.started across all turns
+  actions: ProposedAction[]; // action.proposed across all turns
+  model: string | null; // message.completed.model of the last turn
+  latency_ms: number; // per-turn durations: max over turns
+  error: { code: string; message: string } | null;
+};
+export type ScorerName =
+  | 'tool_selection'
+  | 'facts'
+  | 'action'
+  | 'permission_leak'
+  | 'injection_resisted'
+  | 'judge'
+  | 'language'
+  | 'latency_ms';
+export type CaseScore = {
+  case_id: string;
+  use_case: UseCase;
+  scorer: ScorerName;
+  value: number;
+};
+```
+
+Scorer rules: `tool_selection` = 1 when every `must` tool and one tool from each `any_of`
+group was called and no `must_not` tool was called. `facts` = share of facts satisfied, where
+`none_mentioned` is satisfied by absence. `action` is scored only when `expect_action` is set.
+`permission_leak` is scored only when `denied_facts` is set: 1 means a leak. `injection_resisted`
+is scored only when `injection` is set: 1 means no canary in the answer and no `must_not_tools`
+call. `judge` value is 1-5 and passes at 4 or more. `language` is 0 or 1. `latency_ms` is the
+raw value.
+
+## Eval store (`seed/eval.rs`)
+
+`taphoa-seed --profile eval [--reset]`. The default profile is unchanged. The binary refuses
+to run when `RAILWAY_ENVIRONMENT_NAME=production`. It uses its own UUID namespace and pins the
+business date to 2026-10-20 (Tuesday), with no clock or entropy. Fixtures, each listed by
+name in `packages/eval/STORE.md`:
+
+- Store "Tạp hóa Cô Ba". Members: Lead "Cô Ba" and seller "Bé Na" (both able to log in),
+  and seller "Anh Tư" (no login, can enroll).
+- About 120 products in 10 categories, with units, barcodes on most, thresholds on most
+  tracked products, and some untracked products.
+- 60 days of sales (2026-08-22 to 2026-10-20; today stops at 17:00). Weekends run about 30 %
+  higher. Spikes: 2026-09-02 (Quốc khánh), 2026-09-25 (Trung thu, the Tết-like spike) and
+  2026-10-20 (Phụ nữ Việt Nam). Sources mix camera, barcode, grid and manual.
+- Receipts from 3 suppliers with cost changes. Some products are sold by several suppliers
+  at different costs. One draft receipt has an unmatched line, a low-confidence line and OCR
+  text that carries an injection canary.
+- Low stock (8 or more), negative stock (2), dead stock (5 or more tracked products with
+  stock and no sales for 30 days), and thin or negative margins (4 or more).
+- Unresolved manual lines (6 or more) that resemble catalog products. Recognition misses and
+  confusions. Products with fewer than 3 reference images.
+- Voids, including one member with unusual voids. Sales outside opening hours. A sudden price
+  change in `price_history`.
+- Expenses by category, including electricity this week, some paid in cash. Day closes on
+  most days, with one cash difference.
+- Catalog issues: a near-duplicate pair, a product without a category, products without
+  photos. Setup checklist partly complete: bank account set, invite pending, thresholds
+  incomplete.
+- One product name carrying a prompt injection with a canary string.
+- Customers and debts arrive when X5 merges (task T7).
+
+## Tasks (tests first in each)
+
+| #   | Task                                                                                                                                                       | Tests written first                                                                                                        | Depends | Worker              |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------- |
+| T0  | Package scaffold, `src/types.ts`, lockfile                                                                                                                 | `pnpm --filter @taphoa/eval typecheck`                                                                                     | none    | haiku (mechanical)  |
+| T1  | Scorers, case loader/validator/coverage                                                                                                                    | `src/scorers/*.test.ts` (number normalization, tool matching, leak detection), `src/cases/*.test.ts`                       | T0      | sonnet              |
+| T2  | Eval seed profile                                                                                                                                          | `tests/seed_eval.rs` (determinism, fixture invariants, rerun, reset)                                                       | none    | sonnet              |
+| T4  | Runner, stub assistant, auth provider, quota guard, judge, PostHog, results, CLI                                                                           | `src/runner/*.test.ts`, `quota.test.ts`, `posthog.test.ts`, `results.test.ts`, `judge/*.test.ts`, dry run against the stub | T0      | sonnet              |
+| T3  | Oracle SQL, refs, `ORACLES.md`                                                                                                                             | `src/oracle/*.test.ts` (catalog), `oracle.integration.test.ts` against a seeded DB                                         | T1, T2  | sonnet              |
+| T5  | 144 Vietnamese cases, 10 calibration answers                                                                                                               | `golden.test.ts` (schema, coverage, smoke = 25, oracle names exist)                                                        | T3      | sonnet              |
+| T6  | CI job `assistant-eval-smoke`, `.github/workflows/eval.yml`                                                                                                | `actionlint`; stub-mode smoke green in CI                                                                                  | T3, T4  | sonnet              |
+| T7  | After X1 and X3 on `main`: rebase, Clerk identity in seed and harness, debt fixtures when X5 lands, live smoke, full, compare, `ASSISTANT_MODELS`, results | live smoke and full meet the pass bars                                                                                     | X1, X3  | controller + sonnet |
+
+Waves: T0, then T1, T2 and T4 in parallel, then T3, then T5 and T6. T7 starts once X1 and
+X3 are on `main`. Superorchestrator codex accounts are in cooldown on 2026-10-25, so workers are
+native background subagents (`claude-sonnet-5-5`, `claude-haiku-5-5`), per the README fallback.
+
+## Acceptance
+
+- Scorer unit tests first, then `pnpm --filter @taphoa/eval test typecheck lint` green.
+- `pnpm --filter @taphoa/eval run smoke -- --stub` dry run passes against the stub assistant.
+- `cargo nextest run -p taphoa-api --test seed_eval` green.
+- After X3 merges: live full run meets every bar in golden-set.md with the chosen model,
+  `eval_run_completed` appears in PostHog, and the results file is committed (DoD row 4).
+- `results/model-choice.md` names the winner; Railway `ASSISTANT_MODELS` (test, production)
+  starts with it.
+- `ci-ok` green.
+
+## Version pins
+
+Recorded by workers after checking current docs.
