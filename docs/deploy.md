@@ -170,8 +170,12 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
 3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
    epic branches can be validated before merge.
 
-Deploys are serialized per environment (`deploy-railway-test`,
-`deploy-railway-production`, no cancellation). `.github/workflows/railway-integration.yml`
+Deploys are serialized per environment. Production uses the `deploy-railway-production`
+concurrency group. The `test` job uses no group: GitHub keeps one pending run per group and
+cancels older pending runs, which kept cancelling branch validations. Instead its first step,
+`scripts/ci/wait_turn.py`, waits until no `Deploy backend` run with a smaller run id still has its
+`test` job queued or running (a FIFO queue; older runs never wait on newer ones).
+`.github/workflows/railway-integration.yml`
 runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
 (manual, nightly 20:17 UTC and on backend changes to `main`) via
 `scripts/ci/with-railway-test-services.sh`: a throwaway database `it_<run>` is created and

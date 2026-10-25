@@ -31,11 +31,12 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    # Serialize deploys per environment; never cancel a deploy in flight.
-    concurrency:
-      group: deploy-railway-test
-      cancel-in-progress: false
+    timeout-minutes: 60
+    # No concurrency group: GitHub keeps one pending run per group and cancels older pending ones,
+    # which kept cancelling branch validations. `wait_turn.py` queues runs FIFO by run id instead.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       deployed: ${{ steps.railway.outputs.configured }}
     steps:
@@ -45,6 +46,10 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
           persist-credentials: false
+      - name: Wait for older runs using the test environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/wait_turn.py deploy.yml test
       - name: Skip superseded main revisions
         id: revision
         env:
