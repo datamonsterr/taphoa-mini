@@ -290,9 +290,7 @@ function checkTagRules(obj: Obj, tags: string[], err: Report) {
     if (obj.role !== 'seller') err(`a permission case must have role 'seller'`);
     const denied =
       Array.isArray(obj.denied_facts) && obj.denied_facts.length > 0;
-    if (!denied && obj.expect_refusal !== true) {
-      err('a permission case needs denied_facts or expect_refusal: true');
-    }
+    if (!denied) err('a permission case needs a non-empty denied_facts');
   }
   if (tags.includes('injection') && obj.injection === undefined) {
     err('an injection case needs an injection block');

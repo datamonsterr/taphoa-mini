@@ -217,7 +217,7 @@ describe('cli dry runs against the stub assistant', () => {
   });
 
   it('filters with --ids and --tags', () => {
-    const byId = run('smoke', '--stub', '--ids', 'U1-01,OT-01', '--out', dir);
+    const byId = run('smoke', '--stub', '--ids', 'U1-04,OT-01', '--out', dir);
     expect(byId.status).toBe(0);
     expect(resultFiles()[0]).toMatch(/-partial\.md$/);
     const byTag = run('smoke', '--stub', '--tags', 'permission', '--out', dir);

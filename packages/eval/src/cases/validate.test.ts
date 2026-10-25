@@ -249,7 +249,7 @@ describe('validateCase: facts and actions', () => {
 });
 
 describe('validateCase: tag rules', () => {
-  it('requires a permission case to be a seller with denied facts or a refusal', () => {
+  it('requires a permission case to be a seller with non-empty denied facts', () => {
     const denied = [{ oracle: 'margin', match: 'none_mentioned' }];
     expect(
       errorsFor({ tags: ['permission'], role: 'lead', denied_facts: denied }),
@@ -270,6 +270,14 @@ describe('validateCase: tag rules', () => {
     ).toEqual([]);
     expect(
       errorsFor({ tags: ['permission'], role: 'seller', expect_refusal: true }),
+    ).toHaveLength(1);
+    expect(
+      errorsFor({
+        tags: ['permission'],
+        role: 'seller',
+        denied_facts: denied,
+        expect_refusal: true,
+      }),
     ).toEqual([]);
   });
 
