@@ -20,13 +20,15 @@ import {
 import { useMe } from '@/lib/api/hooks';
 import { keys } from '@/lib/api/keys';
 import type { Me } from '@/lib/api/store';
-import { useCartStore } from '@/stores/cart';
-import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import { useDeviceLock } from '@/stores/deviceLock';
 import { resolveMembership, useCurrentStore } from '@/stores/currentStore';
 import { useT } from '@/lib/i18n';
 import { Frame, FormError, ActionButton } from '@/features/onboarding/kit';
 import { signedInSessions } from './deviceSessions';
+import {
+  resetPersonScopedState,
+  resetStoreScopedState,
+} from './resetClientState';
 import { strings } from './strings';
 
 type GateState = { signedIn: boolean; hasMembership: boolean };
@@ -68,6 +70,7 @@ export function AuthGate({
   const membership = resolveMembership(me.data?.memberships ?? [], storedId);
   const identity = `${userId ?? ''}:${membership?.store.id ?? ''}`;
   const previous = useRef<string | undefined>(undefined);
+  const previousUser = useRef<string | null>(null);
   const [settledIdentity, setSettledIdentity] = useState<string>();
 
   useLayoutEffect(() => {
@@ -101,7 +104,8 @@ export function AuthGate({
     else if (signedInCount === 0 && lock.locked) lock.unlock();
   }, [isLoaded, lockHydrated, auth.isSignedIn, signedInCount]);
 
-  // A different person or store must never inherit a cart, alerts or cached shop data.
+  // A different person or store must never inherit cached shop data, a cart, alerts, camera or
+  // quick-enroll state, and a different person not even a pending invite.
   useLayoutEffect(() => {
     if (!isLoaded || !hydrated || previous.current === identity) return;
     previous.current = identity;
@@ -110,8 +114,10 @@ export function AuthGate({
     void qc.cancelQueries();
     qc.clear();
     if (currentMe) qc.setQueryData(keys.me(userId), currentMe);
-    useCartStore.getState().clear();
-    useLowStockAlerts.getState().reset();
+    resetStoreScopedState();
+    if (previousUser.current && previousUser.current !== userId)
+      resetPersonScopedState();
+    previousUser.current = userId ?? null;
     setSettledIdentity(identity);
   }, [isLoaded, hydrated, identity, userId, me.data, qc]);
 

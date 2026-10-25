@@ -15,6 +15,10 @@ import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import { keys } from '@/lib/api/keys';
 import { addClerkSession, clerkMock, setClerkState } from '@/test/clerk';
 import { useDeviceLock } from '@/stores/deviceLock';
+import { useCaptureModeStore } from '@/features/camera/modeStore';
+import { useQuickEnrollStore } from '@/features/camera/quickEnroll';
+import { useInviteIntent } from '@/features/onboarding/inviteIntent';
+import { useReceiptNotice } from '@/features/receipts/ReceiptToast';
 import { setApiTransport } from '@/lib/api/client';
 import { bridgeUserId, membershipRequired } from '@/lib/api/clerkBridge';
 import { testSession } from '@/test/session';
@@ -92,6 +96,107 @@ test('changing Clerk users and signing out clear the previous user data', async 
   );
   expect(await screen.findByText('signed-out')).toBeOnTheScreen();
   expect(useCartStore.getState().lines).toEqual([]);
+});
+
+/** What one person was doing in one store: the camera, a receipt toast, a pending invite. */
+function leaveTracesOfAPerson() {
+  const quick = useQuickEnrollStore.getState().dispatch;
+  quick({ type: 'toggle' });
+  quick({
+    type: 'captured',
+    id: 'shot-1',
+    uri: 'file:///private/a.jpg',
+    width: 10,
+    height: 10,
+  });
+  quick({ type: 'uploaded', id: 'shot-1', imageId: 'image-of-person-a' });
+  useReceiptNotice.setState({ count: 7 });
+  useCaptureModeStore.setState({ mode: 'many' });
+  useInviteIntent.getState().setToken('INVITE-FOR-A');
+  useCartStore.getState().add({ productId: 'p', name: 'Milk', price: 10 });
+}
+const noTraces = () => {
+  expect(useQuickEnrollStore.getState()).toMatchObject({
+    active: false,
+    shots: [],
+    currentId: undefined,
+  });
+  expect(useReceiptNotice.getState().count).toBeNull();
+  expect(useCaptureModeStore.getState().mode).toBe('one');
+  expect(useCartStore.getState().lines).toEqual([]);
+};
+
+test('a different person inherits no quick-enroll shots, receipt notice, capture mode or invite', async () => {
+  let userId = 'user_test';
+  setApiTransport((async () =>
+    Response.json({
+      clerk_user_id: userId,
+      profile: null,
+      memberships: [testSession()],
+    })) as typeof fetch);
+  const qc = createTestQueryClient();
+  await renderWithProviders(gate, qc);
+  await screen.findByText('shop');
+  leaveTracesOfAPerson();
+  userId = 'user_other';
+  await act(async () => setClerkState({ userId, sessionId: 'sess_other' }));
+  await screen.findByText('shop');
+  noTraces();
+  expect(useInviteIntent.getState().token).toBe('');
+});
+
+test('signing out clears them too, and the lock does the same for the picked person', async () => {
+  await renderWithProviders(gate);
+  await screen.findByText('shop');
+  leaveTracesOfAPerson();
+  await act(async () => useDeviceLock.getState().lock());
+  expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+  noTraces();
+  expect(useInviteIntent.getState().token).toBe('');
+});
+
+test('another store of the same person inherits the camera state, but a pending invite stays', async () => {
+  const first = testSession();
+  const second = {
+    store: { ...first.store, id: 'second-store' },
+    member: { ...first.member },
+  };
+  setApiTransport((async () =>
+    Response.json({
+      clerk_user_id: 'user_test',
+      profile: null,
+      memberships: [first, second],
+    })) as typeof fetch);
+  await renderWithProviders(gate);
+  await screen.findByText('shop');
+  leaveTracesOfAPerson();
+  await act(async () =>
+    useCurrentStore.getState().selectStore('user_test', second.store.id),
+  );
+  await screen.findByText('shop');
+  noTraces();
+  expect(useInviteIntent.getState().token).toBe('INVITE-FOR-A');
+});
+
+test('an invite that arrived before anyone was signed in survives the sign-in', async () => {
+  await clerkMock.signOut({ sessionId: 'sess_test' });
+  useInviteIntent.getState().setToken('LINK-OPENED-SIGNED-OUT');
+  await renderWithProviders(gate);
+  await screen.findByText('signed-out');
+  await act(async () => {
+    addClerkSession({
+      id: 'sess_new',
+      userId: 'user_test',
+      email: 'new@example.com',
+    });
+    setClerkState({
+      isSignedIn: true,
+      userId: 'user_test',
+      sessionId: 'sess_new',
+    });
+  });
+  await screen.findByText('shop');
+  expect(useInviteIntent.getState().token).toBe('LINK-OPENED-SIGNED-OUT');
 });
 
 test('membership_required refetches me and the gate leaves the shop', async () => {

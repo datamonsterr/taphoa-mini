@@ -8,7 +8,17 @@ lock below). `/v1/me` owns the membership and permission data.
 
 The root gate waits for Clerk and preference hydration, then routes signed-out
 users to `/sign-in`, users without memberships to `/welcome`, and members to `/`.
-Changing users or stores clears shop queries, cart and stock alerts. Store IDs
+Changing users or stores clears shop queries and every client store that holds
+person or store data (`resetStoreScopedState` in `src/features/auth/resetClientState.ts`):
+the cart, low-stock alerts, the quick-enroll session (`useQuickEnrollStore`: shots, local
+URIs, server image ids, active flag), the receipt toast (`useReceiptNotice`) and the capture
+mode (`useCaptureModeStore`, back to "one"). Changing the _person_ also drops a pending
+invite token (`useInviteIntent`); an invite that arrived while nobody was signed in, or
+before the gate first settled, is kept for whoever signs in next, and so is one when only
+the store changes (it is not store data). Device-wide stores are left alone: settings,
+`taphoa-current-store`, `taphoa-device-lock`, the tab-bar chrome (each sheet resets it on
+unmount) and the half-typed sign-in email (reset by its flows). A new store holding
+person or store data must be added to `resetStoreScopedState`. Store IDs
 that no longer belong to the user fall back to the first active membership.
 
 Google uses `useSSO` and activates `createdSessionId` with the returned `setActive`.
@@ -142,7 +152,7 @@ session is left, so the end state is right.
 Store picker: with more than one membership a "Cửa hàng" list appears; choosing one
 calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity on
 `<user id>:<store id>`, so both a person switch and a store switch run the existing
-cache-clearing effect (queries, cart, low-stock alerts), and the next request carries
+cache-clearing effect (queries and the stores above), and the next request carries
 the new `X-Store-Id`.
 
 The `auth-switch-pin` sheet (and its `-dots`, `-error`, `-keypad`, `-submit` parts) is also

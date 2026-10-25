@@ -49,6 +49,14 @@ beforeEach(() => {
   useCartStore.setState({ lines: [] });
   useLowStockAlerts.getState().reset();
   useCaptureModeStore.setState({ mode: 'one' });
+  const {
+    initialQuickEnroll,
+    useQuickEnrollStore,
+  } = require('@/features/camera/quickEnroll');
+  useQuickEnrollStore.setState(initialQuickEnroll);
+  require('@/features/receipts/ReceiptToast').useReceiptNotice.setState({
+    count: null,
+  });
   useSettingsStore.setState(initialSettings);
 });
 
