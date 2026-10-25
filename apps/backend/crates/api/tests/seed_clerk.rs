@@ -411,8 +411,25 @@ async fn seed_clerk_relinks_when_a_user_was_deleted_from_clerk() -> anyhow::Resu
     .await
 }
 
+/// Path of the `taphoa-seed` binary. `env!("CARGO_BIN_EXE_...")` is baked in at compile time and
+/// points at the build machine, which breaks `cargo nextest run --archive-file ... --workspace-remap`
+/// on another runner. nextest sets the variables below at run time with the remapped path
+/// (the underscore form since 0.9.113, `CARGO_BIN_EXE_` since 0.9.130); plain `cargo test`
+/// falls back to the compile-time path.
+fn seed_bin() -> std::path::PathBuf {
+    [
+        "NEXTEST_BIN_EXE_taphoa_seed",
+        "NEXTEST_BIN_EXE_taphoa-seed",
+        "CARGO_BIN_EXE_taphoa-seed",
+    ]
+    .iter()
+    .find_map(std::env::var_os)
+    .unwrap_or_else(|| env!("CARGO_BIN_EXE_taphoa-seed").into())
+    .into()
+}
+
 fn run_cli(url: &str, clerk: Option<&str>) -> std::process::Output {
-    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_taphoa-seed"));
+    let mut command = std::process::Command::new(seed_bin());
     command
         .env("DATABASE_URL", url)
         .env_remove("CLERK_SECRET_KEY")
