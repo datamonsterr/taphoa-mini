@@ -56,9 +56,8 @@ export interface paths {
         put?: never;
         /**
          * Create a store and its first Lead (F1)
-         * @description Public. Creates the store, the Lead member and a session for this device.
-         *     Returns a one-time `recovery_code`; the app asks the Lead to save it.
-         *     Rate limited per IP.
+         * @description Requires a Clerk session JWT; no existing membership is needed.
+         *     Creates the store and its first Lead membership. Rate limited per IP.
          */
         post: operations["createStore"];
         delete?: never;
@@ -84,84 +83,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/recover": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Sign a Lead in on a new phone with the recovery code
-         * @description Rotates the recovery code. Revokes no other sessions unless `revoke_other_sessions` is true.
-         */
-        post: operations["recoverLead"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Rotate the refresh token and get a new access token
-         * @description Refresh tokens are single use. Reuse of a rotated token revokes the whole session (theft signal).
-         */
-        post: operations["refreshSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/switch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Switch the acting member on a shared counter phone (U3, U4)
-         * @description The caller's session must belong to the same store. If the target member has a PIN,
-         *     `pin` is required. Five wrong PINs lock the member for 5 minutes (Redis counter).
-         */
-        post: operations["switchMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Revoke the current session */
-        post: operations["logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -169,7 +90,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current member, store and permissions */
+        /** Clerk identity, profile and active store memberships */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -190,6 +111,23 @@ export interface paths {
         /** Set or clear the caller's PIN (U4) */
         put: operations["setPin"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/pin/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify the caller's PIN lock */
+        post: operations["verifyPin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -244,8 +182,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Deactivate a member and revoke all of their sessions (Lead)
-         * @description Past sales keep the member reference. The member row is kept with `active=false`.
+         * Deactivate a member (Lead)
+         * @description Past sales keep the member reference. The member row is kept with `active=false`; subsequent store requests return 403 and the event stream closes on their deactivation event.
          */
         delete: operations["removeMember"];
         options?: never;
@@ -1104,7 +1042,7 @@ export interface paths {
          *     on `catalog.changed` the phone calls `/v1/sync/changes`. Fan-out across backend
          *     instances goes through Redis pub/sub channel `store:{store_id}:events`. Heartbeat
          *     comment every 25 s. Clients reconnect with `Last-Event-ID`; a gap is closed by the
-         *     next pull.
+         *     next pull. The stream closes when `member.changed` deactivates the connected member.
          */
         get: operations["streamEvents"];
         put?: never;
@@ -1151,31 +1089,25 @@ export interface components {
          * @enum {string}
          */
         Role: "lead" | "seller";
-        DeviceInfo: {
-            /** @example Samsung A15 quầy */
-            name: string;
-            /** @enum {string} */
-            platform: "android" | "ios" | "web";
-            /** @example 1.0.0 */
-            app_version?: string;
-        };
-        AuthSession: {
-            access_token: string;
-            refresh_token: string;
-            /**
-             * @description Access token lifetime in seconds.
-             * @example 900
-             */
-            expires_in: number;
-            member: components["schemas"]["Member"];
+        StoreMembership: {
             store: components["schemas"]["Store"];
+            member: components["schemas"]["Member"];
+        };
+        Profile: {
+            display_name: string | null;
+            email: string | null;
+        };
+        Me: {
+            clerk_user_id: string;
+            profile: components["schemas"]["Profile"] | null;
+            /** @description Active memberships ordered by join time. */
+            memberships: components["schemas"]["StoreMembership"][];
         };
         CreateStoreRequest: {
             /** @example Tạp hóa Cô Ba */
             store_name: string;
             /** @example Mẹ */
             display_name: string;
-            device: components["schemas"]["DeviceInfo"];
             bank_account?: components["schemas"]["BankAccount"];
         };
         /** @description VietQR payee (T1). The phone builds the EMVCo/NAPAS payload locally from this. */
@@ -2015,7 +1947,7 @@ export interface components {
             /** @example evt_000000000000128 */
             id: string;
             /** @enum {string} */
-            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "session.revoked" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed";
+            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed";
             version: number;
             /** Format: uuid */
             store_id: string;
@@ -2024,7 +1956,7 @@ export interface components {
             actor?: {
                 /** Format: uuid */
                 member_id?: string;
-                /** Format: uuid */
+                /** @description Clerk session id (`sid`). */
                 session_id?: string;
             } | null;
             /** @description Change-feed cursor after this event, when relevant. */
@@ -2033,7 +1965,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description Invalid input (`code` e.g. `validation_failed`, `total_mismatch`). */
+        /** @description Invalid input (`validation_failed`, `total_mismatch`); on store routes, `store_required` when several active memberships exist without X-Store-Id, or `validation_failed` for a malformed X-Store-Id. */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
@@ -2051,7 +1983,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Role does not allow this action (e.g. Seller changing a price). */
+        /** @description On store routes, `membership_required` when there is no active membership, or `forbidden` when X-Store-Id names a store without an active membership. Also `forbidden` when the role does not allow the action (e.g. Seller changing a price). */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -2148,6 +2080,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+        "X-Store-Id": string;
         MemberId: string;
         ImageId: string;
         ProductId: string;
@@ -2252,16 +2186,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthSession"] & {
-                        /**
-                         * @description Shown once. Lets a Lead sign in on a new phone if every device is lost.
-                         * @example 7KQ4-MZ2P-9HXD-T3VA
-                         */
-                        recovery_code: string;
-                    };
+                    "application/json": components["schemas"]["StoreMembership"];
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
         };
     };
@@ -2279,22 +2208,31 @@ export interface operations {
                     invite_token: string;
                     /** @example Bà nội */
                     display_name: string;
-                    device: components["schemas"]["DeviceInfo"];
                 };
             };
         };
         responses: {
-            /** @description Member created and signed in. */
+            /** @description Membership created or reactivated. */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthSession"];
+                    "application/json": components["schemas"]["StoreMembership"];
                 };
             };
             400: components["responses"]["BadRequest"];
-            /** @description Invite expired or already used. */
+            401: components["responses"]["Unauthorized"];
+            /** @description `already_member`: the Clerk user already has an active membership in this store. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `invite_unavailable`: invite expired or already used. */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2304,116 +2242,6 @@ export interface operations {
                 };
             };
             429: components["responses"]["TooManyRequests"];
-        };
-    };
-    recoverLead: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    recovery_code: string;
-                    device: components["schemas"]["DeviceInfo"];
-                    /** @default false */
-                    revoke_other_sessions?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Signed in. Contains a new `recovery_code`. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthSession"] & {
-                        recovery_code: string;
-                    };
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            429: components["responses"]["TooManyRequests"];
-        };
-    };
-    refreshSession: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    refresh_token: string;
-                };
-            };
-        };
-        responses: {
-            /** @description New token pair. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthSession"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    switchMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    member_id: string;
-                    pin?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Session for the target member on this device. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthSession"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            404: components["responses"]["NotFound"];
-            429: components["responses"]["TooManyRequests"];
-        };
-    };
-    logout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session revoked. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: components["responses"]["Unauthorized"];
         };
     };
     getMe: {
@@ -2431,10 +2259,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        member: components["schemas"]["Member"];
-                        store: components["schemas"]["Store"];
-                    };
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -2443,7 +2268,10 @@ export interface operations {
     setPin: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2465,12 +2293,55 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    verifyPin: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    pin: string;
+                };
+            };
+        };
+        responses: {
+            /** @description PIN matches, or the member has no PIN. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description `invalid_pin` when the PIN does not match; `unauthorized` for missing or invalid Clerk credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStore: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2485,13 +2356,18 @@ export interface operations {
                     "application/json": components["schemas"]["Store"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     updateStore: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2518,7 +2394,10 @@ export interface operations {
     listMembers: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2535,13 +2414,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     removeMember: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 memberId: components["parameters"]["MemberId"];
             };
@@ -2556,6 +2440,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -2565,7 +2450,10 @@ export interface operations {
     updateMember: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 memberId: components["parameters"]["MemberId"];
             };
@@ -2590,6 +2478,7 @@ export interface operations {
                     "application/json": components["schemas"]["Member"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -2599,7 +2488,10 @@ export interface operations {
     createInvite: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2624,6 +2516,7 @@ export interface operations {
                     "application/json": components["schemas"]["Invite"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };
@@ -2631,7 +2524,10 @@ export interface operations {
     uploadImage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2661,6 +2557,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             502: components["responses"]["BadGateway"];
@@ -2670,7 +2567,10 @@ export interface operations {
     getImage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 imageId: components["parameters"]["ImageId"];
             };
@@ -2687,7 +2587,9 @@ export interface operations {
                     "application/json": components["schemas"]["Image"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["ServiceUnavailable"];
         };
@@ -2695,7 +2597,10 @@ export interface operations {
     createScan: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2736,6 +2641,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             503: components["responses"]["ServiceUnavailable"];
@@ -2744,7 +2650,10 @@ export interface operations {
     getScan: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 scanId: string;
             };
@@ -2761,7 +2670,9 @@ export interface operations {
                     "application/json": components["schemas"]["Scan"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -2802,7 +2713,10 @@ export interface operations {
     segmentPoints: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2821,6 +2735,7 @@ export interface operations {
                     "application/json": components["schemas"]["SegmentPointsResponse"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -2840,7 +2755,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2857,13 +2775,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createProduct: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2914,7 +2837,10 @@ export interface operations {
     getProduct: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
             };
@@ -2931,14 +2857,19 @@ export interface operations {
                     "application/json": components["schemas"]["Product"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
     archiveProduct: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
             };
@@ -2953,6 +2884,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -2961,7 +2893,10 @@ export interface operations {
     updateProduct: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
             };
@@ -2991,7 +2926,10 @@ export interface operations {
     addProductImage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
             };
@@ -3036,6 +2974,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProductImage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3054,7 +2993,10 @@ export interface operations {
     removeProductImage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
                 imageId: components["parameters"]["ImageId"];
@@ -3070,6 +3012,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3082,7 +3025,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
             };
@@ -3101,14 +3047,19 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
     listCategories: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3125,13 +3076,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createCategory: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3154,6 +3110,7 @@ export interface operations {
                     "application/json": components["schemas"]["Category"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
@@ -3164,7 +3121,10 @@ export interface operations {
             query?: {
                 format?: "pdf" | "png";
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3180,7 +3140,9 @@ export interface operations {
                     "image/png": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listSales: {
@@ -3196,7 +3158,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3213,13 +3178,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createSale: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3249,13 +3219,17 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
         };
     };
     getSale: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 saleId: components["parameters"]["SaleId"];
             };
@@ -3272,14 +3246,19 @@ export interface operations {
                     "application/json": components["schemas"]["Sale"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
     voidSale: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 saleId: components["parameters"]["SaleId"];
             };
@@ -3307,6 +3286,7 @@ export interface operations {
                     "application/json": components["schemas"]["Sale"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3319,7 +3299,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3336,6 +3319,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };
@@ -3343,7 +3327,10 @@ export interface operations {
     resolveManualLine: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 lineId: string;
             };
@@ -3389,7 +3376,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3406,13 +3396,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createExpense: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3442,13 +3437,17 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
         };
     };
     getExpense: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 expenseId: string;
             };
@@ -3465,14 +3464,19 @@ export interface operations {
                     "application/json": components["schemas"]["Expense"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
     deleteExpense: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 expenseId: string;
             };
@@ -3487,6 +3491,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3495,7 +3500,10 @@ export interface operations {
     updateExpense: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 expenseId: string;
             };
@@ -3535,7 +3543,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3550,13 +3561,17 @@ export interface operations {
                     "application/json": components["schemas"]["StockList"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createStockAdjustment: {
         parameters: {
             query?: never;
             header: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
                 /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
@@ -3580,6 +3595,7 @@ export interface operations {
                     "application/json": components["schemas"]["StockMovement"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3593,7 +3609,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 productId: components["parameters"]["ProductId"];
             };
@@ -3610,7 +3629,9 @@ export interface operations {
                     "application/json": components["schemas"]["StockMovementList"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -3621,7 +3642,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3636,6 +3660,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptList"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };
@@ -3644,6 +3669,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
                 /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
@@ -3665,6 +3692,7 @@ export interface operations {
                     "application/json": components["schemas"]["Receipt"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3676,7 +3704,10 @@ export interface operations {
     getReceipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 receiptId: components["parameters"]["ReceiptId"];
             };
@@ -3693,6 +3724,7 @@ export interface operations {
                     "application/json": components["schemas"]["Receipt"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3701,7 +3733,10 @@ export interface operations {
     discardReceipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 receiptId: components["parameters"]["ReceiptId"];
             };
@@ -3716,6 +3751,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3726,6 +3762,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
                 /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
@@ -3749,6 +3787,7 @@ export interface operations {
                     "application/json": components["schemas"]["Receipt"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3761,7 +3800,10 @@ export interface operations {
             query?: {
                 status?: "open" | "accepted" | "dismissed";
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3778,6 +3820,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };
@@ -3785,7 +3828,10 @@ export interface operations {
     acceptAlert: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 alertId: components["parameters"]["AlertId"];
             };
@@ -3808,6 +3854,7 @@ export interface operations {
                     "application/json": components["schemas"]["MarginAlert"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3817,7 +3864,10 @@ export interface operations {
     dismissAlert: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 alertId: components["parameters"]["AlertId"];
             };
@@ -3834,6 +3884,7 @@ export interface operations {
                     "application/json": components["schemas"]["MarginAlert"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -3845,7 +3896,10 @@ export interface operations {
                 /** @description Business date; defaults to today in Asia/Ho_Chi_Minh. */
                 date?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3860,7 +3914,9 @@ export interface operations {
                     "application/json": components["schemas"]["DailyReport"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getSummaryReport: {
@@ -3872,7 +3928,10 @@ export interface operations {
                 to: components["parameters"]["ToRequired"];
                 granularity?: "day" | "week" | "month";
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3893,6 +3952,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getTopProducts: {
@@ -3905,7 +3965,10 @@ export interface operations {
                 sort?: "revenue" | "quantity";
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3922,7 +3985,9 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getRecognitionReport: {
@@ -3933,7 +3998,10 @@ export interface operations {
                 /** @description Inclusive business date. Max range 366 days. */
                 to: components["parameters"]["ToRequired"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3948,6 +4016,7 @@ export interface operations {
                     "application/json": components["schemas"]["RecognitionReport"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };
@@ -3961,7 +4030,10 @@ export interface operations {
                 to: components["parameters"]["ToRequired"];
                 format?: "csv" | "xlsx";
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3990,7 +4062,10 @@ export interface operations {
                 /** @description Inclusive business date. */
                 to?: components["parameters"]["To"];
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4007,13 +4082,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getDayClose: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 businessDate: string;
             };
@@ -4030,14 +4110,19 @@ export interface operations {
                     "application/json": components["schemas"]["DayClose"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
     putDayClose: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path: {
                 businessDate: string;
             };
@@ -4074,7 +4159,10 @@ export interface operations {
                 since?: string;
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4089,7 +4177,9 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeFeed"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             /** @description Cursor too old (change log compacted). Discard local catalog and pull a full snapshot. */
             410: {
                 headers: {
@@ -4105,6 +4195,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
                 "Last-Event-ID"?: string;
             };
             path?: never;
@@ -4121,7 +4213,9 @@ export interface operations {
                     "text/event-stream": components["schemas"]["StoreEvent"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

@@ -20,8 +20,9 @@ info:
       outbox safe to retry.
     - **Timestamps** are RFC 3339 with offset. **Business dates** (`YYYY-MM-DD`) use the
       store time zone `Asia/Ho_Chi_Minh`.
-    - **Store scope**: every `/v1` route except store creation, join, refresh and recovery
-      acts on the store in the access token. There is no `store_id` in paths.
+    - **Store scope**: store routes act on the store selected by `X-Store-Id`
+      (or the only active membership). Store creation, join and `GET /v1/me` use Clerk
+      identity only. There is no `store_id` in paths.
     - **Pagination**: cursor based. `?limit=` (default 50, max 200) and `?cursor=`;
       responses carry `next_cursor` (null on the last page).
     - **Errors**: JSON `{ "error": "<human message>", "code": "<machine code>" }`.
@@ -50,7 +51,7 @@ tags:
   - name: Health
     description: Process liveness and dependency readiness. Implemented.
   - name: Auth
-    description: Store creation, family join by QR invite, token refresh, member switching.
+    description: Clerk identity, store creation, family join by QR invite and PIN lock.
   - name: Store
     description: Store profile and settings, including the VietQR bank account (T1).
   - name: Members
@@ -128,10 +129,8 @@ paths:
       operationId: createStore
       summary: Create a store and its first Lead (F1)
       description: |
-        Public. Creates the store, the Lead member and a session for this device.
-        Returns a one-time `recovery_code`; the app asks the Lead to save it.
-        Rate limited per IP.
-      security: []
+        Requires a Clerk session JWT; no existing membership is needed.
+        Creates the store and its first Lead membership. Rate limited per IP.
       requestBody:
         required: true
         content:
@@ -142,31 +141,22 @@ paths:
           description: Store created.
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/AuthSession'
-                  - type: object
-                    required: [recovery_code]
-                    properties:
-                      recovery_code:
-                        type: string
-                        description: Shown once. Lets a Lead sign in on a new phone if every device is lost.
-                        example: 7KQ4-MZ2P-9HXD-T3VA
+              schema: { $ref: '#/components/schemas/StoreMembership' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
   /v1/auth/join:
     post:
       tags: [Auth]
       operationId: joinStore
       summary: Join a store by scanning the Lead's invite QR (U1)
-      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [invite_token, display_name, device]
+              required: [invite_token, display_name]
               properties:
                 invite_token:
                   {
@@ -175,126 +165,36 @@ paths:
                   }
                 display_name:
                   { type: string, minLength: 1, maxLength: 40, example: Bà nội }
-                device: { $ref: '#/components/schemas/DeviceInfo' }
       responses:
         '201':
-          description: Member created and signed in.
+          description: Membership created or reactivated.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AuthSession' }
+              schema: { $ref: '#/components/schemas/StoreMembership' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: '`already_member`: the Clerk user already has an active membership in this store.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '410':
-          description: Invite expired or already used.
+          description: '`invite_unavailable`: invite expired or already used.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
-  /v1/auth/recover:
-    post:
-      tags: [Auth]
-      operationId: recoverLead
-      summary: Sign a Lead in on a new phone with the recovery code
-      description: Rotates the recovery code. Revokes no other sessions unless `revoke_other_sessions` is true.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [recovery_code, device]
-              properties:
-                recovery_code: { type: string }
-                device: { $ref: '#/components/schemas/DeviceInfo' }
-                revoke_other_sessions: { type: boolean, default: false }
-      responses:
-        '200':
-          description: Signed in. Contains a new `recovery_code`.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/AuthSession'
-                  - type: object
-                    required: [recovery_code]
-                    properties:
-                      recovery_code: { type: string }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-  /v1/auth/refresh:
-    post:
-      tags: [Auth]
-      operationId: refreshSession
-      summary: Rotate the refresh token and get a new access token
-      description: Refresh tokens are single use. Reuse of a rotated token revokes the whole session (theft signal).
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [refresh_token]
-              properties:
-                refresh_token: { type: string }
-      responses:
-        '200':
-          description: New token pair.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthSession' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-  /v1/auth/switch:
-    post:
-      tags: [Auth]
-      operationId: switchMember
-      summary: Switch the acting member on a shared counter phone (U3, U4)
-      description: |
-        The caller's session must belong to the same store. If the target member has a PIN,
-        `pin` is required. Five wrong PINs lock the member for 5 minutes (Redis counter).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [member_id]
-              properties:
-                member_id: { type: string, format: uuid }
-                pin: { type: string, pattern: '^[0-9]{4,6}$' }
-      responses:
-        '200':
-          description: Session for the target member on this device.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthSession' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-  /v1/auth/logout:
-    post:
-      tags: [Auth]
-      operationId: logout
-      summary: Revoke the current session
-      responses:
-        '204': { description: Session revoked. }
-        '401': { $ref: '#/components/responses/Unauthorized' }
   /v1/me:
     get:
       tags: [Auth]
       operationId: getMe
-      summary: Current member, store and permissions
+      summary: Clerk identity, profile and active store memberships
       responses:
         '200':
           description: Current identity.
           content:
             application/json:
-              schema:
-                type: object
-                required: [member, store]
-                properties:
-                  member: { $ref: '#/components/schemas/Member' }
-                  store: { $ref: '#/components/schemas/Store' }
+              schema: { $ref: '#/components/schemas/Me' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /v1/me/pin:
     put:
@@ -313,10 +213,39 @@ paths:
                   type: [string, 'null']
                   pattern: '^[0-9]{4,6}$'
                   description: null clears the PIN.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '204': { description: PIN updated. }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/me/pin/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyPin
+      summary: Verify the caller's PIN lock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string, pattern: '^[0-9]{4,6}$' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+      responses:
+        '204': { description: 'PIN matches, or the member has no PIN.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: '`invalid_pin` when the PIN does not match; `unauthorized` for missing or invalid Clerk credentials.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Store
   /v1/store:
@@ -324,6 +253,8 @@ paths:
       tags: [Store]
       operationId: getStore
       summary: Store profile and settings
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Store.
@@ -331,6 +262,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Store' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     patch:
       tags: [Store]
       operationId: updateStore
@@ -340,6 +273,8 @@ paths:
         content:
           application/merge-patch+json:
             schema: { $ref: '#/components/schemas/StorePatch' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Updated store.
@@ -356,6 +291,8 @@ paths:
       tags: [Members]
       operationId: listMembers
       summary: List family members
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Members, active first.
@@ -369,6 +306,8 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Member' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/members/{memberId}:
     parameters:
       - $ref: '#/components/parameters/MemberId'
@@ -387,6 +326,8 @@ paths:
                 display_name: { type: string, minLength: 1, maxLength: 40 }
                 role: { $ref: '#/components/schemas/Role' }
                 can_enroll: { type: boolean }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Updated member.
@@ -397,17 +338,21 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
     delete:
       tags: [Members]
       operationId: removeMember
-      summary: Deactivate a member and revoke all of their sessions (Lead)
-      description: Past sales keep the member reference. The member row is kept with `active=false`.
+      summary: Deactivate a member (Lead)
+      description: Past sales keep the member reference. The member row is kept with `active=false`; subsequent store requests return 403 and the event stream closes on their deactivation event.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '204': { description: Member deactivated. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/invites:
     post:
       tags: [Members]
@@ -424,6 +369,8 @@ paths:
                 can_enroll: { type: boolean, default: false }
                 ttl_seconds:
                   { type: integer, minimum: 60, maximum: 86400, default: 600 }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '201':
           description: Invite. Encode `join_url` into the QR.
@@ -432,6 +379,7 @@ paths:
               schema: { $ref: '#/components/schemas/Invite' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   # ---------------------------------------------------------------- Images
   /v1/images:
@@ -461,6 +409,8 @@ paths:
             encoding:
               image:
                 contentType: image/jpeg, image/png, image/webp
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '201':
           description: Stored.
@@ -473,6 +423,7 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/images/{imageId}:
     parameters:
       - $ref: '#/components/parameters/ImageId'
@@ -480,6 +431,8 @@ paths:
       tags: [Images]
       operationId: getImage
       summary: Image metadata with a fresh presigned URL
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Image.
@@ -489,6 +442,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Recognition
   /v1/recognition/scans:
@@ -532,6 +487,8 @@ paths:
                     default: checkout,
                   }
                 top_k: { type: integer, minimum: 1, maximum: 5, default: 4 }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '201':
           description: Scan stored with detections and candidates.
@@ -543,6 +500,7 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/recognition/scans/{scanId}:
     parameters:
       - name: scanId
@@ -553,6 +511,8 @@ paths:
       tags: [Recognition]
       operationId: getScan
       summary: Read a stored scan (debug and review)
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Scan.
@@ -561,6 +521,8 @@ paths:
               schema: { $ref: '#/components/schemas/Scan' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/segment:
     post:
       tags: [Recognition]
@@ -610,6 +572,8 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/SegmentPointsRequest' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Segmentation mask, cutout image, and bounding box.
@@ -621,6 +585,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   # ---------------------------------------------------------------- Catalog
   /v1/products:
@@ -630,6 +595,7 @@ paths:
       summary: Price list / grid (C6, S3)
       description: Phones normally read the catalog from local SQLite fed by `/v1/sync/changes`; this route serves search and first load.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: q
           in: query
           description: Case- and accent-insensitive name search (`unaccent`), e.g. `hao hao` matches `Hảo Hảo`.
@@ -660,6 +626,8 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/Product' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Catalog]
       operationId: createProduct
@@ -683,6 +651,8 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/CreateProductRequest' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Replay of an identical earlier create.
@@ -714,6 +684,8 @@ paths:
       tags: [Catalog]
       operationId: getProduct
       summary: Product detail
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Product.
@@ -722,6 +694,8 @@ paths:
               schema: { $ref: '#/components/schemas/Product' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     patch:
       tags: [Catalog]
       operationId: updateProduct
@@ -736,6 +710,8 @@ paths:
         content:
           application/merge-patch+json:
             schema: { $ref: '#/components/schemas/ProductPatch' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Updated product.
@@ -751,11 +727,14 @@ paths:
       operationId: archiveProduct
       summary: Archive a product (Lead)
       description: Soft delete. Hidden from grid and recognition; past sales keep the reference.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '204': { description: Archived. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/products/{productId}/images:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -794,6 +773,8 @@ paths:
                   items: { type: number }
                   minItems: 4
                   maxItems: 4
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Image already attached; returns the stored reference.
@@ -814,6 +795,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/products/{productId}/images/{imageId}:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -823,12 +805,15 @@ paths:
       operationId: removeProductImage
       summary: Remove a reference photo and enqueue prototype recomputation
       description: A product keeps at least one reference image (409). Enqueues background indexing.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '204': { description: Removed. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/products/{productId}/price-history:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -837,6 +822,7 @@ paths:
       operationId: getPriceHistory
       summary: Price and cost history (C3)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -854,11 +840,15 @@ paths:
                         items: { $ref: '#/components/schemas/PriceChange' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/categories:
     get:
       tags: [Catalog]
       operationId: listCategories
       summary: Product categories
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Categories.
@@ -872,6 +862,8 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Category' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Catalog]
       operationId: createCategory
@@ -886,6 +878,8 @@ paths:
               properties:
                 id: { type: string, format: uuid }
                 name: { type: string, minLength: 1, maxLength: 40 }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '201':
           description: Created.
@@ -895,12 +889,14 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/exports/price-list:
     get:
       tags: [Catalog]
       operationId: exportPriceList
       summary: Printable price list (C7, P2)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: format
           in: query
           schema: { type: string, enum: [pdf, png], default: pdf }
@@ -913,6 +909,8 @@ paths:
             image/png:
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Sales
   /v1/sales:
@@ -921,6 +919,7 @@ paths:
       operationId: listSales
       summary: Sales log
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
         - name: member_id
@@ -948,6 +947,8 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/Sale' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Sales]
       operationId: createSale
@@ -964,6 +965,8 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/CreateSaleRequest' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Replay of an identical earlier create.
@@ -978,6 +981,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/sales/{saleId}:
     parameters:
       - $ref: '#/components/parameters/SaleId'
@@ -985,6 +989,8 @@ paths:
       tags: [Sales]
       operationId: getSale
       summary: Sale detail
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Sale.
@@ -993,6 +999,8 @@ paths:
               schema: { $ref: '#/components/schemas/Sale' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/sales/{saleId}/void:
     parameters:
       - $ref: '#/components/parameters/SaleId'
@@ -1016,6 +1024,8 @@ paths:
                     format: date-time,
                     description: Device time; defaults to server time.,
                   }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Voided sale.
@@ -1025,6 +1035,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   # ---------------------------------------------------------------- Review
   /v1/review/manual-lines:
@@ -1034,6 +1045,7 @@ paths:
       summary: Items sold without a catalog match (S4, F3)
       description: Lead sees "3 items sold without catalog", each with the crop photo when one exists.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: status
           in: query
           schema: { type: string, enum: [open, resolved], default: open }
@@ -1054,6 +1066,7 @@ paths:
                         items: { $ref: '#/components/schemas/ManualLine' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/review/manual-lines/{lineId}/resolve:
     parameters:
       - name: lineId
@@ -1083,6 +1096,8 @@ paths:
                     format: uuid,
                     description: Required for link and enrolled.,
                   }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Resolved line.
@@ -1101,6 +1116,7 @@ paths:
       operationId: listExpenses
       summary: Expenses and purchases
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
         - name: category
@@ -1122,6 +1138,8 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/Expense' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Expenses]
       operationId: createExpense
@@ -1136,6 +1154,8 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/CreateExpenseRequest' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Replay of an identical earlier create.
@@ -1150,6 +1170,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/expenses/{expenseId}:
     parameters:
       - name: expenseId
@@ -1160,6 +1181,8 @@ paths:
       tags: [Expenses]
       operationId: getExpense
       summary: Expense detail
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Expense.
@@ -1168,6 +1191,8 @@ paths:
               schema: { $ref: '#/components/schemas/Expense' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     patch:
       tags: [Expenses]
       operationId: updateExpense
@@ -1184,6 +1209,8 @@ paths:
                 category: { $ref: '#/components/schemas/ExpenseCategory' }
                 note: { type: [string, 'null'], maxLength: 500 }
                 image_id: { type: [string, 'null'], format: uuid }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Updated.
@@ -1199,11 +1226,14 @@ paths:
       operationId: deleteExpense
       summary: Delete an expense (Lead)
       description: Soft delete. Product cost prices set by its purchase lines are not rolled back.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '204': { description: Deleted. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   # ---------------------------------------------------------------- Stock
   /v1/stock:
@@ -1215,6 +1245,7 @@ paths:
         Sorted by status (out, low, ok), then name. `all` excludes untracked products.
         Threshold is the effective product override or store default. Quantities are in base units.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: status
           in: query
           schema: { type: string, enum: [all, low, out], default: all }
@@ -1227,6 +1258,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/StockList' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/products/{productId}/stock-adjustments:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -1239,6 +1272,7 @@ paths:
         quantity; delta changes it. Writes the quantity, ledger movement and outbox events
         in one transaction. Replaying the same Idempotency-Key returns the same movement.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -1256,6 +1290,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/products/{productId}/stock-movements:
     parameters:
       - $ref: '#/components/parameters/ProductId'
@@ -1264,6 +1299,7 @@ paths:
       operationId: listStockMovements
       summary: Stock movement history
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -1274,6 +1310,8 @@ paths:
               schema: { $ref: '#/components/schemas/StockMovementList' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Receipts
   /v1/receipts:
@@ -1288,6 +1326,7 @@ paths:
         Decision failures fall back to rules. Replaying the same Idempotency-Key returns
         the same receipt without repeating OCR.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -1306,11 +1345,13 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '400': { $ref: '#/components/responses/BadRequest' }
     get:
       tags: [Receipts]
       operationId: listReceipts
       summary: Receipt history (Lead or can_enroll)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: status
           in: query
           schema: { type: string, enum: [draft, confirmed, discarded] }
@@ -1324,6 +1365,7 @@ paths:
               schema: { $ref: '#/components/schemas/ReceiptList' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/receipts/{receiptId}:
     parameters:
       - $ref: '#/components/parameters/ReceiptId'
@@ -1331,6 +1373,8 @@ paths:
       tags: [Receipts]
       operationId: getReceipt
       summary: Receipt detail and photo (Lead or can_enroll)
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Receipt with parsed lines and mapping candidates.
@@ -1340,17 +1384,21 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
     delete:
       tags: [Receipts]
       operationId: discardReceipt
       summary: Discard a draft receipt (Lead or can_enroll)
       description: Marks the draft discarded; 409 already_confirmed when confirmed.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '204': { description: Draft discarded. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/receipts/{receiptId}/confirm:
     parameters:
       - $ref: '#/components/parameters/ReceiptId'
@@ -1366,6 +1414,7 @@ paths:
         Returns the confirmed receipt with expense_id. The same Idempotency-Key replays
         the same result; another attempt to confirm returns 409 already_confirmed.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -1383,6 +1432,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   # ---------------------------------------------------------------- Alerts
   /v1/alerts:
@@ -1391,6 +1441,7 @@ paths:
       operationId: listAlerts
       summary: Margin alerts (E3)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: status
           in: query
           schema:
@@ -1409,6 +1460,7 @@ paths:
                     items: { $ref: '#/components/schemas/MarginAlert' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/alerts/{alertId}/accept:
     parameters:
       - $ref: '#/components/parameters/AlertId'
@@ -1424,6 +1476,8 @@ paths:
               type: object
               properties:
                 new_price: { $ref: '#/components/schemas/Money' }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Accepted alert.
@@ -1434,6 +1488,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/alerts/{alertId}/dismiss:
     parameters:
       - $ref: '#/components/parameters/AlertId'
@@ -1441,6 +1496,8 @@ paths:
       tags: [Alerts]
       operationId: dismissAlert
       summary: Keep the current price (Lead)
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Dismissed alert.
@@ -1450,6 +1507,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   # ---------------------------------------------------------------- Reports
   /v1/reports/today:
@@ -1458,6 +1516,7 @@ paths:
       operationId: getDailyReport
       summary: Today screen (R1)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: date
           in: query
           description: Business date; defaults to today in Asia/Ho_Chi_Minh.
@@ -1469,12 +1528,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DailyReport' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/reports/summary:
     get:
       tags: [Reports]
       operationId: getSummaryReport
       summary: Day/week/month revenue and expenses for bar charts (R3)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/FromRequired'
         - $ref: '#/components/parameters/ToRequired'
         - name: granularity
@@ -1495,12 +1557,14 @@ paths:
                     items: { $ref: '#/components/schemas/SummaryBucket' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/reports/top-products:
     get:
       tags: [Reports]
       operationId: getTopProducts
       summary: Top products by revenue or quantity, with gross margin when cost is known (R4)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/FromRequired'
         - $ref: '#/components/parameters/ToRequired'
         - name: sort
@@ -1522,12 +1586,15 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/TopProduct' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/reports/recognition:
     get:
       tags: [Reports]
       operationId: getRecognitionReport
       summary: Confirmed-vs-corrected rate (PRD §6 accuracy metric, A1)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/FromRequired'
         - $ref: '#/components/parameters/ToRequired'
       responses:
@@ -1538,12 +1605,14 @@ paths:
               schema: { $ref: '#/components/schemas/RecognitionReport' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /v1/exports/transactions:
     get:
       tags: [Reports]
       operationId: exportTransactions
       summary: Sales and expenses for tax declaration (R5)
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/FromRequired'
         - $ref: '#/components/parameters/ToRequired'
         - name: format
@@ -1568,6 +1637,7 @@ paths:
       operationId: listDayCloses
       summary: Past end-of-day closes
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
       responses:
@@ -1583,6 +1653,8 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/DayClose' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/day-closes/{businessDate}:
     parameters:
       - name: businessDate
@@ -1593,6 +1665,8 @@ paths:
       tags: [Day close]
       operationId: getDayClose
       summary: One day's close
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Day close.
@@ -1601,6 +1675,8 @@ paths:
               schema: { $ref: '#/components/schemas/DayClose' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     put:
       tags: [Day close]
       operationId: putDayClose
@@ -1621,6 +1697,8 @@ paths:
                 counted_cash: { $ref: '#/components/schemas/Money' }
                 opening_float: { $ref: '#/components/schemas/Money' }
                 note: { type: string, maxLength: 500 }
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
       responses:
         '200':
           description: Close stored.
@@ -1643,6 +1721,7 @@ paths:
         and are not part of the feed. Start with no `since` for a full snapshot. Repeat while
         `has_more`. Deletions arrive as `op=delete`.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: since
           in: query
           description: Opaque cursor from the previous response.
@@ -1662,6 +1741,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/events:
     get:
       tags: [Sync]
@@ -1672,8 +1753,9 @@ paths:
         on `catalog.changed` the phone calls `/v1/sync/changes`. Fan-out across backend
         instances goes through Redis pub/sub channel `store:{store_id}:events`. Heartbeat
         comment every 25 s. Clients reconnect with `Last-Event-ID`; a gap is closed by the
-        next pull.
+        next pull. The stream closes when `member.changed` deactivates the connected member.
       parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
         - name: Last-Event-ID
           in: header
           schema: { type: string }
@@ -1684,6 +1766,8 @@ paths:
             text/event-stream:
               schema: { $ref: '#/components/schemas/StoreEvent' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   securitySchemes:
@@ -1692,11 +1776,16 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: |
-        Access token (JWT, HS256, 15 min) with claims `sub` (member id), `sid` (session id),
-        `store` (store id), `role`, `can_enroll`. Refresh token is opaque, 90 days, rotating,
-        stored hashed in Postgres.
+        Clerk session JWT (RS256), verified against the instance JWKS.
+        Obtained from the Clerk SDK `getToken()`.
 
   parameters:
+    X-Store-Id:
+      name: X-Store-Id
+      in: header
+      required: false
+      description: Selects the store; required when the Clerk user has more than one active membership, optional with exactly one.
+      schema: { type: string, format: uuid }
     MemberId:
       name: memberId
       in: path
@@ -1766,7 +1855,7 @@ components:
 
   responses:
     BadRequest:
-      description: Invalid input (`code` e.g. `validation_failed`, `total_mismatch`).
+      description: Invalid input (`validation_failed`, `total_mismatch`); on store routes, `store_required` when several active memberships exist without X-Store-Id, or `validation_failed` for a malformed X-Store-Id.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1776,7 +1865,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
-      description: Role does not allow this action (e.g. Seller changing a price).
+      description: On store routes, `membership_required` when there is no active membership, or `forbidden` when X-Store-Id names a store without an active membership. Also `forbidden` when the role does not allow the action (e.g. Seller changing a price).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1873,35 +1962,38 @@ components:
       type: string
       enum: [lead, seller]
       description: Lead has all permissions and owns prices. Seller sells, views prices, adds manual-price lines.
-    DeviceInfo:
+    StoreMembership:
       type: object
-      required: [name, platform]
+      required: [store, member]
       properties:
-        name: { type: string, maxLength: 60, example: Samsung A15 quầy }
-        platform: { type: string, enum: [android, ios, web] }
-        app_version: { type: string, example: 1.0.0 }
-    AuthSession:
-      type: object
-      required: [access_token, refresh_token, expires_in, member, store]
-      properties:
-        access_token: { type: string }
-        refresh_token: { type: string }
-        expires_in:
-          {
-            type: integer,
-            description: Access token lifetime in seconds.,
-            example: 900,
-          }
-        member: { $ref: '#/components/schemas/Member' }
         store: { $ref: '#/components/schemas/Store' }
+        member: { $ref: '#/components/schemas/Member' }
+    Profile:
+      type: object
+      required: [display_name, email]
+      properties:
+        display_name: { type: [string, 'null'] }
+        email: { type: [string, 'null'] }
+    Me:
+      type: object
+      required: [clerk_user_id, profile, memberships]
+      properties:
+        clerk_user_id: { type: string }
+        profile:
+          oneOf:
+            - $ref: '#/components/schemas/Profile'
+            - type: 'null'
+        memberships:
+          type: array
+          description: Active memberships ordered by join time.
+          items: { $ref: '#/components/schemas/StoreMembership' }
     CreateStoreRequest:
       type: object
-      required: [store_name, display_name, device]
+      required: [store_name, display_name]
       properties:
         store_name:
           { type: string, minLength: 1, maxLength: 80, example: Tạp hóa Cô Ba }
         display_name: { type: string, minLength: 1, maxLength: 40, example: Mẹ }
-        device: { $ref: '#/components/schemas/DeviceInfo' }
         bank_account: { $ref: '#/components/schemas/BankAccount' }
     BankAccount:
       type: object
@@ -3035,7 +3127,6 @@ components:
             - price.changed
             - store.changed
             - member.changed
-            - session.revoked
             - sale.created
             - sale.voided
             - review.line_flagged
@@ -3056,7 +3147,8 @@ components:
           type: [object, 'null']
           properties:
             member_id: { type: string, format: uuid }
-            session_id: { type: string, format: uuid }
+            session_id:
+              { type: string, description: 'Clerk session id (`sid`).' }
         cursor:
           {
             type: string,
