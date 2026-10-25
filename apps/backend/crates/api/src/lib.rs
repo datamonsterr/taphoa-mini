@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod catalog;
 pub mod config;
+pub mod debts;
 pub mod decisions;
 pub mod error;
 pub mod events;
