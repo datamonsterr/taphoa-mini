@@ -346,6 +346,8 @@ export function getDailyReport(date: string = businessDate()): DailyReport {
     ).length,
     cash_revenue: t.cashSales,
     transfer_revenue: t.transferRevenue,
+    cash_repayments: t.cashRepayments,
+    credit_sales: t.creditSales,
     expenses: t.expenses,
     net: t.revenue - t.expenses,
     expected_cash: Math.max(

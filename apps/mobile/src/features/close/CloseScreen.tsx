@@ -75,6 +75,13 @@ export function CloseScreen() {
   const closed = dayClose.data ?? null;
   const expected = closed?.expected_cash ?? report.data?.expected_cash;
   const counted = closed ? closed.counted_cash : countedFromDigits(digits);
+  // Before closing the lines come from today's report; after, from the stored close.
+  const cashRepayments = closed
+    ? (closed.cash_repayments ?? 0)
+    : (report.data?.cash_repayments ?? 0);
+  const creditSales = closed
+    ? (closed.credit_sales ?? 0)
+    : (report.data?.credit_sales ?? 0);
 
   const onKey = useCallback(
     (key: KeypadKeyId) =>
@@ -196,26 +203,13 @@ export function CloseScreen() {
               labels={diffLabels}
             />
 
+            <DebtLine label={t('cashRepayments')} amount={cashRepayments} />
+            <DebtLine label={t('creditSales')} amount={creditSales} />
+
             {closed ? (
-              <>
-                <DebtLine
-                  label={t('cashRepayments')}
-                  amount={closed.cash_repayments ?? 0}
-                />
-                <DebtLine
-                  label={t('creditSales')}
-                  amount={closed.credit_sales ?? 0}
-                />
-                <Text style={styles.closedNote}>{t('closed')}</Text>
-              </>
+              <Text style={styles.closedNote}>{t('closed')}</Text>
             ) : (
-              <>
-                <Keypad
-                  onKey={onKey}
-                  diameter={keyDiameter}
-                  labels={padLabels}
-                />
-              </>
+              <Keypad onKey={onKey} diameter={keyDiameter} labels={padLabels} />
             )}
           </>
         ) : null}

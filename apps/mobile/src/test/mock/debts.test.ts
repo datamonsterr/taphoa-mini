@@ -187,6 +187,8 @@ test('day-close counts only paid cash and repayments; revenue includes credit', 
     revenue: 20000,
     cash_revenue: 3000,
     expected_cash: 5000,
+    cash_repayments: 2000,
+    credit_sales: 17000,
   });
   expect(
     putDayClose(businessDate(), {

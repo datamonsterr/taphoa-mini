@@ -1209,6 +1209,9 @@ async fn day_close_expected_cash_with_repayments_and_credit() {
     assert_eq!(report["cash_revenue"], 38_000);
     assert_eq!(report["transfer_revenue"], 25_000);
     assert_eq!(report["expected_cash"], 140_000);
+    // Both day close lines are on the report before the day is closed too.
+    assert_eq!(report["cash_repayments"], 7_000);
+    assert_eq!(report["credit_sales"], 12_000 + 50_000 + 15_000);
     assert_eq!(report["day_close"]["cash_repayments"], 7_000);
     assert_eq!(report["day_close"]["credit_sales"], 77_000);
     // Voiding the partial credit sale refunds only the cash that was paid and drops its credit.
@@ -1264,6 +1267,8 @@ async fn day_close_expected_cash_with_repayments_and_credit() {
         .await;
     assert_eq!(report["revenue"], 20_000 + 50_000 + 40_000);
     assert_eq!(report["expected_cash"], 122_000);
+    assert_eq!(report["cash_repayments"], 7_000);
+    assert_eq!(report["credit_sales"], 50_000 + 15_000);
     // The next day's close sees only its own repayment.
     let next = w
         .checked(
@@ -1279,6 +1284,19 @@ async fn day_close_expected_cash_with_repayments_and_credit() {
     assert_eq!(next["transfer_repayments"], 0);
     assert_eq!(next["credit_sales"], 0);
     assert_eq!(next["expected_cash"], 3_000);
+    // An open day (no close yet) reports its own repayments and credit sales.
+    let open = w
+        .checked(
+            "GET",
+            "/v1/reports/today?date=2026-03-06",
+            "/v1/reports/today",
+            &w.lead,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(open["cash_repayments"], 3_000);
+    assert_eq!(open["credit_sales"], 0);
 }
 
 #[tokio::test]

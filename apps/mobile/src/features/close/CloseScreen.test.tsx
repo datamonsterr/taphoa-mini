@@ -224,6 +224,38 @@ describe('debts', () => {
     expect(screen.getByLabelText('Bán ghi nợ 30.000đ')).toBeOnTheScreen();
   });
 
+  test('an open day lists cash repayments and credit sales before closing', async () => {
+    await lanPaysSomething();
+    await renderWithProviders(<CloseScreen />);
+    expect(
+      await screen.findByLabelText('Thu nợ tiền mặt 10.000đ'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('Bán ghi nợ 30.000đ')).toBeOnTheScreen();
+    expect(screen.queryByText('Đã chốt sổ')).toBeNull();
+    expect(screen.getByRole('button', { name: '1' })).toBeOnTheScreen();
+  });
+
+  test('an open day without debts shows neither line', async () => {
+    await renderWithProviders(<CloseScreen />);
+    await screen.findByLabelText(/^Tiền mặt dự kiến/);
+    expect(screen.queryByLabelText(/^Thu nợ tiền mặt/)).toBeNull();
+    expect(screen.queryByLabelText(/^Bán ghi nợ/)).toBeNull();
+  });
+
+  test('an open day shows only the line that has an amount', async () => {
+    const old = await seedCustomer({ name: 'Chú Ba', owes: 20000, ageDays: 3 });
+    await debtsApi.createRepayment(
+      old.id,
+      { amount: 10000, method: 'cash' },
+      newUuid(),
+    );
+    await renderWithProviders(<CloseScreen />);
+    expect(
+      await screen.findByLabelText('Thu nợ tiền mặt 10.000đ'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Bán ghi nợ/)).toBeNull();
+  });
+
   test('a closed day without debts shows neither line', async () => {
     await ledger.createDayClose(date(), { counted_cash: await expectedCash() });
     await renderWithProviders(<CloseScreen />);

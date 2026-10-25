@@ -1101,7 +1101,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Today screen (R1) */
+        /**
+         * Today screen (R1)
+         * @description `revenue` is the full sale total (credit sales are revenue). `cash_revenue` and
+         *     `transfer_revenue` count only the paid part (`total − credit_amount`) of cash and
+         *     transfer sales. `cash_repayments` sums cash repayments of that business date and
+         *     `credit_sales` sums credit_amount of completed sales of that date, so the day close
+         *     screen can show both before the day is closed. `expected_cash` includes
+         *     `cash_repayments`.
+         */
         get: operations["getDailyReport"];
         put?: never;
         post?: never;
@@ -2406,6 +2414,8 @@ export interface components {
             voided_count?: number;
             cash_revenue: components["schemas"]["Money"];
             transfer_revenue: components["schemas"]["Money"];
+            cash_repayments: components["schemas"]["Money"];
+            credit_sales: components["schemas"]["Money"];
             expenses: components["schemas"]["Money"];
             /**
              * Format: int64
