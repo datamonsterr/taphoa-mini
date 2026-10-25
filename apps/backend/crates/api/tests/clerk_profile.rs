@@ -8,7 +8,7 @@ use axum::{
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU16, AtomicUsize, Ordering},
 };
 use taphoa_api::auth::profile::ProfileClient;
 use taphoa_api::config::ClerkSettings;
@@ -100,4 +100,89 @@ async fn profile_cache_and_failure_fallback() {
             .await
             .is_none()
     );
+}
+
+#[tokio::test]
+#[ignore = "requires REDIS_URL"]
+async fn clerk_failures_are_cached_in_redis_for_every_instance() {
+    #[derive(Clone)]
+    struct Clerk {
+        calls: Arc<AtomicUsize>,
+        status: Arc<AtomicU16>,
+    }
+    async fn user(State(clerk): State<Clerk>) -> (StatusCode, Json<Value>) {
+        clerk.calls.fetch_add(1, Ordering::SeqCst);
+        let status = StatusCode::from_u16(clerk.status.load(Ordering::SeqCst)).unwrap();
+        (
+            status,
+            Json(json!({"first_name":"Lan","primary_email_address_id":null,"email_addresses":[]})),
+        )
+    }
+    let clerk = Clerk {
+        calls: Arc::new(AtomicUsize::new(0)),
+        status: Arc::new(AtomicU16::new(429)),
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = clerk.clone();
+    let task = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new()
+                .route("/v1/users/{id}", get(user))
+                .with_state(state),
+        )
+        .await
+        .unwrap();
+    });
+    let redis = redis::Client::open(std::env::var("REDIS_URL").unwrap())
+        .unwrap()
+        .get_connection_manager()
+        .await
+        .unwrap();
+    let settings = ClerkSettings {
+        issuer: "unused".into(),
+        jwks_url: "unused".into(),
+        api_url: format!("http://{addr}"),
+        authorized_parties: vec![],
+        secret_key: Some("test-secret".into()),
+    };
+    let id = common::clerk::user();
+    let first = ProfileClient::new(&settings, reqwest::Client::new());
+    assert!(first.get(&id, Some(&redis)).await.is_none());
+    assert!(first.get(&id, Some(&redis)).await.is_none());
+    // A second instance has its own memory and shares only Redis.
+    let second = ProfileClient::new(&settings, reqwest::Client::new());
+    assert!(second.get(&id, Some(&redis)).await.is_none());
+    assert_eq!(
+        clerk.calls.load(Ordering::SeqCst),
+        1,
+        "one failed Clerk call is shared"
+    );
+    let mut connection = redis.clone();
+    let profile_key: Option<String> = redis::cmd("GET")
+        .arg(format!("clerk:user:{id}"))
+        .query_async(&mut connection)
+        .await
+        .unwrap();
+    assert!(
+        profile_key.is_none(),
+        "a failure never uses the profile key"
+    );
+
+    // The failure marker expires, then Clerk is asked again and the profile is cached.
+    let id = common::clerk::user();
+    clerk.status.store(500, Ordering::SeqCst);
+    let brief = ProfileClient::new(&settings, reqwest::Client::new())
+        .with_failure_ttl(std::time::Duration::from_secs(1));
+    assert!(brief.get(&id, Some(&redis)).await.is_none());
+    clerk.status.store(200, Ordering::SeqCst);
+    assert!(
+        brief.get(&id, Some(&redis)).await.is_none(),
+        "still remembered"
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+    let profile = brief.get(&id, Some(&redis)).await.expect("Clerk recovered");
+    assert_eq!(profile.display_name.as_deref(), Some("Lan"));
+    task.abort();
 }
