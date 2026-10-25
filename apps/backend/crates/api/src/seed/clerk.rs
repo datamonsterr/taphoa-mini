@@ -44,7 +44,7 @@ struct UserRef {
 impl ClerkUsers {
     pub fn new(api_url: &str, secret_key: &str) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: crate::http_client(),
             base: api_url.trim_end_matches('/').to_owned(),
             secret: secret_key.to_owned(),
             min_interval: DEFAULT_MIN_INTERVAL,

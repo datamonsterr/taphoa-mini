@@ -142,7 +142,7 @@ impl AppState {
             config.db_max_connections,
         )
         .await?;
-        let client = reqwest::Client::new();
+        let client = crate::http_client();
         state.clerk = auth::ClerkVerifier::new(settings, client.clone());
         state.profile = auth::profile::ProfileClient::new(settings, client);
         state.rate_limits = config.rate_limits;
@@ -398,6 +398,13 @@ async fn segment(
             )
         }
     })
+}
+
+/// reqwest uses `rustls-no-provider`; install ring (as `main` does) so library callers and
+/// tests can build a client without prior process-wide setup.
+pub(crate) fn http_client() -> reqwest::Client {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::new()
 }
 
 #[cfg(test)]

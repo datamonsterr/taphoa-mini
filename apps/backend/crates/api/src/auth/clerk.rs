@@ -566,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn known_kid_verification_never_waits_on_a_jwks_fetch() {
         let stub = Stub::new().await;
-        let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+        let verifier = ClerkVerifier::new(&stub.settings, crate::http_client());
         let known = token(&claims(), Some("current"));
         assert!(verifier.verify(&known).await.is_ok());
         *stub.state.delay.write().await = Duration::from_secs(3);
@@ -594,7 +594,7 @@ mod tests {
     #[tokio::test]
     async fn lazy_loading_and_cached_key_do_not_refetch() {
         let stub = Stub::new().await;
-        let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+        let verifier = ClerkVerifier::new(&stub.settings, crate::http_client());
         assert_eq!(stub.hits(), 0);
         let signed = token(&claims(), Some("current"));
         for _ in 0..3 {
@@ -606,7 +606,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_key_refetches_once_then_throttles_across_clones() {
         let stub = Stub::new().await;
-        let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+        let verifier = ClerkVerifier::new(&stub.settings, crate::http_client());
         assert!(
             verifier
                 .verify(&token(&claims(), Some("current")))
@@ -635,7 +635,7 @@ mod tests {
     #[tokio::test]
     async fn failed_rotation_preserves_cached_keys() {
         let stub = Stub::new().await;
-        let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+        let verifier = ClerkVerifier::new(&stub.settings, crate::http_client());
         let signed = token(&claims(), Some("current"));
         assert!(verifier.verify(&signed).await.is_ok());
         *stub.state.status.write().await = StatusCode::SERVICE_UNAVAILABLE;
@@ -647,7 +647,7 @@ mod tests {
     #[tokio::test]
     async fn initial_unknown_key_gets_only_one_refetch() {
         let stub = Stub::new().await;
-        let verifier = ClerkVerifier::new(&stub.settings, reqwest::Client::new());
+        let verifier = ClerkVerifier::new(&stub.settings, crate::http_client());
         for _ in 0..3 {
             assert_unauthorized(&verifier, &token(&claims(), Some("unknown"))).await;
         }
@@ -658,7 +658,7 @@ mod tests {
         Duration::from_millis(millis)
     }
     fn verifier_with(stub: &Stub, timing: Timing) -> ClerkVerifier {
-        ClerkVerifier::with_timing(&stub.settings, reqwest::Client::new(), timing)
+        ClerkVerifier::with_timing(&stub.settings, crate::http_client(), timing)
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
         let mut settings = Stub::new().await.settings.clone(); // Server drops immediately.
         settings.jwks_url = "http://127.0.0.1:0/jwks".into();
         assert_unauthorized(
-            &ClerkVerifier::new(&settings, reqwest::Client::new()),
+            &ClerkVerifier::new(&settings, crate::http_client()),
             &token(&claims(), Some("current")),
         )
         .await;

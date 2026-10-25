@@ -34,7 +34,7 @@ impl Default for ProfileClient {
     fn default() -> Self {
         Self {
             settings: None,
-            client: reqwest::Client::default(),
+            client: crate::http_client(),
             failure_ttl: FAILURE_TTL,
             failures: Arc::default(),
         }
@@ -279,7 +279,7 @@ mod tests {
                 authorized_parties: vec![],
                 secret_key: Some(SECRET.into()),
             },
-            reqwest::Client::new(),
+            crate::http_client(),
         )
     }
     fn user() -> Value {
