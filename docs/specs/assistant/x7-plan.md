@@ -59,6 +59,11 @@ These settle what golden-set.md leaves open. Changes go through the X7 controlle
   `0803_receipt_supplier.sql`); U1 and U17 tools read it. Until X3 merges, the eval seed keeps the
   supplier as the first line of `receipts.ocr_text`. Task T7 fills `receipts.supplier` for the 3
   suppliers after rebasing onto X3, and points the supplier oracles at the column.
+- **Comparison candidates.** `nvidia/nemotron-3-ultra-550b-a55b:free`,
+  `google/gemma-4-31b-it:free`, `nvidia/nemotron-3-super-120b-a12b:free` (the current
+  `ASSISTANT_MODELS`). `thinkingmachines/inkling*:free` returns 403 outside agentic harnesses and
+  is excluded. `compare` runs the smoke set per model. After each daily reset, run order is smoke,
+  then full; each run reports the requests it used (the quota before and after).
 - **Pending cases.** U23 cases (debt book) carry `pending: {on: "X5"}` until X5's tools and
   tables are on `main`. U13 digest cases call `GET /v1/assistant/digest` and carry
   `pending: {on: "X8"}`. Pending cases are listed in reports and excluded from pass bars.
