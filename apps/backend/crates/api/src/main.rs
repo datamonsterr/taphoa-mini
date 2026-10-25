@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
+    assistant::config::AssistantConfig,
     catalog::index_jobs::{WorkerConfig, spawn as spawn_index_worker},
     config::Config,
     events,
@@ -44,6 +45,7 @@ async fn serve() -> anyhow::Result<()> {
         .map(taphoa_api::decisions::OpenRouterDecisions::new)
         .transpose()?
         .map(|client| Arc::new(client) as Arc<dyn taphoa_api::decisions::DecisionClient>);
+    state.assistant.config = Arc::new(AssistantConfig::from_env()?);
     state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {
