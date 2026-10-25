@@ -42,8 +42,8 @@ CREATE TABLE assistant_actions (
     summary_vi           TEXT NOT NULL,
     status               TEXT NOT NULL DEFAULT 'proposed'
                          CHECK (status IN ('proposed', 'executing', 'done', 'failed', 'rejected', 'expired')),
-    proposed_by          UUID NOT NULL REFERENCES members,
-    decided_by           UUID REFERENCES members,
+    proposed_by          UUID NOT NULL REFERENCES members ON DELETE CASCADE,
+    decided_by           UUID REFERENCES members ON DELETE SET NULL,
     decided_at           TIMESTAMPTZ,
     -- SHA-256 of the confirm Idempotency-Key, so a replay can be told from a second decision.
     idempotency_key_hash BYTEA,

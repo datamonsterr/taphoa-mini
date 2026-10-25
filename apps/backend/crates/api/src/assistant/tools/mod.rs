@@ -89,7 +89,7 @@ impl From<ApiError> for ToolError {
 }
 impl From<sqlx::Error> for ToolError {
     fn from(error: sqlx::Error) -> Self {
-        tracing::error!(%error, "assistant tool query failed");
+        crate::error::log_sqlx_error!(error, &error, "assistant tool query failed");
         Self::Failed("database error".into())
     }
 }
@@ -160,7 +160,7 @@ impl Registry {
         }
         if !args.is_object() {
             return Err(ToolError::InvalidArguments(
-                "arguments must be a JSON object".into(),
+                "Tham số phải là một đối tượng JSON".into(),
             ));
         }
         tool.run(ctx, args).await

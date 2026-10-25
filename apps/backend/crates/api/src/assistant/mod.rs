@@ -1,5 +1,6 @@
 //! The in-backend assistant (ADR 0005): threads, an agent loop over permission-filtered tools,
 //! proposed actions the owner confirms, and next-step chips. Spec: docs/specs/assistant/.
+pub mod actions;
 pub mod config;
 pub mod eval;
 pub mod model;
@@ -46,6 +47,14 @@ impl Language {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/assistant/next-steps", get(next_steps::list))
+        .route(
+            "/v1/assistant/actions/{action_id}/confirm",
+            post(actions::confirm),
+        )
+        .route(
+            "/v1/assistant/actions/{action_id}/reject",
+            post(actions::reject),
+        )
         .route(
             "/v1/assistant/threads",
             get(threads::list).post(threads::create),
