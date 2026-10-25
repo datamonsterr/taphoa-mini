@@ -5,7 +5,7 @@ import {
   readAssistantStream,
   type AssistantStreamEvent,
   type StreamOptions,
-} from './sse';
+} from './sse.ts';
 export {
   parseSseStream,
   readAssistantStream,
@@ -14,7 +14,7 @@ export {
   type SseFrame,
   type StreamOptions,
   type AssistantStreamEvent,
-} from './sse';
+} from './sse.ts';
 
 export type { components, paths };
 export type Image = components['schemas']['Image'];
