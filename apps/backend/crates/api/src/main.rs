@@ -1,6 +1,13 @@
 use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
+    assistant::{
+        config::{AssistantConfig, ModelProvider},
+        model::{
+            openrouter::{OpenRouterChat, OpenRouterConfig},
+            rules::RuleModel,
+        },
+    },
     catalog::index_jobs::{WorkerConfig, spawn as spawn_index_worker},
     config::Config,
     events,
@@ -27,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve() -> anyhow::Result<()> {
+    let assistant_config = AssistantConfig::from_env()?;
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
     let sam = config.sam_segmenter()?;
@@ -44,6 +52,17 @@ async fn serve() -> anyhow::Result<()> {
         .map(taphoa_api::decisions::OpenRouterDecisions::new)
         .transpose()?
         .map(|client| Arc::new(client) as Arc<dyn taphoa_api::decisions::DecisionClient>);
+    state.assistant.config = Arc::new(assistant_config);
+    if state.assistant.config.model_provider == ModelProvider::OpenRouter {
+        state.assistant.model = OpenRouterConfig::from_env()?
+            .map(OpenRouterChat::new)
+            .transpose()?
+            .map(|client| Arc::new(client) as Arc<dyn taphoa_api::assistant::model::ChatModel>);
+    }
+    if state.assistant.config.model_provider == ModelProvider::Scripted {
+        tracing::warn!("assistant uses the scripted provider for local/e2e runs");
+        state.assistant.model = Some(Arc::new(RuleModel));
+    }
     state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {
