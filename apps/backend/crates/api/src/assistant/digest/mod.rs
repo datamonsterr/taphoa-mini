@@ -112,16 +112,9 @@ pub async fn mark_read(
 }
 
 /// Recent sales, member registrations or refreshed device registrations; `since` is a chrono duration.
-pub async fn active_store_ids(pool: &PgPool, since: Duration) -> Vec<Uuid> {
-    let result = sqlx::query_scalar("SELECT store_id FROM sales WHERE sold_at >= $1 UNION SELECT store_id FROM members WHERE created_at >= $1 UNION SELECT store_id FROM devices WHERE updated_at >= $1")
-        .bind(Utc::now()-since).fetch_all(pool).await;
-    match result {
-        Ok(ids) => ids,
-        Err(error) => {
-            crate::error::log_sqlx_error!(error, &error, "digest active stores could not be read");
-            vec![]
-        }
-    }
+pub async fn active_store_ids(pool: &PgPool, since: Duration) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar("SELECT store_id FROM sales WHERE sold_at >= $1 UNION SELECT store_id FROM members WHERE created_at >= $1 UNION SELECT store_id FROM devices WHERE updated_at >= $1")
+        .bind(Utc::now()-since).fetch_all(pool).await
 }
 
 #[derive(Deserialize)]
@@ -143,7 +136,13 @@ pub async fn get(
     let digest = if date == today {
         get_or_generate(&state, actor.store_id, date)
             .await
-            .map_err(|_| ApiError::internal())?
+            .map_err(|error| {
+                if error.is::<generate::NoActiveMember>() {
+                    ApiError::not_found()
+                } else {
+                    ApiError::internal()
+                }
+            })?
     } else {
         stored(db, actor.store_id, date)
             .await?

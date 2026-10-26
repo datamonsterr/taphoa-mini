@@ -151,9 +151,12 @@ pub async fn check_receipts(
                 let receipt = row.ticket_id.as_ref().and_then(|id| receipts.get(id));
                 let (status,error,missing) = match receipt {
                     Some(receipt) => {
-                        ensure!(matches!(receipt.status.as_str(), "ok" | "error"), "invalid Expo receipt status");
                         if receipt.status == "ok" { ("receipt_ok", None, false) }
-                        else { ("receipt_error", receipt.error.as_deref(), false) }
+                        else if receipt.status == "error" { ("receipt_error", receipt.error.as_deref(), false) }
+                        else {
+                            tracing::warn!(status = %receipt.status, "invalid Expo receipt status");
+                            ("receipt_error", Some("invalid_status"), false)
+                        }
                     }
                     None if row.created_at < expires => ("receipt_error", Some("missing"), true),
                     None => continue,

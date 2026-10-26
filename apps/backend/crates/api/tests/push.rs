@@ -114,7 +114,9 @@ fn message_to(token: &str) -> PushMessage {
     }
 }
 async fn devices(w: &World, count: usize) -> Vec<String> {
-    let tokens: Vec<_> = (0..count).map(|_| Uuid::new_v4().to_string()).collect();
+    let tokens: Vec<_> = (0..count)
+        .map(|_| format!("ExpoPushToken[{}]", Uuid::new_v4()))
+        .collect();
     sqlx::query("INSERT INTO devices(token,store_id,member_id,platform,app_version,language) SELECT unnest($1::text[]),$2,$3,'android','1','vi'")
         .bind(&tokens).bind(w.store_id).bind(w.lead_id).execute(w.pool()).await.unwrap();
     tokens
@@ -348,4 +350,103 @@ async fn adapter_rejects_malformed_ticket_counts_and_missing_ok_id() {
                 .is_err()
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn unknown_receipt_status_marks_error_and_keeps_processing_batch() {
+    let w = World::new().await;
+    let tokens = devices(&w, 2).await;
+    let now: DateTime<Utc> = "2019-01-03T12:00:00Z".parse().unwrap();
+    for (i, token) in tokens.iter().enumerate() {
+        sqlx::query("INSERT INTO push_tickets(store_id,token,business_date,ticket_id,status,created_at) VALUES($1,$2,$3,$4,'pending_receipt',$5)")
+            .bind(w.store_id).bind(token).bind(now.date_naive()).bind(format!("invalid-receipt-{i}"))
+            .bind(now-chrono::Duration::minutes(20)).execute(w.pool()).await.unwrap();
+    }
+    let mock = MockExpo::new(vec![(
+        StatusCode::OK,
+        json!({"data":{
+            "invalid-receipt-0":{"status":"unexpected","details":{"error":"DeviceNotRegistered"}},
+            "invalid-receipt-1":{"status":"ok"}
+        }}),
+    )])
+    .await;
+    let report = check_receipts(w.pool(), &mock.api(None), Duration::from_secs(900), now)
+        .await
+        .unwrap();
+    assert_eq!((report.ok, report.errors, report.unregistered), (1, 1, 0));
+    let rows: Vec<TicketRow> = sqlx::query_as("SELECT ticket_id,status,error_code,checked_at FROM push_tickets WHERE store_id=$1 ORDER BY ticket_id")
+        .bind(w.store_id).fetch_all(w.pool()).await.unwrap();
+    assert_eq!(rows[0].1, "receipt_error");
+    assert_eq!(rows[0].2.as_deref(), Some("invalid_status"));
+    assert_eq!(rows[0].3, Some(now));
+    assert_eq!(rows[1].1, "receipt_ok");
+    assert_eq!(rows[1].3, Some(now));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM devices WHERE store_id=$1")
+        .bind(w.store_id)
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+    sqlx::query("DELETE FROM push_tickets WHERE store_id=$1")
+        .bind(w.store_id)
+        .execute(w.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn send_does_not_retry_transport_failure_after_server_received_body() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let received = Arc::new(AtomicUsize::new(0));
+    let count = received.clone();
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut buf = [0; 4096];
+                let n = stream.read(&mut buf).await.unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buf[..n]);
+                if let Some(end) = request.windows(4).position(|s| s == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&request[..end]);
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse().unwrap())
+                        })
+                        .unwrap();
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            count.fetch_add(1, Ordering::SeqCst);
+            // The body was received, but the peer fails before a valid HTTP response.
+            stream.write_all(b"HTTP/1.1 invalid\r\n\r\n").await.unwrap();
+        }
+    });
+    let api = ExpoPush::new(PushConfig {
+        url,
+        access_token: None,
+        backoff_base: Duration::from_millis(1),
+    })
+    .unwrap();
+    let result = api
+        .send(&[message_to("ExpoPushToken[transport-test]")])
+        .await;
+    server.abort();
+    assert!(result.is_err());
+    assert_eq!(
+        received.load(Ordering::SeqCst),
+        1,
+        "received POST must not be replayed"
+    );
 }

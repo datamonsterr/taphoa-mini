@@ -109,8 +109,10 @@ impl ExpoPush {
                 .await
             {
                 Ok(response) => response,
-                Err(_) if attempt < 2 => continue,
-                Err(_) => bail!("Expo transport failed after three attempts"),
+                Err(error) if (error.is_connect() || error.is_timeout()) && attempt < 2 => {
+                    continue;
+                }
+                Err(_) => bail!("Expo transport failed"),
             };
             let status = response.status();
             if (status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()) && attempt < 2
@@ -167,12 +169,6 @@ impl PushApi for ExpoPush {
             for batch in ids.chunks(1000) {
                 let response: HashMap<String, Receipt> =
                     self.post("getReceipts", &json!({"ids":batch})).await?;
-                ensure!(
-                    response
-                        .values()
-                        .all(|r| matches!(r.status.as_str(), "ok" | "error")),
-                    "invalid Expo receipt status"
-                );
                 receipts.extend(response);
             }
             Ok(receipts)

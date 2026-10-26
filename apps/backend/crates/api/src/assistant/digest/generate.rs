@@ -12,7 +12,12 @@ use crate::{
 };
 use chrono::{Duration, NaiveDate};
 use serde_json::{Value, json};
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
+
+#[derive(Debug, thiserror::Error)]
+#[error("store has no active member")]
+pub(super) struct NoActiveMember;
 
 pub async fn generate(
     state: &AppState,
@@ -36,8 +41,8 @@ async fn generate_inner(
     if let Some(digest) = stored(db, store_id, business_date).await? {
         return Ok(digest);
     }
-    let member_id = sqlx::query_scalar("SELECT id FROM members WHERE store_id=$1 AND active AND role='lead' ORDER BY created_at,id LIMIT 1")
-        .bind(store_id).fetch_one(db).await?;
+    let member_id = sqlx::query_scalar("SELECT id FROM members WHERE store_id=$1 AND active ORDER BY (role='lead') DESC,created_at,id LIMIT 1")
+        .bind(store_id).fetch_optional(db).await?.ok_or(NoActiveMember)?;
     let ctx = ToolContext {
         state: state.clone(),
         actor: Actor {
@@ -84,7 +89,7 @@ async fn generate_inner(
         .map(|n| (n * 10.0).round() / 10.0);
     let payload = json!({"sales":{"revenue":sales["totals"]["revenue_dong"],"sale_count":sales["totals"]["sale_count"],"gross_profit":sales["totals"]["gross_profit_dong"],"change_pct":change},
         "restock":items,"overdue_debts":{"count":count,"total":total},"open_drafts":{"count":drafts}});
-    let (source, model, summary) = match model_summary(state, &payload).await? {
+    let (source, model, summary) = match model_summary(state, &payload, business_date).await? {
         Some((model, summary)) => ("model", Some(model), summary),
         None => ("template", None, template::render(&payload)),
     };
@@ -98,6 +103,7 @@ async fn generate_inner(
 async fn model_summary(
     state: &AppState,
     payload: &Value,
+    business_date: NaiveDate,
 ) -> anyhow::Result<Option<(String, String)>> {
     let config = &state.assistant.config;
     let Some(model) = &state.assistant.model else {
@@ -110,17 +116,33 @@ async fn model_summary(
         return Ok(None);
     }
     let db = pool(state).map_err(|_| anyhow::anyhow!("database unavailable"))?;
-    let written: i64 = sqlx::query_scalar("SELECT count(*) FROM assistant_digests WHERE source='model' AND generated_at >= date_trunc('day',now())")
-        .fetch_one(db).await?;
+    let written: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM assistant_digests WHERE source='model' AND business_date=$1",
+    )
+    .bind(business_date)
+    .fetch_one(db)
+    .await?;
     if written >= i64::from(config.digest_model_max_per_day) {
         return Ok(None);
+    }
+    let mut model_payload = payload.clone();
+    if let Some(sales) = model_payload["sales"].as_object_mut() {
+        sales.remove("gross_profit");
+    }
+    if let Some(items) = model_payload["restock"].as_array_mut() {
+        for item in items {
+            if let Some(fields) = item.as_object_mut() {
+                fields.remove("unit_cost");
+                fields.remove("total_cost");
+            }
+        }
     }
     for name in &config.models {
         let request = ChatRequest {
             model: name.clone(),
             messages: vec![
                 ChatMessage::system(include_str!("prompt.vi.md")),
-                ChatMessage::user(payload.to_string()),
+                ChatMessage::user(model_payload.to_string()),
             ],
             tools: vec![],
             tool_choice: None,
@@ -161,15 +183,56 @@ fn safe_summary(text: &str, payload: &Value) -> bool {
             _ => false,
         }
     }
+    let normalized: String = text
+        .to_lowercase()
+        .nfd()
+        .filter(|c| !is_combining_mark(*c))
+        .collect();
     text.trim().chars().count() >= 20
         && !text.contains('*')
         && !text.contains('#')
+        && ![
+            "loi nhuan",
+            "gia von",
+            "gia nhap",
+            "chi phi",
+            "profit",
+            "margin",
+            "cost",
+        ]
+        .iter()
+        .any(|word| normalized.contains(word))
         && !leaks(text, payload)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summary_rejects_profit_and_cost_wording_without_matching_amounts() {
+        use unicode_normalization::UnicodeNormalization;
+        assert!(safe_summary(
+            "Hãy kiểm tra hàng còn lại trước khi khách hàng trở lại cửa hàng.",
+            &json!({})
+        ));
+        for word in [
+            "lợi nhuận",
+            "loi nhuan",
+            "giá vốn",
+            "gia von",
+            "giá nhập",
+            "chi phí",
+            "profit",
+            "margin",
+            "cost",
+        ] {
+            for variant in [word.to_owned(), word.to_uppercase(), word.nfd().collect()] {
+                let text = format!("Hôm qua cửa hàng có {variant} cần được xem xét.");
+                assert!(!safe_summary(&text, &json!({})), "{text}");
+            }
+        }
+    }
 
     #[test]
     fn summary_rejects_empty_short_markdown_and_every_cost_or_profit_format() {
