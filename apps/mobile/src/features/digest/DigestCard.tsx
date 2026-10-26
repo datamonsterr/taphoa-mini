@@ -26,9 +26,9 @@ export function DigestCard() {
   const caption = buildDigestCaption(restock.length, overdue_debts.count, t);
   const label = t('cardLabel');
   const revenueFormatted = formatVnd(sales.revenue);
-  const accessibilityLabel = caption
-    ? `${label}, ${revenueFormatted}, ${caption}`
-    : `${label}, ${revenueFormatted}`;
+  // The label never ends with the money text: on the web the product tiles are selected by an
+  // aria-label ending in "đ", and this card sits in the same document as the stock grid.
+  const accessibilityLabel = `${label}, ${revenueFormatted}, ${caption || sentence}`;
 
   return (
     <PressableScale

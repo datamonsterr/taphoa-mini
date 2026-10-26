@@ -119,6 +119,6 @@ test('hides zero parts in caption and adapts accessibility label', async () => {
 
   const button = screen.getByRole('button');
   expect(button.props.accessibilityLabel).toBe(
-    `Tóm tắt sáng nay, ${formatVnd(1500000)}`,
+    `Tóm tắt sáng nay, ${formatVnd(1500000)}, Doanh thu hôm qua là 1.500.000 ₫.`,
   );
 });
