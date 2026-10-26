@@ -530,9 +530,16 @@ describe(
           expect.objectContaining({
             id: expenseId,
             amount: 150000,
-            payment_method: 'cash',
+            paid_with: 'cash_box',
           }),
         );
+        const proposedCategory = (
+          proposal.data.payload as { category?: string } | undefined
+        )?.category;
+        if (proposedCategory === 'dien')
+          expect(recorded[0]).toEqual(
+            expect.objectContaining({ category: 'dien' }),
+          );
         const replay = await client.raw.POST(
           '/v1/assistant/actions/{actionId}/confirm',
           { params },
