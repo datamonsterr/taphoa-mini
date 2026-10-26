@@ -73,15 +73,15 @@ appId: com.datamonsterr.taphoamini
       - extendedWaitUntil:
           visible: 'Giỏ hàng trống'
           timeout: 20000
-      # a next-step chip (a new store gets the server's setup chip): it opens the chat and the
-      # prompt is sent
+      # the setup chip (a new store gets it from the server) opens the chat and sends its prompt.
+      # Target it by id: after 20:00 the day_close chip comes first and opens a screen instead.
       - runFlow:
           when:
             visible:
-              id: 'next-step-strip'
+              id: 'next-step-chip-setup.*'
           commands:
             - tapOn:
-                id: 'next-step-chip-.*'
+                id: 'next-step-chip-setup.*'
             - extendedWaitUntil:
                 visible:
                   id: 'assistant-screen'
