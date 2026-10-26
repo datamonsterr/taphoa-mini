@@ -130,6 +130,8 @@ up() {
     S3_FORCE_PATH_STYLE=true \
     S3_CREATE_BUCKET=true \
     S3_PUBLIC_ENDPOINT_URL="http://${E2E_PUBLIC_HOST:-localhost}:$STORAGE_PORT" \
+    ASSISTANT_MODEL_PROVIDER=scripted \
+    ASSISTANT_ALLOW_EVAL_HEADERS=1 \
     RUST_LOG="${RUST_LOG:-info}" \
     "${model_env[@]}" \
     setsid nohup "$bin" > "$log_file" 2>&1 < /dev/null &

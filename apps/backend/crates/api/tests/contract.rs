@@ -85,13 +85,15 @@ fn state() -> AppState {
     common::clerk::install(&mut state);
     state
 }
+thread_local! {
+    // One Clerk user per test: tests share a process, and a user who joined several stores would
+    // need X-Store-Id on every call.
+    static USER: String = format!("user_contract_{}", uuid::Uuid::new_v4().simple());
+}
 fn bearer() -> String {
     format!(
         "Bearer {}",
-        common::clerk::clerk_token(
-            &format!("user_contract_{}", std::process::id()),
-            "sess_contract"
-        )
+        USER.with(|user| common::clerk::clerk_token(user, "sess_contract"))
     )
 }
 fn app() -> Router {

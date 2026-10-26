@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod assistant;
 pub mod auth;
 pub mod catalog;
 pub mod config;
@@ -84,6 +85,7 @@ pub struct AppState {
     pub storage: Option<Arc<dyn storage::ObjectStore>>,
     pub image_repository: Option<Arc<dyn images::ImageRepository>>,
     pub image_url_ttl: Duration,
+    pub assistant: assistant::AssistantState,
     // Serialize inference and reject excess work before copying/decompressing images.
     pub inference_slots: Arc<Semaphore>,
 }
@@ -116,6 +118,7 @@ impl Default for AppState {
             storage: None,
             image_repository: None,
             image_url_ttl: Duration::from_secs(900),
+            assistant: assistant::AssistantState::default(),
             inference_slots: Arc::new(Semaphore::new(1)),
         }
     }
@@ -237,6 +240,7 @@ pub fn router(state: AppState) -> Router {
         .merge(receipts::router())
         .merge(reports::router())
         .merge(sync::router())
+        .merge(assistant::router())
         .layer(cors())
         .layer(axum::middleware::from_fn(telemetry::http_span))
         .with_state(state)

@@ -88,6 +88,22 @@ export default defineRailway((ctx) => {
       SERVICE_VERSION: preserve(),
       OPENROUTER_API_KEY: preserve(),
       DECISIONS_MODEL: 'inception/mercury-decide:free',
+      // Railway always uses real models; never deploy the scripted provider.
+      ASSISTANT_MODEL_PROVIDER: 'openrouter',
+      // Per-environment free-model order, updated by X7 comparisons.
+      ASSISTANT_MODELS: preserve(),
+      // Per-environment store message cap.
+      ASSISTANT_DAILY_MESSAGES_PER_STORE: preserve(),
+      // Enable with 1 on test only; never on production.
+      ASSISTANT_ALLOW_EVAL_HEADERS: preserve(),
+      // Keep reasoning latency low for interactive replies.
+      ASSISTANT_REASONING_EFFORT: 'low',
+      // Per-environment PostHog feedback survey.
+      ASSISTANT_FEEDBACK_SURVEY_ID: preserve(),
+      // Per-environment survey rating question.
+      ASSISTANT_FEEDBACK_QUESTION_ID: preserve(),
+      // Optional per-environment survey comment question.
+      ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID: preserve(),
       // Bucket credentials are not referencable from IaC; set once with
       // `railway bucket credentials` + `railway variable set` (docs/deploy.md).
       AWS_ENDPOINT_URL: preserve(),
