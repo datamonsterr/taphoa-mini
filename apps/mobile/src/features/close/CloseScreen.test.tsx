@@ -3,12 +3,15 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 
 import { resetApiClient } from '@/lib/api';
+import * as debtsApi from '@/lib/api/debts';
 import * as ledger from '@/lib/api/ledger';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { resetMockDb } from '@/test/mock';
 import { useSettingsStore } from '@/stores/settings';
+import { seedCustomer } from '@/test/debts';
 import { renderWithProviders } from '@/test/render';
+import { newUuid } from '@/lib/uuid';
 
 import { CloseScreen } from './CloseScreen';
 
@@ -183,4 +186,92 @@ test('English: the difference pill and keypad delete follow the language', async
   await screen.findByLabelText(/^Expected cash/);
   expect(screen.getByText(/^Short /)).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Delete' })).toBeOnTheScreen();
+});
+
+describe('debts', () => {
+  async function lanPaysSomething() {
+    const lan = await seedCustomer({ name: 'Chị Lan', owes: 30000 });
+    await debtsApi.createRepayment(
+      lan.id,
+      { amount: 10000, method: 'cash' },
+      newUuid(),
+    );
+    await debtsApi.createRepayment(
+      lan.id,
+      { amount: 4000, method: 'transfer' },
+      newUuid(),
+    );
+  }
+
+  test('cash collected on debts counts toward the expected cash; credit sales do not', async () => {
+    const before = await expectedCash();
+    await lanPaysSomething();
+    expect(await expectedCash()).toBe(before + 10000);
+    await renderWithProviders(<CloseScreen />);
+    expect(
+      await screen.findByLabelText(
+        `Tiền mặt dự kiến ${formatVnd(before + 10000)}`,
+      ),
+    ).toBeOnTheScreen();
+  });
+
+  test('a closed day lists cash repayments and credit sales as separate lines', async () => {
+    await lanPaysSomething();
+    await ledger.createDayClose(date(), { counted_cash: await expectedCash() });
+    await renderWithProviders(<CloseScreen />);
+    expect(await screen.findByText('Đã chốt sổ')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Thu nợ tiền mặt 10.000đ')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Bán ghi nợ 30.000đ')).toBeOnTheScreen();
+  });
+
+  test('an open day lists cash repayments and credit sales before closing', async () => {
+    await lanPaysSomething();
+    await renderWithProviders(<CloseScreen />);
+    expect(
+      await screen.findByLabelText('Thu nợ tiền mặt 10.000đ'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('Bán ghi nợ 30.000đ')).toBeOnTheScreen();
+    expect(screen.queryByText('Đã chốt sổ')).toBeNull();
+    expect(screen.getByRole('button', { name: '1' })).toBeOnTheScreen();
+  });
+
+  test('an open day without debts shows neither line', async () => {
+    await renderWithProviders(<CloseScreen />);
+    await screen.findByLabelText(/^Tiền mặt dự kiến/);
+    expect(screen.queryByLabelText(/^Thu nợ tiền mặt/)).toBeNull();
+    expect(screen.queryByLabelText(/^Bán ghi nợ/)).toBeNull();
+  });
+
+  test('an open day shows only the line that has an amount', async () => {
+    const old = await seedCustomer({ name: 'Chú Ba', owes: 20000, ageDays: 3 });
+    await debtsApi.createRepayment(
+      old.id,
+      { amount: 10000, method: 'cash' },
+      newUuid(),
+    );
+    await renderWithProviders(<CloseScreen />);
+    expect(
+      await screen.findByLabelText('Thu nợ tiền mặt 10.000đ'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Bán ghi nợ/)).toBeNull();
+  });
+
+  test('a closed day without debts shows neither line', async () => {
+    await ledger.createDayClose(date(), { counted_cash: await expectedCash() });
+    await renderWithProviders(<CloseScreen />);
+    expect(await screen.findByText('Đã chốt sổ')).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Thu nợ tiền mặt/)).toBeNull();
+    expect(screen.queryByLabelText(/^Bán ghi nợ/)).toBeNull();
+  });
+
+  test('English labels', async () => {
+    useSettingsStore.setState({ language: 'en' });
+    await lanPaysSomething();
+    await ledger.createDayClose(date(), { counted_cash: await expectedCash() });
+    await renderWithProviders(<CloseScreen />);
+    expect(
+      await screen.findByLabelText('Cash debt collected 10.000đ'),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('Credit sales 30.000đ')).toBeOnTheScreen();
+  });
 });

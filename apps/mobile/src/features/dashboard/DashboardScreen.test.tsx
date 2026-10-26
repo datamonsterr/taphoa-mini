@@ -6,11 +6,13 @@ import {
 } from '@testing-library/react-native';
 import { router } from 'expo-router';
 
+import * as debtsApi from '@/lib/api/debts';
 import * as ledger from '@/lib/api/ledger';
 import * as review from '@/lib/api/review';
 import { resetApiClient } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { resetMockDb } from '@/test/mock';
+import { seedCustomer } from '@/test/debts';
 import { renderWithProviders } from '@/test/render';
 import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
@@ -324,5 +326,64 @@ describe('as a Seller', () => {
     expect(screen.queryByRole('button', { name: 'Chốt sổ' })).toBeNull();
     expect(screen.queryByLabelText(/món bán không có trong kho/)).toBeNull();
     expect(screen.queryByLabelText(/món giá bán dưới giá nhập/)).toBeNull();
+  });
+});
+
+describe('debt book card', () => {
+  test('shows the total outstanding and the overdue count; a tap opens the debt book', async () => {
+    await seedCustomer({ name: 'Chị Lan', owes: 120000, ageDays: 10 });
+    await seedCustomer({ name: 'Cô Mai', owes: 30000 });
+    await renderWithProviders(<DashboardScreen />);
+    const card = await screen.findByRole('button', {
+      name: 'Sổ nợ, 150.000đ, 1 khách quá hạn',
+    });
+    expect(within(card).getByText('Sổ nợ')).toBeOnTheScreen();
+    expect(within(card).getByText('150.000đ')).toBeOnTheScreen();
+    expect(within(card).getByText('1 khách quá hạn')).toBeOnTheScreen();
+    await fireEvent.press(card);
+    expect(router.push).toHaveBeenCalledWith('/debts');
+  });
+
+  test('stays as a zero card when nobody owes anything, like the other tiles', async () => {
+    await renderWithProviders(<DashboardScreen />);
+    expect(
+      await screen.findByRole('button', {
+        name: 'Sổ nợ, 0đ, 0 khách quá hạn',
+      }),
+    ).toBeOnTheScreen();
+  });
+
+  test("a Seller sees it too: debts are every member's", async () => {
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: { ...session!, member: { ...session!.member, role: 'seller' } },
+    });
+    await seedCustomer({ name: 'Cô Mai', owes: 30000 });
+    await renderWithProviders(<DashboardScreen />);
+    expect(
+      await screen.findByRole('button', {
+        name: 'Sổ nợ, 30.000đ, 0 khách quá hạn',
+      }),
+    ).toBeOnTheScreen();
+  });
+
+  test('a failed summary hides the card and leaves the report alone', async () => {
+    jest
+      .spyOn(debtsApi, 'getDebtSummary')
+      .mockRejectedValue(new Error('offline'));
+    await renderWithProviders(<DashboardScreen />);
+    await ready();
+    expect(screen.queryByRole('button', { name: /^Sổ nợ/ })).toBeNull();
+  });
+
+  test('English label', async () => {
+    useSettingsStore.setState({ language: 'en' });
+    await seedCustomer({ name: 'Chị Lan', owes: 120000, ageDays: 10 });
+    await renderWithProviders(<DashboardScreen />);
+    expect(
+      await screen.findByRole('button', {
+        name: 'Debt book, 120.000đ, 1 overdue',
+      }),
+    ).toBeOnTheScreen();
   });
 });

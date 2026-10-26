@@ -1,3 +1,4 @@
+import { createCustomer } from '@/lib/api/debts';
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
@@ -14,7 +15,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
 
 import type { CreateSaleRequest } from '@/lib/api';
-import { saleCode } from '@/lib/uuid';
+import { newUuid, saleCode } from '@/lib/uuid';
 
 import { PayScreen, SUCCESS_MS } from './PayScreen';
 import { buildVietQr } from './vietqr';
@@ -376,5 +377,60 @@ describe('PayScreen language', () => {
       screen.getByRole('radio', { name: 'Bank transfer' }),
     ).toBeOnTheScreen();
     expect(screen.getByRole('radio', { name: 'Cash' })).toBeOnTheScreen();
+  });
+});
+
+describe('PayScreen credit', () => {
+  async function chooseCustomer(limit?: number) {
+    const c = await createCustomer({
+      id: newUuid(),
+      name: 'Chị Lan',
+      ...(limit === undefined ? {} : { credit_limit: limit }),
+    });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByLabelText('Ghi nợ'));
+    await fireEvent.press(await screen.findByLabelText('Chị Lan, 0đ'));
+    return c;
+  }
+  it('sends full credit and preserves success behaviour', async () => {
+    const c = await chooseCustomer();
+    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await screen.findByLabelText('Đã nhận tiền xong');
+    expect(await findNewSale()).toMatchObject({
+      payment_method: 'credit',
+      customer_id: c.id,
+      credit_amount: 24500,
+      cash_received: null,
+    });
+  });
+  it('sends partial cash with paid-now amount', async () => {
+    await chooseCustomer();
+    await fireEvent.changeText(screen.getByLabelText('Trả trước'), '10000');
+    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await screen.findByLabelText('Đã nhận tiền xong');
+    expect(await findNewSale()).toMatchObject({
+      payment_method: 'cash',
+      credit_amount: 14500,
+      cash_received: 10000,
+      change_given: 0,
+    });
+  });
+  it('warns over the limit and keeps confirm enabled', async () => {
+    await chooseCustomer(1000);
+    expect(screen.getByText('Vượt hạn mức ghi nợ')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Đã nhận tiền')).toBeEnabled();
+  });
+  it('blocks paid-now above total and treats exact payment as normal cash', async () => {
+    await chooseCustomer();
+    await fireEvent.changeText(screen.getByLabelText('Trả trước'), '24501');
+    expect(screen.getByLabelText('Đã nhận tiền')).toBeDisabled();
+    await fireEvent.changeText(screen.getByLabelText('Trả trước'), '24500');
+    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await screen.findByLabelText('Đã nhận tiền xong');
+    expect(await findNewSale()).toMatchObject({
+      payment_method: 'cash',
+      credit_amount: 0,
+      cash_received: 24500,
+    });
   });
 });

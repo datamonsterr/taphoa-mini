@@ -39,6 +39,11 @@ channels:
       storeChanged: { $ref: '#/components/messages/storeChanged' }
       memberChanged: { $ref: '#/components/messages/memberChanged' }
       sessionRevoked: { $ref: '#/components/messages/sessionRevoked' }
+      customerCreated: { $ref: '#/components/messages/customerCreated' }
+      customerUpdated: { $ref: '#/components/messages/customerUpdated' }
+      debtRecorded: { $ref: '#/components/messages/debtRecorded' }
+      debtRepaid: { $ref: '#/components/messages/debtRepaid' }
+      debtAdjusted: { $ref: '#/components/messages/debtAdjusted' }
       saleCreated: { $ref: '#/components/messages/saleCreated' }
       saleVoided: { $ref: '#/components/messages/saleVoided' }
       reviewLineFlagged: { $ref: '#/components/messages/reviewLineFlagged' }
@@ -72,6 +77,11 @@ channels:
       storeChanged: { $ref: '#/components/messages/storeChanged' }
       memberChanged: { $ref: '#/components/messages/memberChanged' }
       sessionRevoked: { $ref: '#/components/messages/sessionRevoked' }
+      customerCreated: { $ref: '#/components/messages/customerCreated' }
+      customerUpdated: { $ref: '#/components/messages/customerUpdated' }
+      debtRecorded: { $ref: '#/components/messages/debtRecorded' }
+      debtRepaid: { $ref: '#/components/messages/debtRepaid' }
+      debtAdjusted: { $ref: '#/components/messages/debtAdjusted' }
       saleCreated: { $ref: '#/components/messages/saleCreated' }
       saleVoided: { $ref: '#/components/messages/saleVoided' }
       reviewLineFlagged: { $ref: '#/components/messages/reviewLineFlagged' }
@@ -244,6 +254,129 @@ components:
                       type: string,
                       enum: [logout, member_removed, token_reuse, recovery],
                     }
+    customerCreated:
+      name: customer.created
+      summary: Debt book change; no customer names, phones or notes.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: customer.created }
+              data:
+                type: object
+                additionalProperties: false
+                required: [customer_id, balance, archived]
+                properties:
+                  customer_id: { $ref: '#/components/schemas/Uuid' }
+                  balance: { type: integer, format: int64 }
+                  archived: { type: boolean }
+    customerUpdated:
+      name: customer.updated
+      summary: Customer upsert; emitted for every ledger entry too.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: customer.updated }
+              data:
+                type: object
+                additionalProperties: false
+                required: [customer_id, balance, archived]
+                properties:
+                  customer_id: { $ref: '#/components/schemas/Uuid' }
+                  balance: { type: integer, format: int64 }
+                  archived: { type: boolean }
+    debtRecorded:
+      name: debt.recorded
+      summary: Debt book change; no customer names, phones or notes.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: debt.recorded }
+              data:
+                type: object
+                additionalProperties: false
+                required:
+                  [
+                    entry_id,
+                    customer_id,
+                    kind,
+                    amount,
+                    sale_id,
+                    balance,
+                    business_date,
+                  ]
+                properties:
+                  entry_id: { $ref: '#/components/schemas/Uuid' }
+                  customer_id: { $ref: '#/components/schemas/Uuid' }
+                  kind: { type: string, enum: [credit_sale, void] }
+                  amount: { type: integer, format: int64, not: { const: 0 } }
+                  sale_id: { $ref: '#/components/schemas/Uuid' }
+                  balance: { type: integer, format: int64 }
+                  business_date: { type: string, format: date }
+    debtRepaid:
+      name: debt.repaid
+      summary: Debt book change; no customer names, phones or notes.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: debt.repaid }
+              data:
+                type: object
+                additionalProperties: false
+                required:
+                  [
+                    entry_id,
+                    customer_id,
+                    amount,
+                    method,
+                    balance,
+                    business_date,
+                  ]
+                properties:
+                  entry_id: { $ref: '#/components/schemas/Uuid' }
+                  customer_id: { $ref: '#/components/schemas/Uuid' }
+                  amount:
+                    {
+                      type: integer,
+                      format: int64,
+                      minimum: 1,
+                      description: Positive repayment amount.,
+                    }
+                  method: { type: string, enum: [cash, transfer] }
+                  balance: { type: integer, format: int64 }
+                  business_date: { type: string, format: date }
+    debtAdjusted:
+      name: debt.adjusted
+      summary: Debt book change; no customer names, phones or notes.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: debt.adjusted }
+              data:
+                type: object
+                additionalProperties: false
+                required:
+                  [entry_id, customer_id, amount, balance, business_date]
+                properties:
+                  entry_id: { $ref: '#/components/schemas/Uuid' }
+                  customer_id: { $ref: '#/components/schemas/Uuid' }
+                  amount: { type: integer, format: int64, not: { const: 0 } }
+                  balance: { type: integer, format: int64 }
+                  business_date: { type: string, format: date }
     saleCreated:
       name: sale.created
       summary: New sale stored. Not emitted on idempotent replay.
@@ -270,9 +403,12 @@ components:
                   sale_id: { $ref: '#/components/schemas/Uuid' }
                   code: { type: string }
                   total: { $ref: '#/components/schemas/Money' }
-                  payment_method: { type: string, enum: [cash, transfer] }
+                  payment_method:
+                    { type: string, enum: [cash, transfer, credit] }
                   member_id: { $ref: '#/components/schemas/Uuid' }
                   business_date: { type: string, format: date }
+                  credit_amount: { $ref: '#/components/schemas/Money' }
+                  customer_id: { type: [string, 'null'], format: uuid }
                   line_count: { type: integer }
     saleVoided:
       name: sale.voided

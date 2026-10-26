@@ -67,6 +67,8 @@ tags:
     description: Supplier receipt OCR, product mapping, confirmation and history (E5).
   - name: Sales
     description: Checkout sales, payment method, voids (S1–S10).
+  - name: Debts
+    description: 'Debt book / sổ nợ: customers, credit sales, repayments, adjustments.'
   - name: Review
     description: Lead review queue for manual-price lines sold without a catalog match (S4, F3).
   - name: Expenses
@@ -963,7 +965,12 @@ paths:
         saw. It recomputes `total` from lines and rejects a mismatch (400). A line whose
         `unit_price` differs from the catalog price at `sold_at` is stored with
         `price_mismatch=true` for Lead review. `member_id` comes from the token.
-        Idempotent on `id`.
+        Idempotent on `id`. All members (RecordDebt) may record credit sales.
+        `payment_method=credit` requires `credit.amount = total` and no `cash_received`.
+        For cash or transfer with `credit`, `0 < credit.amount < total`. Cash received must
+        cover the paid part (`total − credit.amount`); `change_given` uses that paid part.
+        Unknown customer returns 404. Archived customers still accept credit sales, and
+        credit limits never block. The sale and its credit_sale entry commit together.
       requestBody:
         required: true
         content:
@@ -982,6 +989,7 @@ paths:
               schema: { $ref: '#/components/schemas/Sale' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/sales/{saleId}:
     parameters:
@@ -1005,7 +1013,10 @@ paths:
       tags: [Sales]
       operationId: voidSale
       summary: Void or refund a completed sale with a reason (S10)
-      description: Lead, or the seller who made the sale on the same business date. Idempotent.
+      description: |
+        Lead, or the seller who made the sale on the same business date. Idempotent.
+        A credit sale adds one void entry of −credit_amount on the void business date,
+        in the same transaction. Repeated voids add no entry.
       requestBody:
         required: true
         content:
@@ -1030,6 +1041,215 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Debts
+  /v1/customers:
+    get:
+      tags: [Debts]
+      operationId: listCustomers
+      summary: Search the debt book
+      description: |
+        All members (RecordDebt).
+      parameters:
+        - name: query
+          in: query
+          description: Case-insensitive substring of name or phone.
+          schema: { type: string }
+        - name: overdue
+          in: query
+          description: Filter by overdue status (debt_age_days > 7).
+          schema: { type: boolean }
+        - name: archived
+          in: query
+          description: Archived customers are hidden by default.
+          schema: { type: boolean, default: false }
+        - name: sort
+          in: query
+          description: Sort customers by balance (largest first), recent activity or name.
+          schema:
+            { type: string, enum: [balance, recent, name], default: balance }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Customers page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Debts]
+      operationId: createCustomer
+      summary: Create a customer
+      description: |
+        All members (RecordDebt). Idempotent on client UUIDv7 `id`: identical body replays
+        with 200; a different body returns 409 `id_conflict`. Credit limits warn; they never block.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCustomerRequest' }
+      responses:
+        '200':
+          description: Replay of an identical earlier create.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '201':
+          description: Customer created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/customers/{customerId}:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [Debts]
+      operationId: getCustomer
+      summary: Customer balance and profile
+      description: |
+        All members (RecordDebt).
+      responses:
+        '200':
+          description: Customer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Debts]
+      operationId: updateCustomer
+      summary: Edit a customer
+      description: |
+        All members (RecordDebt) may edit the profile. Changing `archived` requires Lead
+        (AdjustDebt); sellers receive 403. Null clears phone, note or credit_limit.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/UpdateCustomerRequest' }
+      responses:
+        '200':
+          description: Updated customer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/customers/{customerId}/entries:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [Debts]
+      operationId: listDebtEntries
+      summary: Customer ledger, newest first
+      description: |
+        All members (RecordDebt). Positive amounts increase debt; negative amounts reduce it.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Debt entries page, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtEntryList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/customers/{customerId}/repayments:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [Debts]
+      operationId: createRepayment
+      summary: Record a repayment
+      description: |
+        All members (RecordDebt). Overpayment is allowed; a negative balance means the store
+        holds the customer’s money. Repayments for archived customers still succeed.
+        Requires `Idempotency-Key`; missing key or invalid body returns 422. Identical retries
+        return the same entry with 200. Reusing a key with another body or customer returns
+        409 `id_conflict`. The entry, customer balance and events commit together.
+        Business date uses device time (default server time), in Asia/Ho_Chi_Minh.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRepaymentRequest' }
+      responses:
+        '200':
+          description: Replay of the same entry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtEntry' }
+        '201':
+          description: Debt entry recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /v1/customers/{customerId}/adjustments:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [Debts]
+      operationId: createDebtAdjustment
+      summary: Adjust debt (Lead)
+      description: |
+        Lead only (AdjustDebt); sellers receive 403.
+        Requires `Idempotency-Key`; missing key or invalid body returns 422. Identical retries
+        return the same entry with 200. Reusing a key with another body or customer returns
+        409 `id_conflict`. The entry, customer balance and events commit together.
+        Business date uses device time (default server time), in Asia/Ho_Chi_Minh.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDebtAdjustmentRequest' }
+      responses:
+        '200':
+          description: Replay of the same entry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtEntry' }
+        '201':
+          description: Debt entry recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /v1/debts/summary:
+    get:
+      tags: [Debts]
+      operationId: getDebtSummary
+      summary: Outstanding debt overview
+      description: |
+        All members (RecordDebt). Overdue means debt_age_days > 7.
+      responses:
+        '200':
+          description: Debt summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- Review
   /v1/review/manual-lines:
@@ -1462,6 +1682,13 @@ paths:
       tags: [Reports]
       operationId: getDailyReport
       summary: Today screen (R1)
+      description: |
+        `revenue` is the full sale total (credit sales are revenue). `cash_revenue` and
+        `transfer_revenue` count only the paid part (`total − credit_amount`) of cash and
+        transfer sales. `cash_repayments` sums cash repayments of that business date and
+        `credit_sales` sums credit_amount of completed sales of that date, so the day close
+        screen can show both before the day is closed. `expected_cash` includes
+        `cash_repayments`.
       parameters:
         - name: date
           in: query
@@ -1611,10 +1838,12 @@ paths:
       operationId: putDayClose
       summary: Enter counted cash; returns expected cash and difference (R2, F5)
       description: |
-        `expected_cash = opening_float + cash sales − cash refunds − expenses paid in cash`
+        `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
         for that business date, computed on the server from synced records. Re-closing the
         same date overwrites the count and recomputes; sales synced after a close are
-        reported in `late_sales_count`.
+        reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+        the paid part (`total − credit_amount`). Repayments are summed by method and business
+        date; `credit_sales` sums credit_amount of completed sales of that date.
       requestBody:
         required: true
         content:
@@ -1644,7 +1873,7 @@ paths:
       summary: Pull catalog and settings changes since a cursor (offline-first, G4)
       description: |
         Returns server-owned entities that changed after `since`: store, members, categories,
-        products (with units and reference images). Sales and expenses are pushed by the phone
+        products (with units and reference images), customers and debt entries. Sales and expenses are pushed by the phone
         and are not part of the feed. Start with no `since` for a full snapshot. Repeat while
         `has_more`. Deletions arrive as `op=delete`.
       parameters:
@@ -2083,6 +2312,11 @@ components:
       schema: { type: string, format: uuid }
     ReceiptId:
       name: receiptId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CustomerId:
+      name: customerId
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -3029,9 +3263,179 @@ components:
         changed_by: { type: string, format: uuid }
         changed_at: { type: string, format: date-time }
         source: { type: string, enum: [manual, margin_alert, purchase] }
+    Customer:
+      type: object
+      required:
+        [
+          id,
+          name,
+          phone,
+          note,
+          credit_limit,
+          balance,
+          oldest_debt_date,
+          debt_age_days,
+          overdue,
+          archived,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        phone: { type: [string, 'null'], maxLength: 20 }
+        note: { type: [string, 'null'], maxLength: 200 }
+        credit_limit:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        balance:
+          type: integer
+          format: int64
+          description: Positive means debt; negative means the store holds the customer's money.
+        oldest_debt_date:
+          type: [string, 'null']
+          format: date
+          description: Oldest unsettled credit business date (FIFO); null when balance is at most zero. Voids cancel their own sale credits before aging.
+        debt_age_days:
+          type: [integer, 'null']
+          minimum: 0
+          description: Today minus oldest_debt_date in Asia/Ho_Chi_Minh business dates; null when no unsettled debt.
+        overdue:
+          {
+            type: boolean,
+            description: debt_age_days > 7; false when debt_age_days is null.,
+          }
+        archived: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateCustomerRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid, description: Client UUIDv7. }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        phone: { type: string, maxLength: 20 }
+        note: { type: string, maxLength: 200 }
+        credit_limit: { $ref: '#/components/schemas/Money' }
+    UpdateCustomerRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        phone: { type: [string, 'null'], maxLength: 20 }
+        note: { type: [string, 'null'], maxLength: 200 }
+        credit_limit:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        archived: { type: boolean, description: Lead only (AdjustDebt). }
+    CustomerList:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Customer' }
+    DebtEntry:
+      type: object
+      required:
+        [
+          id,
+          customer_id,
+          kind,
+          amount,
+          balance_after,
+          sale_id,
+          method,
+          reason,
+          member_id,
+          business_date,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        customer_id: { type: string, format: uuid }
+        kind: { type: string, enum: [credit_sale, repayment, adjustment, void] }
+        amount:
+          type: integer
+          format: int64
+          description: Signed VND; credit_sale positive, repayment and void negative, adjustment nonzero either way.
+        balance_after: { type: integer, format: int64 }
+        sale_id: { type: [string, 'null'], format: uuid }
+        method: { type: [string, 'null'], enum: [cash, transfer, null] }
+        reason: { type: [string, 'null'] }
+        member_id: { type: string, format: uuid }
+        business_date: { type: string, format: date }
+        created_at: { type: string, format: date-time }
+    DebtEntryList:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/DebtEntry' }
+    CreateRepaymentRequest:
+      type: object
+      required: [amount, method]
+      properties:
+        amount:
+          $ref: '#/components/schemas/Money'
+          minimum: 1
+          description: Positive input; stored as a negative ledger amount. Overpayment is allowed.
+        method: { type: string, enum: [cash, transfer] }
+        paid_at:
+          type: string
+          format: date-time
+          description: Device time; defaults to server time.
+    CreateDebtAdjustmentRequest:
+      type: object
+      required: [amount, reason]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          not: { const: 0 }
+          description: Signed nonzero VND; positive increases debt.
+        reason: { type: string, minLength: 1, maxLength: 200 }
+        adjusted_at:
+          type: string
+          format: date-time
+          description: Device time; defaults to server time.
+    DebtSummary:
+      type: object
+      required:
+        [
+          total_outstanding,
+          customers_with_debt,
+          overdue_count,
+          overdue_amount,
+          top_debtors,
+        ]
+      properties:
+        total_outstanding:
+          $ref: '#/components/schemas/Money'
+          description: Sum of positive customer balances.
+        customers_with_debt: { type: integer, minimum: 0 }
+        overdue_count: { type: integer, minimum: 0 }
+        overdue_amount: { $ref: '#/components/schemas/Money' }
+        top_debtors:
+          type: array
+          maxItems: 5
+          description: Customers with positive balances, largest balance first.
+          items: { $ref: '#/components/schemas/Customer' }
+    SaleCredit:
+      type: object
+      required: [customer_id, amount]
+      properties:
+        customer_id: { type: string, format: uuid }
+        amount:
+          $ref: '#/components/schemas/Money'
+          minimum: 1
     PaymentMethod:
       type: string
-      enum: [cash, transfer]
+      enum: [cash, transfer, credit]
     LineSource:
       type: string
       enum: [camera, multi_photo, barcode, grid, manual]
@@ -3086,6 +3490,7 @@ components:
             description: Device time at "Đã nhận".,
           }
         payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        credit: { $ref: '#/components/schemas/SaleCredit' }
         cash_received:
           $ref: '#/components/schemas/Money'
         total: { $ref: '#/components/schemas/Money' }
@@ -3110,6 +3515,7 @@ components:
           member_id,
           payment_method,
           total,
+          credit_amount,
           status,
           lines,
         ]
@@ -3140,6 +3546,8 @@ components:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
         total: { $ref: '#/components/schemas/Money' }
+        credit_amount: { $ref: '#/components/schemas/Money' }
+        customer_id: { type: [string, 'null'], format: uuid }
         vietqr_memo: { type: [string, 'null'] }
         status: { type: string, enum: [completed, voided] }
         void:
@@ -3266,6 +3674,8 @@ components:
           expenses,
           net,
           expected_cash,
+          cash_repayments,
+          credit_sales,
         ]
       properties:
         business_date: { type: string, format: date }
@@ -3274,6 +3684,8 @@ components:
         voided_count: { type: integer }
         cash_revenue: { $ref: '#/components/schemas/Money' }
         transfer_revenue: { $ref: '#/components/schemas/Money' }
+        cash_repayments: { $ref: '#/components/schemas/Money' }
+        credit_sales: { $ref: '#/components/schemas/Money' }
         expenses: { $ref: '#/components/schemas/Money' }
         net:
           {
@@ -3337,6 +3749,9 @@ components:
         opening_float: { $ref: '#/components/schemas/Money' }
         cash_sales: { $ref: '#/components/schemas/Money' }
         cash_refunds: { $ref: '#/components/schemas/Money' }
+        cash_repayments: { $ref: '#/components/schemas/Money' }
+        transfer_repayments: { $ref: '#/components/schemas/Money' }
+        credit_sales: { $ref: '#/components/schemas/Money' }
         cash_expenses: { $ref: '#/components/schemas/Money' }
         expected_cash: { $ref: '#/components/schemas/Money' }
         counted_cash: { $ref: '#/components/schemas/Money' }
@@ -3361,7 +3776,11 @@ components:
       required: [seq, entity, op, id]
       properties:
         seq: { type: integer, format: int64 }
-        entity: { type: string, enum: [store, member, category, product] }
+        entity:
+          {
+            type: string,
+            enum: [store, member, category, product, customer, debt_entry],
+          }
         op: { type: string, enum: [upsert, delete] }
         id: { type: string, format: uuid }
         data:
@@ -3371,6 +3790,8 @@ components:
             - $ref: '#/components/schemas/Member'
             - $ref: '#/components/schemas/Category'
             - $ref: '#/components/schemas/Product'
+            - $ref: '#/components/schemas/Customer'
+            - $ref: '#/components/schemas/DebtEntry'
     ChangeFeed:
       type: object
       required: [changes, cursor, has_more]
@@ -3395,6 +3816,11 @@ components:
             - store.changed
             - member.changed
             - session.revoked
+            - customer.created
+            - customer.updated
+            - debt.recorded
+            - debt.repaid
+            - debt.adjusted
             - sale.created
             - sale.voided
             - review.line_flagged
