@@ -289,6 +289,10 @@ mod tests {
     }
 
     /// Collects formatted tracing output of the current thread.
+    /// Run these tests one at a time: the tracing callsites they share misbehave when a
+    /// log-capturing test runs next to the others (it passes alone and under nextest).
+    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[derive(Clone, Default)]
     struct Logs(Arc<Mutex<Vec<u8>>>);
     impl std::io::Write for Logs {
@@ -322,6 +326,7 @@ mod tests {
 
     #[tokio::test]
     async fn clerk_failures_are_remembered_for_a_while_without_redis() {
+        let _serial = SERIAL.lock().await;
         for status in [
             StatusCode::UNAUTHORIZED,
             StatusCode::NOT_FOUND,
@@ -342,6 +347,7 @@ mod tests {
 
     #[tokio::test]
     async fn transport_and_decode_failures_are_remembered_too() {
+        let _serial = SERIAL.lock().await;
         let stub = Stub::new(StatusCode::OK, json!({"unexpected": true})).await;
         for _ in 0..3 {
             assert_eq!(stub.client.get(USER, None).await, None);
@@ -358,6 +364,7 @@ mod tests {
 
     #[tokio::test]
     async fn remembered_failures_expire() {
+        let _serial = SERIAL.lock().await;
         let stub = Stub::new(StatusCode::BAD_GATEWAY, json!({})).await;
         let client = stub
             .client
@@ -376,6 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_failure_cache_stays_bounded() {
+        let _serial = SERIAL.lock().await;
         let client = client("http://127.0.0.1:1").with_failure_ttl(Duration::from_secs(60));
         for n in 0..(MAX_REMEMBERED_FAILURES + 50) {
             client.get(&format!("user_{n}"), None).await;
@@ -385,6 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failure_logs_one_warning_with_the_status_and_nothing_identifying() {
+        let _serial = SERIAL.lock().await;
         let logs = Logs::default();
         let _guard = logs.capture();
         let stub = Stub::new(StatusCode::UNAUTHORIZED, json!({"errors": []})).await;
