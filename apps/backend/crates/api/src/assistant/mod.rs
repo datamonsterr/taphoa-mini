@@ -29,7 +29,12 @@ pub struct AssistantState {
     pub config: Arc<AssistantConfig>,
     pub model: Option<Arc<dyn ChatModel>>,
     pub registry: Arc<tools::Registry>,
+    /// Bounds concurrent confirm dispatches: each holds an admission connection and needs a
+    /// second one for the internal request.
+    pub confirms: Arc<tokio::sync::Semaphore>,
 }
+/// Default permits of `AssistantState::confirms`.
+pub const CONFIRM_PERMITS: usize = 4;
 impl Default for AssistantState {
     fn default() -> Self {
         telemetry::initialize();
@@ -37,6 +42,7 @@ impl Default for AssistantState {
             config: Arc::new(AssistantConfig::default()),
             model: None,
             registry: Arc::new(tools::Registry::standard()),
+            confirms: Arc::new(tokio::sync::Semaphore::new(CONFIRM_PERMITS)),
         }
     }
 }
@@ -109,5 +115,6 @@ mod tests {
         let state = AssistantState::default();
         assert!(state.model.is_none());
         assert_eq!(*state.config, AssistantConfig::default());
+        assert_eq!(state.confirms.available_permits(), 4);
     }
 }

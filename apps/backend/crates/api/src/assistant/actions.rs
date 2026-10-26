@@ -171,6 +171,14 @@ pub(crate) async fn confirm(
     // Keep a transaction-scoped advisory lock across the dispatch, while committing the
     // executing state separately. Cancellation releases it; another process can recover.
     // No store/product row is held here, so downstream handlers keep their lock order.
+    // Bound concurrent confirms first: each holds this connection and needs a second one.
+    let _permit = state
+        .assistant
+        .confirms
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| ApiError::internal())?;
     let mut admission = pool(&state)?.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(format!("assistant-action:{}:{id}", actor.store_id))
@@ -194,7 +202,7 @@ pub(crate) async fn confirm(
                 return Err(decided());
             }
             match row.status.as_str() {
-                "done" | "failed" => return Ok(Json(action_json(&row))),
+                "done" | "failed" => return Ok(Json(replay_json(&row))),
                 "executing" => {}
                 _ => return Err(decided()),
             }
@@ -244,6 +252,14 @@ pub(crate) async fn confirm(
             tx.commit().await?;
             return Err(ApiError::forbidden());
         }
+        // The invite secret goes to the confirming caller once and is never stored.
+        let mut join_url = None;
+        let execution = execution.map(|mut result| {
+            if row.kind == "invite" {
+                join_url = result.as_object_mut().and_then(|o| o.remove("join_url"));
+            }
+            result
+        });
         let updated = finish(&mut tx, &actor, id, execution).await?;
         tx.commit().await?;
         let decision = if updated.status == "done" {
@@ -252,10 +268,24 @@ pub(crate) async fn confirm(
             ActionDecision::Failed
         };
         after_decision(&state, &actor, &updated, decision);
-        Ok(Json(action_json(&updated)))
+        let mut body = action_json(&updated);
+        if let Some(url) = join_url {
+            body["result"]["join_url"] = url;
+        }
+        Ok(Json(body))
     }
     .instrument(span)
     .await
+}
+
+/// A replay of a decided action. The invite `join_url` is only in the first confirm response.
+fn replay_json(row: &ActionRow) -> Value {
+    let mut body = action_json(row);
+    if row.kind == "invite" && row.status == "done" {
+        body["result"]["join_url"] = Value::Null;
+        body["result"]["note"] = json!("Liên kết mời chỉ hiển thị một lần khi xác nhận");
+    }
+    body
 }
 
 async fn owned(conn: &mut PgConnection, actor: &Actor, row: &ActionRow) -> ApiResult<Value> {

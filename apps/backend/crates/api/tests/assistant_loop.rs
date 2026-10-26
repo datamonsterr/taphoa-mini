@@ -787,3 +787,117 @@ async fn fallback_stays_on_the_model_that_answered_within_a_turn() {
     assert_eq!(models, ["first/m:free", "second/m:free", "second/m:free"]);
     assert_eq!(terminal(&frames)["model"], "second/m:free");
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn tool_calls_beyond_eight_get_an_error_and_stay_paired() {
+    let (w, m, _) = setup(
+        vec![
+            Step::tools((0..10).map(|_| ("a", json!({})))),
+            Step::text("Xong"),
+        ],
+        config(),
+    )
+    .await;
+    let id = thread(&w, false).await;
+    let f = turn(&w, &id, false, false).await;
+    let finished: Vec<_> = f.iter().filter(|f| f["event"] == "tool.finished").collect();
+    assert_eq!(finished.len(), 10);
+    assert_eq!(
+        finished.iter().filter(|f| f["data"]["ok"] == true).count(),
+        8
+    );
+    assert_eq!(
+        finished.iter().filter(|f| f["data"]["ok"] == false).count(),
+        2
+    );
+    let requests = m.requests();
+    let results: Vec<Value> = requests[1]
+        .messages
+        .iter()
+        .filter(|m| m.role == ChatRole::Tool)
+        .map(|m| serde_json::from_str(m.content.as_deref().unwrap()).unwrap())
+        .collect();
+    assert_eq!(results.len(), 10);
+    assert!(results[..8].iter().all(|r| r.get("error").is_none()));
+    assert!(
+        results[8..]
+            .iter()
+            .all(|r| r["error"] == "too_many_tool_calls")
+    );
+    assert_eq!(f.last().unwrap()["event"], "message.completed");
+}
+
+struct Boom;
+#[async_trait]
+impl Tool for Boom {
+    fn name(&self) -> &'static str {
+        "boom"
+    }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+    fn description_vi(&self) -> &'static str {
+        "Công cụ lỗi"
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object"})
+    }
+    fn requires(&self) -> Option<Action> {
+        None
+    }
+    fn label_vi(&self) -> &'static str {
+        "Đang thử…"
+    }
+    async fn run(&self, _: &ToolContext, _: Value) -> Result<ToolOutput, ToolError> {
+        panic!("tool panic");
+    }
+}
+async fn statuses(w: &World, id: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT status FROM assistant_messages WHERE thread_id=$1 AND role='assistant'",
+    )
+    .bind(id.parse::<Uuid>().unwrap())
+    .fetch_all(w.pool())
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn a_panicking_turn_marks_the_message_failed_and_sends_internal() {
+    let (mut w, _, _) = setup(
+        vec![Step::tool("boom", json!({})), Step::text("Xong")],
+        config(),
+    )
+    .await;
+    w.state.assistant.registry = Arc::new(Registry::new(vec![Arc::new(Boom) as Arc<dyn Tool>]));
+    w.app = router(w.state.clone());
+    let id = thread(&w, false).await;
+    let f = turn(&w, &id, false, false).await;
+    assert_eq!(f.last().unwrap()["event"], "error");
+    assert_eq!(terminal(&f)["code"], "internal");
+    assert_eq!(statuses(&w, &id).await, ["failed"]);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn a_persist_failure_marks_the_message_failed() {
+    let (w, _, _) = setup(vec![Step::text("persist-fail-marker")], config()).await;
+    for sql in [
+        "CREATE OR REPLACE FUNCTION t12_reject() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='complete' AND NEW.content='persist-fail-marker' THEN RAISE EXCEPTION 't12'; END IF; RETURN NEW; END $$",
+        "DROP TRIGGER IF EXISTS t12_reject ON assistant_messages",
+        "CREATE TRIGGER t12_reject BEFORE UPDATE ON assistant_messages FOR EACH ROW EXECUTE FUNCTION t12_reject()",
+    ] {
+        sqlx::query(sql).execute(w.pool()).await.unwrap();
+    }
+    let id = thread(&w, false).await;
+    let f = turn(&w, &id, false, false).await;
+    sqlx::query("DROP TRIGGER t12_reject ON assistant_messages")
+        .execute(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(f.last().unwrap()["event"], "error");
+    assert_eq!(terminal(&f)["code"], "internal");
+    assert_eq!(statuses(&w, &id).await, ["failed"]);
+}

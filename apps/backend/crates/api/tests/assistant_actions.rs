@@ -273,17 +273,41 @@ async fn every_kind_proposes_without_business_writes_and_confirms_once() {
             }
             "propose_invite" => {
                 assert_eq!(count(&w, "invites").await, before[2] + 1);
-                assert!(done["result"]["join_url"].is_string());
+                let url = done["result"]["join_url"].as_str().unwrap().to_owned();
                 assert!(done["result"].get("token").is_none());
+                // The secret is never stored: thread detail and the DB row only hold expires_at.
+                let detail = w
+                    .call(
+                        "GET",
+                        &format!("/v1/assistant/threads/{}", a["thread_id"].as_str().unwrap()),
+                        &w.lead,
+                        Value::Null,
+                    )
+                    .await;
+                assert!(!detail.body.to_string().contains(&url));
+                assert!(!detail.body.to_string().contains("join_url"));
+                let stored: Value =
+                    sqlx::query_scalar("SELECT result FROM assistant_actions WHERE id=$1")
+                        .bind(id(&a))
+                        .fetch_one(w.pool())
+                        .await
+                        .unwrap();
+                assert_eq!(stored, json!({"expires_at":done["result"]["expires_at"]}));
+                let replay = decide(&w, &a, &w.lead, "confirm", Some("confirm-1")).await;
+                assert_eq!(replay.body["result"]["join_url"], Value::Null);
+                assert!(replay.body["result"]["note"].is_string());
+                assert!(!replay.raw.windows(url.len()).any(|x| x == url.as_bytes()));
             }
             _ => unreachable!(),
         }
-        assert_eq!(
-            decide(&w, &a, &w.lead, "confirm", Some("confirm-1"))
-                .await
-                .body,
-            done
-        );
+        if name != "propose_invite" {
+            assert_eq!(
+                decide(&w, &a, &w.lead, "confirm", Some("confirm-1"))
+                    .await
+                    .body,
+                done
+            );
+        }
         let conflict = decide(&w, &a, &w.lead, "confirm", Some("different")).await;
         assert_eq!(conflict.status, StatusCode::CONFLICT);
         assert_eq!(conflict.body["code"], "already_decided");

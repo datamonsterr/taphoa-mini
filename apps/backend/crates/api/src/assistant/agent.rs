@@ -32,6 +32,8 @@ const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
 const TOOL_CHARS: usize = 24_000;
+/// Tool calls run per model response; the rest get a `too_many_tool_calls` error.
+const MAX_TOOL_CALLS: usize = 8;
 
 #[derive(Debug, Clone)]
 pub struct ModelAttempt {
@@ -214,7 +216,9 @@ pub(crate) async fn send_message(
     let (tx, rx) = mpsc::unbounded_channel();
     let span = telemetry::invoke_span(thread_id, thread.context.as_ref());
     let trace_id = telemetry::trace_id(&span);
-    tokio::spawn(
+    let language = input.language;
+    let guard = (state.clone(), tx.clone());
+    let turn = tokio::spawn(
         async move {
             crate::telemetry::record_identity(&actor);
             stream::send(
@@ -241,6 +245,7 @@ pub(crate) async fn send_message(
             );
             if persist(&state, &record).await.is_err() {
                 record.error = Some("internal");
+                mark_failed(&state, message_id).await;
             }
             turn_finished(&state, &record).await;
             if let Some(code) = record.error {
@@ -265,6 +270,20 @@ pub(crate) async fn send_message(
         .instrument(span)
         .with_current_subscriber(),
     );
+    // A panic in the turn must not leave the assistant row `streaming`.
+    tokio::spawn(async move {
+        if turn.await.is_err() {
+            let (state, tx) = guard;
+            mark_failed(&state, message_id).await;
+            stream::send(
+                &tx,
+                StreamEvent::Error {
+                    code: "internal",
+                    message_vi: error_text("internal", language).into(),
+                },
+            );
+        }
+    });
     Ok(stream::response(rx))
 }
 
@@ -694,7 +713,8 @@ async fn run_turn_inner(
                 response
                     .tool_calls
                     .iter()
-                    .map(|call| run_tool(ctx, call, tx)),
+                    .enumerate()
+                    .map(|(index, call)| run_tool(ctx, call, tx, index >= MAX_TOOL_CALLS)),
             )
             .await;
             for (message, tool, summary, card) in results {
@@ -725,6 +745,7 @@ async fn run_tool(
     ctx: &ToolContext,
     call: &ToolCall,
     tx: &Sender,
+    over_limit: bool,
 ) -> (ChatMessage, ToolRecord, ToolSummary, Option<Value>) {
     let kind = ctx
         .state
@@ -733,12 +754,15 @@ async fn run_tool(
         .get(&call.name)
         .map(|t| t.kind());
     let span = telemetry::tool_span(&call.name, &call.id, kind);
-    run_tool_inner(ctx, call, tx).instrument(span).await
+    run_tool_inner(ctx, call, tx, over_limit)
+        .instrument(span)
+        .await
 }
 async fn run_tool_inner(
     ctx: &ToolContext,
     call: &ToolCall,
     tx: &Sender,
+    over_limit: bool,
 ) -> (ChatMessage, ToolRecord, ToolSummary, Option<Value>) {
     let registry = &ctx.state.assistant.registry;
     let tool = registry.get(&call.name);
@@ -752,14 +776,21 @@ async fn run_tool_inner(
     );
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
     let started = Instant::now();
-    let result = tokio::time::timeout(
-        ctx.state.assistant.config.tool_timeout,
-        registry.run(ctx, &call.name, args.clone()),
-    )
-    .await;
+    // Calls past the cap are answered with an error so the transcript stays paired.
+    let result = if over_limit {
+        None
+    } else {
+        Some(
+            tokio::time::timeout(
+                ctx.state.assistant.config.tool_timeout,
+                registry.run(ctx, &call.name, args.clone()),
+            )
+            .await,
+        )
+    };
     let mut denied = false;
     let (ok, data, summary_vi, rows, card) = match result {
-        Ok(Ok(output)) => {
+        Some(Ok(Ok(output))) => {
             if let Some(action) = output.action {
                 stream::send(tx, StreamEvent::Action(action));
             }
@@ -776,15 +807,19 @@ async fn run_tool_inner(
         }
         error => {
             let (code, message) = match error {
-                Err(_) => ("timeout", "Công cụ phản hồi quá lâu. Bạn thử lại sau nhé."),
-                Ok(Err(ToolError::Denied)) => {
+                None => (
+                    "too_many_tool_calls",
+                    "Quá nhiều lệnh công cụ trong một lượt.",
+                ),
+                Some(Err(_)) => ("timeout", "Công cụ phản hồi quá lâu. Bạn thử lại sau nhé."),
+                Some(Ok(Err(ToolError::Denied))) => {
                     denied = true;
                     ("denied", "Bạn không có quyền dùng công cụ này.")
                 }
-                Ok(Err(ToolError::InvalidArguments(_))) => {
+                Some(Ok(Err(ToolError::InvalidArguments(_)))) => {
                     ("invalid_arguments", "Tham số công cụ không hợp lệ.")
                 }
-                Ok(Err(ToolError::NotFound(_))) => {
+                Some(Ok(Err(ToolError::NotFound(_)))) => {
                     ("not_found", "Không tìm thấy công cụ hoặc dữ liệu.")
                 }
                 _ => ("failed", "Không thể đọc dữ liệu lúc này."),
@@ -834,6 +869,16 @@ async fn run_tool_inner(
         },
         card,
     )
+}
+/// Minimal write used when `persist` fails or the turn task panics.
+async fn mark_failed(state: &AppState, message_id: Uuid) {
+    let Ok(db) = pool(state) else { return };
+    let _ = sqlx::query(
+        "UPDATE assistant_messages SET status='failed' WHERE id=$1 AND status='streaming'",
+    )
+    .bind(message_id)
+    .execute(db)
+    .await;
 }
 async fn persist(state: &AppState, record: &TurnRecord) -> ApiResult<()> {
     let mut tx = pool(state)?.begin().await?;
