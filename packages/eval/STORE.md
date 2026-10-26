@@ -17,9 +17,12 @@ levels of ordinary products from here.
 - **Windows.** 60 business dates, `2026-08-22` (Saturday) to `2026-10-20`. Weekends run about 30 %
   busier than weekdays. Regular opening hours are 06:30 to 21:30.
 - **Schema gap.** This branch has no supplier table and no customer or debt tables (see
-  [Not built](#not-built)). A receipt's supplier is the first line of `receipts.ocr_text` (upper
-  case, for example `ĐẠI LÝ HƯNG THỊNH`) and the note `Nhập hàng: <supplier>` on its `nhap_hang`
-  expense.
+  [Not built](#not-built)). A receipt's supplier is `receipts.supplier` (migration
+  `0803_receipt_supplier.sql`), the display name, for example `Đại lý Hưng Thịnh`, set on every
+  receipt including the draft. The first line of `receipts.ocr_text` still carries the same name
+  in upper case, and the confirmed receipt's `nhap_hang` expense has the note
+  `Nhập hàng: <supplier>`. The supplier oracles and the `receipt:<supplier>@<date>` ref read
+  `receipts.supplier`.
 
 ## Store, members and logins
 
@@ -230,7 +233,7 @@ Facts about the catalog:
 
 ## Suppliers, receipts and costs
 
-Three suppliers (names are the first OCR line of their receipts, in upper case). They visit
+Three suppliers (`receipts.supplier` holds the name; the first OCR line of their receipts is the same name in upper case). They visit
 weekly; each visit is one confirmed receipt that adds stock and one `nhap_hang` expense with
 purchase lines. Receipts run from 2026-08-24 to 2026-10-19.
 

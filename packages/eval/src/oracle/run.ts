@@ -48,7 +48,7 @@ const NAME_LOOKUPS: Record<
     label: 'category',
   },
   supplier: {
-    sql: String.raw`SELECT DISTINCT regexp_replace(note, '^Nhập hàng: ', '') AS name FROM expenses WHERE store_id = $1 AND category = 'nhap_hang' AND deleted_at IS NULL ORDER BY 1`,
+    sql: String.raw`SELECT DISTINCT supplier AS name FROM receipts WHERE store_id = $1 AND status = 'confirmed' AND supplier IS NOT NULL ORDER BY 1`,
     label: 'supplier',
   },
 };

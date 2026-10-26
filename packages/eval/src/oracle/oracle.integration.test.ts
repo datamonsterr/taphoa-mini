@@ -465,6 +465,15 @@ describe.skipIf(!url)('oracles against the eval store', () => {
       expect(await names('receipt_draft_supplier')).toEqual([
         'Đại lý Hưng Thịnh',
       ]);
+      // Every receipt carries receipts.supplier, and the OCR first line stays.
+      const bySupplier = await pool.query(
+        `SELECT count(*)::int AS n FROM receipts
+         WHERE store_id = $1
+           AND (supplier IS NULL
+                OR lower(split_part(ocr_text, E'\\n', 1)) <> lower(supplier))`,
+        [STORE],
+      );
+      expect(bySupplier.rows[0].n).toBe(0);
       expect(await names('receipt_draft_line_names')).toHaveLength(8);
       expect(await names('receipt_draft_matched_names')).toHaveLength(7);
       const { rows } = await pool.query(
