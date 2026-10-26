@@ -57,6 +57,8 @@ BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/aut
 BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/store.test.ts
 BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/members.test.ts
 BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/health.test.ts
+BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/devices.test.ts
+BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e vitest run tests/digest.test.ts
 ```
 
 `receipts.test.ts` uses real document detection, OCR and product mapping on the
