@@ -5,13 +5,13 @@ import { Platform } from 'react-native';
 
 /**
  * Handles notification deep links:
- * When notification.request.content.data.url is a string starting with '/',
+ * When enabled is true and notification.request.content.data.url is a string starting with '/',
  * routes via router.push(url) then calls clearLastNotificationResponse().
- * Other payloads are ignored. No-op on web.
+ * Other payloads are ignored. No-op on web or when enabled is false.
  */
-export function useNotificationObserver(): void {
+export function useNotificationObserver(enabled: boolean): void {
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || !enabled) return;
 
     let isMounted = true;
 
@@ -43,5 +43,5 @@ export function useNotificationObserver(): void {
       isMounted = false;
       subscription.remove();
     };
-  }, []);
+  }, [enabled]);
 }

@@ -41,7 +41,6 @@ if (Platform.OS !== 'web') {
 export const unstable_settings = { anchor: 'index' };
 
 export default function RootLayout() {
-  useNotificationObserver();
   const [queryClient] = useState(() => new QueryClient());
   const [fontsLoaded, fontError] = useFonts({
     BeVietnamPro_400Regular,
@@ -55,6 +54,7 @@ export default function RootLayout() {
   const signedIn = useSessionStore(selectSignedIn);
   const hydrate = useSessionStore((s) => s.hydrate);
   const ready = (fontsLoaded || fontError !== null) && hydrated;
+  useNotificationObserver(ready && signedIn);
 
   useEffect(() => {
     void hydrate();

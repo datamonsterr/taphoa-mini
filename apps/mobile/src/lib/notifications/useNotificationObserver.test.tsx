@@ -42,7 +42,7 @@ describe('useNotificationObserver', () => {
       actionIdentifier: 'default',
     });
 
-    await renderHook(() => useNotificationObserver());
+    await renderHook(() => useNotificationObserver(true));
 
     await waitFor(() => {
       expect(router.push).toHaveBeenCalledTimes(1);
@@ -53,7 +53,77 @@ describe('useNotificationObserver', () => {
     });
   });
 
-  test('listener routes and clears on received response', async () => {
+  test('disabled: no routing and no subscription', async () => {
+    (Notifications.getLastNotificationResponse as jest.Mock).mockReturnValue({
+      notification: {
+        date: Date.now(),
+        request: {
+          identifier: 'n1',
+          content: {
+            title: 'Tóm tắt sáng nay',
+            body: 'Doanh thu hôm qua...',
+            data: { url: '/digest' },
+          },
+          trigger: null,
+        },
+      },
+      actionIdentifier: 'default',
+    });
+
+    await renderHook(() => useNotificationObserver(false));
+
+    expect(Notifications.getLastNotificationResponse).not.toHaveBeenCalled();
+    expect(
+      Notifications.addNotificationResponseReceivedListener,
+    ).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+    expect(Notifications.clearLastNotificationResponse).not.toHaveBeenCalled();
+  });
+
+  test('enabling later routes the pending initial response once and clears it', async () => {
+    (Notifications.getLastNotificationResponse as jest.Mock).mockReturnValue({
+      notification: {
+        date: Date.now(),
+        request: {
+          identifier: 'n1',
+          content: {
+            title: 'Tóm tắt sáng nay',
+            body: 'Doanh thu hôm qua...',
+            data: { url: '/digest?entry=push' },
+          },
+          trigger: null,
+        },
+      },
+      actionIdentifier: 'default',
+    });
+
+    const { rerender } = await renderHook(
+      ({ enabled }: { enabled: boolean }) => useNotificationObserver(enabled),
+      { initialProps: { enabled: false } },
+    );
+
+    expect(Notifications.getLastNotificationResponse).not.toHaveBeenCalled();
+    expect(
+      Notifications.addNotificationResponseReceivedListener,
+    ).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+
+    // Enable later
+    await rerender({ enabled: true });
+
+    await waitFor(() => {
+      expect(router.push).toHaveBeenCalledTimes(1);
+      expect(router.push).toHaveBeenCalledWith('/digest?entry=push');
+      expect(Notifications.clearLastNotificationResponse).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(
+        Notifications.addNotificationResponseReceivedListener,
+      ).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('listener routes while enabled and cleans up on unmount or disable', async () => {
     let capturedListener: ((response: any) => void) | undefined;
     const removeMock = jest.fn();
     (
@@ -63,7 +133,10 @@ describe('useNotificationObserver', () => {
       return { remove: removeMock };
     });
 
-    const hook = await renderHook(() => useNotificationObserver());
+    const { rerender, unmount } = await renderHook(
+      ({ enabled }: { enabled: boolean }) => useNotificationObserver(enabled),
+      { initialProps: { enabled: true } },
+    );
 
     await waitFor(() => {
       expect(capturedListener).toBeDefined();
@@ -94,8 +167,29 @@ describe('useNotificationObserver', () => {
       );
     });
 
-    await hook.unmount();
-    expect(removeMock).toHaveBeenCalled();
+    // Disabling removes subscription
+    await rerender({ enabled: false });
+    expect(removeMock).toHaveBeenCalledTimes(1);
+
+    // If a stale listener callback fires after unmount, it is ignored
+    capturedListener!({
+      notification: {
+        date: Date.now(),
+        request: {
+          identifier: 'n-stale',
+          content: {
+            title: 'Stale',
+            body: '...',
+            data: { url: '/assistant' },
+          },
+          trigger: null,
+        },
+      },
+      actionIdentifier: 'default',
+    });
+    expect(router.push).toHaveBeenCalledTimes(1);
+
+    await unmount();
   });
 
   test('non-string or external url is ignored', async () => {
@@ -124,7 +218,7 @@ describe('useNotificationObserver', () => {
       actionIdentifier: 'default',
     });
 
-    await renderHook(() => useNotificationObserver());
+    await renderHook(() => useNotificationObserver(true));
 
     await waitFor(() => {
       expect(capturedListener).toBeDefined();
@@ -176,7 +270,7 @@ describe('useNotificationObserver', () => {
       return { remove: jest.fn() };
     });
 
-    await renderHook(() => useNotificationObserver());
+    await renderHook(() => useNotificationObserver(true));
 
     await waitFor(() => {
       expect(capturedListener).toBeDefined();
@@ -190,7 +284,7 @@ describe('useNotificationObserver', () => {
   test('web is no-op', async () => {
     Platform.OS = 'web';
 
-    await renderHook(() => useNotificationObserver());
+    await renderHook(() => useNotificationObserver(true));
 
     await new Promise((r) => setTimeout(r, 50));
     expect(Notifications.getLastNotificationResponse).not.toHaveBeenCalled();
