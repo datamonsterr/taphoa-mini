@@ -15,7 +15,8 @@ appId: com.datamonsterr.taphoamini
 - runScript:
     file: subflows/assistant-probe.js
     env:
-      API_URL: 'http://10.0.2.2:8080'
+      # runScript runs in the Maestro CLI on the host, not on the emulator: localhost, not 10.0.2.2
+      API_URL: 'http://localhost:8080'
 - runFlow:
     when:
       true: ${output.assistant}

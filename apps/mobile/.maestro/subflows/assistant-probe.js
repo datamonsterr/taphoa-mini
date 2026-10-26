@@ -1,8 +1,8 @@
 // Sets output.assistant = true when the backend has the assistant routes (X3), else false.
 // The probe is unauthenticated: a backend with the routes answers 401, one without answers 404
-// (or 405/501). The emulator reaches the host's backend as 10.0.2.2.
+// (or 405/501). Maestro runs this script on the host (the CLI), so the backend is localhost.
 var base =
-  typeof API_URL === 'string' && API_URL ? API_URL : 'http://10.0.2.2:8080';
+  typeof API_URL === 'string' && API_URL ? API_URL : 'http://localhost:8080';
 var status = 0;
 try {
   var response = http.get(base + '/v1/assistant/threads');
