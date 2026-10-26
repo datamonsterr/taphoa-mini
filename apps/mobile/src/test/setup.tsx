@@ -7,6 +7,20 @@ import 'react-native-gesture-handler/jestSetup';
 // mocks; Reanimated's cannot load under this Reanimated/Worklets pair and resolves to `{}`.
 jest.mock('expo-router/build/testing-library/mocks', () => ({}));
 
+// The speech module is "installed" in Jest (its double lives in __mocks__); a test that needs it
+// missing makes `requireOptionalNativeModule` return null again (see voice/speechModule.test.ts).
+jest.mock('expo', () => {
+  const actual = jest.requireActual('expo');
+  return {
+    ...actual,
+    requireOptionalNativeModule: jest.fn((name: string) =>
+      name === 'ExpoSpeechRecognition'
+        ? {}
+        : actual.requireOptionalNativeModule(name),
+    ),
+  };
+});
+
 jest.mock('react-native-reanimated', () =>
   require('./reanimated').createReanimatedMock(),
 );

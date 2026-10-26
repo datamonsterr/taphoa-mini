@@ -11,6 +11,8 @@ import {
   proposalReply,
   getMockDb,
 } from './index';
+import { registerImage } from './db';
+import { createReceipt, getReceipt } from './stockReceipts';
 
 const api = () =>
   createApiClient({ baseUrl: 'http://mock.local', fetch: createMockFetch() });
@@ -501,4 +503,59 @@ test('devices are keyed by member and token, and delete only removes the caller 
     getMockDb().currentMemberId = owner;
     jest.useRealTimers();
   }
+});
+
+describe('receipt_confirm actions', () => {
+  async function proposeReceiptConfirm(receiptId: string) {
+    const id = await thread();
+    const scripted = proposalReply();
+    const base = scripted.find((e) => e.event === 'action.proposed');
+    if (base?.event !== 'action.proposed') throw new Error('unreachable');
+    setNextAssistantReply([
+      scripted[0],
+      {
+        event: 'action.proposed',
+        data: {
+          ...base.data,
+          kind: 'receipt_confirm',
+          payload: { receipt_id: receiptId },
+          summary_vi: 'Nhập hóa đơn',
+        },
+      },
+      scripted[scripted.length - 1],
+    ]);
+    const events = await reply(id);
+    const proposed = events.find((e) => e.event === 'action.proposed');
+    if (proposed?.event !== 'action.proposed') throw new Error('unreachable');
+    return proposed.data;
+  }
+  const confirm = (actionId: string) =>
+    api().raw.POST('/v1/assistant/actions/{actionId}/confirm', {
+      params: { path: { actionId }, header: { 'Idempotency-Key': actionId } },
+    });
+  const draft = () =>
+    createReceipt(
+      registerImage({
+        contentType: 'image/jpeg',
+        byteSize: 100,
+        purpose: 'expense_receipt',
+      }).id,
+    );
+
+  test('confirming marks the mock receipt confirmed', async () => {
+    const receipt = draft();
+    const action = await proposeReceiptConfirm(receipt.id);
+    expect((await confirm(action.id)).data!.status).toBe('done');
+    expect(getReceipt(receipt.id).status).toBe('confirmed');
+    expect(getReceipt(receipt.id).confirmed_at).not.toBeNull();
+  });
+
+  test('a receipt that is no longer a draft conflicts', async () => {
+    const receipt = draft();
+    const action = await proposeReceiptConfirm(receipt.id);
+    receipt.status = 'discarded';
+    const result = await confirm(action.id);
+    expect(result.response.status).toBe(409);
+    expect(result.error?.code).toBe('already_confirmed');
+  });
 });

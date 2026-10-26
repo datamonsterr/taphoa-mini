@@ -103,6 +103,13 @@ export default function RootLayout() {
                 }}
               />
               <Stack.Screen
+                name="assistant"
+                options={{
+                  presentation: 'transparentModal',
+                  animation: 'slide_from_bottom',
+                }}
+              />
+              <Stack.Screen
                 name="enroll"
                 options={{
                   presentation: 'transparentModal',

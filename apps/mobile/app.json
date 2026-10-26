@@ -41,12 +41,19 @@
         "expo-camera",
         {
           "cameraPermission": "Tạp Hóa Mini cần dùng máy ảnh để nhận diện hàng hóa và chụp ảnh sản phẩm.",
-          "microphonePermission": false,
+          "microphonePermission": "Tạp Hóa Mini cần dùng micro để bạn nói chuyện với trợ lý.",
           "recordAudioAndroid": false
         }
       ],
       "expo-asset",
       "expo-secure-store",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Tạp Hóa Mini cần dùng micro để bạn nói chuyện với trợ lý.",
+          "speechRecognitionPermission": "Tạp Hóa Mini cần nhận dạng giọng nói để chuyển lời bạn nói thành chữ cho trợ lý."
+        }
+      ],
       [
         "expo-notifications",
         {

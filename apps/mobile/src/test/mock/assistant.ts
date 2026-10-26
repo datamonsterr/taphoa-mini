@@ -4,7 +4,7 @@ import { businessDate } from '@/lib/date';
 import { getMockDb, nowIso } from './db';
 import { badRequest, conflict, notFound } from './errors';
 import { PRODUCT_IDS } from './fixtures';
-import { adjustStock } from './stockReceipts';
+import { adjustStock, getReceipt } from './stockReceipts';
 import { asObject, isUuid, paginate, parseDate } from './validate';
 
 type S = components['schemas'];
@@ -318,6 +318,15 @@ export function decideAction(
       throw badRequest('Invalid stock adjustment');
     const movement = adjustStock(productId, { delta });
     result!.movement_id = movement.id;
+  }
+  if (confirm && action.kind === 'receipt_confirm') {
+    // The real handler writes stock and the expense; the double only flips the receipt.
+    const receipt = getReceipt(uuid(action.payload.receipt_id, 'receipt_id'));
+    if (receipt.status !== 'draft')
+      throw conflict('already_confirmed', 'Receipt is no longer a draft');
+    receipt.status = 'confirmed';
+    receipt.confirmed_at = nowIso();
+    result!.receipt_id = receipt.id;
   }
   Object.assign(action, {
     status: confirm ? 'done' : 'rejected',
