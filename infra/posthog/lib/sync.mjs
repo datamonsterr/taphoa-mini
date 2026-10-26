@@ -1,11 +1,17 @@
 // Compare only fields owned by definitions; PostHog may add nested defaults.
+const isPrimitive = (value) => value === null || typeof value !== 'object';
 function matches(existing, desired) {
-  if (Array.isArray(desired))
-    return (
-      Array.isArray(existing) &&
-      existing.length === desired.length &&
-      desired.every((item, index) => matches(existing[index], item))
-    );
+  if (Array.isArray(desired)) {
+    if (!Array.isArray(existing) || existing.length !== desired.length)
+      return false;
+    // PostHog stores tag lists sorted; a list of primitives is a set here.
+    if (desired.every(isPrimitive) && existing.every(isPrimitive)) {
+      const sorted = (list) => [...list].sort();
+      const [left, right] = [sorted(existing), sorted(desired)];
+      return right.every((item, index) => Object.is(left[index], item));
+    }
+    return desired.every((item, index) => matches(existing[index], item));
+  }
   if (desired && typeof desired === 'object')
     return (
       existing != null &&

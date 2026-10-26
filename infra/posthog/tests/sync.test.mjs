@@ -188,3 +188,25 @@ test('server-added nested defaults do not trigger redundant updates', async () =
   assert.equal((await ensureInsight(ctx, definition)).status, 'unchanged');
   assert.ok(ctx.calls.every((call) => call.method === 'GET'));
 });
+
+test('tag order from the server does not force an update', async () => {
+  const existing = {
+    id: 7,
+    name: 'Dashboard',
+    description: 'd',
+    tags: ['managed-as-code', 'x6'],
+  };
+  const calls = [];
+  const client = {
+    listAll: async () => [existing],
+    patch: async (...args) => calls.push(args),
+    post: async (...args) => calls.push(args),
+  };
+  const { ensureDashboard } = await import('../lib/sync.mjs');
+  const result = await ensureDashboard(
+    { client, dryRun: false },
+    { name: 'Dashboard', description: 'd', tags: ['x6', 'managed-as-code'] },
+  );
+  assert.equal(result.status, 'unchanged');
+  assert.equal(calls.length, 0);
+});
