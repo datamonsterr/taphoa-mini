@@ -97,6 +97,10 @@ up() {
       SAM_ENCODER_PATH="$models/mobile_sam_image_encoder.onnx"
       SAM_DECODER_PATH="$models/sam_mask_decoder_multi.onnx"
       DINO_MODEL_PATH="$models/dinov2_small.onnx"
+      OCR_DET_PATH="$models/ocr_det.onnx"
+      OCR_ENCODER_PATH="$models/ocr_vietocr_encoder.onnx"
+      OCR_DECODER_PATH="$models/ocr_vietocr_decoder.onnx"
+      OCR_VOCAB_PATH="$models/ocr_vietocr.json"
     )
   fi
 
