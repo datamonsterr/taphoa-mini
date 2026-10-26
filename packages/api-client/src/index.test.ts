@@ -193,3 +193,75 @@ describe('stock and receipt contract', () => {
     expect(req.headers.get('Idempotency-Key')).toBe('receipt-confirm-1');
   });
 });
+
+describe('telemetry headers', () => {
+  it.each(['session-1', null, undefined])(
+    'sends session header only when provided: %s',
+    async (session) => {
+      const fetchMock = vi.fn(async (_req: Request) => json({ status: 'ok' }));
+      const api = createApiClient({
+        baseUrl: 'https://api.example.test',
+        fetch: fetchMock as typeof fetch,
+        getSessionId: () => session,
+      });
+      await api.getHealth();
+      expect(
+        fetchMock.mock.calls[0]![0].headers.get('X-POSTHOG-SESSION-ID'),
+      ).toBe(session ?? null);
+    },
+  );
+
+  it('generates fresh valid, nonzero trace and span ids per request', async () => {
+    const fetchMock = vi.fn(async (_req: Request) => json({ status: 'ok' }));
+    const api = createApiClient({
+      baseUrl: 'https://api.example.test',
+      fetch: fetchMock as typeof fetch,
+    });
+    await api.getHealth();
+    await api.getHealth();
+    const headers = fetchMock.mock.calls.map(([req]) =>
+      req.headers.get('traceparent')!,
+    );
+    for (const header of headers) {
+      expect(header).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+      expect(header.split('-')[1]).not.toBe('0'.repeat(32));
+      expect(header.split('-')[2]).not.toBe('0'.repeat(16));
+    }
+    expect(headers[0]!.split('-')[1]).not.toBe(headers[1]!.split('-')[1]);
+    expect(headers[0]!.split('-')[2]).not.toBe(headers[1]!.split('-')[2]);
+  });
+
+  it('preserves a caller traceparent', async () => {
+    const { api, fetchMock } = setup(json({ status: 'ok' }));
+    const trace = '00-1234567890abcdef1234567890abcdef-1234567890abcdef-01';
+    await api.raw.GET('/healthz', { headers: { traceparent: trace } });
+    expect(fetchMock.mock.calls[0]![0].headers.get('traceparent')).toBe(trace);
+  });
+});
+
+describe('trace id random sources', () => {
+  it.each([false, true])(
+    'keeps ids nonzero even when the random source returns zeros (crypto: %s)',
+    async (cryptoAvailable) => {
+      const originalCrypto = globalThis.crypto;
+      vi.stubGlobal(
+        'crypto',
+        cryptoAvailable
+          ? { getRandomValues: (bytes: Uint8Array) => bytes.fill(0) }
+          : undefined,
+      );
+      const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+      try {
+        const { api, fetchMock } = setup(json({ status: 'ok' }));
+        await api.getHealth();
+        expect(fetchMock.mock.calls[0]![0].headers.get('traceparent')).toBe(
+          '00-00000000000000000000000000000001-0000000000000001-01',
+        );
+        if (!cryptoAvailable) expect(random).toHaveBeenCalled();
+      } finally {
+        random.mockRestore();
+        vi.stubGlobal('crypto', originalCrypto);
+      }
+    },
+  );
+});

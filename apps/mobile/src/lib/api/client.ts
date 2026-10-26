@@ -1,5 +1,7 @@
 import { createApiClient, type ApiClient } from '@taphoa/api-client';
 
+import { analyticsSessionId } from '@/lib/analyticsBridge';
+
 import { createAuthFetch } from './authFetch';
 
 /** Used when `EXPO_PUBLIC_API_URL` is unset: the backend of `docker compose up`. */
@@ -15,6 +17,7 @@ function createClient(): ApiClient {
   const baseUrl = apiBaseUrl();
   return createApiClient({
     baseUrl,
+    getSessionId: analyticsSessionId,
     fetch: createAuthFetch({ baseUrl, fetch: transport }),
   });
 }

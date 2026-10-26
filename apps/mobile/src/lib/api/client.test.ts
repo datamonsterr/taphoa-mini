@@ -1,3 +1,5 @@
+import { setAnalyticsBridge } from '../analyticsBridge';
+
 import {
   apiBaseUrl,
   DEFAULT_API_URL,
@@ -65,4 +67,32 @@ test('without an injected transport the global fetch is used', async () => {
   await getApiClient().getHealth();
   expect(spy).toHaveBeenCalledTimes(1);
   spy.mockRestore();
+});
+
+test('reads the analytics session for each request from the bridge', async () => {
+  let session: string | null = 'replay-1';
+  setAnalyticsBridge({
+    getSessionId: () => session,
+    captureException: () => {},
+    isFeatureEnabled: () => undefined,
+  });
+  const transport = jest.fn().mockImplementation(async () => ok());
+  setApiTransport(transport);
+  try {
+    await getApiClient().getHealth();
+    expect(
+      (transport.mock.calls[0][0] as Request).headers.get(
+        'X-POSTHOG-SESSION-ID',
+      ),
+    ).toBe('replay-1');
+    session = null;
+    await getApiClient().getHealth();
+    expect(
+      (transport.mock.calls[1][0] as Request).headers.get(
+        'X-POSTHOG-SESSION-ID',
+      ),
+    ).toBeNull();
+  } finally {
+    setAnalyticsBridge(null);
+  }
 });

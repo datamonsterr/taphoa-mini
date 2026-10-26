@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -110,7 +111,7 @@ export function StockScreen() {
               }
               style={styles.row}
             >
-              <View style={styles.photo}>
+              <PostHogMaskView style={styles.photo}>
                 {item.image_url ? (
                   <Image
                     source={{ uri: item.image_url }}
@@ -121,7 +122,7 @@ export function StockScreen() {
                     testID="stock-photo"
                   />
                 ) : null}
-              </View>
+              </PostHogMaskView>
               <View style={styles.detail}>
                 <Text style={styles.label}>{item.name ?? t('unnamed')}</Text>
                 <StockBadge

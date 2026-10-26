@@ -15,6 +15,7 @@ import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AnalyticsProvider } from '@/lib/analyticsPostHog';
 import { useCartStore } from '@/stores/cart';
 import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import {
@@ -65,54 +66,56 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <StatusBar style="dark" />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Protected guard={signedIn} redirectTo="/welcome">
-              <Stack.Screen name="index" />
-              <Stack.Screen
-                name="(shop)"
-                options={{ animation: 'slide_from_bottom' }}
-              />
-              <Stack.Screen name="product/[id]" />
-              <Stack.Screen name="stock" />
-              <Stack.Screen name="receipt/[id]" />
-              <Stack.Screen name="receipts" />
-              <Stack.Screen name="debts" />
-              <Stack.Screen name="customer/[id]" />
-              <Stack.Screen name="pay" />
-              <Stack.Screen
-                name="cart"
-                options={{
-                  presentation: 'transparentModal',
-                  animation: 'slide_from_bottom',
-                }}
-              />
-              <Stack.Screen
-                name="enroll"
-                options={{
-                  presentation: 'transparentModal',
-                  animation: 'slide_from_bottom',
-                }}
-              />
-              <Stack.Screen
-                name="expense"
-                options={{
-                  presentation: 'transparentModal',
-                  animation: 'slide_from_bottom',
-                }}
-              />
-              <Stack.Screen
-                name="close"
-                options={{
-                  presentation: 'transparentModal',
-                  animation: 'slide_from_bottom',
-                }}
-              />
-            </Stack.Protected>
-            <Stack.Protected guard={!signedIn}>
-              <Stack.Screen name="(onboarding)" />
-            </Stack.Protected>
-          </Stack>
+          <AnalyticsProvider>
+            <StatusBar style="dark" />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Protected guard={signedIn} redirectTo="/welcome">
+                <Stack.Screen name="index" />
+                <Stack.Screen
+                  name="(shop)"
+                  options={{ animation: 'slide_from_bottom' }}
+                />
+                <Stack.Screen name="product/[id]" />
+                <Stack.Screen name="stock" />
+                <Stack.Screen name="receipt/[id]" />
+                <Stack.Screen name="receipts" />
+                <Stack.Screen name="debts" />
+                <Stack.Screen name="customer/[id]" />
+                <Stack.Screen name="pay" />
+                <Stack.Screen
+                  name="cart"
+                  options={{
+                    presentation: 'transparentModal',
+                    animation: 'slide_from_bottom',
+                  }}
+                />
+                <Stack.Screen
+                  name="enroll"
+                  options={{
+                    presentation: 'transparentModal',
+                    animation: 'slide_from_bottom',
+                  }}
+                />
+                <Stack.Screen
+                  name="expense"
+                  options={{
+                    presentation: 'transparentModal',
+                    animation: 'slide_from_bottom',
+                  }}
+                />
+                <Stack.Screen
+                  name="close"
+                  options={{
+                    presentation: 'transparentModal',
+                    animation: 'slide_from_bottom',
+                  }}
+                />
+              </Stack.Protected>
+              <Stack.Protected guard={!signedIn}>
+                <Stack.Screen name="(onboarding)" />
+              </Stack.Protected>
+            </Stack>
+          </AnalyticsProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
