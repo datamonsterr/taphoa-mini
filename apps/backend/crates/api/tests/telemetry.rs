@@ -648,3 +648,25 @@ async fn cancelled_jobs_and_clients_record_error_once() {
         );
     }
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn device_delete_path_never_exports_push_token() {
+    let capture = Capture::new();
+    let _default = tracing::subscriber::set_default(capture.subscriber());
+    router(AppState::default())
+        .oneshot(
+            Request::delete("/v1/devices/private-push-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let spans = capture.spans.get_finished_spans().unwrap();
+    let span = spans
+        .iter()
+        .find(|s| s.name == "DELETE /v1/devices/{token}")
+        .expect("device route");
+    assert_eq!(attr(span, "url.path"), Some("/v1/devices/{token}".into()));
+    let logs = capture.logs.get_emitted_logs().unwrap();
+    assert!(!format!("{spans:?}{logs:?}").contains("private-push-token"));
+}

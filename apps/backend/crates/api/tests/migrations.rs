@@ -633,3 +633,84 @@ async fn assistant_checks_defaults_and_cascades() {
     .unwrap();
     assert_eq!(left, 0);
 }
+
+#[test]
+fn devices_migration_uses_reserved_epic_version() {
+    let migrations = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+    assert!(migrations.join("1001_devices.sql").is_file());
+    assert!(
+        taphoa_api::MIGRATOR
+            .iter()
+            .any(|migration| migration.version == 1001)
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn devices_schema_constraints_indexes_and_store_cascade() {
+    let pool = pool().await.expect("DATABASE_URL required");
+    let mut tx = pool.begin().await.unwrap();
+    let store: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO stores(name,recovery_code_hash) VALUES ('devices','x') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(store_id,display_name,role) VALUES ($1,'lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let token = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO devices(token,store_id,member_id,platform,app_version,language) VALUES ($1,$2,$3,'android','1','vi')")
+        .bind(&token).bind(store).bind(member).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO push_tickets(store_id,token,business_date,status) VALUES ($1,$2,CURRENT_DATE,'pending_receipt')")
+        .bind(store).bind(&token).execute(&mut *tx).await.unwrap();
+    for statement in [
+        "UPDATE devices SET platform='web' WHERE token=$1",
+        "UPDATE devices SET language='fr' WHERE token=$1",
+        "UPDATE devices SET app_version='' WHERE token=$1",
+        "UPDATE push_tickets SET status='bad' WHERE token=$1",
+    ] {
+        sqlx::query("SAVEPOINT invalid_device")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let error = sqlx::query(statement)
+            .bind(&token)
+            .execute(&mut *tx)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid_device")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    for (table, columns) in [
+        ("devices", "(store_id, member_id)"),
+        ("push_tickets", "(status, created_at)"),
+        ("push_tickets", "(store_id, business_date)"),
+    ] {
+        let definitions: Vec<String> =
+            sqlx::query_scalar("SELECT indexdef FROM pg_indexes WHERE tablename=$1")
+                .bind(table)
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap();
+        assert!(definitions.iter().any(|s| s.contains(columns)));
+    }
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let left: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM devices WHERE store_id=$1) + (SELECT count(*) FROM push_tickets WHERE store_id=$1)")
+        .bind(store).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(left, 0);
+}
