@@ -90,7 +90,7 @@ async fn invalid_registration_is_validation_failed() {
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn delete_is_owner_scoped_url_decoded_and_idempotent() {
     let w = World::new().await;
-    let token = format!("ExponentPushToken[{}]/+", Uuid::new_v4());
+    let token = format!("ExponentPushToken[{}]", Uuid::new_v4());
     w.checked(
         "POST",
         "/v1/devices",
@@ -133,5 +133,47 @@ async fn both_routes_require_authentication() {
     ] {
         let reply = send(&w.app, method, path, None, body).await;
         assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn token_shape_rejects_bad_prefix_delimiters_charset_and_lengths() {
+    let w = World::new().await;
+    for token in [
+        "x".into(),
+        "ExpoPushToken[]".into(),
+        "PushToken[abc]".into(),
+        "ExpoPushToken[abc".into(),
+        "ExpoPushToken[abc]extra".into(),
+        "ExpoPushToken[a b]".into(),
+        "ExpoPushToken[a+b]".into(),
+        "ExpoPushToken[a/b]".into(),
+        "ExpoPushToken[é]".into(),
+        "ExpoPushToken[[abc]]".into(),
+        format!("ExpoPushToken[{}]", "a".repeat(201)),
+        format!("ExponentPushToken[{}]", "a".repeat(257)),
+    ] {
+        let r = w
+            .call("POST", "/v1/devices", &w.lead, registration(&token))
+            .await;
+        assert_eq!(r.status, StatusCode::BAD_REQUEST, "{token}: {}", r.body);
+        assert_eq!(r.body["code"], "validation_failed");
+    }
+    for token in [
+        "ExpoPushToken[A]".into(),
+        format!("ExpoPushToken[{}]", "a".repeat(200)),
+        format!("ExponentPushToken[e2e-{}]", Uuid::new_v4()),
+        "ExponentPushToken[Ab_09-z]".into(),
+    ] {
+        w.checked(
+            "POST",
+            "/v1/devices",
+            "/v1/devices",
+            &w.lead,
+            registration(&token),
+            StatusCode::OK,
+        )
+        .await;
     }
 }

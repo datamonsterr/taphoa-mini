@@ -153,7 +153,7 @@ async fn scheduler_generation_adds_unread_chip_and_member_read_removes_only_thei
 #[derive(Clone)]
 struct FixedModel {
     answer: Result<String, taphoa_api::assistant::model::ModelError>,
-    calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    calls: std::sync::Arc<std::sync::Mutex<Vec<taphoa_api::assistant::model::ChatRequest>>>,
 }
 #[async_trait::async_trait]
 impl taphoa_api::assistant::model::ChatModel for FixedModel {
@@ -171,8 +171,8 @@ impl taphoa_api::assistant::model::ChatModel for FixedModel {
         assert_eq!(request.messages.len(), 2);
         let data: Value =
             serde_json::from_str(request.messages[1].content.as_ref().unwrap()).unwrap();
-        assert_eq!(data["sales"]["revenue"], 34600);
-        self.calls.lock().unwrap().push(request.model.clone());
+        assert!(data["sales"]["revenue"].is_number());
+        self.calls.lock().unwrap().push(request.clone());
         Ok(ChatResponse {
             model: request.model.clone(),
             content: self.answer.clone()?,
@@ -236,7 +236,13 @@ async fn model_success_rejection_fallback_order_and_budget_guards() {
             config.digest_model_max_per_day = 0;
         }
         if scenario == "daily-cap" {
-            let count: i64=sqlx::query_scalar("SELECT count(*) FROM assistant_digests WHERE source='model' AND generated_at >= date_trunc('day',now())").fetch_one(w.pool()).await.unwrap();
+            let count: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM assistant_digests WHERE source='model' AND business_date=$1",
+            )
+            .bind(taphoa_api::time::business_date(chrono::Utc::now()))
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
             assert!(count > 0);
             config.digest_model_max_per_day = count.try_into().unwrap();
         }
@@ -282,7 +288,35 @@ async fn model_success_rejection_fallback_order_and_budget_guards() {
             "zero-cap" | "daily-cap" | "quota" | "scripted" => vec![],
             _ => vec!["first:free"],
         };
-        assert_eq!(*calls.lock().unwrap(), expected, "{scenario}");
+        {
+            let requests = calls.lock().unwrap();
+            let models: Vec<_> = requests.iter().map(|r| r.model.as_str()).collect();
+            assert_eq!(models, expected, "{scenario}");
+            for request in requests.iter() {
+                let user = request.messages[1].content.as_ref().unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(user).unwrap()["sales"]["revenue"],
+                    34600
+                );
+                for forbidden in ["gross_profit", "unit_cost", "total_cost"] {
+                    assert!(
+                        !user.contains(forbidden),
+                        "model received {forbidden}: {user}"
+                    );
+                }
+                let mut amounts = vec![stored.payload["sales"]["gross_profit"].as_i64().unwrap()];
+                for item in stored.payload["restock"].as_array().unwrap() {
+                    amounts.push(item["unit_cost"].as_i64().unwrap());
+                    amounts.push(item["total_cost"].as_i64().unwrap());
+                }
+                for amount in amounts {
+                    assert!(
+                        !user.contains(&amount.to_string()),
+                        "model received private amount {amount}: {user}"
+                    );
+                }
+            }
+        }
         quota::clear_openrouter_exhausted(&w.state).await;
     }
 }
@@ -313,7 +347,9 @@ async fn concurrent_generation_keeps_one_cached_row_and_first_read_timestamp() {
         digest::mark_read(w.pool(), w.store_id, today, w.lead_id).await,
         Some(read)
     );
-    let ids = digest::active_store_ids(w.pool(), chrono::Duration::days(30)).await;
+    let ids = digest::active_store_ids(w.pool(), chrono::Duration::days(30))
+        .await
+        .unwrap();
     assert!(ids.contains(&w.store_id));
 }
 
@@ -347,4 +383,120 @@ async fn historical_rows_are_read_without_generating_missing_dates_or_crossing_s
         )
         .await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn seller_can_generate_without_an_active_lead() {
+    let w = fixture().await;
+    sqlx::query("UPDATE members SET active=false WHERE id=$1")
+        .bind(w.lead_id)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let r = w
+        .checked("GET", PATH, PATH, &w.seller, Value::Null, StatusCode::OK)
+        .await;
+    assert_eq!(r["sales"]["revenue"], 34600);
+    assert!(r["sales"]["gross_profit"].is_null());
+    let stored = taphoa_api::assistant::digest::get_or_generate(
+        &w.state,
+        w.store_id,
+        taphoa_api::time::business_date(chrono::Utc::now()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stored.payload["sales"]["gross_profit"], 22018);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn no_active_members_maps_generation_error_to_not_found() {
+    use taphoa_api::{
+        assistant::digest,
+        auth::{Actor, Role},
+    };
+    let w = World::new().await;
+    sqlx::query("UPDATE members SET active=false WHERE store_id=$1")
+        .bind(w.store_id)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    // Exercise the handler after authentication, as if membership changed in between.
+    let actor = Actor {
+        store_id: w.store_id,
+        member_id: w.seller_id,
+        session_id: uuid::Uuid::nil(),
+        role: Role::Seller,
+        can_enroll: false,
+    };
+    let params = serde_json::from_value(serde_json::json!({})).unwrap();
+    let error = digest::get(
+        axum::extract::State(w.state),
+        actor,
+        Ok(axum::extract::Query(params)),
+    )
+    .await
+    .unwrap_err();
+    use axum::response::IntoResponse;
+    let response = error.into_response();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let bytes = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&bytes).unwrap()["code"],
+        "not_found"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn model_cap_uses_business_date_even_for_backfills() {
+    use std::sync::{Arc, Mutex};
+    use taphoa_api::assistant::{digest, quota};
+    let mut w = fixture().await;
+    w.state.redis = None;
+    quota::clear_openrouter_exhausted(&w.state).await;
+    let today = taphoa_api::time::business_date(chrono::Utc::now());
+    let date = today - chrono::Duration::days(1000);
+    let (other, capped) = (World::new().await, World::new().await);
+    // Today's generated_at must not consume a backfill business date's budget.
+    sqlx::query("INSERT INTO assistant_digests(store_id,business_date,source,model,summary_vi,payload) VALUES($1,$2,'model','test','A stored summary', '{}')")
+        .bind(w.store_id).bind(today).execute(w.pool()).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM assistant_digests WHERE source='model' AND business_date=$1",
+    )
+    .bind(date)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    let mut config = (*w.state.assistant.config).clone();
+    config.models = vec!["first:free".into()];
+    config.digest_model_max_per_day = (count + 1).try_into().unwrap();
+    w.state.assistant.config = Arc::new(config);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    w.state.assistant.model = Some(Arc::new(FixedModel {
+        answer: Ok("Hôm qua cửa hàng có doanh thu và cần xem hàng cần nhập.".into()),
+        calls: calls.clone(),
+    }));
+    let first = digest::generate(&w.state, other.store_id, date)
+        .await
+        .unwrap();
+    assert_eq!(first.source, "model");
+    // A row generated long ago still consumes its business date's budget.
+    sqlx::query("UPDATE assistant_digests SET generated_at=now()-interval '2 days' WHERE store_id=$1 AND business_date=$2")
+        .bind(other.store_id).bind(date).execute(w.pool()).await.unwrap();
+    let second = digest::generate(&w.state, capped.store_id, date)
+        .await
+        .unwrap();
+    assert_eq!(second.source, "template");
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    for store_id in [w.store_id, other.store_id, capped.store_id] {
+        sqlx::query("DELETE FROM stores WHERE id=$1")
+            .bind(store_id)
+            .execute(w.pool())
+            .await
+            .unwrap();
+    }
 }

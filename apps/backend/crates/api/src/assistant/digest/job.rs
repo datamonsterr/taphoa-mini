@@ -125,7 +125,7 @@ async fn run_once_with_config(
     crate::telemetry::job("digest.run", 1, async {
         let db = state.postgres.as_ref().context("database unavailable")?;
         let business_date = time::business_date(now);
-        let ids = active_store_ids(db, config.active_window).await;
+        let ids = active_store_ids(db, config.active_window).await?;
         let mut report = RunReport { stores: ids.len(), ..RunReport::default() };
         for store_id in ids {
             let result: anyhow::Result<()> = async {
@@ -140,7 +140,16 @@ async fn run_once_with_config(
                     .bind(store_id).bind(business_date).execute(db).await?.rows_affected();
                 if claimed == 0 { return Ok(()); }
                 report.pushed_stores += 1;
-                let sent = push::send_to_devices(db, api, store_id, business_date, |device| message(&digest, device)).await?;
+                let sent = match push::send_to_devices(db, api, store_id, business_date, |device| message(&digest, device)).await {
+                    Ok(sent) => sent,
+                    Err(error) => {
+                        // Retry only if no batch was recorded; otherwise a retry
+                        // could duplicate notifications already accepted by Expo.
+                        sqlx::query("UPDATE assistant_digests SET pushed_at=NULL WHERE store_id=$1 AND business_date=$2 AND NOT EXISTS (SELECT 1 FROM push_tickets WHERE store_id=$1 AND business_date=$2)")
+                            .bind(store_id).bind(business_date).execute(db).await?;
+                        return Err(error);
+                    }
+                };
                 report.sent += sent.sent;
                 report.failed += sent.failed;
                 report.unregistered += sent.unregistered;

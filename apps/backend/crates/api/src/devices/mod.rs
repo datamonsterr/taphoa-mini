@@ -34,7 +34,19 @@ pub struct RegisterDevice {
 }
 impl RegisterDevice {
     fn validate(&self) -> ApiResult<()> {
-        if self.token.is_empty()
+        let valid_token = self.token.len() <= 256
+            && self
+                .token
+                .strip_prefix("ExpoPushToken[")
+                .or_else(|| self.token.strip_prefix("ExponentPushToken["))
+                .and_then(|token| token.strip_suffix(']'))
+                .is_some_and(|inner| {
+                    (1..=200).contains(&inner.len())
+                        && inner
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+                });
+        if !valid_token
             || self.app_version.is_empty()
             || !["android", "ios"].contains(&self.platform.as_str())
             || !["vi", "en"].contains(&self.language.as_str())

@@ -131,6 +131,7 @@ async fn registered_device_activates_store_and_pushes_only_once_per_day() {
     assert!(
         !digest::active_store_ids(world.pool(), Duration::days(30))
             .await
+            .unwrap()
             .contains(&world.store_id)
     );
     world
@@ -146,6 +147,7 @@ async fn registered_device_activates_store_and_pushes_only_once_per_day() {
     assert!(
         digest::active_store_ids(world.pool(), Duration::days(30))
             .await
+            .unwrap()
             .contains(&world.store_id)
     );
     let now = Utc::now();
@@ -351,7 +353,7 @@ async fn one_store_generation_or_delivery_failure_does_not_stop_other_stores() {
     register(&broken_generation).await;
     let failed_token = register(&broken_delivery).await;
     let healthy_token = register(&healthy).await;
-    sqlx::query("UPDATE members SET active=false WHERE store_id=$1 AND role='lead'")
+    sqlx::query("UPDATE members SET active=false WHERE store_id=$1")
         .bind(broken_generation.store_id)
         .execute(broken_generation.pool())
         .await
@@ -495,4 +497,87 @@ async fn scheduler_honors_custom_active_window_and_receipt_delay() {
     );
     cleanup(&world).await;
     cleanup(&old).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn failed_send_without_tickets_releases_claim_and_retries() {
+    let _serial = SERIAL.lock().await;
+    let (world, mock) = fixture().await;
+    let token = register(&world).await;
+    mock.fail_tokens.lock().unwrap().insert(token.clone());
+    let now = Utc::now();
+    let report = job::run_once(&world.state, now).await.unwrap();
+    assert!(report.failed >= 1);
+    assert!(
+        pushed_at(&world).await.is_none(),
+        "failed send must release claim"
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_tickets WHERE store_id=$1")
+        .bind(world.store_id)
+        .fetch_one(world.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    mock.fail_tokens.lock().unwrap().remove(&token);
+    job::run_once(&world.state, now).await.unwrap();
+    assert!(pushed_at(&world).await.is_some());
+    assert_eq!(
+        mock.messages
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m.to == token)
+            .count(),
+        2
+    );
+    cleanup(&world).await;
+}
+
+#[tokio::test]
+async fn active_store_lookup_failure_fails_the_run() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@localhost:1/unused")
+        .unwrap();
+    pool.close().await;
+    let state = taphoa_api::AppState {
+        postgres: Some(pool),
+        ..Default::default()
+    };
+    assert!(job::run_once(&state, Utc::now()).await.is_err());
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn failed_later_batch_keeps_claim_when_tickets_were_already_recorded() {
+    let _serial = SERIAL.lock().await;
+    let (world, mock) = fixture().await;
+    let tokens: Vec<_> = (0..101)
+        .map(|i| format!("ExpoPushToken[{}-{i:03}]", world.store_id))
+        .collect();
+    sqlx::query("INSERT INTO devices(token,store_id,member_id,platform,app_version,language) SELECT unnest($1::text[]),$2,$3,'android','1','vi'")
+        .bind(&tokens).bind(world.store_id).bind(world.lead_id).execute(world.pool()).await.unwrap();
+    mock.fail_tokens.lock().unwrap().insert(tokens[100].clone());
+    let now = Utc::now();
+    let report = job::run_once(&world.state, now).await.unwrap();
+    assert!(report.failed >= 1);
+    assert!(pushed_at(&world).await.is_some());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_tickets WHERE store_id=$1")
+        .bind(world.store_id)
+        .fetch_one(world.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 100);
+    mock.fail_tokens.lock().unwrap().clear();
+    job::run_once(&world.state, now).await.unwrap();
+    assert_eq!(
+        mock.messages
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| tokens.contains(&m.to))
+            .count(),
+        101
+    );
+    cleanup(&world).await;
 }
