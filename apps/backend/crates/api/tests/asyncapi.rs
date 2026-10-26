@@ -20,6 +20,15 @@ const U2: &str = "0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c02";
 
 fn samples() -> Vec<(&'static str, Value)> {
     vec![
+        ("store.created", json!({})),
+        (
+            "product.enrolled",
+            json!({"product_id":U1,"reference_count":2,"source":"quick_enroll"}),
+        ),
+        (
+            "receipt.scanned",
+            json!({"receipt_id":U1,"line_count":3,"matched_lines":2,"latency_ms":50}),
+        ),
         (
             "assistant.action.confirmed",
             json!({"action_id":U1,"kind":"expense","thread_id":U2,"decided_by":U2,"result":{"expense_id":U1}}),

@@ -332,6 +332,14 @@ fn approx(actual: f64, expected: f64) {
 /// Scan/time rows on disk: detections in position order, 3 crop thumbnails
 /// with purpose `crop`, embeddings stored (dim 384).
 async fn assert_persisted(pool: &PgPool, store_id: Uuid, scan_id: &str, red: Uuid) -> (Uuid, i64) {
+    let envelope: Value = sqlx::query_scalar("SELECT payload FROM outbox_events WHERE store_id=$1 AND type='scan.completed' AND payload->'data'->>'scan_id'=$2")
+        .bind(store_id).bind(scan_id).fetch_one(pool).await.unwrap();
+    assert_eq!(envelope["data"]["purpose"], "checkout");
+    assert!(envelope["data"]["latency_ms"].as_u64().is_some());
+    assert!(matches!(
+        envelope["data"]["match_class"].as_str(),
+        Some("matched" | "ambiguous" | "unknown")
+    ));
     let row: (Uuid, Uuid, i64, Value) = sqlx::query_as(
         "SELECT id, image_id, catalog_version, timings FROM \
          scans WHERE id = $1 AND store_id = $2",

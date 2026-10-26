@@ -694,3 +694,7 @@ mod tests {
             .unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "analytics/posthog_tests.rs"]
+mod posthog_tests;

@@ -1,4 +1,5 @@
 pub mod hub;
+pub mod product_events;
 pub mod relay;
 pub use hub::{Hub, HubMessage};
 
