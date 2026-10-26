@@ -29,6 +29,7 @@ pub struct AssistantConfig {
     /// Ordered `:free` OpenRouter fallbacks, or `["scripted"]` for local/e2e rules.
     pub models: Vec<String>,
     pub daily_messages_per_store: u32,
+    pub digest_model_max_per_day: u32,
     /// Honour `X-Taphoa-Eval-*` headers (test and eval deployments only).
     pub allow_eval_headers: bool,
     pub reasoning_effort: String,
@@ -44,6 +45,7 @@ impl Default for AssistantConfig {
         Self {
             models: DEFAULT_MODELS.split(',').map(str::to_owned).collect(),
             daily_messages_per_store: 60,
+            digest_model_max_per_day: 200,
             allow_eval_headers: false,
             reasoning_effort: "low".into(),
             model_provider: ModelProvider::default(),
@@ -73,6 +75,13 @@ impl AssistantConfig {
                 .ok()
                 .filter(|cap| *cap > 0)
                 .context("ASSISTANT_DAILY_MESSAGES_PER_STORE must be a positive integer")?;
+        }
+        if let Some(value) = get("DIGEST_MODEL_MAX_PER_DAY") {
+            config.digest_model_max_per_day = value
+                .parse::<u32>()
+                .ok()
+                .filter(|cap| *cap > 0)
+                .context("DIGEST_MODEL_MAX_PER_DAY must be a positive integer")?;
         }
         config.allow_eval_headers = get("ASSISTANT_ALLOW_EVAL_HEADERS")
             .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
@@ -245,6 +254,30 @@ mod tests {
         ] {
             let error = config(&[(name, value)]).unwrap_err().to_string();
             assert!(error.contains(name), "{name}={value}: {error}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::AssistantConfig;
+
+    #[test]
+    fn digest_limit_defaults_and_requires_a_positive_integer() {
+        assert_eq!(AssistantConfig::default().digest_model_max_per_day, 200);
+        let parse = |v: &str| {
+            AssistantConfig::from_lookup(|key| {
+                (key == "DIGEST_MODEL_MAX_PER_DAY").then(|| v.to_owned())
+            })
+        };
+        assert_eq!(parse("7").unwrap().digest_model_max_per_day, 7);
+        for value in ["0", "-1", "oops", "4294967296"] {
+            assert!(
+                parse(value)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("DIGEST_MODEL_MAX_PER_DAY")
+            );
         }
     }
 }
