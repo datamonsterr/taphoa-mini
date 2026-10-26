@@ -26,7 +26,7 @@ export default dashboard('Reliability', [
   [
     '5xx rate',
     hogql(
-      `SELECT resource_attributes['deployment.environment.name'] AS environment, attributes['http.route'] AS route, count() AS requests, countIf(toInt64OrNull(toString(attributes['http.response.status_code'])) >= 500) AS errors_5xx, 100.0 * errors_5xx / nullIf(requests, 0) AS error_percent FROM logs WHERE ${logsWhere} AND body = 'request completed' AND attributes['http.response.status_code'] IS NOT NULL GROUP BY environment, route ORDER BY error_percent DESC`,
+      `SELECT resource_attributes['deployment.environment.name'] AS environment, attributes['http.route'] AS route, count() AS requests, countIf(toFloat64OrNull(toString(attributes['http.response.status_code'])) >= 500) AS errors_5xx, 100.0 * errors_5xx / nullIf(requests, 0) AS error_percent FROM logs WHERE ${logsWhere} AND body = 'request completed' AND attributes['http.response.status_code'] IS NOT NULL GROUP BY environment, route ORDER BY error_percent DESC`,
     ),
   ],
 ]);
