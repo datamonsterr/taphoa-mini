@@ -2,6 +2,7 @@
 mod day_close;
 mod draft_receipts;
 mod margin_alert;
+mod overdue_debts;
 mod restock;
 mod review_queue;
 mod setup;
@@ -36,6 +37,7 @@ pub fn rules() -> Vec<Rule> {
         review_queue::run,
         setup::run,
         margin_alert::run,
+        overdue_debts::run,
     ]
 }
 
