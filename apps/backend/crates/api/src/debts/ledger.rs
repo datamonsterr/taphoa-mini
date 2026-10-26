@@ -46,7 +46,7 @@ pub(crate) async fn record_entry(
     business_date: NaiveDate,
     key_hash: Option<&[u8]>,
     request_hash: Option<&[u8]>,
-    actor: Option<(Uuid, Uuid)>,
+    actor: Option<(Uuid, String)>,
 ) -> ApiResult<DebtEntryRow> {
     if !match kind {
         "credit_sale" => amount > 0,
@@ -99,7 +99,7 @@ pub(crate) async fn record_entry(
         tx,
         Event {
             store_id,
-            actor,
+            actor: actor.clone(),
             typ,
             version: 1,
             data,
@@ -122,7 +122,7 @@ pub(crate) async fn record_entry(
 pub(super) async fn emit_customer(
     tx: &mut PgConnection,
     store_id: Uuid,
-    actor: Option<(Uuid, Uuid)>,
+    actor: Option<(Uuid, String)>,
     typ: &'static str,
     id: Uuid,
     balance: i64,

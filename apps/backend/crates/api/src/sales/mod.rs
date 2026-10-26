@@ -359,7 +359,7 @@ async fn create(
             date,
             None,
             None,
-            Some((actor.member_id, actor.session_id)),
+            Some(actor.event_actor()),
         )
         .await?;
     }
@@ -533,7 +533,7 @@ async fn void(
                 business_date(voided_at),
                 None,
                 None,
-                Some((actor.member_id, actor.session_id)),
+                Some(actor.event_actor()),
             )
             .await?;
         }
