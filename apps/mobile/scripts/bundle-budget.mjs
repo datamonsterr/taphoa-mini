@@ -23,7 +23,7 @@ export const TARGETS = [
     name: 'web (js, gzip)',
     dir: 'dist-web/_expo/static/js/web',
     gzip: true,
-    budget: 1_045_000, // measured 907_878
+    budget: 1_245_000, // measured 1_081_754 (posthog-react-native on web)
   },
 ];
 
