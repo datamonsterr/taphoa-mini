@@ -25,33 +25,37 @@ export function usePushRegistration(): void {
     let cancelled = false;
 
     async function syncPush() {
-      const state = await incrementOpens();
-      if (cancelled) return;
-
-      const permission = await getPushPermission();
-      if (cancelled) return;
-
-      if (permission?.granted) {
-        await registerForPush();
-        return;
-      }
-
-      if (
-        shouldPromptForPush({
-          signedInOpens: state.opens,
-          asked: state.asked,
-          platform: Platform.OS,
-        })
-      ) {
-        await markAsked();
+      try {
+        const state = await incrementOpens();
         if (cancelled) return;
 
-        const requested = await requestPushPermission();
+        const permission = await getPushPermission();
         if (cancelled) return;
 
-        if (requested?.granted) {
+        if (permission?.granted) {
           await registerForPush();
+          return;
         }
+
+        if (
+          shouldPromptForPush({
+            signedInOpens: state.opens,
+            asked: state.asked,
+            platform: Platform.OS,
+          })
+        ) {
+          const requested = await requestPushPermission();
+          if (cancelled) return;
+
+          await markAsked();
+          if (cancelled) return;
+
+          if (requested?.granted) {
+            await registerForPush();
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to sync push registration:', error);
       }
     }
 

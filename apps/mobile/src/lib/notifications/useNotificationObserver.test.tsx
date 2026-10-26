@@ -4,6 +4,25 @@ import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import { useNotificationObserver } from './useNotificationObserver';
 
+let mockAppOwnership: string | null = 'standalone';
+
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  ExecutionEnvironment: {
+    Bare: 'bare',
+    Standalone: 'standalone',
+    StoreClient: 'storeClient',
+  },
+  default: {
+    get appOwnership() {
+      return mockAppOwnership;
+    },
+    get executionEnvironment() {
+      return 'standalone';
+    },
+  },
+}));
+
 jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
@@ -16,6 +35,7 @@ describe('useNotificationObserver', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Platform.OS = 'android';
+    mockAppOwnership = 'standalone';
     (Notifications.getLastNotificationResponse as jest.Mock).mockReturnValue(
       null,
     );
@@ -283,6 +303,19 @@ describe('useNotificationObserver', () => {
 
   test('web is no-op', async () => {
     Platform.OS = 'web';
+
+    await renderHook(() => useNotificationObserver(true));
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(Notifications.getLastNotificationResponse).not.toHaveBeenCalled();
+    expect(
+      Notifications.addNotificationResponseReceivedListener,
+    ).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  test('Expo Go is no-op', async () => {
+    mockAppOwnership = 'expo';
 
     await renderHook(() => useNotificationObserver(true));
 

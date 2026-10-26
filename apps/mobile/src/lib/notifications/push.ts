@@ -1,10 +1,17 @@
-import * as Notifications from 'expo-notifications';
-import { AndroidImportance } from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { registerDevice, unregisterDevice } from '@/lib/api/devices';
+import { isApiError } from '@/lib/api/errors';
 import { useSettingsStore, type Language } from '@/stores/settings';
+import { loadNotifications } from './module';
 import { clearLastToken, getLastToken, setLastToken } from './promptTiming';
+
+export type NotificationPermissionsStatus =
+  NonNullable<ReturnType<typeof loadNotifications>> extends {
+    getPermissionsAsync: () => Promise<infer R>;
+  }
+    ? R
+    : never;
 
 export type RegisterForPushOptions = {
   appVersion?: string;
@@ -17,21 +24,30 @@ export type RegisterForPushOptions = {
  */
 export async function ensureChannel(): Promise<void> {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('digest', {
+    const notifications = loadNotifications();
+    if (!notifications) return;
+    await notifications.setNotificationChannelAsync('digest', {
       name: 'Tóm tắt hằng ngày',
-      importance: AndroidImportance.HIGH,
+      importance: notifications.AndroidImportance.HIGH,
     });
   }
 }
 
-export async function getPushPermission(): Promise<Notifications.NotificationPermissionsStatus | null> {
-  if (Platform.OS === 'web') return null;
-  return Notifications.getPermissionsAsync();
+export async function getPushPermission(): Promise<NotificationPermissionsStatus | null> {
+  const notifications = loadNotifications();
+  if (!notifications) return null;
+  return notifications.getPermissionsAsync();
 }
 
-export async function requestPushPermission(): Promise<Notifications.NotificationPermissionsStatus | null> {
-  if (Platform.OS === 'web') return null;
-  return Notifications.requestPermissionsAsync();
+/**
+ * Ensures channel exists first (required on Android 13+ before prompting),
+ * then requests permission.
+ */
+export async function requestPushPermission(): Promise<NotificationPermissionsStatus | null> {
+  const notifications = loadNotifications();
+  if (!notifications) return null;
+  await ensureChannel();
+  return notifications.requestPermissionsAsync();
 }
 
 /**
@@ -39,17 +55,17 @@ export async function requestPushPermission(): Promise<Notifications.Notificatio
  * missing projectId in config, or permission not granted.
  */
 export async function getExpoToken(): Promise<string | null> {
-  if (Platform.OS === 'web') return null;
-  if (Constants.appOwnership === 'expo') return null;
+  const notifications = loadNotifications();
+  if (!notifications) return null;
 
   const projectId = Constants.expoConfig?.extra?.eas?.projectId;
   if (!projectId) return null;
 
-  const permission = await Notifications.getPermissionsAsync();
+  const permission = await notifications.getPermissionsAsync();
   if (!permission.granted) return null;
 
   try {
-    const response = await Notifications.getExpoPushTokenAsync({ projectId });
+    const response = await notifications.getExpoPushTokenAsync({ projectId });
     return response.data;
   } catch {
     return null;
@@ -67,11 +83,12 @@ export async function getExpoToken(): Promise<string | null> {
 export async function registerForPush(
   options?: RegisterForPushOptions,
 ): Promise<string | null> {
-  if (Platform.OS === 'web') return null;
+  const notifications = loadNotifications();
+  if (!notifications) return null;
 
   await ensureChannel();
 
-  const permission = await Notifications.getPermissionsAsync();
+  const permission = await notifications.getPermissionsAsync();
   if (!permission.granted) return null;
 
   const token = await getExpoToken();
@@ -95,8 +112,10 @@ export async function registerForPush(
 }
 
 /**
- * Reads persisted push token, calls unregisterDevice (ignoring errors),
- * and clears the persisted token.
+ * Reads persisted push token, calls unregisterDevice.
+ * Clears the persisted token only on success or on a 404/204 response.
+ * Keeps the persisted token when DELETE fails (e.g. network/server error)
+ * so the next launch or sign-in retries.
  */
 export async function unregisterPush(): Promise<void> {
   const token = await getLastToken();
@@ -104,9 +123,10 @@ export async function unregisterPush(): Promise<void> {
 
   try {
     await unregisterDevice(token);
-  } catch {
-    // Best-effort: ignore network/API errors when unregistering device
+    await clearLastToken();
+  } catch (error) {
+    if (isApiError(error) && (error.status === 404 || error.status === 204)) {
+      await clearLastToken();
+    }
   }
-
-  await clearLastToken();
 }

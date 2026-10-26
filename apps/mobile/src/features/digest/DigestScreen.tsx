@@ -64,7 +64,7 @@ export function DigestScreen() {
         screen: 'digest',
         prompt: t('assistantPrompt'),
       },
-    } as Href);
+    });
   }, [t]);
 
   const dateStr = digest?.business_date ?? params.business_date;

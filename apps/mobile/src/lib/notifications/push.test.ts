@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSettingsStore } from '@/stores/settings';
 import * as devicesApi from '@/lib/api/devices';
+import { ApiError } from '@/lib/api/errors';
 import {
   ensureChannel,
   getExpoToken,
@@ -21,15 +22,24 @@ let mockExpoConfig: Record<string, unknown> | null = {
   extra: { eas: { projectId: 'test-project-id' } },
 };
 let mockAppOwnership: string | null = 'standalone';
+let mockExecutionEnvironment: string | null = 'standalone';
 
 jest.mock('expo-constants', () => ({
   __esModule: true,
+  ExecutionEnvironment: {
+    Bare: 'bare',
+    Standalone: 'standalone',
+    StoreClient: 'storeClient',
+  },
   default: {
     get expoConfig() {
       return mockExpoConfig;
     },
     get appOwnership() {
       return mockAppOwnership;
+    },
+    get executionEnvironment() {
+      return mockExecutionEnvironment;
     },
   },
 }));
@@ -44,6 +54,7 @@ describe('push notifications', () => {
     await AsyncStorage.clear();
     Platform.OS = 'android';
     mockAppOwnership = 'standalone';
+    mockExecutionEnvironment = 'standalone';
     mockExpoConfig = {
       name: 'Tạp Hóa Mini',
       slug: 'taphoamini',
@@ -100,11 +111,25 @@ describe('push notifications', () => {
       await ensureChannel();
       expect(Notifications.setNotificationChannelAsync).not.toHaveBeenCalled();
     });
+
+    test('is no-op in Expo Go', async () => {
+      Platform.OS = 'android';
+      mockAppOwnership = 'expo';
+      await ensureChannel();
+      expect(Notifications.setNotificationChannelAsync).not.toHaveBeenCalled();
+    });
   });
 
   describe('permissions', () => {
-    test('getPushPermission and requestPushPermission return null on web', async () => {
+    test('getPushPermission and requestPushPermission return null on web and in Expo Go', async () => {
       Platform.OS = 'web';
+      expect(await getPushPermission()).toBeNull();
+      expect(await requestPushPermission()).toBeNull();
+      expect(Notifications.getPermissionsAsync).not.toHaveBeenCalled();
+      expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+
+      Platform.OS = 'android';
+      mockAppOwnership = 'expo';
       expect(await getPushPermission()).toBeNull();
       expect(await requestPushPermission()).toBeNull();
       expect(Notifications.getPermissionsAsync).not.toHaveBeenCalled();
@@ -117,9 +142,28 @@ describe('push notifications', () => {
       expect(perm?.granted).toBe(true);
       expect(Notifications.getPermissionsAsync).toHaveBeenCalled();
 
+      const callOrder: string[] = [];
+      (
+        Notifications.setNotificationChannelAsync as jest.Mock
+      ).mockImplementationOnce(async () => {
+        callOrder.push('channel');
+        return null;
+      });
+      (
+        Notifications.requestPermissionsAsync as jest.Mock
+      ).mockImplementationOnce(async () => {
+        callOrder.push('permissions');
+        return { status: 'granted', granted: true, canAskAgain: true };
+      });
+
       const reqPerm = await requestPushPermission();
       expect(reqPerm?.granted).toBe(true);
       expect(Notifications.requestPermissionsAsync).toHaveBeenCalled();
+      expect(Notifications.setNotificationChannelAsync).toHaveBeenCalledWith(
+        'digest',
+        expect.objectContaining({ name: 'Tóm tắt hằng ngày' }),
+      );
+      expect(callOrder).toEqual(['channel', 'permissions']);
     });
   });
 
@@ -225,10 +269,14 @@ describe('push notifications', () => {
       expect(await getLastToken()).toBeNull();
     });
 
-    test('web returns null and does not register', async () => {
+    test('web and Expo Go return null and do not register', async () => {
       Platform.OS = 'web';
-      const token = await registerForPush();
-      expect(token).toBeNull();
+      expect(await registerForPush()).toBeNull();
+      expect(devicesApi.registerDevice).not.toHaveBeenCalled();
+
+      Platform.OS = 'android';
+      mockAppOwnership = 'expo';
+      expect(await registerForPush()).toBeNull();
       expect(devicesApi.registerDevice).not.toHaveBeenCalled();
     });
 
@@ -249,7 +297,7 @@ describe('push notifications', () => {
   });
 
   describe('unregisterPush', () => {
-    test('reads persisted token, calls unregisterDevice and clears token', async () => {
+    test('reads persisted token, calls unregisterDevice and clears token on success', async () => {
       await setLastToken('ExponentPushToken[mock-token-123]');
       expect(await getLastToken()).toBe('ExponentPushToken[mock-token-123]');
 
@@ -261,9 +309,29 @@ describe('push notifications', () => {
       expect(await getLastToken()).toBeNull();
     });
 
-    test('ignores error from unregisterDevice and still clears token', async () => {
+    test('clears token on 404 or 204 ApiError', async () => {
+      // 404 ApiError
       await setLastToken('ExponentPushToken[mock-token-123]');
-      (devicesApi.unregisterDevice as jest.Mock).mockRejectedValue(
+      (devicesApi.unregisterDevice as jest.Mock).mockRejectedValueOnce(
+        new ApiError(404, { error: 'Not found' }),
+      );
+
+      await unregisterPush();
+      expect(await getLastToken()).toBeNull();
+
+      // 204 ApiError
+      await setLastToken('ExponentPushToken[mock-token-123]');
+      (devicesApi.unregisterDevice as jest.Mock).mockRejectedValueOnce(
+        new ApiError(204, { error: 'No content' }),
+      );
+
+      await unregisterPush();
+      expect(await getLastToken()).toBeNull();
+    });
+
+    test('keeps token when DELETE fails on network error or 500 so next run retries', async () => {
+      await setLastToken('ExponentPushToken[mock-token-123]');
+      (devicesApi.unregisterDevice as jest.Mock).mockRejectedValueOnce(
         new Error('Network error'),
       );
 
@@ -272,7 +340,15 @@ describe('push notifications', () => {
       expect(devicesApi.unregisterDevice).toHaveBeenCalledWith(
         'ExponentPushToken[mock-token-123]',
       );
-      expect(await getLastToken()).toBeNull();
+      expect(await getLastToken()).toBe('ExponentPushToken[mock-token-123]');
+
+      // 500 server error
+      (devicesApi.unregisterDevice as jest.Mock).mockRejectedValueOnce(
+        new ApiError(500, { error: 'Server error' }),
+      );
+
+      await unregisterPush();
+      expect(await getLastToken()).toBe('ExponentPushToken[mock-token-123]');
     });
 
     test('is no-op when no persisted token exists', async () => {

@@ -44,14 +44,22 @@ export async function getPromptState(): Promise<PushPromptState> {
 export async function incrementOpens(): Promise<PushPromptState> {
   const current = await getPromptState();
   const next: PushPromptState = { ...current, opens: current.opens + 1 };
-  await AsyncStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(next));
+  try {
+    await AsyncStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore storage errors
+  }
   return next;
 }
 
 export async function markAsked(): Promise<PushPromptState> {
   const current = await getPromptState();
   const next: PushPromptState = { ...current, asked: true };
-  await AsyncStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(next));
+  try {
+    await AsyncStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore storage errors
+  }
   return next;
 }
 
