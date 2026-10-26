@@ -7,6 +7,8 @@ appId: com.datamonsterr.taphoamini
 # Not covered here: the receipt chat (receipt_lines card, confirm). It needs a camera frame with a
 # document, which the CI emulator's virtual camera cannot produce. Playwright covers it
 # (e2e-web/assistant.spec.ts) by creating the receipt through the API.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
 - runFlow:
     file: subflows/create-store.yaml
     env:
