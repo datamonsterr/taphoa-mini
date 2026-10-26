@@ -83,6 +83,18 @@ pub async fn create_store(
     .bind(store_id)
     .execute(&mut *tx)
     .await?;
+    crate::events::emit(
+        &mut tx,
+        crate::events::Event {
+            store_id,
+            actor: Some((actor.member_id, actor.session_id)),
+            typ: "store.created",
+            version: 1,
+            data: json!({}),
+            change: None,
+        },
+    )
+    .await?;
     member_event(&mut tx, &actor, member_id, "joined").await?;
     tx.commit().await?;
     result["recovery_code"] = json!(code);

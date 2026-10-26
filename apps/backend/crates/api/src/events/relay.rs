@@ -1,8 +1,9 @@
 //! At-least-once delivery of committed outbox rows to Redis.
+use crate::analytics::Analytics;
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use serde_json::Value;
 use sqlx::{PgPool, postgres::PgListener};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::{sync::watch, task::JoinHandle};
 use tracing::Instrument;
 use uuid::Uuid;
@@ -13,12 +14,13 @@ pub fn spawn(
     pool: PgPool,
     redis_url: String,
     mut shutdown: watch::Receiver<bool>,
+    analytics: Arc<dyn Analytics>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         tokio::select! {
             biased;
             () = stopped(&mut shutdown) => {},
-            () = run(pool, redis_url) => {},
+            () = run(pool, redis_url, analytics) => {},
         }
         // Cancelling an iteration drops its transaction, rolling back any marks.
         // Rows already published are retried, preserving at-least-once delivery.
@@ -26,7 +28,7 @@ pub fn spawn(
     })
 }
 
-async fn run(pool: PgPool, redis_url: String) {
+async fn run(pool: PgPool, redis_url: String, analytics: Arc<dyn Analytics>) {
     let mut connection = None;
     let mut listener = None;
     let mut backoff = Backoff::default();
@@ -65,6 +67,7 @@ async fn run(pool: PgPool, redis_url: String) {
             &pool,
             connection.as_mut().expect("connected above"),
             &crate::telemetry::server_address(&redis_url),
+            analytics.clone(),
         )
         .await;
         match result {
@@ -108,9 +111,10 @@ async fn publish_batch(
     pool: &PgPool,
     connection: &mut ConnectionManager,
     address: &str,
+    analytics: Arc<dyn Analytics>,
 ) -> Result<(usize, bool), sqlx::Error> {
     let started = std::time::Instant::now();
-    let result = prepare_batch(pool, connection, address).await;
+    let result = prepare_batch(pool, connection, address, analytics).await;
     if let Err((_, false)) = &result {
         // Errors before rows can be loaded still get a job span; successful empty polls do not.
         let span = crate::telemetry::job_span("outbox_relay", 1);
@@ -129,10 +133,11 @@ async fn prepare_batch(
     pool: &PgPool,
     connection: &mut ConnectionManager,
     address: &str,
+    analytics: Arc<dyn Analytics>,
 ) -> Result<(usize, bool), (sqlx::Error, bool)> {
     let mut tx = pool.begin().await.map_err(|e| (e, false))?;
-    let rows: Vec<(i64, Uuid, Value)> = sqlx::query_as(
-        "SELECT id, store_id, payload FROM outbox_events WHERE published_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED",
+    let rows: Vec<(i64, Uuid, String, Value)> = sqlx::query_as(
+        "SELECT id, store_id, type, payload FROM outbox_events WHERE published_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED",
     )
     .fetch_all(&mut *tx)
     .await.map_err(|e| (e, false))?;
@@ -146,7 +151,8 @@ async fn prepare_batch(
         let result = async {
             let mut published = Vec::with_capacity(rows.len());
             let mut failed = false;
-            for (id, store_id, payload) in rows {
+            let mut captures = Vec::with_capacity(rows.len());
+            for (id, store_id, typ, mut payload) in rows {
                 let result = crate::telemetry::client("redis PUBLISH", address, async {
                     redis::cmd("PUBLISH")
                         .arg(format!("store:{store_id}:events"))
@@ -160,6 +166,9 @@ async fn prepare_batch(
                     break;
                 }
                 published.push(id);
+                // Use the row type; the stored envelope carries the complete event context.
+                payload["type"] = Value::String(typ);
+                captures.push(payload);
             }
             if !published.is_empty() {
                 sqlx::query("UPDATE outbox_events SET published_at=now() WHERE id = ANY($1)")
@@ -168,6 +177,26 @@ async fn prepare_batch(
                     .await?;
             }
             tx.commit().await?;
+            if !captures.is_empty() {
+                let pool = pool.clone();
+                tokio::spawn(async move {
+                    let members =
+                        match super::product_events::lookup_members(&pool, &captures).await {
+                            Ok(members) => members,
+                            Err(_) => {
+                                tracing::warn!("product analytics members lookup failed");
+                                return;
+                            }
+                        };
+                    for envelope in captures {
+                        if let Some(event) = super::product_events::map(&envelope, &members)
+                            && analytics.capture_event(event).await.is_err()
+                        {
+                            tracing::warn!("product analytics capture failed");
+                        }
+                    }
+                });
+            }
             Ok((published.len(), failed))
         }
         .await;
@@ -181,4 +210,14 @@ async fn prepare_batch(
     .instrument(span)
     .await
     .map_err(|e| (e, true))
+}
+
+/// Publish one batch, then schedule best-effort analytics after the database commit.
+/// Useful to drive the relay deterministically in service integration tests.
+pub async fn publish_once(
+    pool: &PgPool,
+    redis: &mut ConnectionManager,
+    analytics: Arc<dyn Analytics>,
+) -> Result<(usize, bool), sqlx::Error> {
+    publish_batch(pool, redis, "redis", analytics).await
 }

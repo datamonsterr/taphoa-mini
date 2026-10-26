@@ -197,6 +197,7 @@ async fn event(
 }
 async fn create(
     State(state): State<AppState>,
+    crate::events::Via(via): crate::events::Via,
     actor: Actor,
     ValidJson(raw): ValidJson<Value>,
 ) -> ApiResult<Idempotent<Value>> {
@@ -206,7 +207,7 @@ async fn create(
         serde_json::from_value(raw).map_err(|_| invalid("invalid expense"))?;
     input.validate()?;
     let mut tx = pool(&state)?.begin().await?;
-    let inserted = create_in_transaction(&mut tx, &actor, &input, &hash).await?;
+    let inserted = create_in_transaction(&mut tx, &actor, &input, &hash, via).await?;
     if !inserted {
         let stored: Vec<u8> =
             sqlx::query_scalar("SELECT request_hash FROM expenses WHERE store_id=$1 AND id=$2")
@@ -238,6 +239,7 @@ pub(crate) async fn create_in_transaction(
     actor: &Actor,
     input: &CreateExpense,
     hash: &[u8; 32],
+    via: &str,
 ) -> ApiResult<bool> {
     // ON CONFLICT waits for an in-flight identical create before checking its committed hash.
     // Store-scoped lookup below hides another store's use of the same client id.
@@ -304,7 +306,7 @@ pub(crate) async fn create_in_transaction(
         )
         .await?;
     }
-    event(conn, actor, "expense.created", json!({"expense_id":input.id,"amount":input.amount,"category":input.category,"business_date":business_date(input.spent_at)})).await?;
+    event(conn, actor, "expense.created", json!({"expense_id":input.id,"amount":input.amount,"category":input.category,"business_date":business_date(input.spent_at),"via":via})).await?;
     Ok(true)
 }
 #[derive(Deserialize)]

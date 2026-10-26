@@ -95,6 +95,7 @@ pub async fn apply(
     ref_id: Option<Uuid>,
     member_id: Option<Uuid>,
     note: Option<&str>,
+    via: Option<&str>,
 ) -> ApiResult<Option<Movement>> {
     if !matches!(reason, "receipt" | "sale" | "sale_void" | "adjustment")
         || note.is_some_and(|n| n.chars().count() > 200)
@@ -128,6 +129,13 @@ pub async fn apply(
         .ok_or_else(|| invalid("stock delta overflow"))?;
     let movement:Movement=sqlx::query_as("INSERT INTO stock_movements(store_id,product_id,delta,quantity_after,reason,ref_id,member_id,note,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,clock_timestamp()) RETURNING id,delta,quantity_after,reason,ref_id,member_id,note,created_at").bind(store_id).bind(product_id).bind(delta).bind(quantity).bind(reason).bind(ref_id).bind(member_id).bind(note).fetch_one(&mut *tx).await?;
     sqlx::query("UPDATE products SET stock_quantity=$3,version=version+1,updated_at=clock_timestamp() WHERE store_id=$1 AND id=$2").bind(store_id).bind(product_id).bind(quantity).execute(&mut *tx).await?;
+    let mut data = json!({"product_id":product_id,"stock_quantity":quantity,"reason":reason});
+    if reason == "adjustment" {
+        data["via"] = json!(via.unwrap_or("manual"));
+        if let Some(member_id) = member_id {
+            data["member_id"] = json!(member_id);
+        }
+    }
     emit(
         tx,
         Event {
@@ -135,7 +143,7 @@ pub async fn apply(
             actor: None,
             typ: "stock.changed",
             version: 1,
-            data: json!({"product_id":product_id,"stock_quantity":quantity,"reason":reason}),
+            data,
             change: Some(("product", product_id, "upsert")),
         },
     )
@@ -159,6 +167,7 @@ struct Adjustment {
 }
 async fn adjust(
     State(state): State<AppState>,
+    crate::events::Via(via): crate::events::Via,
     actor: Actor,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
@@ -209,6 +218,7 @@ async fn adjust(
         None,
         Some(actor.member_id),
         input.note.as_deref(),
+        Some(via),
     )
     .await?
     .ok_or_else(ApiError::internal)?;

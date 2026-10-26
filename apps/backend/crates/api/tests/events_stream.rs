@@ -1,7 +1,7 @@
 //! Outbox relay, Redis fan-out and the SSE endpoint against real Postgres and Redis.
 //!
 //! Public surface these tests pin down:
-//! - `events::relay::spawn(pool, redis_url, shutdown_rx) -> JoinHandle<()>`
+//! - `events::relay::spawn(pool, redis_url, shutdown_rx, analytics) -> JoinHandle<()>`
 //! - `events::Hub::{new, with_heartbeat(Duration)}` and `AppState.hub`
 //! - `events::spawn_background(&AppState, shutdown_rx) -> Vec<JoinHandle<()>>` (relay + hub subscriber)
 use futures_util::StreamExt;
@@ -86,7 +86,12 @@ async fn relay_publishes_committed_events_in_order_and_marks_published() {
         .await
         .unwrap();
     let (shutdown, rx) = watch::channel(false);
-    let handle = relay::spawn(pool.clone(), env("REDIS_URL"), rx);
+    let handle = relay::spawn(
+        pool.clone(),
+        env("REDIS_URL"),
+        rx,
+        std::sync::Arc::new(taphoa_api::analytics::NoopAnalytics),
+    );
 
     let (first, p1) = emit_store_changed(&pool, store, "a").await;
     let (second, p2) = emit_store_changed(&pool, store, "b").await;
@@ -119,7 +124,12 @@ async fn relay_keeps_events_when_redis_is_down_then_delivers_at_least_once() {
 
     // Nothing listens on port 1: every publish fails, so the row must stay unpublished.
     let (stop_bad, rx) = watch::channel(false);
-    let bad = relay::spawn(pool.clone(), "redis://127.0.0.1:1".into(), rx);
+    let bad = relay::spawn(
+        pool.clone(),
+        "redis://127.0.0.1:1".into(),
+        rx,
+        std::sync::Arc::new(taphoa_api::analytics::NoopAnalytics),
+    );
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert!(!published(&pool, id).await);
     stop_bad.send(true).unwrap();
@@ -134,7 +144,12 @@ async fn relay_keeps_events_when_redis_is_down_then_delivers_at_least_once() {
         .await
         .unwrap();
     let (stop, rx) = watch::channel(false);
-    let good = relay::spawn(pool.clone(), env("REDIS_URL"), rx);
+    let good = relay::spawn(
+        pool.clone(),
+        env("REDIS_URL"),
+        rx,
+        std::sync::Arc::new(taphoa_api::analytics::NoopAnalytics),
+    );
     let msg = timeout(Duration::from_secs(10), sub.on_message().next())
         .await
         .unwrap()
@@ -160,8 +175,18 @@ async fn two_relays_never_publish_the_same_row_twice_in_parallel() {
         .await
         .unwrap();
     let (stop, rx) = watch::channel(false);
-    let a = relay::spawn(pool.clone(), env("REDIS_URL"), rx.clone());
-    let b = relay::spawn(pool.clone(), env("REDIS_URL"), rx);
+    let a = relay::spawn(
+        pool.clone(),
+        env("REDIS_URL"),
+        rx.clone(),
+        std::sync::Arc::new(taphoa_api::analytics::NoopAnalytics),
+    );
+    let b = relay::spawn(
+        pool.clone(),
+        env("REDIS_URL"),
+        rx,
+        std::sync::Arc::new(taphoa_api::analytics::NoopAnalytics),
+    );
     let mut ids = Vec::new();
     for n in 0..20 {
         ids.push(emit_store_changed(&pool, store, &format!("f{n}")).await.0);

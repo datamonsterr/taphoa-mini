@@ -55,7 +55,12 @@ pub fn spawn_background(state: &AppState, shutdown: watch::Receiver<bool>) -> Ve
         state
             .hub
             .spawn_subscriber(redis_url.clone(), shutdown.clone()),
-        relay::spawn(pool.clone(), redis_url.clone(), shutdown),
+        relay::spawn(
+            pool.clone(),
+            redis_url.clone(),
+            shutdown,
+            state.analytics.clone(),
+        ),
     ]
 }
 
@@ -340,5 +345,28 @@ mod tests {
         );
         signal.send(true).unwrap();
         stopped(&mut receiver).await;
+    }
+}
+
+/// Origin of a write performed through the API, including assistant router calls.
+pub struct Via(pub &'static str);
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Via {
+    type Rejection = std::convert::Infallible;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Self(
+            if parts
+                .headers
+                .get("x-taphoa-via")
+                .and_then(|h| h.to_str().ok())
+                == Some("assistant")
+            {
+                "assistant"
+            } else {
+                "manual"
+            },
+        ))
     }
 }

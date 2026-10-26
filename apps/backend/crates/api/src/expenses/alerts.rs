@@ -192,7 +192,7 @@ pub(super) async fn accept(
         .bind(actor.store_id).bind(product).bind(price).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO price_history (store_id,product_id,field,old_value,new_value,source,changed_by) VALUES ($1,$2,'price',$3,$4,'margin_alert',$5)")
         .bind(actor.store_id).bind(product).bind(old).bind(price).bind(actor.member_id).execute(&mut *tx).await?;
-    event(&mut tx, &actor, "price.changed", json!({"product_id":product,"unit_id":null,"field":"price","old_value":old,"new_value":price,"source":"margin_alert"})).await?;
+    event(&mut tx, &actor, "price.changed", json!({"product_id":product,"unit_id":null,"field":"price","old_value":old,"new_value":price,"source":"margin_alert","via":"manual"})).await?;
     emit(
         &mut tx,
         Event {

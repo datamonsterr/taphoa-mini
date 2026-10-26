@@ -1,3 +1,255 @@
+//! Pure, privacy-limited mapping from committed outbox envelopes to product captures.
+use crate::analytics::*;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
+use std::collections::HashMap;
+use uuid::Uuid;
+
+pub struct MemberInfo {
+    pub distinct_id: String,
+    pub role: Role,
+    pub can_enroll: bool,
+}
+pub type MemberLookup = HashMap<Uuid, MemberInfo>;
+
+/// Unknown event types and intentionally excluded variants are silently ignored.
+/// Malformed mapped events fail closed, without logging payloads or customer data.
+pub fn map(envelope: &Value, members: &MemberLookup) -> Option<CaptureEvent> {
+    let kind = envelope["type"].as_str()?;
+    let data = &envelope["data"];
+    let filter = match kind {
+        "member.changed" => Some(("change", "joined")),
+        "stock.changed" => Some(("reason", "adjustment")),
+        "debt.recorded" => Some(("kind", "credit_sale")),
+        _ => None,
+    };
+    if let Some((key, expected)) = filter {
+        match data[key].as_str() {
+            Some(value) if value != expected => return None,
+            None => {
+                tracing::warn!(event_type = kind, "malformed product event skipped");
+                return None;
+            }
+            _ => {}
+        }
+    }
+    match kind {
+        "store.created" | "member.changed" | "product.enrolled" | "scan.completed"
+        | "sale.created" | "sale.voided" | "receipt.scanned" | "receipt.confirmed"
+        | "stock.changed" | "expense.created" | "price.changed" | "day.closed"
+        | "customer.created" | "debt.recorded" | "debt.repaid" | "debt.adjusted" => {}
+        _ => return None,
+    }
+    let event = map_inner(envelope, members);
+    if event.is_none() {
+        tracing::warn!(
+            event_type = kind,
+            "malformed or unattributed product event skipped"
+        );
+    }
+    event
+}
+fn read<T: DeserializeOwned>(data: &Value, key: &str) -> Option<T> {
+    serde_json::from_value(data.get(key)?.clone()).ok()
+}
+fn defaulted<T: DeserializeOwned>(data: &Value, key: &str, default: T) -> Option<T> {
+    if data.get(key).is_none() {
+        Some(default)
+    } else {
+        read(data, key)
+    }
+}
+fn via(data: &Value) -> Option<ChangeVia> {
+    defaulted(data, "via", ChangeVia::Manual)
+}
+fn map_inner(envelope: &Value, members: &MemberLookup) -> Option<CaptureEvent> {
+    let kind = envelope["type"].as_str()?;
+    let data = &envelope["data"];
+    data.as_object()?;
+    let joined_id = if kind == "member.changed" {
+        Some(read::<Uuid>(data, "member_id")?)
+    } else {
+        None
+    };
+    let product = match kind {
+        "store.created" => ProductEvent::StoreCreated,
+        "member.changed" => {
+            let member = members.get(&joined_id?)?;
+            ProductEvent::MemberJoined {
+                role: member.role,
+                can_enroll: member.can_enroll,
+            }
+        }
+        "product.enrolled" => ProductEvent::ProductEnrolled {
+            reference_count: read(data, "reference_count")?,
+            source: read(data, "source")?,
+        },
+        "scan.completed" => ProductEvent::ScanCompleted {
+            purpose: read(data, "purpose")?,
+            match_class: match data["match_class"].as_str()? {
+                "matched" => MatchClass::Matched,
+                "ambiguous" => MatchClass::Ambiguous,
+                "unknown" => MatchClass::Unknown,
+                _ => return None,
+            },
+            latency_ms: read(data, "latency_ms")?,
+        },
+        "sale.created" => {
+            let payment_method = read(data, "payment_method")?;
+            ProductEvent::SaleCompleted {
+                total: read(data, "total")?,
+                line_count: read(data, "line_count")?,
+                payment_method,
+                has_credit: defaulted::<i64>(data, "credit_amount", 0)? > 0
+                    || payment_method == PaymentMethod::Credit,
+                manual_lines: defaulted(data, "manual_lines", 0)?,
+            }
+        }
+        "sale.voided" => ProductEvent::SaleVoided {
+            same_day: defaulted(data, "same_day", false)?,
+        },
+        "receipt.scanned" => ProductEvent::ReceiptScanned {
+            line_count: read(data, "line_count")?,
+            matched_lines: read(data, "matched_lines")?,
+            latency_ms: read(data, "latency_ms")?,
+        },
+        "receipt.confirmed" => ProductEvent::ReceiptConfirmed {
+            line_count: read(data, "line_count")?,
+            via: if via(data)? == ChangeVia::Assistant {
+                ReceiptVia::Chat
+            } else {
+                ReceiptVia::Form
+            },
+        },
+        "stock.changed" => ProductEvent::StockAdjusted {
+            reason: StockReason::Adjustment,
+            via: via(data)?,
+        },
+        "expense.created" => ProductEvent::ExpenseAdded {
+            category: read(data, "category")?,
+            via: via(data)?,
+        },
+        "price.changed" => ProductEvent::PriceChanged { via: via(data)? },
+        "day.closed" => ProductEvent::DayClosed {
+            difference_bucket: DifferenceBucket::from_dong(read(data, "difference")?),
+        },
+        "customer.created" => ProductEvent::CustomerCreated,
+        "debt.recorded" => ProductEvent::DebtRecorded {
+            amount_bucket: AmountBucket::from_dong(read(data, "amount")?),
+            method: DebtMethod::CreditSale,
+        },
+        "debt.repaid" => {
+            let method = read(data, "method")?;
+            if !matches!(method, DebtMethod::Cash | DebtMethod::Transfer) {
+                return None;
+            }
+            ProductEvent::DebtRepaid {
+                amount_bucket: AmountBucket::from_dong(read(data, "amount")?),
+                method,
+            }
+        }
+        "debt.adjusted" => ProductEvent::DebtAdjusted {
+            amount_bucket: AmountBucket::from_dong(read(data, "amount")?),
+            method: DebtMethod::Adjustment,
+        },
+        _ => return None,
+    };
+    let store_id = read(envelope, "store_id")?;
+    if !envelope["actor"].is_null() && !envelope["actor"].is_object() {
+        return None;
+    }
+    // Joined events always describe the joining member, even when a lead invited them.
+    let member_id = if let Some(id) = joined_id {
+        Some(id)
+    } else if let Some(id) = envelope["actor"].get("member_id") {
+        Some(serde_json::from_value::<Uuid>(id.clone()).ok()?)
+    } else if data.get("member_id").is_some() {
+        Some(read(data, "member_id")?)
+    } else {
+        None
+    };
+    let mut event = if let Some(member_id) = member_id {
+        let member = members.get(&member_id)?;
+        CaptureEvent::product(
+            &EventContext {
+                distinct_id: member.distinct_id.clone(),
+                store_id,
+                member_id,
+                role: member.role,
+            },
+            &product,
+        )
+    } else {
+        let mut properties = product.properties();
+        properties.insert("$process_person_profile".into(), json!(false));
+        CaptureEvent {
+            distinct_id: format!("store:{store_id}"),
+            event: product.name().into(),
+            properties,
+            groups: serde_json::Map::from_iter([("store".into(), json!(store_id))]),
+            ..Default::default()
+        }
+    };
+    let id = envelope["id"]
+        .as_str()?
+        .strip_prefix("evt_")?
+        .parse::<i64>()
+        .ok()?;
+    if id < 0 {
+        return None;
+    }
+    event.uuid = Some(Uuid::new_v5(
+        &Uuid::NAMESPACE_OID,
+        id.to_string().as_bytes(),
+    ));
+    event.timestamp = Some(
+        chrono::DateTime::parse_from_rfc3339(envelope["occurred_at"].as_str()?)
+            .ok()?
+            .to_utc(),
+    );
+    Some(event)
+}
+
+/// One query per committed relay batch. X1 changes id::text to clerk_user_id here.
+pub async fn lookup_members(
+    pool: &sqlx::PgPool,
+    envelopes: &[Value],
+) -> Result<MemberLookup, sqlx::Error> {
+    let mut ids = Vec::new();
+    for envelope in envelopes {
+        for value in [
+            &envelope["actor"]["member_id"],
+            &envelope["data"]["member_id"],
+        ] {
+            if let Some(id) = value.as_str().and_then(|id| id.parse::<Uuid>().ok()) {
+                ids.push(id);
+            }
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    let rows: Vec<(Uuid, String, String, bool)> = sqlx::query_as(
+        "SELECT id, id::text AS distinct_id, role, can_enroll FROM members WHERE id = ANY($1)",
+    )
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, distinct_id, role, can_enroll)| {
+            role.parse().ok().map(|role| {
+                (
+                    id,
+                    MemberInfo {
+                        distinct_id,
+                        role,
+                        can_enroll,
+                    },
+                )
+            })
+        })
+        .collect())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
