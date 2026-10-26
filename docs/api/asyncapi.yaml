@@ -34,6 +34,10 @@ channels:
     servers:
       - $ref: '#/servers/api'
     messages:
+      storeCreated: { $ref: '#/components/messages/storeCreated' }
+      productEnrolled: { $ref: '#/components/messages/productEnrolled' }
+      receiptScanned: { $ref: '#/components/messages/receiptScanned' }
+      scanCompleted: { $ref: '#/components/messages/scanCompleted' }
       catalogChanged: { $ref: '#/components/messages/catalogChanged' }
       priceChanged: { $ref: '#/components/messages/priceChanged' }
       storeChanged: { $ref: '#/components/messages/storeChanged' }
@@ -72,6 +76,10 @@ channels:
       storeId:
         description: Store UUID.
     messages:
+      storeCreated: { $ref: '#/components/messages/storeCreated' }
+      productEnrolled: { $ref: '#/components/messages/productEnrolled' }
+      receiptScanned: { $ref: '#/components/messages/receiptScanned' }
+      scanCompleted: { $ref: '#/components/messages/scanCompleted' }
       catalogChanged: { $ref: '#/components/messages/catalogChanged' }
       priceChanged: { $ref: '#/components/messages/priceChanged' }
       storeChanged: { $ref: '#/components/messages/storeChanged' }
@@ -166,6 +174,55 @@ components:
         data: { type: object }
 
   messages:
+    storeCreated:
+      name: store.created
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: store.created }
+              data:
+                type: object
+                required: []
+    productEnrolled:
+      name: product.enrolled
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: product.enrolled }
+              data:
+                type: object
+                required: [product_id, reference_count, source]
+                properties:
+                  product_id: { $ref: '#/components/schemas/Uuid' }
+                  reference_count: { type: integer, minimum: 0 }
+                  source:
+                    {
+                      type: string,
+                      enum: [enroll, quick_enroll, review_queue, receipt],
+                    }
+    receiptScanned:
+      name: receipt.scanned
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              type: { const: receipt.scanned }
+              data:
+                type: object
+                required: [receipt_id, line_count, matched_lines, latency_ms]
+                properties:
+                  receipt_id: { $ref: '#/components/schemas/Uuid' }
+                  line_count: { type: integer, minimum: 0 }
+                  matched_lines: { type: integer, minimum: 0 }
+                  latency_ms: { type: integer, minimum: 0 }
     catalogChanged:
       name: catalog.changed
       summary: Product, category, unit or reference image created, updated or archived.
@@ -200,6 +257,7 @@ components:
                 type: object
                 required: [product_id, field, new_value, source]
                 properties:
+                  via: { type: string, enum: [manual, assistant] }
                   product_id: { $ref: '#/components/schemas/Uuid' }
                   unit_id: { type: [string, 'null'], format: uuid }
                   field: { type: string, enum: [price, unit_price] }
@@ -400,6 +458,7 @@ components:
                     line_count,
                   ]
                 properties:
+                  manual_lines: { type: integer, minimum: 0 }
                   sale_id: { $ref: '#/components/schemas/Uuid' }
                   code: { type: string }
                   total: { $ref: '#/components/schemas/Money' }
@@ -423,6 +482,7 @@ components:
                 type: object
                 required: [sale_id, reason, voided_by, total]
                 properties:
+                  same_day: { type: boolean }
                   sale_id: { $ref: '#/components/schemas/Uuid' }
                   reason: { type: string }
                   voided_by: { $ref: '#/components/schemas/Uuid' }
@@ -473,6 +533,7 @@ components:
                 type: object
                 required: [expense_id, amount, category, business_date]
                 properties:
+                  via: { type: string, enum: [manual, assistant] }
                   expense_id: { $ref: '#/components/schemas/Uuid' }
                   amount: { $ref: '#/components/schemas/Money' }
                   category:
@@ -570,6 +631,10 @@ components:
                 type: object
                 required: [scan_id, mode, detections, timings, model]
                 properties:
+                  purpose: { type: string, enum: [checkout, enrollment] }
+                  match_class:
+                    { type: string, enum: [matched, ambiguous, unknown] }
+                  latency_ms: { type: integer, minimum: 0 }
                   scan_id: { $ref: '#/components/schemas/Uuid' }
                   mode: { type: string, enum: [single, multi] }
                   detections: { type: integer }
@@ -631,6 +696,8 @@ components:
                 type: object
                 required: [product_id, stock_quantity, reason]
                 properties:
+                  member_id: { $ref: '#/components/schemas/Uuid' }
+                  via: { type: string, enum: [manual, assistant] }
                   product_id: { $ref: '#/components/schemas/Uuid' }
                   stock_quantity:
                     {
@@ -674,6 +741,7 @@ components:
                 type: object
                 required: [receipt_id, expense_id, total, line_count]
                 properties:
+                  via: { type: string, enum: [manual, assistant] }
                   receipt_id: { $ref: '#/components/schemas/Uuid' }
                   expense_id: { $ref: '#/components/schemas/Uuid' }
                   total: { $ref: '#/components/schemas/Money' }

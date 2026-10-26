@@ -40,7 +40,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ("catalog.changed", json!({"entity":"product","ids":[U1,U2]})),
         (
             "price.changed",
-            json!({"product_id":U1,"unit_id":null,"field":"price","old_value":9000,"new_value":10000,"source":"margin_alert"}),
+            json!({"product_id":U1,"unit_id":null,"field":"price","old_value":9000,"new_value":10000,"source":"margin_alert","via":"manual"}),
         ),
         (
             "store.changed",
@@ -53,7 +53,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "sale.created",
-            json!({"sale_id":U1,"code":"TH0042","total":24500,"payment_method":"transfer","member_id":U2,"business_date":"2026-10-23","line_count":3,"credit_amount":5000,"customer_id":U2}),
+            json!({"sale_id":U1,"code":"TH0042","total":24500,"payment_method":"transfer","member_id":U2,"business_date":"2026-10-23","line_count":3,"manual_lines":1,"credit_amount":5000,"customer_id":U2}),
         ),
         (
             "customer.created",
@@ -77,7 +77,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "sale.voided",
-            json!({"sale_id":U1,"reason":"nhap nham","voided_by":U2,"total":24500}),
+            json!({"sale_id":U1,"reason":"nhap nham","voided_by":U2,"total":24500,"same_day":true}),
         ),
         (
             "review.line_flagged",
@@ -89,7 +89,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "expense.created",
-            json!({"expense_id":U1,"amount":150000,"category":"nhap_hang","business_date":"2026-10-23"}),
+            json!({"expense_id":U1,"amount":150000,"category":"nhap_hang","business_date":"2026-10-23","via":"assistant"}),
         ),
         (
             "alert.created",
@@ -109,7 +109,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "scan.completed",
-            json!({"scan_id":U1,"mode":"multi","detections":4,"timings":{"segment":2100,"embed":300,"search":40,"total":2600},"model":"dinov2-vits14-onnx@1"}),
+            json!({"scan_id":U1,"mode":"multi","detections":4,"timings":{"segment":2100,"embed":300,"search":40,"total":2600},"model":"dinov2-vits14-onnx@1","purpose":"checkout","match_class":"matched","latency_ms":2600}),
         ),
         (
             "embedding.backfill",
@@ -117,7 +117,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "stock.changed",
-            json!({"product_id":U1,"stock_quantity":-1,"reason":"sale"}),
+            json!({"product_id":U1,"stock_quantity":-1,"reason":"adjustment","via":"assistant","member_id":U2}),
         ),
         (
             "stock.low",
@@ -125,7 +125,7 @@ fn samples() -> Vec<(&'static str, Value)> {
         ),
         (
             "receipt.confirmed",
-            json!({"receipt_id":U1,"expense_id":U2,"total":204000,"line_count":1}),
+            json!({"receipt_id":U1,"expense_id":U2,"total":204000,"line_count":1,"via":"manual"}),
         ),
         (
             "product.indexed",
@@ -293,6 +293,34 @@ fn assistant_action_events_require_the_decision_and_result() {
             bad["data"]["kind"] = json!("expense");
             bad["data"].as_object_mut().unwrap().remove("result");
             assert!(!v.is_valid(&bad), "confirmed result is required");
+        }
+    }
+}
+
+#[test]
+fn analytics_additions_are_optional_on_older_envelopes() {
+    let doc = load("asyncapi.yaml");
+    for (kind, mut data) in samples() {
+        if let Some(data) = data.as_object_mut() {
+            for key in [
+                "via",
+                "manual_lines",
+                "same_day",
+                "purpose",
+                "match_class",
+                "latency_ms",
+            ] {
+                data.remove(key);
+            }
+        }
+        if !matches!(
+            kind,
+            "receipt.scanned" | "product.enrolled" | "store.created"
+        ) {
+            assert!(
+                validator(&doc, message_for(&doc, kind)).is_valid(&envelope(kind, data)),
+                "{kind}"
+            );
         }
     }
 }
