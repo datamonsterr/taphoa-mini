@@ -5,7 +5,9 @@
 #   eval-ci.sh mode            Decide live or stub; writes mode= to $GITHUB_OUTPUT.
 #                              Env: EVAL_FORK_PR ("true" for a pull request from a fork),
 #                              EVAL_HAVE_SECRETS ("true" when the OpenRouter and Clerk secrets
-#                              are set), EVAL_ASSISTANT_DIR (override, for tests).
+#                              are set), EVAL_ASSISTANT_DIR and EVAL_MIGRATIONS_DIR (overrides,
+#                              for tests). Live needs the assistant (epic X3) and
+#                              members.clerk_user_id (epic X1) in the checkout.
 #   eval-ci.sh up              Start the live stack: compose postgres + redis (project
 #                              taphoa-eval), `taphoa-seed --profile eval`, then the backend
 #                              with the eval hooks on; wait for /readyz. Appends BACKEND_URL
@@ -17,6 +19,9 @@
 #   eval-ci.sh summary <dir>   Append the *.md files of <dir> to $GITHUB_STEP_SUMMARY
 #                              (stdout when unset), capped below the 1 MiB step limit.
 #
+# The seed, backend start and readiness steps live in eval-stack-lib.sh, which
+# packages/eval/scripts/local-stack.sh uses too.
+#
 # No model weights or object storage are needed: the assistant only talks to Postgres, Redis
 # and OpenRouter.
 set -euo pipefail
@@ -27,6 +32,11 @@ pid_file="$state_dir/backend.pid"
 project=taphoa-eval
 
 backend_port="${EVAL_BACKEND_PORT:-8080}"
+# shellcheck source=scripts/ci/eval-stack-lib.sh
+source "$repo/scripts/ci/eval-stack-lib.sh"
+stack_state_dir="$state_dir"
+stack_backend_port="$backend_port"
+stack_backend_env=()
 export POSTGRES_PORT="${EVAL_POSTGRES_PORT:-55632}"
 export REDIS_PORT="${EVAL_REDIS_PORT:-56679}"
 
@@ -34,9 +44,13 @@ compose() { docker compose -p "$project" -f "$repo/docker-compose.yml" "$@"; }
 
 mode() {
   local assistant_dir="${EVAL_ASSISTANT_DIR:-$repo/apps/backend/crates/api/src/assistant}"
+  local migrations_dir="${EVAL_MIGRATIONS_DIR:-$repo/apps/backend/migrations}"
   local chosen=stub reason
   if [[ ! -d "$assistant_dir" ]]; then
     reason="the assistant (epic X3) is not in this checkout"
+  elif ! grep -qs clerk_user_id "$migrations_dir"/*.sql; then
+    # The eval store gets its Clerk test users from the X1 seed; before that no token exists.
+    reason="Clerk identity (epic X1, members.clerk_user_id) is not in this checkout"
   elif [[ "${EVAL_FORK_PR:-}" == "true" ]]; then
     reason="pull request from a fork, so no secrets"
   elif [[ "${EVAL_HAVE_SECRETS:-}" != "true" ]]; then
@@ -60,11 +74,11 @@ up() {
     [[ -x "$bin" ]] || { echo "binary not executable: $bin" >&2; exit 1; }
   done
   mkdir -p "$state_dir"
-  if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2> /dev/null; then
+  if stack_backend_running; then
     echo "backend already running (pid $(cat "$pid_file")); run 'down' first" >&2
     exit 1
   fi
-  if (exec 3<> "/dev/tcp/127.0.0.1/$backend_port") 2> /dev/null; then
+  if stack_port_in_use "$backend_port"; then
     echo "port $backend_port is already in use; set EVAL_BACKEND_PORT to a free port" >&2
     exit 1
   fi
@@ -73,72 +87,23 @@ up() {
   compose up -d --wait --wait-timeout 180 postgres redis
   local database_url="postgres://taphoa:taphoa@127.0.0.1:$POSTGRES_PORT/taphoa"
 
-  # The seed prints its fixture credentials; keep them in a log file, not in the job log.
-  echo "==> taphoa-seed --profile eval"
-  if ! DATABASE_URL="$database_url" "$seed_bin" --profile eval > "$state_dir/seed.log" 2>&1; then
-    echo "taphoa-seed failed; log tail:" >&2
-    tail -n 40 "$state_dir/seed.log" >&2
-    exit 1
-  fi
+  stack_seed "$seed_bin" "$database_url" || exit 1
 
-  # ASSISTANT_ALLOW_EVAL_HEADERS lets the harness pin the date and the model per request. It
-  # belongs to this throwaway stack only, never to a deployed environment.
-  local secret_env=()
+  # Secrets reach the backend only when set; the provider is the real OpenRouter one.
+  stack_backend_env=(ASSISTANT_MODEL_PROVIDER=openrouter)
   for name in OPENROUTER_API_KEY CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY; do
-    if [[ -n "${!name:-}" ]]; then secret_env+=("$name=${!name}"); fi
+    if [[ -n "${!name:-}" ]]; then stack_backend_env+=("$name=${!name}"); fi
   done
-  echo "==> backend on :$backend_port ($backend_bin)"
-  : > "$state_dir/backend.log"
-  env \
-    PORT="$backend_port" \
-    DATABASE_URL="$database_url" \
-    REDIS_URL="redis://127.0.0.1:$REDIS_PORT" \
-    JWT_SECRET="eval-only-jwt-secret-0123456789abcdef0123456789abcdef" \
-    RATE_LIMIT_STORE_CREATE_PER_HOUR=100000 \
-    RATE_LIMIT_JOIN_PER_HOUR=100000 \
-    RATE_LIMIT_RECOVER_PER_10MIN=100000 \
-    ASSISTANT_ALLOW_EVAL_HEADERS=1 \
-    "${secret_env[@]}" \
-    setsid nohup "$backend_bin" > "$state_dir/backend.log" 2>&1 < /dev/null &
-  echo $! > "$pid_file"
-
-  local url="http://127.0.0.1:$backend_port/readyz"
-  for _ in $(seq 1 120); do
-    # Check our own process first: a foreign server on the port must not count as ready.
-    if ! kill -0 "$(cat "$pid_file")" 2> /dev/null; then
-      echo "backend exited early; log tail:" >&2
-      tail -n 40 "$state_dir/backend.log" >&2
-      exit 1
-    fi
-    if curl --silent --fail --max-time 3 "$url" > /dev/null; then
-      echo "==> ready: $url (pid $(cat "$pid_file"), logs in $state_dir)"
-      {
-        echo "BACKEND_URL=http://127.0.0.1:$backend_port"
-        echo "EVAL_DATABASE_URL=$database_url"
-      } >> "${GITHUB_ENV:-/dev/null}"
-      return 0
-    fi
-    sleep 1
-  done
-  echo "backend not ready after 120 s; log tail:" >&2
-  tail -n 40 "$state_dir/backend.log" >&2
-  exit 1
+  stack_start_backend "$backend_bin" "$database_url" "redis://127.0.0.1:$REDIS_PORT"
+  stack_wait_ready 120 || exit 1
+  {
+    echo "BACKEND_URL=http://127.0.0.1:$backend_port"
+    echo "EVAL_DATABASE_URL=$database_url"
+  } >> "${GITHUB_ENV:-/dev/null}"
 }
 
 down() {
-  if [[ -f "$pid_file" ]]; then
-    local pid
-    pid="$(cat "$pid_file")"
-    if kill -0 "$pid" 2> /dev/null; then
-      kill "$pid" 2> /dev/null || true
-      for _ in $(seq 1 20); do
-        kill -0 "$pid" 2> /dev/null || break
-        sleep 0.5
-      done
-      kill -9 "$pid" 2> /dev/null || true
-    fi
-    rm -f "$pid_file"
-  fi
+  stack_stop_backend
   compose down -v --remove-orphans
 }
 

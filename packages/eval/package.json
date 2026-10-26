@@ -13,7 +13,8 @@
     "smoke": "node src/cli.ts smoke",
     "full": "node src/cli.ts full",
     "compare": "node src/cli.ts compare",
-    "calibrate": "node src/cli.ts calibrate"
+    "calibrate": "node src/cli.ts calibrate",
+    "identities": "node src/cli.ts identities"
   },
   "dependencies": {
     "@taphoa/api-client": "workspace:*",

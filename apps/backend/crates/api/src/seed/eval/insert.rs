@@ -3,6 +3,7 @@
 //! Identity is isolated in [`insert_identity`]: store credentials, members, sessions and invites.
 //! Everything else refers to members by id only (`sales.session_id` stays NULL).
 use super::build::{T_EMBEDDING, id};
+use super::catalog::SUPPLIERS;
 use super::model::*;
 use crate::seed::{digest, password_hash, vector};
 use anyhow::{Context, Result};
@@ -342,8 +343,8 @@ async fn insert_purchasing(tx: &mut Tx<'_>, ds: &Dataset, outbox: &mut Vec<Outbo
     );
     bulk!(
         tx,
-        "INSERT INTO receipts (id,store_id,member_id,image_id,status,ocr_text,parser,model,timings,total,expense_id,request_hash,created_at,confirmed_at,updated_at) ",
-        15,
+        "INSERT INTO receipts (id,store_id,member_id,image_id,status,ocr_text,supplier,parser,model,timings,total,expense_id,request_hash,created_at,confirmed_at,updated_at) ",
+        16,
         &ds.receipts,
         |b, r| {
             b.push_bind(r.id)
@@ -352,6 +353,7 @@ async fn insert_purchasing(tx: &mut Tx<'_>, ds: &Dataset, outbox: &mut Vec<Outbo
                 .push_bind(r.image)
                 .push_bind(r.status)
                 .push_bind(&r.ocr_text)
+                .push_bind(SUPPLIERS[r.supplier].name)
                 .push_bind(r.parser)
                 .push_bind(r.model)
                 .push_bind(&r.timings)

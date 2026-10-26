@@ -27,21 +27,38 @@ def run(cmd, env=None):
 
 
 class Mode(unittest.TestCase):
-    def mode(self, assistant_present, **env):
+    def mode(self, assistant_present, clerk_migration=True, **env):
         with tempfile.TemporaryDirectory() as tmp:
             assistant = pathlib.Path(tmp, "assistant")
             if assistant_present:
                 assistant.mkdir()
+            migrations = pathlib.Path(tmp, "migrations")
+            migrations.mkdir()
+            migrations.joinpath("0001_init.sql").write_text("CREATE TABLE members (id UUID);\n")
+            if clerk_migration:
+                migrations.joinpath("0701_clerk_identity.sql").write_text(
+                    "ALTER TABLE members ADD COLUMN clerk_user_id TEXT NOT NULL;\n"
+                )
             out = pathlib.Path(tmp, "output")
             result = run(
                 ["bash", str(EVAL_CI), "mode"],
-                env={"EVAL_ASSISTANT_DIR": str(assistant), "GITHUB_OUTPUT": str(out), **env},
+                env={
+                    "EVAL_ASSISTANT_DIR": str(assistant),
+                    "EVAL_MIGRATIONS_DIR": str(migrations),
+                    "GITHUB_OUTPUT": str(out),
+                    **env,
+                },
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             return out.read_text().strip()
 
     def test_live_needs_assistant_and_secrets(self):
         self.assertEqual(self.mode(True, EVAL_HAVE_SECRETS="true", EVAL_FORK_PR=""), "mode=live")
+
+    def test_stub_until_clerk_identity_is_in_the_checkout(self):
+        # Without members.clerk_user_id (epic X1) the eval store has no Clerk users to mint
+        # tokens for, so the run stays a dry run and goes live once the migration is merged.
+        self.assertEqual(self.mode(True, clerk_migration=False, EVAL_HAVE_SECRETS="true"), "mode=stub")
 
     def test_stub_without_the_assistant(self):
         self.assertEqual(self.mode(False, EVAL_HAVE_SECRETS="true"), "mode=stub")
@@ -122,10 +139,17 @@ class Guard(unittest.TestCase):
     def jobs(self, conclusion="success"):
         return lambda run_id: [{"name": "guard", "conclusion": "success"}, {"name": "run", "conclusion": conclusion}]
 
-    def decide(self, runs, *, event="workflow_dispatch", set_name="full", compare="", force=False, assistant=True, run_id=100, jobs=None):
+    def decide(self, runs, *, event="workflow_dispatch", set_name="full", compare="", force=False, assistant=True, run_id=100, jobs=None, clerk=True):
         return self.guard.decide(
-            event, set_name, compare, force, assistant, lambda: runs, jobs or self.jobs(), self.TODAY, run_id
+            event, set_name, compare, force, assistant, lambda: runs, jobs or self.jobs(), self.TODAY, run_id, clerk
         )
+
+    def test_scheduled_run_waits_for_clerk_identity(self):
+        run, reason = self.decide([], event="schedule", clerk=False)
+        self.assertFalse(run)
+        self.assertIn("epic X1", reason)
+        self.assertTrue(self.decide([], event="schedule", clerk=True)[0])
+        self.assertTrue(self.decide([], clerk=False)[0])  # a manual run goes on and fails loudly
 
     def test_scheduled_run_waits_for_the_assistant(self):
         run, reason = self.decide([], event="schedule", assistant=False)

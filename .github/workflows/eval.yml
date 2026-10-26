@@ -117,24 +117,22 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/ci/eval-ci.sh up
-      # ======================================================================================
-      # T7 PLACEHOLDER: identities of the eval store.
-      # Task T7 replaces the body of this step. It must mint Clerk tokens for the lead and the
-      # seller of the eval store (packages/e2e/src/clerk.ts; the seed created their users) and
-      # export EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID with
-      # `echo "NAME=value" >> "$GITHUB_ENV"` (mask each token first: `echo "::add-mask::$token"`).
-      # The same placeholder sits in the assistant-eval-smoke job of ci.yml.
-      # ======================================================================================
-      - name: Mint eval identities (T7 placeholder)
-        run: |
-          echo "::error title=Task T7 is pending::Clerk tokens for the eval store are not wired yet. T7 must export EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID in this step."
-          exit 1
-      # BACKEND_URL and EVAL_DATABASE_URL come from the stack step; EVAL_LEAD_TOKEN,
-      # EVAL_SELLER_TOKEN and EVAL_STORE_ID from the T7 step above. The harness takes its
-      # output directory relative to packages/eval, so pass an absolute one.
+      # Pre-flight: the seed linked Clerk test users to the eval store's members (epic X1); mint
+      # one token per role and fail here, with the missing email, when a user is absent. Clerk
+      # session tokens live about 60 s, so no token is exported: the run step gets
+      # CLERK_SECRET_KEY and ClerkAuth (packages/eval/src/runner/auth.ts) mints and refreshes
+      # them during the run, within the Backend API budget of 100 requests per 10 s.
+      - name: Check eval identities
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm --filter @taphoa/eval run identities
+      # BACKEND_URL and EVAL_DATABASE_URL come from the stack step. Without EVAL_LEAD_TOKEN the
+      # harness mints the Clerk tokens itself from CLERK_SECRET_KEY. It takes its output
+      # directory relative to packages/eval, so pass an absolute one.
       - name: Run the evaluation
         env:
           OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
           RUN_SET: ${{ inputs.set || 'full' }}

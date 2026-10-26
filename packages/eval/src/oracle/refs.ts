@@ -181,7 +181,7 @@ async function receiptId(
       `SELECT r.id::text AS id FROM receipts r
        JOIN expenses e ON e.id = r.expense_id
        WHERE r.store_id = $1 AND r.status = 'confirmed'
-         AND e.note = 'Nhập hàng: ' || $2 AND e.business_date = $3::date
+         AND r.supplier = $2 AND e.business_date = $3::date
        ORDER BY r.confirmed_at DESC, r.id LIMIT 1`,
       [storeId, parsed.supplier, parsed.date],
     ));

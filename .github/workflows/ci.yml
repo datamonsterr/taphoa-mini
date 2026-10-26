@@ -84,6 +84,8 @@ jobs:
               - 'apps/backend/crates/api/src/bin/taphoa_seed.rs'
               - 'scripts/ci/build-backend-binary.sh'
               - 'scripts/ci/eval-ci.sh'
+              - 'scripts/ci/eval-stack-lib.sh'
+              - 'apps/backend/migrations/**'
               - '.github/workflows/ci.yml'
 
   # ---------- Rust ----------
@@ -733,7 +735,8 @@ jobs:
   # ---------- Assistant evaluation (epic X7) ----------
 
   # Smoke set (25 golden cases, packages/eval). Two modes, picked by scripts/ci/eval-ci.sh:
-  #   live: the assistant is in the checkout and the secrets are available (not a fork PR). A
+  #   live: the assistant (X3) and Clerk identity (X1, members.clerk_user_id) are in the checkout
+  #         and the secrets are available (not a fork PR). A
   #         local stack (compose postgres + redis, taphoa-seed --profile eval, the prebuilt
   #         backend with ASSISTANT_ALLOW_EVAL_HEADERS=1) answers the cases. The shared free
   #         OpenRouter quota pays for it, so a newer push cancels the run. PostHog gets nothing
@@ -776,25 +779,23 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/ci/eval-ci.sh up
-      # ======================================================================================
-      # T7 PLACEHOLDER: identities of the eval store.
-      # Task T7 replaces the body of this step. It must mint Clerk tokens for the lead and the
-      # seller of the eval store (packages/e2e/src/clerk.ts; the seed created their users) and
-      # export EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID with
-      # `echo "NAME=value" >> "$GITHUB_ENV"` (mask each token first: `echo "::add-mask::$token"`).
-      # The same placeholder sits in .github/workflows/eval.yml.
-      # ======================================================================================
-      - name: Mint eval identities (T7 placeholder)
+      # Pre-flight: the seed linked Clerk test users to the eval store's members (epic X1); mint
+      # one token per role and fail here, with the missing email, when a user is absent. Clerk
+      # session tokens live about 60 s, so no token is exported: the run step gets
+      # CLERK_SECRET_KEY and ClerkAuth (packages/eval/src/runner/auth.ts) mints and refreshes
+      # them during the run, within the Backend API budget of 100 requests per 10 s.
+      - name: Check eval identities
         if: steps.mode.outputs.mode == 'live'
-        run: |
-          echo "::error title=Task T7 is pending::Clerk tokens for the eval store are not wired yet. T7 must export EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID in this step."
-          exit 1
-      # BACKEND_URL and EVAL_DATABASE_URL come from the stack step; EVAL_LEAD_TOKEN,
-      # EVAL_SELLER_TOKEN and EVAL_STORE_ID from the T7 step above.
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm --filter @taphoa/eval run identities
+      # BACKEND_URL and EVAL_DATABASE_URL come from the stack step. Without EVAL_LEAD_TOKEN the
+      # harness mints the Clerk tokens itself from CLERK_SECRET_KEY (store: the eval default).
       - name: Smoke run against the local stack
         if: steps.mode.outputs.mode == 'live'
         env:
           OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
         run: pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval"
       - name: Results to the job summary
         if: always()
