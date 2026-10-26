@@ -506,6 +506,7 @@ async fn receipt_apply_starts_tracking_and_concurrent_deltas_serialize() {
         Some(reference),
         Some(w.lead_id),
         None,
+        None,
     )
     .await
     .unwrap()
@@ -524,6 +525,7 @@ async fn receipt_apply_starts_tracking_and_concurrent_deltas_serialize() {
         "receipt",
         Some(reference),
         Some(w.lead_id),
+        None,
         None,
     )
     .await

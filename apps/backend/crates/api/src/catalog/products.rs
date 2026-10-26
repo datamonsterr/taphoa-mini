@@ -428,6 +428,14 @@ pub(crate) async fn create(
         },
     )
     .await?;
+    let source = if request.from_manual_line_id.is_some() {
+        "review_queue"
+    } else if request.references.is_some() {
+        "quick_enroll"
+    } else {
+        "enroll"
+    };
+    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some((actor.member_id,actor.session_id)),typ:"product.enrolled",version:1,data:json!({"product_id":request.id,"reference_count":request.references.as_ref().map_or_else(||request.image_ids().len(),Vec::len),"source":source}),change:None }).await?;
     // Capture pending before commit makes the job visible to the worker.
     let row = load_product(&mut tx, actor.store_id, request.id)
         .await?
@@ -519,6 +527,7 @@ fn plan_required_action(plan: &model::PatchPlan) -> Option<crate::auth::Action> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn price_changed_event(
     tx: &mut PgConnection,
     actor: &Actor,
@@ -527,6 +536,7 @@ async fn price_changed_event(
     field: &'static str,
     old_value: Value,
     new_value: i64,
+    via: &str,
 ) -> ApiResult<()> {
     crate::events::emit(
         tx,
@@ -542,6 +552,7 @@ async fn price_changed_event(
                 "old_value": old_value,
                 "new_value": new_value,
                 "source": "manual",
+                "via": via,
             }),
             change: None,
         },
@@ -597,6 +608,7 @@ async fn catalog_changed_event(
 
 pub(crate) async fn patch_product(
     State(state): State<AppState>,
+    crate::events::Via(via): crate::events::Via,
     actor: Actor,
     Path(id): Path<String>,
     ValidJson(value): ValidJson<Value>,
@@ -675,7 +687,7 @@ pub(crate) async fn patch_product(
         set(&mut updates, "price = ");
         updates.push_bind(new);
         history_row(&mut tx, &actor, id, None, "price", Some(old), new).await?;
-        price_changed_event(&mut tx, &actor, id, None, "price", json!(old), new).await?;
+        price_changed_event(&mut tx, &actor, id, None, "price", json!(old), new, via).await?;
     }
     if let Some((old, new)) = plan.cost_price {
         set(&mut updates, "cost_price = ");
@@ -689,6 +701,7 @@ pub(crate) async fn patch_product(
             "cost_price",
             old.map(Value::from).unwrap_or(Value::Null),
             new,
+            via,
         )
         .await?;
     }
@@ -763,6 +776,7 @@ pub(crate) async fn patch_product(
                         "unit_price",
                         json!(old),
                         *new,
+                        via,
                     )
                     .await?;
                 }

@@ -3811,6 +3811,10 @@ components:
         type:
           type: string
           enum:
+            - store.created
+            - product.enrolled
+            - receipt.scanned
+            - scan.completed
             - catalog.changed
             - price.changed
             - store.changed
