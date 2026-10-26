@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { useIsFocused, useRouter } from 'expo-router';
+import { useIsFocused, useRouter, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowDown, Plus } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,6 +37,9 @@ import {
   SwipeHandle,
   Viewfinder,
 } from '@/components/camera';
+import { ChatButton } from '@/components/assistant/ChatButton';
+import type { NextStepChipData } from '@/components/assistant/chip';
+import { NextStepStrip } from '@/components/assistant/NextStepStrip';
 import { Icon } from '@/components/ui/Icon';
 import { CircleButton } from '@/components/ui';
 import {
@@ -49,6 +52,9 @@ import {
 } from '@/lib/api';
 import { downsizeForUpload } from '@/lib/api/downsize';
 import { newUuid } from '@/lib/uuid';
+import { useAssistantEnabled } from '@/features/assistant/flags';
+import { assistantHref } from '@/features/assistant/route';
+import { useNextStepChips } from '@/features/assistant/useNextStepChips';
 import { useT } from '@/lib/i18n';
 import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
@@ -210,7 +216,9 @@ export function CameraScreen() {
   const receiptPending = useRef(false);
   // Keep the same variables object for an explicit retry of the same uploaded image.
   const receiptInput = useRef<{ image_id: string } | null>(null);
-  const readReceipt = async () => {
+  const readReceipt = async (
+    open: (receiptId: string) => void = (id) => router.push(`/receipt/${id}`),
+  ) => {
     if (!scan || receiptPending.current) return;
     receiptPending.current = true;
     setNotice('');
@@ -219,7 +227,7 @@ export function CameraScreen() {
     const started = performance.now();
     try {
       const receipt = await receiptCreate.mutateAsync(receiptInput.current);
-      router.push(`/receipt/${receipt.id}`);
+      open(receipt.id);
       console.info('receipt.tap_to_navigation', {
         duration_ms: Math.round(performance.now() - started),
       });
@@ -392,6 +400,37 @@ export function CameraScreen() {
       });
     }
   }, [dispatch, segmentPoints]);
+
+  const assistantOn = useAssistantEnabled();
+  const { chips, tap } = useNextStepChips({
+    screen: 'camera',
+    documentDetected: hasResult && !!scan.document?.detected,
+    unknownProduct: anyLow && hasResult,
+    canEnroll,
+    enabled: assistantOn,
+  });
+  const onChipPress = (chip: NextStepChipData, position: number) => {
+    tap(chip, position);
+    const { action } = chip;
+    if (action.type === 'receipt')
+      void readReceipt((receiptId) =>
+        router.push(
+          assistantHref({ entry: 'receipt', screen: 'camera', receiptId }),
+        ),
+      );
+    else if (action.type === 'enroll')
+      goEnroll(scan?.detections.find(isLowMatch)?.id);
+    else if (action.type === 'navigate') router.push(action.route as Href);
+    else
+      router.push(
+        assistantHref({
+          entry: 'chip',
+          prompt: action.prompt_vi,
+          screen: action.context.screen,
+          nextStepId: action.context.next_step_id,
+        }),
+      );
+  };
 
   const onPricePress = useCallback(
     (id: string) => {
@@ -620,6 +659,12 @@ export function CameraScreen() {
         {created.map((product) => (
           <IndexingChip key={product.id} id={product.id} />
         ))}
+        {!quickActive &&
+        !notice &&
+        created.length === 0 &&
+        !(hasResult && mode === 'one' && openDetection?.alternatives) ? (
+          <NextStepStrip chips={chips} onPress={onChipPress} />
+        ) : null}
         {hasResult && mode === 'one' && openDetection?.alternatives ? (
           <AlternativesStrip
             items={openDetection.alternatives}
@@ -696,6 +741,7 @@ export function CameraScreen() {
         <View pointerEvents="box-none" style={styles.handle}>
           <SwipeHandle onOpen={openShop} />
         </View>
+        <ChatButton screen="camera" />
       </View>
       <ReceiptToast />
       <Modal
