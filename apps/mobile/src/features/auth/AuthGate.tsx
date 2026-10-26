@@ -44,7 +44,7 @@ export function AuthGate({
 }) {
   const auth = useAuth();
   const { isLoaded, getToken } = auth;
-  const { sessions } = useSessionList();
+  const { sessions, isLoaded: sessionsLoaded } = useSessionList();
   const signedInCount = signedInSessions(sessions).length;
   const locked = useDeviceLock((s) => s.locked);
   const lockHydrated = useDeviceLock((s) => s.hydrated);
@@ -104,13 +104,26 @@ export function AuthGate({
 
   // Clerk has nobody active but others stay signed in: the phone goes to the person picker and
   // stays locked there, also across a restart. With nobody signed in any more there is nobody to
-  // protect, so a stale lock is dropped.
+  // protect, so a stale lock is dropped. Only two moments lock: the cold start (what clerk-js
+  // found when it loaded) and losing a session this runtime had seen active. A session that
+  // joins the client a moment before it becomes active (a sign-in finishing outside our screens,
+  // as @clerk/testing does) has neither: that transient gap must not lock the phone for good.
+  const decided = useRef(false);
+  const wasActive = useRef(false);
   useEffect(() => {
-    if (!isLoaded || !lockHydrated || auth.isSignedIn) return;
+    if (!isLoaded || !sessionsLoaded || !lockHydrated) return;
+    if (auth.isSignedIn) {
+      decided.current = true;
+      wasActive.current = true;
+      return;
+    }
+    const coldStart = !decided.current;
+    decided.current = true;
     const lock = useDeviceLock.getState();
-    if (signedInCount > 0 && !lock.locked) lock.lock();
+    if (signedInCount > 0 && !lock.locked && (coldStart || wasActive.current))
+      lock.lock();
     else if (signedInCount === 0 && lock.locked) lock.unlock();
-  }, [isLoaded, lockHydrated, auth.isSignedIn, signedInCount]);
+  }, [isLoaded, sessionsLoaded, lockHydrated, auth.isSignedIn, signedInCount]);
 
   // A different person or store must never inherit cached shop data, a cart, alerts, camera or
   // quick-enroll state, and a different person not even a pending invite.

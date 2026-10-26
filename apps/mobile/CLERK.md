@@ -120,6 +120,10 @@ without their PIN after "Đăng xuất" and a restart. So the lock holds the pho
 - It is set when "Đăng xuất" succeeds while other signed-in sessions remain (not when nobody
   does), and by the gate whenever Clerk has no active session but others are signed in (for
   example the active session was revoked), which is "the app went to the person picker".
+  The gate sets it only at the cold start (what clerk-js found on load) or after losing a
+  session it had seen active, never on the transient moment when a session has joined the
+  client but is not active yet (a sign-in finishing outside our screens, as `@clerk/testing`
+  does), which would otherwise lock the phone for good.
 - While `locked`, `AuthGate` acts as if nobody were signed in even though Clerk has an active
   session: `signedIn` is false, the auth bridge has no user, and that person's `/me` is not
   read. Every shop and onboarding route redirects to `/sign-in`, whose picker also lists the
