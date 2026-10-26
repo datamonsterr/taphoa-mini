@@ -78,6 +78,7 @@ export default function RootLayout() {
               <Stack.Screen name="receipt/[id]" />
               <Stack.Screen name="receipts" />
               <Stack.Screen name="debts" />
+              <Stack.Screen name="digest" />
               <Stack.Screen name="customer/[id]" />
               <Stack.Screen name="pay" />
               <Stack.Screen

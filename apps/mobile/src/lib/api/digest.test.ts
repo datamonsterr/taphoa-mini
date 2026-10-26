@@ -6,7 +6,6 @@ import { resetApiClient, setApiTransport } from './client';
 import { getDigest } from './digest';
 import { useDigest } from './hooks';
 import { resetMockDb } from '@/test/mock';
-import { createMockFetch } from '@/test/mock/fetch';
 import { createTestQueryClient } from '@/test/render';
 import { ApiError } from './errors';
 
