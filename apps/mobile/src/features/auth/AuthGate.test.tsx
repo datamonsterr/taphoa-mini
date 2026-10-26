@@ -399,6 +399,32 @@ describe('device lock', () => {
     await waitFor(() => expect(useDeviceLock.getState().locked).toBe(true));
   });
 
+  test('a session that becomes active outside our screens does not lock the phone', async () => {
+    // @clerk/testing redeems a sign-in ticket in the page: the session joins the client a moment
+    // before Clerk makes it the active one.
+    setApiTransport((async () =>
+      Response.json({
+        clerk_user_id: 'user_ut',
+        profile: null,
+        memberships: [testSession()],
+      })) as typeof fetch);
+    await clerkMock.signOut({ sessionId: 'sess_test' });
+    await mount();
+    expect(await screen.findByText('signed-out')).toBeOnTheScreen();
+    await act(async () => {
+      otherPerson();
+    });
+    await act(async () => {
+      setClerkState({
+        isSignedIn: true,
+        userId: 'user_ut',
+        sessionId: 'sess_ut',
+      });
+    });
+    expect(await screen.findByText('shop')).toBeOnTheScreen();
+    expect(useDeviceLock.getState().locked).toBe(false);
+  });
+
   test('losing the active session mid-use locks the phone too', async () => {
     otherPerson();
     await mount();
