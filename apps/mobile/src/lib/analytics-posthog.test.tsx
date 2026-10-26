@@ -235,6 +235,10 @@ test('identity is idempotent, omits absent person properties and resets on sign-
   await hook.rerender({ value: null });
   expect(posthog.unregister.mock.calls).toEqual([['member_id'], ['role']]);
   expect(posthog.reset).toHaveBeenCalledTimes(1);
+  // The common super properties survive the reset.
+  expect(posthog.register).toHaveBeenLastCalledWith(
+    expect.objectContaining({ environment: 'local', language: 'vi' }),
+  );
   await hook.rerender({ value: null });
   expect(posthog.reset).toHaveBeenCalledTimes(1);
 });
@@ -275,6 +279,20 @@ test('assistant is enabled when PostHog is off even with a stale disabled flag',
   });
   expect(hook.result.current).toBe(true);
   expect(posthog.onFeatureFlags).not.toHaveBeenCalled();
+});
+
+test('string flag values only turn the assistant off when they say false', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  posthog.getFeatureFlag.mockReturnValue('false');
+  const off = await renderHook(useAssistantEnabled, {
+    wrapper: AnalyticsProvider,
+  });
+  expect(off.result.current).toBe(false);
+  posthog.getFeatureFlag.mockReturnValue('control');
+  const on = await renderHook(useAssistantEnabled, {
+    wrapper: AnalyticsProvider,
+  });
+  expect(on.result.current).toBe(true);
 });
 
 test('a flag change notifies the assistant switch', async () => {

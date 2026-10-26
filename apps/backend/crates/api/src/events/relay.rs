@@ -217,7 +217,8 @@ async fn prepare_batch(
 }
 
 /// Publish one batch, then schedule best-effort analytics after the database commit.
-/// Useful to drive the relay deterministically in service integration tests.
+/// Test support only: drives the relay deterministically in service integration tests.
+#[doc(hidden)]
 pub async fn publish_once(
     pool: &PgPool,
     redis: &mut ConnectionManager,

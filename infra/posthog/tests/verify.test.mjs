@@ -111,3 +111,26 @@ test('a bold number with an aggregated value counts as data', async () => {
   assert.equal(hasData([{ data: [], aggregated_value: 13 }]), true);
   assert.equal(hasData([{ data: [], aggregated_value: 0 }]), false);
 });
+
+test('allow-empty marks matching empty insights as ok without hiding errors', async () => {
+  const { verify } = await import('../verify.mjs');
+  let index = 0;
+  const client = {
+    post: async () => {
+      index++;
+      if (index === 1) return { results: [] };
+      if (index === 2) throw new Error('Query failed (400)');
+      return { results: [{ count: 3 }] };
+    },
+  };
+  const result = await verify({
+    client,
+    environment: 'test',
+    days: 7,
+    allowEmpty: /DAU|Active stores/,
+  });
+  assert.equal(result.insights[0].ok, true);
+  assert.equal(result.insights[0].note, 'empty (allowed)');
+  assert.equal(result.insights[1].ok, false);
+  assert.equal(result.ok, false);
+});

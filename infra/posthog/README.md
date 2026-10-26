@@ -29,6 +29,8 @@ node infra/posthog/apply.mjs --only flags
 
 # Controller: execute queries to check real data for one environment.
 node infra/posthog/verify.mjs --environment test --days 7
+# Charts that are empty by design (regex on the insight name) report `empty (allowed)`.
+node infra/posthog/verify.mjs --environment test --allow-empty 'Backend error logs'
 node infra/posthog/verify.mjs --environment production --days 30 --json
 ```
 

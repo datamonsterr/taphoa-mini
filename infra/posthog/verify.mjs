@@ -72,7 +72,7 @@ export function hasData(results) {
   };
   return results.some(measured);
 }
-export async function verify({ client, environment, days = 7 }) {
+export async function verify({ client, environment, days = 7, allowEmpty }) {
   const insights = [];
   for (const dashboard of dashboards)
     for (const insight of dashboard.insights) {
@@ -108,6 +108,11 @@ export async function verify({ client, environment, days = 7 }) {
       } catch (error) {
         row.error = error.message;
       }
+      // Charts that are empty by design (no backend errors, producer epic not shipped yet).
+      if (!row.ok && !row.error && allowEmpty?.test(insight.name)) {
+        row.ok = true;
+        row.note = 'empty (allowed)';
+      }
       insights.push(row);
     }
   return { ok: insights.every((row) => row.ok), environment, days, insights };
@@ -119,6 +124,7 @@ export async function main(args = process.argv.slice(2)) {
       environment: { type: 'string' },
       days: { type: 'string', default: '7' },
       json: { type: 'boolean', default: false },
+      'allow-empty': { type: 'string' },
     },
   });
   if (!values.environment) throw new Error('Required: --environment <name>');
@@ -132,13 +138,16 @@ export async function main(args = process.argv.slice(2)) {
     client: createClient(config),
     environment: values.environment,
     days,
+    allowEmpty: values['allow-empty']
+      ? new RegExp(values['allow-empty'])
+      : undefined,
   });
   if (values.json) console.log(JSON.stringify(result, null, 2));
   else {
     console.log('dashboard | insight | rows | ok');
     for (const row of result.insights)
       console.log(
-        `${row.dashboard} | ${row.insight} | ${row.rows} | ${row.ok ? 'yes' : 'no'}${row.error ? ` (${row.error})` : ''}`,
+        `${row.dashboard} | ${row.insight} | ${row.rows} | ${row.ok ? 'yes' : 'no'}${row.note ? ` (${row.note})` : ''}${row.error ? ` (${row.error})` : ''}`,
       );
   }
   if (!result.ok) process.exitCode = 1;

@@ -23,6 +23,17 @@ import {
 import { setAnalyticsClient, useAnalyticsClient } from './analyticsBridge';
 import { useSettingsStore } from '@/stores/settings';
 
+/** Super properties every app event carries; registered on mount, language change and after a reset. */
+export function commonProperties(language: string) {
+  const version = Constants.expoConfig?.version ?? '1.0.0';
+  const build = Application.nativeBuildVersion;
+  return {
+    environment: process.env.EXPO_PUBLIC_ENVIRONMENT || 'local',
+    app_version: build ? `${version} (${build})` : version,
+    language,
+  };
+}
+
 export class PostHogSink implements AnalyticsSink {
   constructor(private readonly posthog: Pick<PostHog, 'capture'>) {}
   capture<E extends AppEventName>(event: E, props: AppEventProps[E]): void {
@@ -55,13 +66,7 @@ function AnalyticsRegistration({ children }: PropsWithChildren) {
     };
   }, [posthog]);
   useEffect(() => {
-    const version = Constants.expoConfig?.version ?? '1.0.0';
-    const build = Application.nativeBuildVersion;
-    void posthog.register({
-      environment: process.env.EXPO_PUBLIC_ENVIRONMENT || 'local',
-      app_version: build ? `${version} (${build})` : version,
-      language,
-    });
+    void posthog.register(commonProperties(language));
   }, [posthog, language]);
   useScreenTracking();
   return children;
@@ -123,7 +128,11 @@ export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
       if (previous.current !== null) {
         void posthog.unregister('member_id');
         void posthog.unregister('role');
+        // reset() also clears super properties; the common ones must survive sign-out.
         posthog.reset();
+        void posthog.register(
+          commonProperties(useSettingsStore.getState().language),
+        );
         previous.current = null;
       }
       return;
@@ -183,5 +192,6 @@ export function useAssistantEnabled(): boolean {
     [client],
   );
   const flag = useSyncExternalStore(subscribe, read, () => undefined);
-  return flag === undefined || flag === null ? true : Boolean(flag);
+  // Only an explicit remote "off" hides the assistant; variants and loading fail open.
+  return flag !== false && flag !== 'false';
 }
