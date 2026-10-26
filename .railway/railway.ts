@@ -81,6 +81,7 @@ export default defineRailway((ctx) => {
       // Set by the deploy workflow to the deployed git SHA.
       SERVICE_VERSION: preserve(),
       OPENROUTER_API_KEY: preserve(),
+      EXPO_ACCESS_TOKEN: preserve(),
       DECISIONS_MODEL: 'inception/mercury-decide:free',
       // Railway always uses real models; never deploy the scripted provider.
       ASSISTANT_MODEL_PROVIDER: 'openrouter',

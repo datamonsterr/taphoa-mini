@@ -13,6 +13,7 @@ pub mod idempotency;
 pub mod images;
 pub mod money;
 pub mod pagination;
+pub mod push;
 pub mod ratelimit;
 pub mod receipts;
 pub mod recognition;
@@ -76,6 +77,7 @@ pub struct AppState {
     pub text_detector: Option<Arc<dyn taphoa_recognition::ocr::TextDetector>>,
     pub receipt_ocr: Option<Arc<dyn taphoa_recognition::ocr::ReceiptOcr>>,
     pub decisions: Option<Arc<dyn decisions::DecisionClient>>,
+    pub push: Option<Arc<dyn push::PushApi>>,
     pub segment_cache: Arc<recognition::EncodingCache>,
     /// Catalog enrollment embeds reference photos. None -> 503 on enroll.
     pub embedder: Option<Arc<dyn Embedder>>,
@@ -106,6 +108,7 @@ impl Default for AppState {
             text_detector: None,
             receipt_ocr: None,
             decisions: None,
+            push: None,
             segment_cache: Arc::new(recognition::EncodingCache::default()),
             embedder: None,
             vector_index: None,

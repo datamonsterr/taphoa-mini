@@ -43,6 +43,9 @@ async fn serve() -> anyhow::Result<()> {
         .map(|s| Arc::clone(s) as Arc<dyn taphoa_recognition::Segmenter>);
     let point_segmenter = sam.map(|s| s as Arc<dyn taphoa_recognition::PointSegmenter>);
     let mut state = AppState::connect_with_config(&config, segmenter).await?;
+    state.push = Some(Arc::new(taphoa_api::push::ExpoPush::new(
+        taphoa_api::push::PushConfig::from_env()?,
+    )?));
     state.point_segmenter = point_segmenter;
     if let Some(ocr) = config.ocr()? {
         state.text_detector = Some(ocr.detector());
