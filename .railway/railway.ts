@@ -90,6 +90,7 @@ export default defineRailway((ctx) => {
       // Per-environment store message cap.
       ASSISTANT_DAILY_MESSAGES_PER_STORE: preserve(),
       DIGEST_MODEL_MAX_PER_DAY: preserve(),
+      DIGEST_SEND_AT: preserve(),
       // Enable with 1 on test only; never on production.
       ASSISTANT_ALLOW_EVAL_HEADERS: preserve(),
       // Keep reasoning latency low for interactive replies.

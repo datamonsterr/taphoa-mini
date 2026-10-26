@@ -1,5 +1,6 @@
 //! Daily owner summaries, shared by HTTP and the morning scheduler.
 mod generate;
+pub mod job;
 mod template;
 
 pub use generate::generate;
@@ -110,10 +111,9 @@ pub async fn mark_read(
     }
 }
 
-/// Recent sales or member registrations; `since` is a chrono duration.
+/// Recent sales, member registrations or refreshed device registrations; `since` is a chrono duration.
 pub async fn active_store_ids(pool: &PgPool, since: Duration) -> Vec<Uuid> {
-    // T3: add devices
-    let result = sqlx::query_scalar("SELECT store_id FROM sales WHERE sold_at >= $1 UNION SELECT store_id FROM members WHERE created_at >= $1")
+    let result = sqlx::query_scalar("SELECT store_id FROM sales WHERE sold_at >= $1 UNION SELECT store_id FROM members WHERE created_at >= $1 UNION SELECT store_id FROM devices WHERE updated_at >= $1")
         .bind(Utc::now()-since).fetch_all(pool).await;
     match result {
         Ok(ids) => ids,

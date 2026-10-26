@@ -118,3 +118,5 @@ Order: T1 ∥ T2 ∥ T4 ∥ T5, then T3 (needs T1 and T2), then T6 (after rebasi
 ## Verification log
 
 Filled in as work lands: commands run, Railway `test` evidence, PR link.
+
+- 2026-10-26 T3 (from `apps/backend`, `CARGO_TARGET_DIR=/media/storage/cache/x8-t3`, `CARGO_BUILD_JOBS=2`; integrations use the supplied local service URLs and `RUST_TEST_THREADS=1`): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (230 passed, 4 ignored); `cargo test -p taphoa-api --test digest_job --test push --test assistant_digest -- --ignored` PASS (digest_job 9, push 7, assistant_digest 7; 23 passed, 0 failed).
