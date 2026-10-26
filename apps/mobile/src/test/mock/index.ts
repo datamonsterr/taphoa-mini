@@ -14,5 +14,6 @@ export {
   setNextAssistantReply,
   quotaReply,
   proposalReply,
+  setDigestFixture,
   type AssistantReplyScript,
 } from './assistant';

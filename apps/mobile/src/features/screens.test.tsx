@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/render';
 import { AccountScreen } from './account/AccountScreen';
 import { CloseScreen } from './close/CloseScreen';
 import { DashboardScreen } from './dashboard/DashboardScreen';
+import { DigestScreen } from './digest/DigestScreen';
 import { ExpenseScreen } from './expense/ExpenseScreen';
 
 const screens: [string, ComponentType][] = [
@@ -12,6 +13,7 @@ const screens: [string, ComponentType][] = [
   ['Thêm chi phí', ExpenseScreen],
   ['Chốt sổ', CloseScreen],
   ['Tạp hóa Cô Ba', AccountScreen],
+  ['Tóm tắt sáng nay', DigestScreen],
 ];
 
 test.each(screens)('screen %s has a header', async (title, Screen) => {

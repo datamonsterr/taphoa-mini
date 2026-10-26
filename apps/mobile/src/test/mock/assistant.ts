@@ -15,12 +15,20 @@ const threads = new Map<string, ThreadRecord>();
 const devices = new Map<string, S['Device']>();
 const confirmations = new Map<string, S['AssistantAction']>();
 let nextReply: AssistantReplyScript | undefined;
+let digestReadAt: string | null = null;
+let digestFixture: Partial<S['Digest']> | undefined;
 
 export function resetAssistantMock() {
   threads.clear();
   devices.clear();
   confirmations.clear();
   nextReply = undefined;
+  digestReadAt = null;
+  digestFixture = undefined;
+}
+
+export function setDigestFixture(fixture: Partial<S['Digest']> | undefined) {
+  digestFixture = fixture;
 }
 /** One-shot script. IDs are bound to the receiving thread/message when sent. */
 export function setNextAssistantReply(script: AssistantReplyScript) {
@@ -382,7 +390,11 @@ export function getDigest(query: URLSearchParams): S['Digest'] {
     ? parseDate(query.get('business_date')!, 'business_date')
     : businessDate();
   if (date !== businessDate()) throw notFound('Digest');
-  return {
+  const readAt = digestReadAt;
+  if (!digestReadAt) {
+    digestReadAt = nowIso();
+  }
+  const base: S['Digest'] = {
     business_date: date,
     generated_at: nowIso(),
     source: 'template',
@@ -396,7 +408,25 @@ export function getDigest(query: URLSearchParams): S['Digest'] {
     restock: [],
     overdue_debts: { count: 0, total: 0 },
     open_drafts: { count: 1 },
-    read_at: null,
+    read_at: readAt,
+  };
+  return {
+    ...base,
+    ...digestFixture,
+    sales: {
+      ...base.sales,
+      ...(digestFixture?.sales ?? {}),
+    },
+    overdue_debts: {
+      ...base.overdue_debts,
+      ...(digestFixture?.overdue_debts ?? {}),
+    },
+    open_drafts: {
+      ...base.open_drafts,
+      ...(digestFixture?.open_drafts ?? {}),
+    },
+    read_at:
+      digestFixture?.read_at !== undefined ? digestFixture.read_at : readAt,
   };
 }
 const deviceKey = (token: string) => `${getMockDb().currentMemberId}:${token}`;
