@@ -3,6 +3,7 @@ use taphoa_api::{
     AppState,
     assistant::{
         config::{AssistantConfig, ModelProvider},
+        digest::job::{self as digest_job, DigestJobConfig},
         model::{
             openrouter::{OpenRouterChat, OpenRouterConfig},
             rules::RuleModel,
@@ -35,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn serve() -> anyhow::Result<()> {
     let assistant_config = AssistantConfig::from_env()?;
+    let digest_config = DigestJobConfig::from_env()?;
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
     let sam = config.sam_segmenter()?;
@@ -91,6 +93,13 @@ async fn serve() -> anyhow::Result<()> {
     let mut background = events::spawn_background(&state, shutdown_rx.clone());
     if let Some(pool) = pool.clone() {
         background.push(retention::spawn(pool.clone(), shutdown_rx.clone()));
+        if digest_config.enabled {
+            background.push(digest_job::spawn(
+                state.clone(),
+                digest_config,
+                shutdown_rx.clone(),
+            ));
+        }
         // Spawn the index-job worker only when all required dependencies are present.
         if let (Some(embedder), Some(storage)) = (state.embedder.clone(), state.storage.clone()) {
             background.push(spawn_index_worker(
