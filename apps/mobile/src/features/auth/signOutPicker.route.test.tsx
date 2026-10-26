@@ -64,7 +64,7 @@ function sharedPhone(overrides: Record<string, PersonScript> = {}) {
       me: buildMe({
         userId: 'user_hai',
         name: 'Hai',
-        memberships: [{ storeId: 'store_hai' }],
+        memberships: [{ storeId: 'store_hai', memberName: 'Anh Hai' }],
       }),
     },
     ...overrides,

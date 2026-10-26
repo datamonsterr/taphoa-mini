@@ -4,6 +4,8 @@ appId: com.datamonsterr.taphoamini
 # depend on what recognition makes of the emulator's virtual camera): cart -> "Ghi nợ" with a
 # customer created in the picker -> the dashboard's debt card -> the debt book -> "Thu nợ" in
 # full -> the customer owes 0đ.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
 - runFlow:
     file: subflows/create-store.yaml
     env:

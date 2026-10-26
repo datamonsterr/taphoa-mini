@@ -60,7 +60,7 @@ function crowd(extra: Record<string, PersonScript> = {}) {
       me: buildMe({
         userId: 'user_hai',
         name: null,
-        memberships: [{ storeId: 'store_hai' }],
+        memberships: [{ storeId: 'store_hai', memberName: 'Anh Hai' }],
       }),
     },
     ...extra,
@@ -109,9 +109,7 @@ describe('people on this device', () => {
     expect(within(row(1)).queryByText('Hiện tại')).toBeNull();
     expect(row(1)).not.toBeSelected();
     // No name in /v1/me: the Clerk user's email stands in.
-    expect(
-      await within(row(2)).findByText('hai@example.com'),
-    ).toBeOnTheScreen();
+    expect(await within(row(2)).findByText('Anh Hai')).toBeOnTheScreen();
     expect(screen.queryByTestId('account-session-3')).toBeNull();
   });
 
@@ -152,7 +150,7 @@ describe('people on this device', () => {
     const people = crowd();
     await open();
     await within(row(1)).findByText('Bé Út');
-    await within(row(2)).findByText('hai@example.com');
+    await within(row(2)).findByText('Anh Hai');
     expect(people.mes().map(({ token }) => token)).toEqual(
       expect.arrayContaining(['token_sess_ut', 'token_sess_hai']),
     );
@@ -438,13 +436,15 @@ describe('switching person', () => {
   test('a PIN set after the list loaded still applies: has_pin is read fresh on tap', async () => {
     const people = crowd();
     await open();
-    await within(row(2)).findByText('hai@example.com');
+    await within(row(2)).findByText('Anh Hai');
     people.spy.mockClear();
     // hai set a PIN on another phone after this list was cached.
     const latest = buildMe({
       userId: 'user_hai',
       name: null,
-      memberships: [{ storeId: 'store_hai', hasPin: true }],
+      memberships: [
+        { storeId: 'store_hai', memberName: 'Anh Hai', hasPin: true },
+      ],
     });
     people.spy.mockImplementationOnce(async () => Response.json(latest));
     await fireEvent.press(row(2));
@@ -455,7 +455,7 @@ describe('switching person', () => {
   test('without knowing whether a PIN exists nobody is switched', async () => {
     const people = crowd();
     await open();
-    await within(row(2)).findByText('hai@example.com');
+    await within(row(2)).findByText('Anh Hai');
     people.spy.mockImplementationOnce(
       async () => new Response('x', { status: 500 }),
     );

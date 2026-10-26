@@ -27,7 +27,8 @@ beforeEach(() => mockPush.mockClear());
 const UT_PIN = '4821';
 
 /**
- * Cô Ba (the default session) signed out on a phone that Bé Út (with a PIN) and hai (none)
+ * Cô Ba (the default session) signed out on a phone that Bé Út (with a PIN) and hai (no PIN,
+ * named "Anh Hai" in their store)
  * still have a session on. Clerk then has nobody active.
  */
 async function sharedPhone(extra: Record<string, PersonScript> = {}) {
@@ -54,7 +55,7 @@ async function sharedPhone(extra: Record<string, PersonScript> = {}) {
       me: buildMe({
         userId: 'user_hai',
         name: null,
-        memberships: [{ storeId: 'store_hai' }],
+        memberships: [{ storeId: 'store_hai', memberName: 'Anh Hai' }],
       }),
     },
     ...extra,
@@ -110,9 +111,7 @@ describe('signing out on a shared phone', () => {
     ).toBeOnTheScreen();
     expect(await within(row(0)).findByText('Bé Út')).toBeOnTheScreen();
     // No name in /v1/me: the Clerk user's email stands in.
-    expect(
-      await within(row(1)).findByText('hai@example.com'),
-    ).toBeOnTheScreen();
+    expect(await within(row(1)).findByText('Anh Hai')).toBeOnTheScreen();
     expect(screen.queryByTestId('auth-device-session-2')).toBeNull();
     // Nobody is "current" and the person who signed out is not offered.
     expect(screen.queryByText('Hiện tại')).toBeNull();
@@ -130,7 +129,7 @@ describe('signing out on a shared phone', () => {
     const people = await sharedPhone();
     await open();
     await within(row(0)).findByText('Bé Út');
-    await within(row(1)).findByText('hai@example.com');
+    await within(row(1)).findByText('Anh Hai');
     expect(people.mes().map(({ token }) => token)).toEqual(
       expect.arrayContaining(['token_sess_ut', 'token_sess_hai']),
     );
@@ -402,7 +401,7 @@ describe('picking a person', () => {
   test('without knowing whether a PIN exists nobody is switched, and trying again works', async () => {
     const people = await sharedPhone();
     await open();
-    await within(row(1)).findByText('hai@example.com');
+    await within(row(1)).findByText('Anh Hai');
     people.spy.mockImplementationOnce(
       async () => new Response('x', { status: 500 }),
     );
@@ -451,7 +450,9 @@ describe('the device lock', () => {
         me: buildMe({
           userId: 'user_hai',
           name: 'Hai',
-          memberships: [{ storeId: 'store_hai', hasPin: true }],
+          memberships: [
+            { storeId: 'store_hai', memberName: 'Anh Hai', hasPin: true },
+          ],
         }),
         verify: lockout,
       },

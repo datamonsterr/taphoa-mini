@@ -30,9 +30,15 @@ export const sessionEmail = (session: DeviceSession): string | undefined =>
   session.publicUserData?.identifier ||
   undefined;
 
-/** The person's display name from `/v1/me`, else their email; empty when neither is known. */
+/**
+ * The person's name: their Clerk profile name from `/v1/me`, else the name they gave in a store
+ * (email-code sign-up asks for no name), else their email; empty when none is known.
+ */
 export const personName = (session: DeviceSession, me?: Me): string =>
   me?.profile?.display_name?.trim() ||
+  me?.memberships
+    ?.map(({ member }) => member.display_name.trim())
+    .find(Boolean) ||
   sessionEmail(session) ||
   me?.profile?.email ||
   '';
