@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod agent;
 pub mod config;
+pub mod digest;
 pub mod eval;
 pub mod model;
 pub mod next_steps;
@@ -67,6 +68,7 @@ impl Language {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/assistant/next-steps", get(next_steps::list))
+        .route("/v1/assistant/digest", get(digest::get))
         .route(
             "/v1/assistant/actions/{action_id}/confirm",
             post(actions::confirm),
