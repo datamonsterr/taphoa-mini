@@ -1,4 +1,4 @@
-//! Backend analytics sink. The PostHog implementation arrives in X6.
+//! Backend analytics sink for typed product and LLM events.
 //!
 //! Every PostHog capture goes through [`Analytics::capture_event`]: typed
 //! [`ProductEvent`]s (via [`CaptureEvent::product`]) and LLM analytics events such as
@@ -6,7 +6,7 @@
 //!
 //! Product-event properties must never carry names, emails, phone numbers, bank numbers,
 //! tokens or OCR text. Message content is allowed only in `$ai_*` events, and callers mask
-//! 9-15 digit sequences there first. Common environment/app_version/language props belong to X6.
+//! 9-15 digit sequences there first. The backend sink adds environment and service app_version.
 //!
 //! X0 choices: enrollment sources are enroll, quick_enroll, review_queue and receipt;
 //! debt methods are cash, transfer, credit_sale and adjustment. Amount buckets use
@@ -15,14 +15,17 @@
 //! Action decisions are confirmed, rejected, expired or failed. Payment methods
 //! include credit for X5. ScanPurpose mirrors the private recognition domain enum.
 
+mod posthog;
+pub use posthog::{PostHogAnalytics, PostHogConfig};
+
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 pub use crate::{auth::Role, recognition::classify::MatchClass};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnrollmentSource {
     Enroll,
@@ -31,14 +34,14 @@ pub enum EnrollmentSource {
     Receipt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScanPurpose {
     Checkout,
     Enrollment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaymentMethod {
     Cash,
@@ -46,21 +49,21 @@ pub enum PaymentMethod {
     Credit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReceiptVia {
     Chat,
     Form,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeVia {
     Manual,
     Assistant,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StockReason {
     Receipt,
@@ -69,7 +72,7 @@ pub enum StockReason {
     Adjustment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpenseCategory {
     NhapHang,
@@ -78,7 +81,7 @@ pub enum ExpenseCategory {
     Khac,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DifferenceBucket {
     Zero,
@@ -86,7 +89,7 @@ pub enum DifferenceBucket {
     Large,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DebtMethod {
     Cash,
@@ -95,7 +98,7 @@ pub enum DebtMethod {
     Adjustment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
     StockAdjustment,
@@ -110,7 +113,7 @@ pub enum ActionKind {
     Invite,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionDecision {
     Confirmed,
@@ -119,7 +122,7 @@ pub enum ActionDecision {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AmountBucket {
     #[serde(rename = "lt_50k")]
     Lt50k,
@@ -282,13 +285,15 @@ pub struct EventContext {
 }
 
 /// One PostHog capture call: any event name, including `$ai_*` LLM analytics events.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct CaptureEvent {
     pub distinct_id: String,
     pub event: String,
     pub properties: Map<String, Value>,
     /// PostHog groups, e.g. `{"store": "<store uuid>"}`.
     pub groups: Map<String, Value>,
+    pub uuid: Option<Uuid>,
+    pub timestamp: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl CaptureEvent {
@@ -310,6 +315,8 @@ impl CaptureEvent {
             event: event.name().to_owned(),
             properties,
             groups,
+            uuid: None,
+            timestamp: None,
         }
     }
 }
@@ -317,7 +324,7 @@ impl CaptureEvent {
 #[async_trait]
 pub trait Analytics: Send + Sync {
     /// Sends one event of any name. The PostHog sink (X6) adds `environment`, `app_version`
-    /// and `language`; callers mask 9-15 digit sequences in `$ai_*` content first.
+    /// (service version); callers mask 9-15 digit sequences in `$ai_*` content first.
     async fn capture_event(&self, event: CaptureEvent) -> anyhow::Result<()>;
 
     /// Typed product event, routed through `capture_event`.
@@ -652,6 +659,8 @@ mod tests {
     async fn ai_generation_event_passes_through_unchanged() {
         let recorder = Recorder::default();
         let event = CaptureEvent {
+            uuid: None,
+            timestamp: None,
             distinct_id: "user_123".to_owned(),
             event: "$ai_generation".to_owned(),
             properties: json!({
@@ -676,6 +685,8 @@ mod tests {
     async fn noop_capture_event_succeeds() {
         NoopAnalytics
             .capture_event(CaptureEvent {
+                uuid: None,
+                timestamp: None,
                 distinct_id: "user_123".to_owned(),
                 event: "$ai_trace".to_owned(),
                 properties: Map::new(),
