@@ -8,13 +8,15 @@ import {
 } from '@expo-google-fonts/be-vietnam-pro';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { useNotificationObserver } from '@/lib/notifications';
 import { useCartStore } from '@/stores/cart';
 import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import {
@@ -25,9 +27,21 @@ import {
 
 void SplashScreen.preventAutoHideAsync();
 
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    }),
+  });
+}
+
 export const unstable_settings = { anchor: 'index' };
 
 export default function RootLayout() {
+  useNotificationObserver();
   const [queryClient] = useState(() => new QueryClient());
   const [fontsLoaded, fontError] = useFonts({
     BeVietnamPro_400Regular,

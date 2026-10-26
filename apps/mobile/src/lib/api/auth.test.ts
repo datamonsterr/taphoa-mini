@@ -1,9 +1,14 @@
 import { useSessionStore } from '@/stores/session';
 import { testSession } from '@/test/session';
+import { unregisterPush } from '@/lib/notifications/push';
 
-import { setPin, switchMember } from './auth';
+import { logout, setPin, switchMember } from './auth';
 import { resetApiClient, setApiTransport } from './client';
 import { isApiError } from './errors';
+
+jest.mock('@/lib/notifications/push', () => ({
+  unregisterPush: jest.fn().mockResolvedValue(undefined),
+}));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';
 
@@ -132,5 +137,32 @@ describe('setPin', () => {
     );
     const error = await setPin('12').catch((e: unknown) => e);
     expect(isApiError(error) && error.status).toBe(400);
+  });
+});
+
+describe('logout', () => {
+  test('calls unregisterPush and POST /v1/auth/logout then clears session', async () => {
+    const calls = backend(new Response(null, { status: 204 }));
+    expect(useSessionStore.getState().session).not.toBeNull();
+
+    await logout();
+
+    expect(unregisterPush).toHaveBeenCalled();
+    expect(calls).toEqual([
+      { method: 'POST', path: '/v1/auth/logout', body: null },
+    ]);
+    expect(useSessionStore.getState().session).toBeNull();
+  });
+
+  test('clears session even if unregisterPush or server logout fails', async () => {
+    (unregisterPush as jest.Mock).mockRejectedValueOnce(
+      new Error('Push error'),
+    );
+    backend(new Response(null, { status: 500 }));
+    expect(useSessionStore.getState().session).not.toBeNull();
+
+    await logout();
+
+    expect(useSessionStore.getState().session).toBeNull();
   });
 });

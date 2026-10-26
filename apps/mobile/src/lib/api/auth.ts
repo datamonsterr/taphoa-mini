@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { useSessionStore, type Session } from '@/stores/session';
+import { unregisterPush } from '@/lib/notifications/push';
 
 import { getApiClient } from './client';
 import { unwrap } from './errors';
@@ -96,6 +97,11 @@ export async function setPin(pin: string | null): Promise<void> {
  * phone that cannot reach the server (or whose session is already dead) must still sign out.
  */
 export async function logout(): Promise<void> {
+  try {
+    await unregisterPush();
+  } catch {
+    // Best-effort: ignore push unregister errors before session clear
+  }
   try {
     await unwrap(getApiClient().raw.POST('/v1/auth/logout'));
   } catch {

@@ -7,6 +7,7 @@ Epic brief: [epics.md](epics.md#x8--push-notifications-and-daily-digest) · Cont
 
 ## Docs checked (2026-10-26)
 
+- Installed `expo-notifications`: `~58.1.6` (Expo SDK 58 compatible).
 - Expo SDK 58 `expo-notifications`: Android 13+ shows the permission prompt only after a channel
   exists, so `setNotificationChannelAsync` runs before `getExpoPushTokenAsync({ projectId })`;
   `projectId` comes from `Constants.expoConfig.extra.eas.projectId`. Remote notifications need a
