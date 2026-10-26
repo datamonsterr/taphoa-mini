@@ -190,10 +190,9 @@ jest.mock('expo-notifications', () => ({
     MAX: 7,
   },
   getPermissionsAsync: jest.fn().mockResolvedValue({
-    status: 'granted',
-    granted: true,
+    status: 'undetermined',
+    granted: false,
     canAskAgain: true,
-    expires: 'never',
   }),
   requestPermissionsAsync: jest.fn().mockResolvedValue({
     status: 'granted',
