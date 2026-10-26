@@ -73,7 +73,9 @@ test('verifier fails on one empty insight, reports rows, and continues on API er
   assert.equal(result.insights[1].ok, false);
   assert.equal(result.insights[2].ok, true);
   assert.ok(
-    calls.every((c) => c.path === 'query/' && c.body.refresh === 'blocking'),
+    calls.every(
+      (c) => c.path === 'query/' && c.body.refresh === 'force_blocking',
+    ),
   );
 });
 
