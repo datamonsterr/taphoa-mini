@@ -1,14 +1,15 @@
 """Decide whether a run of the nightly workflow eval.yml should do its work (epic X7).
 
     python3 -I scripts/ci/eval_guard.py --event E --set S [--compare-models M] [--force]
-        --repo OWNER/REPO --run-id N --today YYYY-MM-DD [--assistant-dir DIR]
+        --repo OWNER/REPO --run-id N --today YYYY-MM-DD [--assistant-dir DIR] [--migrations-dir DIR]
 
 Prints `run=true|false` and `reason=...` lines, ready for $GITHUB_OUTPUT. Needs `gh` and GH_TOKEN
 (actions: read) when it has to look at earlier runs.
 
 Rules:
-- A scheduled run is skipped while the assistant code is not on main (the live path is wired
-  in task T7), so the schedule stays quiet before epic X3 lands.
+- A scheduled run is skipped while the assistant code (epic X3) or Clerk identity (epic X1,
+  members.clerk_user_id in the migrations) is not on main, so the schedule stays quiet until
+  the live path can work.
 - A full run is skipped when an earlier run titled `eval full` started today (UTC), did its
   work and succeeded, or is still running. `--force` skips this check.
 - Smoke and compare runs are never skipped (the harness guards the OpenRouter quota itself).
@@ -43,10 +44,17 @@ def blocking_run(runs, jobs_of, today, run_id, title):
     return None
 
 
-def decide(event, set_name, compare_models, force, assistant_present, runs_of, jobs_of, today, run_id):
+def clerk_present(migrations_dir):
+    """True when a migration adds members.clerk_user_id (epic X1), the eval store's Clerk link."""
+    return any("clerk_user_id" in path.read_text(encoding="utf-8") for path in migrations_dir.glob("*.sql"))
+
+
+def decide(event, set_name, compare_models, force, assistant_present, runs_of, jobs_of, today, run_id, clerk_present=True):
     """Return (run, reason). `runs_of()` is only called when the answer depends on earlier runs."""
     if event == "schedule" and not assistant_present:
         return False, "the assistant (epic X3) is not on main yet"
+    if event == "schedule" and not clerk_present:
+        return False, "Clerk identity (epic X1, members.clerk_user_id) is not on main yet"
     if compare_models or set_name != "full":
         return True, "only full runs are limited to one a day"
     if force:
@@ -90,6 +98,7 @@ def main(argv=None):
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--today", default=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     parser.add_argument("--assistant-dir", default="apps/backend/crates/api/src/assistant")
+    parser.add_argument("--migrations-dir", default="apps/backend/migrations")
     args = parser.parse_args(argv)
 
     def runs_of():
@@ -121,6 +130,7 @@ def main(argv=None):
         jobs_of,
         args.today,
         args.run_id,
+        clerk_present(pathlib.Path(args.migrations_dir)),
     )
     print(f"run={'true' if run else 'false'}")
     print(f"reason={reason}")
