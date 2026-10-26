@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { checkCoverage } from './cases/coverage.ts';
@@ -38,6 +38,8 @@ import { checkQuota, estimateRequests } from './quota.ts';
 import { hcmDate, renderModelChoice, type ModelChoiceRow } from './results.ts';
 import {
   AuthConfigError,
+  ClerkAuth,
+  DEFAULT_EVAL_STORE_ID,
   EnvAuth,
   StubAuth,
   type AuthProvider,
@@ -67,6 +69,9 @@ const USAGE = [
   '                                     the values; --md writes ORACLES.md instead',
   '  smoke|full [options]               run the smoke set (25 cases) or every case',
   '  compare --models a,b,c [options]   run the smoke set once per model and rank them',
+  '  identities [--github-env]          mint a Clerk token for both roles (CLERK_SECRET_KEY) as a',
+  '                                     pre-flight check; --github-env also writes masked',
+  '                                     EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID to $GITHUB_ENV',
   '  calibrate [--judge-model id] [--file f] [--out dir]',
   '                                     check the judge against hand-labelled answers',
   '',
@@ -82,6 +87,7 @@ const USAGE = [
   '',
   'environment: BACKEND_URL EVAL_DATABASE_URL OPENROUTER_EVAL_API_KEY EVAL_JUDGE_MODELS',
   '  POSTHOG_PROJECT_TOKEN POSTHOG_HOST EVAL_TODAY EVAL_STORE_ID EVAL_LEAD_TOKEN EVAL_SELLER_TOKEN',
+  '  CLERK_SECRET_KEY CLERK_API_URL (mint tokens during the run when EVAL_LEAD_TOKEN is not set)',
   'exit codes: 0 pass, 1 a bar was missed or the run was refused or aborted, 2 bad usage or configuration',
 ].join('\n');
 
@@ -201,6 +207,21 @@ type Prepared = {
   closeStub: () => Promise<void>;
 };
 
+/**
+ * Fixed tokens (`EVAL_LEAD_TOKEN`) win; otherwise `CLERK_SECRET_KEY` mints
+ * tokens during the run; otherwise `EnvAuth` reports the missing token.
+ */
+export function chooseAuth(
+  env: Record<string, string | undefined>,
+  fetchFn?: typeof fetch,
+): AuthProvider {
+  if (!env.EVAL_LEAD_TOKEN?.trim()) {
+    const clerk = ClerkAuth.fromEnv(env, fetchFn);
+    if (clerk) return clerk;
+  }
+  return new EnvAuth(env);
+}
+
 async function prepare(
   flags: Flags,
   env: Record<string, string | undefined>,
@@ -317,7 +338,7 @@ async function prepare(
     cases,
     stub,
     baseUrl,
-    auth: new EnvAuth(env),
+    auth: chooseAuth(env, deps.fetch),
     oracle,
     judge: noJudge
       ? null
@@ -596,6 +617,53 @@ async function calibrateCommand(
   return result.pass ? 0 : 1;
 }
 
+/**
+ * Pre-flight for Clerk identities: mint a token for each role. With
+ * `--github-env` the tokens are masked and appended to `$GITHUB_ENV`. Tokens
+ * live about 60 s, so a run must use `CLERK_SECRET_KEY` (`ClerkAuth` refreshes
+ * them); exported tokens only suit a command that starts right away.
+ */
+async function identitiesCommand(
+  args: string[],
+  env: Record<string, string | undefined>,
+  deps: Required<Pick<CliDeps, 'log' | 'warn'>> & CliDeps,
+): Promise<number> {
+  const flags = parseFlags(args, ['--github-env'], []);
+  const githubEnv = env.GITHUB_ENV?.trim();
+  if (flags.booleans.has('--github-env') && !githubEnv) {
+    throw new UsageError(
+      '--github-env needs GITHUB_ENV (set by GitHub Actions)',
+    );
+  }
+  const clerk = ClerkAuth.fromEnv(env, deps.fetch);
+  if (!clerk) {
+    throw new AuthConfigError(
+      'CLERK_SECRET_KEY is not set (needed to mint identities)',
+    );
+  }
+  const roles = ['lead', 'seller'] as const;
+  const minted = new Map<(typeof roles)[number], string>();
+  for (const role of roles) {
+    const { token } = await clerk.mintToken(role);
+    minted.set(role, token);
+    deps.log(`${role}: Clerk token minted`);
+  }
+  if (githubEnv) {
+    const storeId = env.EVAL_STORE_ID?.trim() || DEFAULT_EVAL_STORE_ID;
+    let block = '';
+    for (const [role, token] of minted) {
+      deps.log(`::add-mask::${token}`);
+      block += `EVAL_${role.toUpperCase()}_TOKEN=${token}\n`;
+    }
+    block += `EVAL_STORE_ID=${storeId}\n`;
+    appendFileSync(githubEnv, block);
+    deps.log(
+      'EVAL_LEAD_TOKEN, EVAL_SELLER_TOKEN and EVAL_STORE_ID written to GITHUB_ENV',
+    );
+  }
+  return 0;
+}
+
 /** Run one CLI command; returns the exit code. */
 export async function main(
   argv: string[],
@@ -620,6 +688,8 @@ export async function main(
         return await calibrateCommand(rest, env, full);
       case 'oracles':
         return await oraclesCommand(rest, env, full);
+      case 'identities':
+        return await identitiesCommand(rest, env, full);
       default:
         console.error(USAGE);
         return 2;
