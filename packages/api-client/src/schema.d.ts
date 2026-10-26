@@ -536,7 +536,12 @@ export interface paths {
          *     saw. It recomputes `total` from lines and rejects a mismatch (400). A line whose
          *     `unit_price` differs from the catalog price at `sold_at` is stored with
          *     `price_mismatch=true` for Lead review. `member_id` comes from the token.
-         *     Idempotent on `id`.
+         *     Idempotent on `id`. All members (RecordDebt) may record credit sales.
+         *     `payment_method=credit` requires `credit.amount = total` and no `cash_received`.
+         *     For cash or transfer with `credit`, `0 < credit.amount < total`. Cash received must
+         *     cover the paid part (`total − credit.amount`); `change_given` uses that paid part.
+         *     Unknown customer returns 404. Archived customers still accept credit sales, and
+         *     credit limits never block. The sale and its credit_sale entry commit together.
          */
         post: operations["createSale"];
         delete?: never;
@@ -578,8 +583,157 @@ export interface paths {
         /**
          * Void or refund a completed sale with a reason (S10)
          * @description Lead, or the seller who made the sale on the same business date. Idempotent.
+         *     A credit sale adds one void entry of −credit_amount on the void business date,
+         *     in the same transaction. Repeated voids add no entry.
          */
         post: operations["voidSale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the debt book
+         * @description All members (RecordDebt).
+         */
+        get: operations["listCustomers"];
+        put?: never;
+        /**
+         * Create a customer
+         * @description All members (RecordDebt). Idempotent on client UUIDv7 `id`: identical body replays
+         *     with 200; a different body returns 409 `id_conflict`. Credit limits warn; they never block.
+         */
+        post: operations["createCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/customers/{customerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Customer balance and profile
+         * @description All members (RecordDebt).
+         */
+        get: operations["getCustomer"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit a customer
+         * @description All members (RecordDebt) may edit the profile. Changing `archived` requires Lead
+         *     (AdjustDebt); sellers receive 403. Null clears phone, note or credit_limit.
+         */
+        patch: operations["updateCustomer"];
+        trace?: never;
+    };
+    "/v1/customers/{customerId}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Customer ledger, newest first
+         * @description All members (RecordDebt). Positive amounts increase debt; negative amounts reduce it.
+         */
+        get: operations["listDebtEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/customers/{customerId}/repayments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a repayment
+         * @description All members (RecordDebt). Overpayment is allowed; a negative balance means the store
+         *     holds the customer’s money. Repayments for archived customers still succeed.
+         *     Requires `Idempotency-Key`; missing key or invalid body returns 422. Identical retries
+         *     return the same entry with 200. Reusing a key with another body or customer returns
+         *     409 `id_conflict`. The entry, customer balance and events commit together.
+         *     Business date uses device time (default server time), in Asia/Ho_Chi_Minh.
+         */
+        post: operations["createRepayment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/customers/{customerId}/adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adjust debt (Lead)
+         * @description Lead only (AdjustDebt); sellers receive 403.
+         *     Requires `Idempotency-Key`; missing key or invalid body returns 422. Identical retries
+         *     return the same entry with 200. Reusing a key with another body or customer returns
+         *     409 `id_conflict`. The entry, customer balance and events commit together.
+         *     Business date uses device time (default server time), in Asia/Ho_Chi_Minh.
+         */
+        post: operations["createDebtAdjustment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/debts/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outstanding debt overview
+         * @description All members (RecordDebt). Overdue means debt_age_days > 7.
+         */
+        get: operations["getDebtSummary"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -885,7 +1039,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Today screen (R1) */
+        /**
+         * Today screen (R1)
+         * @description `revenue` is the full sale total (credit sales are revenue). `cash_revenue` and
+         *     `transfer_revenue` count only the paid part (`total − credit_amount`) of cash and
+         *     transfer sales. `cash_repayments` sums cash repayments of that business date and
+         *     `credit_sales` sums credit_amount of completed sales of that date, so the day close
+         *     screen can show both before the day is closed. `expected_cash` includes
+         *     `cash_repayments`.
+         */
         get: operations["getDailyReport"];
         put?: never;
         post?: never;
@@ -993,10 +1155,12 @@ export interface paths {
         get: operations["getDayClose"];
         /**
          * Enter counted cash; returns expected cash and difference (R2, F5)
-         * @description `expected_cash = opening_float + cash sales − cash refunds − expenses paid in cash`
+         * @description `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
          *     for that business date, computed on the server from synced records. Re-closing the
          *     same date overwrites the count and recomputes; sales synced after a close are
-         *     reported in `late_sales_count`.
+         *     reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+         *     the paid part (`total − credit_amount`). Repayments are summed by method and business
+         *     date; `credit_sales` sums credit_amount of completed sales of that date.
          */
         put: operations["putDayClose"];
         post?: never;
@@ -1016,7 +1180,7 @@ export interface paths {
         /**
          * Pull catalog and settings changes since a cursor (offline-first, G4)
          * @description Returns server-owned entities that changed after `since`: store, members, categories,
-         *     products (with units and reference images). Sales and expenses are pushed by the phone
+         *     products (with units and reference images), customers and debt entries. Sales and expenses are pushed by the phone
          *     and are not part of the feed. Start with no `since` for a full snapshot. Repeat while
          *     `has_more`. Deletions arrive as `op=delete`.
          */
@@ -1872,8 +2036,124 @@ export interface components {
             /** @enum {string} */
             source: "manual" | "margin_alert" | "purchase";
         };
+        Customer: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            phone: string | null;
+            note: string | null;
+            credit_limit: components["schemas"]["Money"] | null;
+            /**
+             * Format: int64
+             * @description Positive means debt; negative means the store holds the customer's money.
+             */
+            balance: number;
+            /**
+             * Format: date
+             * @description Oldest unsettled credit business date (FIFO); null when balance is at most zero. Voids cancel their own sale credits before aging.
+             */
+            oldest_debt_date: string | null;
+            /** @description Today minus oldest_debt_date in Asia/Ho_Chi_Minh business dates; null when no unsettled debt. */
+            debt_age_days: number | null;
+            /** @description debt_age_days > 7; false when debt_age_days is null. */
+            overdue: boolean;
+            archived: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CreateCustomerRequest: {
+            /**
+             * Format: uuid
+             * @description Client UUIDv7.
+             */
+            id: string;
+            name: string;
+            phone?: string;
+            note?: string;
+            credit_limit?: components["schemas"]["Money"];
+        };
+        UpdateCustomerRequest: {
+            name?: string;
+            phone?: string | null;
+            note?: string | null;
+            credit_limit?: components["schemas"]["Money"] | null;
+            /** @description Lead only (AdjustDebt). */
+            archived?: boolean;
+        };
+        CustomerList: components["schemas"]["Page"] & {
+            items?: components["schemas"]["Customer"][];
+        };
+        DebtEntry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            customer_id: string;
+            /** @enum {string} */
+            kind: "credit_sale" | "repayment" | "adjustment" | "void";
+            /**
+             * Format: int64
+             * @description Signed VND; credit_sale positive, repayment and void negative, adjustment nonzero either way.
+             */
+            amount: number;
+            /** Format: int64 */
+            balance_after: number;
+            /** Format: uuid */
+            sale_id: string | null;
+            /** @enum {string|null} */
+            method: "cash" | "transfer" | null;
+            reason: string | null;
+            /** Format: uuid */
+            member_id: string;
+            /** Format: date */
+            business_date: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        DebtEntryList: components["schemas"]["Page"] & {
+            items?: components["schemas"]["DebtEntry"][];
+        };
+        CreateRepaymentRequest: {
+            /** @description Positive input; stored as a negative ledger amount. Overpayment is allowed. */
+            amount: components["schemas"]["Money"];
+            /** @enum {string} */
+            method: "cash" | "transfer";
+            /**
+             * Format: date-time
+             * @description Device time; defaults to server time.
+             */
+            paid_at?: string;
+        };
+        CreateDebtAdjustmentRequest: {
+            /**
+             * Format: int64
+             * @description Signed nonzero VND; positive increases debt.
+             */
+            amount: number;
+            reason: string;
+            /**
+             * Format: date-time
+             * @description Device time; defaults to server time.
+             */
+            adjusted_at?: string;
+        };
+        DebtSummary: {
+            /** @description Sum of positive customer balances. */
+            total_outstanding: components["schemas"]["Money"];
+            customers_with_debt: number;
+            overdue_count: number;
+            overdue_amount: components["schemas"]["Money"];
+            /** @description Customers with positive balances, largest balance first. */
+            top_debtors: components["schemas"]["Customer"][];
+        };
+        SaleCredit: {
+            /** Format: uuid */
+            customer_id: string;
+            amount: components["schemas"]["Money"];
+        };
         /** @enum {string} */
-        PaymentMethod: "cash" | "transfer";
+        PaymentMethod: "cash" | "transfer" | "credit";
         /**
          * @description How the line entered the cart (S1, S8, S2, S3, S4).
          * @enum {string}
@@ -1922,6 +2202,7 @@ export interface components {
              */
             sold_at: string;
             payment_method: components["schemas"]["PaymentMethod"];
+            credit?: components["schemas"]["SaleCredit"];
             cash_received?: components["schemas"]["Money"];
             total: components["schemas"]["Money"];
             /** @example TH 7KQ4MZ */
@@ -1952,6 +2233,9 @@ export interface components {
             cash_received?: components["schemas"]["Money"] | null;
             change_given?: components["schemas"]["Money"] | null;
             total: components["schemas"]["Money"];
+            credit_amount: components["schemas"]["Money"];
+            /** Format: uuid */
+            customer_id?: string | null;
             vietqr_memo?: string | null;
             /** @enum {string} */
             status: "completed" | "voided";
@@ -2062,6 +2346,8 @@ export interface components {
             voided_count?: number;
             cash_revenue: components["schemas"]["Money"];
             transfer_revenue: components["schemas"]["Money"];
+            cash_repayments: components["schemas"]["Money"];
+            credit_sales: components["schemas"]["Money"];
             expenses: components["schemas"]["Money"];
             /**
              * Format: int64
@@ -2112,6 +2398,9 @@ export interface components {
             opening_float?: components["schemas"]["Money"];
             cash_sales?: components["schemas"]["Money"];
             cash_refunds?: components["schemas"]["Money"];
+            cash_repayments?: components["schemas"]["Money"];
+            transfer_repayments?: components["schemas"]["Money"];
+            credit_sales?: components["schemas"]["Money"];
             cash_expenses?: components["schemas"]["Money"];
             expected_cash: components["schemas"]["Money"];
             counted_cash: components["schemas"]["Money"];
@@ -2134,13 +2423,13 @@ export interface components {
             /** Format: int64 */
             seq: number;
             /** @enum {string} */
-            entity: "store" | "member" | "category" | "product";
+            entity: "store" | "member" | "category" | "product" | "customer" | "debt_entry";
             /** @enum {string} */
             op: "upsert" | "delete";
             /** Format: uuid */
             id: string;
             /** @description Full entity for `upsert`, shaped by `entity`; absent for `delete`. */
-            data?: components["schemas"]["Store"] | components["schemas"]["Member"] | components["schemas"]["Category"] | components["schemas"]["Product"];
+            data?: components["schemas"]["Store"] | components["schemas"]["Member"] | components["schemas"]["Category"] | components["schemas"]["Product"] | components["schemas"]["Customer"] | components["schemas"]["DebtEntry"];
         };
         ChangeFeed: {
             changes: components["schemas"]["Change"][];
@@ -2155,7 +2444,7 @@ export interface components {
             /** @example evt_000000000000128 */
             id: string;
             /** @enum {string} */
-            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed" | "assistant.action.confirmed" | "assistant.action.rejected";
+            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "customer.created" | "customer.updated" | "debt.recorded" | "debt.repaid" | "debt.adjusted" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed" | "assistant.action.confirmed" | "assistant.action.rejected";
             version: number;
             /** Format: uuid */
             store_id: string;
@@ -2603,6 +2892,7 @@ export interface components {
         SaleId: string;
         AlertId: string;
         ReceiptId: string;
+        CustomerId: string;
         /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
         IdempotencyKey: string;
         Limit: number;
@@ -3735,6 +4025,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -3805,6 +4096,285 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomers: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive substring of name or phone. */
+                query?: string;
+                /** @description Filter by overdue status (debt_age_days > 7). */
+                overdue?: boolean;
+                /** @description Archived customers are hidden by default. */
+                archived?: boolean;
+                /** @description Sort customers by balance (largest first), recent activity or name. */
+                sort?: "balance" | "recent" | "name";
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Customers page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createCustomer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCustomerRequest"];
+            };
+        };
+        responses: {
+            /** @description Replay of an identical earlier create. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
+            /** @description Customer created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getCustomer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Customer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateCustomer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["UpdateCustomerRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated customer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDebtEntries: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debt entries page, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtEntryList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createRepayment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+                /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRepaymentRequest"];
+            };
+        };
+        responses: {
+            /** @description Replay of the same entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtEntry"];
+                };
+            };
+            /** @description Debt entry recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtEntry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    createDebtAdjustment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+                /** @description Stable key for retries of the same operation and body; changed bodies conflict. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                customerId: components["parameters"]["CustomerId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDebtAdjustmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Replay of the same entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtEntry"];
+                };
+            };
+            /** @description Debt entry recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtEntry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    getDebtSummary: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debt summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listManualLines: {

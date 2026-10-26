@@ -22,6 +22,9 @@ struct Close {
     opening_float: i64,
     cash_sales: i64,
     cash_refunds: i64,
+    cash_repayments: i64,
+    transfer_repayments: i64,
+    credit_sales: i64,
     cash_expenses: i64,
     expected_cash: i64,
     counted_cash: i64,
@@ -93,6 +96,9 @@ pub(super) struct Input {
 struct Cash {
     cash_sales: i64,
     cash_refunds: i64,
+    cash_repayments: i64,
+    transfer_repayments: i64,
+    credit_sales: i64,
     cash_expenses: i64,
     transfer_revenue: i64,
     closed_at: DateTime<Utc>,
@@ -119,40 +125,55 @@ pub(super) async fn put(
         .bind(format!("day-close:{}:{day}", actor.store_id))
         .execute(&mut *tx)
         .await?;
+    // Sales and refunds count only the part paid now (`total - credit_amount`); what stayed on a
+    // customer's tab is `credit_sales`, and collected debts come back as repayments by method.
     let c: Cash = sqlx::query_as(r#"
         WITH s AS (
-            SELECT COALESCE(sum(total) FILTER (WHERE payment_method='cash'),0)::bigint cash_completed,
-                COALESCE(sum(total) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue
+            SELECT COALESCE(sum(total-credit_amount) FILTER (WHERE payment_method='cash'),0)::bigint cash_completed,
+                COALESCE(sum(total-credit_amount) FILTER (WHERE payment_method='transfer'),0)::bigint transfer_revenue,
+                COALESCE(sum(credit_amount),0)::bigint credit_sales
             FROM sales WHERE store_id=$1 AND business_date=$2 AND status='completed'
         ), v AS (
-            SELECT COALESCE(sum(total),0)::bigint cash_refunds FROM sales
+            SELECT COALESCE(sum(total-credit_amount),0)::bigint cash_refunds FROM sales
             WHERE store_id=$1 AND business_date=$2 AND status='voided' AND payment_method='cash'
+        ), r AS (
+            SELECT COALESCE(sum(-amount) FILTER (WHERE method='cash'),0)::bigint cash_repayments,
+                COALESCE(sum(-amount) FILTER (WHERE method='transfer'),0)::bigint transfer_repayments
+            FROM debt_entries WHERE store_id=$1 AND business_date=$2 AND kind='repayment'
         ), e AS (
             SELECT COALESCE(sum(amount),0)::bigint cash_expenses FROM expenses
             WHERE store_id=$1 AND business_date=$2 AND deleted_at IS NULL AND paid_with='cash_box'
         )
-        SELECT s.cash_completed+v.cash_refunds cash_sales,v.cash_refunds,e.cash_expenses,
-            s.transfer_revenue,statement_timestamp() closed_at FROM s CROSS JOIN v CROSS JOIN e
+        SELECT s.cash_completed+v.cash_refunds cash_sales,v.cash_refunds,r.cash_repayments,
+            r.transfer_repayments,s.credit_sales,e.cash_expenses,s.transfer_revenue,
+            statement_timestamp() closed_at
+        FROM s CROSS JOIN v CROSS JOIN r CROSS JOIN e
     "#).bind(actor.store_id).bind(day).fetch_one(&mut *tx).await?;
     let expected = money::expected_cash(
         input.opening_float,
         c.cash_sales,
         c.cash_refunds,
+        c.cash_repayments,
         c.cash_expenses,
     );
     let row: Close = sqlx::query_as(r#"
         INSERT INTO day_closes (store_id,business_date,opening_float,cash_sales,cash_refunds,cash_expenses,
-            expected_cash,counted_cash,transfer_revenue,note,closed_by,closed_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            expected_cash,counted_cash,transfer_revenue,note,closed_by,closed_at,
+            cash_repayments,transfer_repayments,credit_sales)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         ON CONFLICT (store_id,business_date) DO UPDATE SET opening_float=EXCLUDED.opening_float,
             cash_sales=EXCLUDED.cash_sales,cash_refunds=EXCLUDED.cash_refunds,cash_expenses=EXCLUDED.cash_expenses,
+            cash_repayments=EXCLUDED.cash_repayments,transfer_repayments=EXCLUDED.transfer_repayments,
+            credit_sales=EXCLUDED.credit_sales,
             expected_cash=EXCLUDED.expected_cash,counted_cash=EXCLUDED.counted_cash,
             transfer_revenue=EXCLUDED.transfer_revenue,note=EXCLUDED.note,closed_by=EXCLUDED.closed_by,
             closed_at=EXCLUDED.closed_at
         RETURNING *,0::bigint late_sales_count
     "#).bind(actor.store_id).bind(day).bind(input.opening_float).bind(c.cash_sales).bind(c.cash_refunds)
         .bind(c.cash_expenses).bind(expected).bind(input.counted_cash).bind(c.transfer_revenue)
-        .bind(input.note).bind(actor.member_id).bind(c.closed_at).fetch_one(&mut *tx).await?;
+        .bind(input.note).bind(actor.member_id).bind(c.closed_at)
+        .bind(c.cash_repayments).bind(c.transfer_repayments).bind(c.credit_sales)
+        .fetch_one(&mut *tx).await?;
     emit(&mut tx, Event {
         store_id:actor.store_id,actor:Some(actor.event_actor()),typ:"day.closed",version:1,
         data:json!({"business_date":day,"expected_cash":expected,"counted_cash":row.counted_cash,"difference":row.difference}),

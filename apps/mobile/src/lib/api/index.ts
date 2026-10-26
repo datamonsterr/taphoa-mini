@@ -20,3 +20,5 @@ export type * from './types';
 export * from './stock';
 export * from './receipts';
 export * from './events';
+
+export * from './debts';

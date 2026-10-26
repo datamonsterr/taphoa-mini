@@ -104,7 +104,7 @@ PATH:
 pnpm --filter @taphoa/mobile test:e2e
 ```
 
-The Maestro flows in `.maestro/` (smoke, onboarding, inventory, checkout) launch
+The Maestro flows in `.maestro/` (smoke, onboarding, inventory, checkout, debts) launch
 `com.datamonsterr.taphoamini` against the real backend (`scripts/e2e/stack.sh up`; the
 emulator reaches it as `http://10.0.2.2:8080`). Each flow creates a store of its own
 (`subflows/create-store.yaml`), so none depends on another's data or on what recognition makes

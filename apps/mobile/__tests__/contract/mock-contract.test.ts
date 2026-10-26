@@ -814,6 +814,72 @@ describe('stock and receipts', () => {
   });
 });
 
+test('debt customers, credit sale, ledger writes, summary and void conform to the contract', async () => {
+  const input = {
+    id: newUuid(),
+    name: 'Lan',
+    phone: '0901234567',
+    credit_limit: 5000,
+  };
+  const customer = (await call(() => api.createCustomer(input), 201)).data;
+  await call(() => api.createCustomer(input), 200);
+  await call(() => api.createCustomer({ ...input, name: 'Mai' }), 409);
+  await call(
+    () => api.listCustomers({ sort: 'recent', query: 'Lan', limit: 1 }),
+    200,
+  );
+  await call(() => api.getCustomer(customer.id), 200);
+  await call(() => api.getCustomer(newUuid()), 404);
+  await call(
+    () => api.updateCustomer(customer.id, { note: 'Ghi chú', phone: null }),
+    200,
+  );
+  const sale = (
+    await call(
+      () =>
+        api.createSale({
+          id: newUuid(),
+          sold_at: new Date().toISOString(),
+          payment_method: 'credit',
+          credit: { customer_id: customer.id, amount: 10000 },
+          total: 10000,
+          lines: [lineFor(PRODUCT_IDS.coca, 1, 10000)],
+        }),
+      201,
+    )
+  ).data;
+  const repayment = { amount: 1000, method: 'cash' as const };
+  const key = newUuid();
+  await call(() => api.createRepayment(customer.id, repayment, key), 201);
+  await call(() => api.createRepayment(customer.id, repayment, key), 200);
+  await call(
+    () => api.createRepayment(customer.id, { ...repayment, amount: 2000 }, key),
+    409,
+  );
+  await call(() => api.createRepayment(customer.id, repayment, ''), 422);
+  const adjustmentKey = newUuid();
+  const adjustment = { amount: -500, reason: 'Sửa nợ' };
+  await call(
+    () => api.createDebtAdjustment(customer.id, adjustment, adjustmentKey),
+    201,
+  );
+  await call(
+    () => api.createDebtAdjustment(customer.id, adjustment, adjustmentKey),
+    200,
+  );
+  await call(() => api.listDebtEntries(customer.id), 200);
+  await call(() => api.getDebtSummary(), 200);
+  await call(async () => {
+    const result = await api
+      .getApiClient()
+      .raw.POST('/v1/sales/{saleId}/void', {
+        params: { path: { saleId: sale.id } },
+        body: { reason: 'Nhầm đơn' },
+      });
+    return result.data;
+  }, 200);
+});
+
 describe('assistant and devices', () => {
   test('threads, streamed proposal, decisions, feedback, next steps, digest and device registration match schemas', async () => {
     const client = createApiClient({

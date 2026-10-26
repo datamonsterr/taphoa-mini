@@ -1,3 +1,14 @@
+import {
+  createCustomer,
+  updateCustomer,
+  getCustomer,
+  listCustomers,
+  listDebtEntries,
+  createRepayment,
+  createDebtAdjustment,
+  getDebtSummary,
+  type ListCustomersParams,
+} from './debts';
 import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 
@@ -70,6 +81,10 @@ import {
   patchStore,
 } from './store';
 import type {
+  CreateCustomerRequest,
+  UpdateCustomerRequest,
+  CreateRepaymentRequest,
+  CreateDebtAdjustmentRequest,
   AlertStatus,
   ReceiptCreate,
   ReceiptConfirm,
@@ -298,7 +313,7 @@ type Idempotent<T> = T & { idempotencyKey?: string };
 /** React Query retries with the same variables object after a lost response. */
 function useOperationKey() {
   const operationKeys = useRef(new WeakMap<object, string>());
-  return (input: { idempotencyKey?: string }) => {
+  return <T extends object>(input: T & { idempotencyKey?: string }) => {
     if (input.idempotencyKey) return input.idempotencyKey;
     let key = operationKeys.current.get(input);
     if (!key) {
@@ -455,6 +470,9 @@ export function useCreateSale() {
       invalidate(
         qc,
         keys.sales.all(),
+        keys.customers.all(),
+        keys.debtEntries.all(),
+        keys.debtSummary(),
         keys.stock.all(),
         [...keys.all, 'stock-movements'],
         keys.manualLines.all(),
@@ -617,4 +635,82 @@ export function applyProductIndexed(
     { queryKey: keys.products.all() },
     withIndexStatus(data.product_id, data.index_status),
   );
+}
+
+export const useCustomers = (
+  params: Omit<ListCustomersParams, 'cursor'> = {},
+) =>
+  useInfiniteQuery({
+    queryKey: keys.customers.list(params),
+    queryFn: ({ pageParam }) =>
+      listCustomers({ ...params, ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items ?? []),
+    // Typing in a search box must not blank the list between keystrokes.
+    placeholderData: keepPreviousData,
+  });
+export const useCustomer = (id: string | undefined) =>
+  useQuery({
+    queryKey: keys.customers.detail(id ?? ''),
+    queryFn: () => getCustomer(id!),
+    enabled: Boolean(id),
+  });
+export const useDebtEntries = (id: string | undefined) =>
+  useInfiniteQuery({
+    queryKey: keys.debtEntries.list(id ?? ''),
+    enabled: Boolean(id),
+    queryFn: ({ pageParam }) =>
+      listDebtEntries(id!, pageParam ? { cursor: pageParam } : {}),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items ?? []),
+  });
+export const useDebtSummary = () =>
+  useQuery({ queryKey: keys.debtSummary(), queryFn: getDebtSummary });
+const invalidateDebts = (qc: QueryClient) =>
+  invalidate(
+    qc,
+    keys.customers.all(),
+    keys.debtEntries.all(),
+    keys.debtSummary(),
+    keys.reports.all(),
+  );
+export function useCreateCustomer() {
+  const qc = useQueryClient();
+  const operationKey = useOperationKey();
+  return useMutation({
+    mutationFn: (input: Omit<CreateCustomerRequest, 'id'> & { id?: string }) =>
+      createCustomer({ ...input, id: input.id ?? operationKey(input) }),
+    onSuccess: () => invalidateDebts(qc),
+  });
+}
+export function useUpdateCustomer(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateCustomerRequest) => updateCustomer(id, body),
+    onSuccess: () => invalidateDebts(qc),
+  });
+}
+export function useCreateRepayment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      idempotencyKey,
+      ...body
+    }: CreateRepaymentRequest & { idempotencyKey: string }) =>
+      createRepayment(id, body, idempotencyKey),
+    onSuccess: () => invalidateDebts(qc),
+  });
+}
+export function useCreateDebtAdjustment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      idempotencyKey,
+      ...body
+    }: CreateDebtAdjustmentRequest & { idempotencyKey: string }) =>
+      createDebtAdjustment(id, body, idempotencyKey),
+    onSuccess: () => invalidateDebts(qc),
+  });
 }

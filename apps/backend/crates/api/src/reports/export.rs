@@ -36,21 +36,26 @@ struct Transaction {
     code_or_category: String,
     payment: String,
     amount: i64,
+    credit_amount: i64,
     status: String,
     member: String,
 }
-const HEADERS: [&str; 8] = [
+/// `amount` is the full sale total and `credit_amount` the part of it left on credit, so a partial
+/// credit cash sale is not mistaken for a full cash sale. Repayments are positive cash or transfer
+/// received on a debt; no customer name or phone is exported.
+const HEADERS: [&str; 9] = [
     "type",
     "business_date",
     "time",
     "code_or_category",
     "payment_method/paid_with",
     "amount",
+    "credit_amount",
     "status",
     "member name",
 ];
 impl Transaction {
-    fn cells(&self) -> [String; 8] {
+    fn cells(&self) -> [String; 9] {
         [
             self.typ.clone(),
             self.business_date.to_string(),
@@ -61,6 +66,7 @@ impl Transaction {
             self.code_or_category.clone(),
             self.payment.clone(),
             self.amount.to_string(),
+            self.credit_amount.to_string(),
             self.status.clone(),
             self.member.clone(),
         ]
@@ -99,11 +105,11 @@ fn xlsx(rows: &[Transaction]) -> Result<Vec<u8>, XlsxError> {
     for (index, row) in rows.iter().enumerate() {
         let index = u32::try_from(index + 1).map_err(|_| XlsxError::RowColumnLimitError)?;
         for (col, value) in row.cells().into_iter().enumerate() {
-            if col == 5 {
-                worksheet.write_number(index, col as u16, row.amount as f64)?;
-            } else {
-                worksheet.write_string(index, col as u16, value)?;
-            }
+            match col {
+                5 => worksheet.write_number(index, col as u16, row.amount as f64)?,
+                6 => worksheet.write_number(index, col as u16, row.credit_amount as f64)?,
+                _ => worksheet.write_string(index, col as u16, value)?,
+            };
         }
     }
     workbook.save_to_buffer()
@@ -116,18 +122,32 @@ pub(super) async fn transactions(
     actor.require(Action::Exports)?;
     let p = query(params)?;
     p.range.validate()?;
-    let rows: Vec<Transaction> = sqlx::query_as(r#"
+    let rows: Vec<Transaction> = sqlx::query_as(
+        r#"
         SELECT * FROM (
             SELECT 'sale'::text typ,s.business_date,s.sold_at at,s.code code_or_category,
-                s.payment_method payment,s.total amount,s.status,m.display_name member,s.id
+                s.payment_method payment,s.total amount,s.credit_amount credit_amount,s.status,
+                m.display_name member,s.id
             FROM sales s JOIN members m ON m.id=s.member_id AND m.store_id=s.store_id
             WHERE s.store_id=$1 AND s.business_date BETWEEN $2 AND $3
             UNION ALL
-            SELECT 'expense',e.business_date,e.spent_at,e.category,e.paid_with,e.amount,'completed',m.display_name,e.id
+            SELECT 'expense',e.business_date,e.spent_at,e.category,e.paid_with,e.amount,0::bigint,
+                'completed',m.display_name,e.id
             FROM expenses e JOIN members m ON m.id=e.member_id AND m.store_id=e.store_id
             WHERE e.store_id=$1 AND e.business_date BETWEEN $2 AND $3 AND e.deleted_at IS NULL
+            UNION ALL
+            SELECT 'repayment',d.business_date,d.created_at,'debt',COALESCE(d.method,''),-d.amount,0::bigint,
+                'completed',m.display_name,d.id
+            FROM debt_entries d JOIN members m ON m.id=d.member_id AND m.store_id=d.store_id
+            WHERE d.store_id=$1 AND d.business_date BETWEEN $2 AND $3 AND d.kind='repayment'
         ) t ORDER BY business_date,at,typ,id
-    "#).bind(actor.store_id).bind(p.range.from).bind(p.range.to).fetch_all(pool(&state)?).await?;
+    "#,
+    )
+    .bind(actor.store_id)
+    .bind(p.range.from)
+    .bind(p.range.to)
+    .fetch_all(pool(&state)?)
+    .await?;
     let (body, content_type, extension) = match p.format {
         Format::Csv => (csv(&rows), "text/csv; charset=utf-8", "csv"),
         Format::Xlsx => {
@@ -167,5 +187,32 @@ mod tests {
         assert_eq!(csv_escape("a,b"), "\"a,b\"");
         assert_eq!(csv_escape("a\"b\r\nc"), "\"a\"\"b\r\nc\"");
         assert!(csv(&[]).starts_with(&[0xef, 0xbb, 0xbf]));
+    }
+    #[test]
+    fn csv_row_has_credit_amount_after_amount_and_matches_headers() {
+        let row = Transaction {
+            typ: "sale".into(),
+            business_date: NaiveDate::from_ymd_opt(2026, 3, 5).unwrap(),
+            at: DateTime::parse_from_rfc3339("2026-03-05T03:00:00Z")
+                .unwrap()
+                .into(),
+            code_or_category: "S-1".into(),
+            payment: "cash".into(),
+            amount: 30_000,
+            credit_amount: 12_000,
+            status: "completed".into(),
+            member: "Lead".into(),
+        };
+        assert_eq!(row.cells().len(), HEADERS.len());
+        assert_eq!(
+            HEADERS[5..7],
+            ["amount", "credit_amount"],
+            "credit_amount sits right after amount"
+        );
+        let text = String::from_utf8(csv(&[row])).unwrap();
+        assert!(
+            text.ends_with("sale,2026-03-05,10:00:00,S-1,cash,30000,12000,completed,Lead\r\n"),
+            "{text}"
+        );
     }
 }

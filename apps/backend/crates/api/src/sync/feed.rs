@@ -169,6 +169,18 @@ async fn load_entities(
             .collect::<Vec<_>>()
     };
     let mut entities = HashMap::new();
+    let customer_ids = ids("customer");
+    if !customer_ids.is_empty() {
+        for (id, data) in crate::debts::load_customers(conn, actor.store_id, &customer_ids).await? {
+            entities.insert(("customer".into(), id), data);
+        }
+    }
+    let entry_ids = ids("debt_entry");
+    if !entry_ids.is_empty() {
+        for (id, data) in crate::debts::load_entries(conn, actor.store_id, &entry_ids).await? {
+            entities.insert(("debt_entry".into(), id), data);
+        }
+    }
     let store_ids = ids("store");
     if !store_ids.is_empty() {
         let stores: Vec<StoreRow> = sqlx::query_as("SELECT id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct::float8 AS margin_threshold_pct,sales_memo_prefix,low_stock_threshold,created_at,version FROM stores WHERE id = ANY($1) AND id=$2")

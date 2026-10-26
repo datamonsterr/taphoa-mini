@@ -4,6 +4,8 @@ use crate::error::{ApiError, ApiResult};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Sell,
+    RecordDebt,
+    AdjustDebt,
     AdjustStock,
     VoidOwnSaleSameDay,
     VoidAnySale,
@@ -26,7 +28,7 @@ pub fn can(actor: &Actor, action: Action) -> bool {
     actor.role == Role::Lead
         || matches!(
             action,
-            Action::Sell | Action::VoidOwnSaleSameDay | Action::AddExpense
+            Action::Sell | Action::RecordDebt | Action::VoidOwnSaleSameDay | Action::AddExpense
         )
         || (action == Action::EnrollProduct && actor.can_enroll)
 }

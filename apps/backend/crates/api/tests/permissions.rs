@@ -19,6 +19,8 @@ fn matrix() {
     // (action, lead, seller, seller+can_enroll)
     let table = [
         (Sell, true, true, true),
+        (RecordDebt, true, true, true),
+        (AdjustDebt, true, false, false),
         (AdjustStock, true, false, false),
         (VoidOwnSaleSameDay, true, true, true),
         (VoidAnySale, true, false, false),

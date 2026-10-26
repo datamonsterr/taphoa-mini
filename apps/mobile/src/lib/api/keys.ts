@@ -6,6 +6,17 @@ import type { ReceiptStatus } from './receipts';
 /** React Query key factory. Every key starts with `api` so a whole mode can be reset at once. */
 export const keys = {
   all: ['api'] as const,
+  customers: {
+    all: () => [...keys.all, 'customers'] as const,
+    list: (params: object = {}) =>
+      [...keys.customers.all(), 'list', params] as const,
+    detail: (id: string) => [...keys.customers.all(), 'detail', id] as const,
+  },
+  debtEntries: {
+    all: () => [...keys.all, 'debt-entries'] as const,
+    list: (id: string) => [...keys.debtEntries.all(), id] as const,
+  },
+  debtSummary: () => [...keys.all, 'debt-summary'] as const,
   stock: {
     all: () => [...keys.all, 'stock'] as const,
     list: (status: StockStatus = 'all') =>

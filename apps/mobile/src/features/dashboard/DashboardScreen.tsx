@@ -18,6 +18,7 @@ import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
 import { BarChart } from './BarChart';
+import { DebtCard } from './DebtCard';
 import { StatTiles } from './StatTiles';
 import { dashboardStrings } from './strings';
 import { useDashboardData } from './useDashboardData';
@@ -122,6 +123,8 @@ export function DashboardScreen() {
       ) : null}
 
       <AlertsSection />
+
+      <DebtCard />
 
       {canEnroll ? (
         <PressableScale
