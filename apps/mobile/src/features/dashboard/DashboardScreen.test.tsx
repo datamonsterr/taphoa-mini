@@ -353,9 +353,10 @@ describe('debt book card', () => {
   });
 
   test("a Seller sees it too: debts are every member's", async () => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: { ...session!, member: { ...session!.member, role: 'seller' } },
+    const session = testSession();
+    setTestMembership({
+      ...session,
+      member: { ...session.member, role: 'seller' },
     });
     await seedCustomer({ name: 'Cô Mai', owes: 30000 });
     await renderWithProviders(<DashboardScreen />);

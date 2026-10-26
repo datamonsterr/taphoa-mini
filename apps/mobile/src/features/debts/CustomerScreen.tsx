@@ -25,9 +25,9 @@ import {
   useStore,
   type DebtEntry,
 } from '@/lib/api';
+import { useMembership } from '@/features/auth/useMembership';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
-import { selectIsLead, useSessionStore } from '@/stores/session';
 import { colors, radius, size, space, typography } from '@/theme';
 
 import { dayMonth } from '../close/difference';
@@ -139,8 +139,9 @@ function ActionButton({
 export function CustomerScreen({ id }: { id: string }) {
   const t = useT(debtStrings);
   const insets = useSafeAreaInsets();
-  const isLead = useSessionStore(selectIsLead);
-  const sessionStore = useSessionStore((s) => s.session?.store);
+  const membership = useMembership();
+  const isLead = membership?.member.role === 'lead';
+  const sessionStore = membership?.store;
   const customer = useCustomer(id);
   const entries = useDebtEntries(id);
   const store = useStore();
