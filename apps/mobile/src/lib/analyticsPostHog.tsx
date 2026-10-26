@@ -3,11 +3,16 @@ import Constants from 'expo-constants';
 import { usePathname, useSegments } from 'expo-router';
 import {
   PostHogProvider,
-  useFeatureFlag,
   usePostHog,
   type PostHog,
 } from 'posthog-react-native';
-import { useEffect, useRef, type PropsWithChildren } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type PropsWithChildren,
+} from 'react';
 
 import {
   setAnalyticsSink,
@@ -15,7 +20,7 @@ import {
   type AppEventName,
   type AppEventProps,
 } from './analytics';
-import { setAnalyticsBridge } from './analyticsBridge';
+import { setAnalyticsClient, useAnalyticsClient } from './analyticsBridge';
 import { useSettingsStore } from '@/stores/settings';
 
 export class PostHogSink implements AnalyticsSink {
@@ -43,15 +48,10 @@ function AnalyticsRegistration({ children }: PropsWithChildren) {
   const language = useSettingsStore((state) => state.language);
   useEffect(() => {
     setAnalyticsSink(new PostHogSink(posthog));
-    setAnalyticsBridge({
-      getSessionId: () => posthog.getSessionId(),
-      captureException: (error, props) =>
-        posthog.captureException(error, props),
-      isFeatureEnabled: (key) => posthog.isFeatureEnabled(key),
-    });
+    setAnalyticsClient(posthog);
     return () => {
       setAnalyticsSink(null);
-      setAnalyticsBridge(null);
+      setAnalyticsClient(null);
     };
   }, [posthog]);
   useEffect(() => {
@@ -112,13 +112,13 @@ export interface AnalyticsIdentity {
 
 /** Pure identity plumbing; the auth controller supplies identity after X1 lands. */
 export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
-  const posthog = usePostHog();
+  const posthog = useAnalyticsClient();
   const previous = useRef<string | null>(null);
   const { userId, email, name, storeId, storeName, memberId, role } =
     identity ?? {};
   const signedOut = identity === null;
   useEffect(() => {
-    if (!process.env.EXPO_PUBLIC_POSTHOG_KEY || !posthog) return;
+    if (!posthog) return;
     if (signedOut) {
       if (previous.current !== null) {
         void posthog.unregister('member_id');
@@ -168,9 +168,20 @@ export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
 }
 
 export const ASSISTANT_ENABLED_FLAG = 'assistant_enabled';
+/**
+ * The `assistant_enabled` kill switch. Fails open: `true` while PostHog is off, not mounted yet
+ * or still loading flags, so only an explicit remote `false` hides the assistant.
+ */
 export function useAssistantEnabled(): boolean {
-  const flag = useFeatureFlag(ASSISTANT_ENABLED_FLAG);
-  return !process.env.EXPO_PUBLIC_POSTHOG_KEY || flag === undefined
-    ? true
-    : Boolean(flag);
+  const client = useAnalyticsClient();
+  const subscribe = useCallback(
+    (notify: () => void) => client?.onFeatureFlags(notify) ?? (() => {}),
+    [client],
+  );
+  const read = useCallback(
+    () => client?.getFeatureFlag(ASSISTANT_ENABLED_FLAG),
+    [client],
+  );
+  const flag = useSyncExternalStore(subscribe, read, () => undefined);
+  return flag === undefined || flag === null ? true : Boolean(flag);
 }

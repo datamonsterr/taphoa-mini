@@ -216,7 +216,7 @@ test('identity is idempotent, omits absent person properties and resets on sign-
   const hook = await renderHook(
     ({ value }: { value: Parameters<typeof useAnalyticsIdentity>[0] }) =>
       useAnalyticsIdentity(value),
-    { initialProps: { value: identity } },
+    { initialProps: { value: identity }, wrapper: AnalyticsProvider },
   );
   expect(posthog.identify).toHaveBeenCalledWith('user', {
     email: identity.email,
@@ -244,7 +244,10 @@ test('incomplete identity is ignored and absent properties are omitted', async (
   const hook = await renderHook(
     ({ value }: { value: Parameters<typeof useAnalyticsIdentity>[0] }) =>
       useAnalyticsIdentity(value),
-    { initialProps: { value: { userId: 'u', storeId: null } } },
+    {
+      initialProps: { value: { userId: 'u', storeId: null } },
+      wrapper: AnalyticsProvider,
+    },
   );
   expect(posthog.identify).not.toHaveBeenCalled();
   await hook.rerender({ value: { userId: 'u', storeId: 's', email: null } });
@@ -258,14 +261,36 @@ test.each([undefined, true, false])(
   async (flag) => {
     process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
     if (flag !== undefined) featureFlags.set('assistant_enabled', flag);
-    const hook = await renderHook(useAssistantEnabled);
+    const hook = await renderHook(useAssistantEnabled, {
+      wrapper: AnalyticsProvider,
+    });
     expect(hook.result.current).toBe(flag ?? true);
+    expect(posthog.onFeatureFlags).toHaveBeenCalled();
   },
 );
 test('assistant is enabled when PostHog is off even with a stale disabled flag', async () => {
   featureFlags.set('assistant_enabled', false);
-  const hook = await renderHook(useAssistantEnabled);
+  const hook = await renderHook(useAssistantEnabled, {
+    wrapper: AnalyticsProvider,
+  });
   expect(hook.result.current).toBe(true);
+  expect(posthog.onFeatureFlags).not.toHaveBeenCalled();
+});
+
+test('a flag change notifies the assistant switch', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  let notify: (() => void) | undefined;
+  posthog.onFeatureFlags.mockImplementation((listener) => {
+    notify = listener;
+    return () => {};
+  });
+  const hook = await renderHook(useAssistantEnabled, {
+    wrapper: AnalyticsProvider,
+  });
+  expect(hook.result.current).toBe(true);
+  featureFlags.set('assistant_enabled', false);
+  await act(async () => notify?.());
+  expect(hook.result.current).toBe(false);
 });
 
 test('uses configured host and environment, with no native build version', async () => {

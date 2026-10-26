@@ -1,4 +1,6 @@
-import { setAnalyticsBridge } from '../analyticsBridge';
+import type { PostHog } from 'posthog-react-native';
+
+import { setAnalyticsClient } from '../analyticsBridge';
 
 import {
   apiBaseUrl,
@@ -71,11 +73,7 @@ test('without an injected transport the global fetch is used', async () => {
 
 test('reads the analytics session for each request from the bridge', async () => {
   let session: string | null = 'replay-1';
-  setAnalyticsBridge({
-    getSessionId: () => session,
-    captureException: () => {},
-    isFeatureEnabled: () => undefined,
-  });
+  setAnalyticsClient({ getSessionId: () => session } as unknown as PostHog);
   const transport = jest.fn().mockImplementation(async () => ok());
   setApiTransport(transport);
   try {
@@ -93,6 +91,6 @@ test('reads the analytics session for each request from the bridge', async () =>
       ),
     ).toBeNull();
   } finally {
-    setAnalyticsBridge(null);
+    setAnalyticsClient(null);
   }
 });
