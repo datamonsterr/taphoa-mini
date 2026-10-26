@@ -166,9 +166,13 @@ async fn prepare_batch(
                     break;
                 }
                 published.push(id);
-                // Use the row type; the stored envelope carries the complete event context.
-                payload["type"] = Value::String(typ);
-                captures.push(payload);
+                // Analytics must not interrupt publication of even a malformed envelope.
+                if let Some(object) = payload.as_object_mut() {
+                    object.insert("type".into(), Value::String(typ));
+                    captures.push(payload);
+                } else {
+                    tracing::warn!("malformed outbox envelope skipped by product analytics");
+                }
             }
             if !published.is_empty() {
                 sqlx::query("UPDATE outbox_events SET published_at=now() WHERE id = ANY($1)")
