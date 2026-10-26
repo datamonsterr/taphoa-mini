@@ -428,14 +428,13 @@ async fn debt_book_schema_checks_and_sales_constraint_replacement() {
     let check:String=sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='sales'::regclass AND conname='sales_check1'").fetch_one(&pool).await.unwrap();
     assert!(check.contains("total - credit_amount"), "{check}");
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name,recovery_code_hash) VALUES('debts','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES('debts') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id,display_name,role) VALUES($1,'Lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)
