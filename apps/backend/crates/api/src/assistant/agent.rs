@@ -27,7 +27,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "1";
+pub const PROMPT_VERSION: &str = "2";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -93,6 +93,8 @@ pub struct TurnRecord {
     pub model: Option<String>,
     pub usage: Usage,
     pub error: Option<&'static str>,
+    /// The grounding guard discarded an ungrounded answer and re-prompted with `tool_choice: required`.
+    pub grounding_retry: bool,
 }
 /// Dispatch telemetry without blocking the reply on the analytics sink.
 pub async fn turn_finished(state: &AppState, record: &TurnRecord) {
@@ -382,10 +384,15 @@ fn build_context(
             let transcript =
                 serde_json::from_value::<Vec<ChatMessage>>(row.transcript).unwrap_or_default();
             // Final text is stored in content. Replay the tool exchange without duplicating it.
-            messages.extend(transcript.into_iter().filter(|m| {
-                m.role == ChatRole::Tool
-                    || (m.role == ChatRole::Assistant && !m.tool_calls.is_empty())
-            }));
+            messages.extend(
+                transcript
+                    .into_iter()
+                    .filter(|m| {
+                        m.role == ChatRole::Tool
+                            || (m.role == ChatRole::Assistant && !m.tool_calls.is_empty())
+                    })
+                    .map(mark_previous_turn),
+            );
             if !row.content.is_empty() {
                 messages.push(ChatMessage::assistant(Some(row.content), vec![]));
             }
@@ -410,6 +417,93 @@ fn build_context(
         messages.push(ChatMessage::system(note));
     }
     messages
+}
+/// Tool results replayed from earlier turns are labelled old so the model fetches fresh numbers.
+fn mark_previous_turn(mut message: ChatMessage) -> ChatMessage {
+    if message.role == ChatRole::Tool {
+        let raw = message.content.take().unwrap_or_default();
+        let data = if serde_json::from_str::<Value>(&raw).is_ok() {
+            raw
+        } else {
+            Value::String(raw).to_string()
+        };
+        message.content = Some(format!(r#"{{"from_previous_turn":true,"data":{data}}}"#));
+    }
+    message
+}
+const UNITS: [&str; 11] = [
+    "₫",
+    "đ",
+    "đồng",
+    "vnd",
+    "đơn",
+    "sản phẩm",
+    "cái",
+    "chai",
+    "gói",
+    "lon",
+    "hộp",
+];
+/// Whether an ungrounded answer states store figures: any number of two or more digits, or any
+/// digit run followed by a money or count unit. Dates such as 26/10/2026 alone do not count.
+fn contains_store_numbers(text: &str) -> bool {
+    let chars: Vec<char> = text.to_lowercase().chars().collect();
+    let run = |from: usize| {
+        chars[from..]
+            .iter()
+            .take_while(|c| c.is_ascii_digit())
+            .count()
+    };
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        // Skip a date: digits, separator, digits, separator, digits.
+        let mut end = i + run(i);
+        let mut parts = 1;
+        let mut probe = end;
+        while parts < 3
+            && matches!(chars.get(probe), Some('/' | '-'))
+            && chars.get(probe + 1).is_some_and(char::is_ascii_digit)
+        {
+            probe += 1 + run(probe + 1);
+            parts += 1;
+        }
+        if parts == 3 {
+            i = probe;
+            continue;
+        }
+        if end - i >= 2 {
+            return true;
+        }
+        while chars.get(end) == Some(&' ') {
+            end += 1;
+        }
+        let rest: String = chars[end..].iter().take(10).collect();
+        if UNITS.iter().any(|unit| {
+            rest.strip_prefix(unit)
+                .is_some_and(|after| !after.chars().next().is_some_and(char::is_alphanumeric))
+        }) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+fn ungrounded_text(language: Language) -> &'static str {
+    if language == Language::Vi {
+        "Mình chưa lấy được số liệu để trả lời chính xác. Bạn thử hỏi lại nhé."
+    } else {
+        "I could not fetch the figures to answer accurately. Please ask again."
+    }
+}
+fn has_read_result(record: &TurnRecord) -> bool {
+    record
+        .tools
+        .iter()
+        .any(|t| t.ok && t.kind == Some(ToolKind::Read))
 }
 fn trim_tool_results(messages: &mut [ChatMessage], long: bool) {
     let mut chars: usize = messages
@@ -509,6 +603,7 @@ async fn run_turn_inner(
         model: None,
         usage: Usage::default(),
         error: None,
+        grounding_retry: false,
     };
     let openrouter_exhausted = quota::openrouter_exhausted(state).await;
     let quota = if openrouter_exhausted {
@@ -563,9 +658,12 @@ async fn run_turn_inner(
     }
     let max_calls = config.max_model_calls.min(6);
     let mut first_model_index = 0;
+    let mut force_required = false;
     while record.attempts.len() < max_calls {
         let mut answer = None;
         let mut all_timeouts = true;
+        // Until a read tool succeeds, text is held back so an ungrounded answer never reaches the user.
+        let buffering = !has_read_result(&record);
         for (index, id) in models.iter().enumerate().skip(first_model_index) {
             if record.attempts.len() >= max_calls {
                 break;
@@ -577,6 +675,7 @@ async fn run_turn_inner(
                 tools: state.assistant.registry.specs_for(&ctx.actor),
                 max_tokens: 2048,
                 reasoning_effort: Some(config.reasoning_effort.clone()),
+                tool_choice: force_required.then(|| "required".to_owned()),
             };
             let (deltas, mut rx) = mpsc::unbounded_channel();
             let started = Instant::now();
@@ -588,11 +687,13 @@ async fn run_turn_inner(
             let mut emitted = false;
             let mut first_token = None;
             let mut attempt_content = String::new();
+            let mut held = String::new();
             let result = loop {
                 tokio::select! {
                     delta = rx.recv() => if let Some(delta) = delta {
                         first_token.get_or_insert_with(||started.elapsed());
-                        emitted |= !delta.is_empty(); attempt_content.push_str(&delta); text(&mut record,tx,delta);
+                        emitted |= !delta.is_empty(); attempt_content.push_str(&delta);
+                        if buffering { held.push_str(&delta) } else { text(&mut record,tx,delta) }
                     },
                     result = &mut call => break result,
                 }
@@ -601,7 +702,11 @@ async fn run_turn_inner(
                 first_token.get_or_insert_with(|| started.elapsed());
                 emitted |= !delta.is_empty();
                 attempt_content.push_str(&delta);
-                text(&mut record, tx, delta);
+                if buffering {
+                    held.push_str(&delta);
+                } else {
+                    text(&mut record, tx, delta);
+                }
             }
             let mut attempt = ModelAttempt {
                 span_id: attempt_span_id,
@@ -650,7 +755,7 @@ async fn run_turn_inner(
                     first_model_index = index;
                     telemetry::attempt_finished(&span, &attempt);
                     record.attempts.push(attempt);
-                    answer = Some((response, emitted));
+                    answer = Some((response, emitted, held));
                     break;
                 }
                 Err(error) => {
@@ -665,6 +770,9 @@ async fn run_turn_inner(
                     attempt.error = Some(error.clone());
                     telemetry::attempt_finished(&span, &attempt);
                     record.attempts.push(attempt);
+                    if !held.is_empty() {
+                        text(&mut record, tx, std::mem::take(&mut held));
+                    }
                     if matches!(error, ModelError::DailyQuota { .. }) {
                         quota::mark_openrouter_exhausted(state).await;
                         telemetry::quota_hit(
@@ -686,7 +794,7 @@ async fn run_turn_inner(
                 }
             }
         }
-        let Some((response, emitted)) = answer else {
+        let Some((response, emitted, held)) = answer else {
             // Six tool turns terminate gracefully; an exhausted fallback list is a model error.
             record.error = Some(if all_timeouts {
                 "timeout"
@@ -696,6 +804,37 @@ async fn run_turn_inner(
             return record;
         };
         record.model = Some(response.model.clone());
+        force_required = false;
+        if buffering && response.tool_calls.is_empty() {
+            let answer = if held.is_empty() {
+                response.content.clone()
+            } else {
+                held
+            };
+            if contains_store_numbers(&answer) {
+                if record.grounding_retry {
+                    text(&mut record, tx, ungrounded_text(ctx.language).into());
+                    return record;
+                }
+                // Drop the ungrounded answer and ask once more, forcing a tool call.
+                record.grounding_retry = true;
+                force_required = true;
+                messages.push(ChatMessage::system(
+                    "Hãy gọi công cụ để lấy số liệu trước khi trả lời.",
+                ));
+                continue;
+            }
+            if !answer.is_empty() {
+                record
+                    .transcript
+                    .push(ChatMessage::assistant(Some(answer.clone()), vec![]));
+                text(&mut record, tx, answer);
+                return record;
+            }
+        } else if !held.is_empty() {
+            // A preamble before tool calls is shown as before.
+            text(&mut record, tx, held);
+        }
         let message =
             ChatMessage::assistant(Some(response.content.clone()), response.tool_calls.clone());
         record.transcript.push(message.clone());
@@ -954,6 +1093,51 @@ mod tests {
                 assert!(prompt.contains(text), "{text}: {prompt}");
             }
         }
+    }
+    #[test]
+    fn store_numbers_are_detected_and_plain_text_is_not() {
+        for yes in [
+            "Hôm nay bán 0 ₫ (0 đơn)",
+            "Bạn có 3 chai nước",
+            "Doanh thu 1.234.000 ₫",
+            "Còn 12 sản phẩm",
+            "5 VND",
+            "Tồn kho 42",
+            "2 lon bia",
+            "Ngày 26/10/2026 bán 7 đơn",
+            "5 đồng",
+            "Có 4 gói",
+            "Sold 0 ₫",
+        ] {
+            assert!(contains_store_numbers(yes), "{yes}");
+        }
+        for no in [
+            "",
+            "Xin chào! Mình giúp được gì cho cửa hàng?",
+            "Ngày 26/10/2026",
+            "Từ 1-9-2026 đến 30/10/2026",
+            "Làm theo 3 bước sau",
+            "Chọn 1 để xem, 2 để sửa",
+            "Hello, how can I help?",
+        ] {
+            assert!(!contains_store_numbers(no), "{no}");
+        }
+    }
+    #[test]
+    fn previous_turn_tool_results_are_labelled_and_other_messages_untouched() {
+        assert_eq!(
+            mark_previous_turn(ChatMessage::tool("c", r#"{"total":0}"#)),
+            ChatMessage::tool("c", r#"{"from_previous_turn":true,"data":{"total":0}}"#)
+        );
+        let raw = ChatMessage::tool("c", "not json");
+        let wrapped: Value =
+            serde_json::from_str(mark_previous_turn(raw).content.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            wrapped,
+            json!({"from_previous_turn":true,"data":"not json"})
+        );
+        let user = ChatMessage::user("hi");
+        assert_eq!(mark_previous_turn(user.clone()), user);
     }
     #[test]
     fn trimming_omits_oldest_tool_results_and_preserves_roles_and_ids() {

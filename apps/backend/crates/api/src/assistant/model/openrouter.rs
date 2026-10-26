@@ -236,7 +236,7 @@ fn request_body(request: &ChatRequest) -> Value {
             })
             .collect();
         body["tools"] = json!(tools);
-        body["tool_choice"] = json!("auto");
+        body["tool_choice"] = json!(request.tool_choice.as_deref().unwrap_or("auto"));
     }
     if let Some(effort) = &request.reasoning_effort {
         body["reasoning"] = json!({"effort": effort});
@@ -525,6 +525,7 @@ mod tests {
             tools: vec![],
             max_tokens: 123,
             reasoning_effort: None,
+            tool_choice: None,
         }
     }
     fn event(value: Value) -> String {

@@ -214,6 +214,7 @@ mod tests {
             tools: Vec::new(),
             max_tokens: 512,
             reasoning_effort: Some("low".into()),
+            tool_choice: None,
         }
     }
     fn channel() -> (

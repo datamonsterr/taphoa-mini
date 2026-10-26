@@ -84,6 +84,9 @@ pub struct ChatRequest {
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
     pub reasoning_effort: Option<String>,
+    /// `Some("required")` forces a tool call; `None` leaves the provider default (`auto`).
+    #[serde(default)]
+    pub tool_choice: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

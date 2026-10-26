@@ -41,6 +41,7 @@ fn request(text: &str) -> ChatRequest {
             .collect(),
         max_tokens: 512,
         reasoning_effort: None,
+        tool_choice: None,
     }
 }
 async fn chat(req: &ChatRequest) -> ChatResponse {
