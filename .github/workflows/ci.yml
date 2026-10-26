@@ -32,6 +32,7 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       workflows: ${{ steps.filter.outputs.workflows }}
       otel-collector: ${{ steps.filter.outputs.otel-collector }}
+      posthog-infra: ${{ steps.filter.outputs.posthog-infra }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -72,6 +73,9 @@ jobs:
               - '.github/workflows/ci.yml'
             otel-collector:
               - 'infra/otel-collector/**'
+              - '.github/workflows/ci.yml'
+            posthog-infra:
+              - 'infra/posthog/**'
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/**'
@@ -742,6 +746,30 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: scripts/ci/job-summary.sh "otel-collector" "collector 0.163.2 validate, Docker routing tests and image build"
 
+  # ---------- PostHog dashboards as code ----------
+
+  posthog-infra:
+    needs: changes
+    if: needs.changes.outputs.posthog-infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: PostHog controller and definitions tests
+        run: node --test infra/posthog/tests
+      - name: Offline dashboard plan
+        run: node infra/posthog/apply.mjs --dry-run --offline
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "posthog-infra" "Node tests and offline PostHog plan (no credentials or network)"
+
   # ---------- Workflows and CI scripts ----------
 
   actionlint:
@@ -806,6 +834,7 @@ jobs:
       - actionlint
       - ci-scripts
       - otel-collector
+      - posthog-infra
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
