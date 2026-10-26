@@ -13,7 +13,12 @@ import {
 } from '@playwright/test';
 
 import { formatVnd } from '../src/lib/format';
-import { createClerkUser, signInPage, type TestUser } from './clerk-auth';
+import {
+  createClerkUser,
+  deleteTestUsers,
+  signInPage,
+  type TestUser,
+} from './clerk-auth';
 
 export { TEST_CODE, deleteClerkUsersByEmail, uniqueEmail } from './clerk-auth';
 export type { TestUser } from './clerk-auth';
@@ -330,6 +335,8 @@ type StoreFixture = {
 };
 
 type Fixtures = {
+  /** Deletes the Clerk users the test created as soon as it ends (see clerk-auth.ts). */
+  clerkCleanup: void;
   consoleGuard: void;
   /** Creates the test's store once, on first use (`store` and the signed-in `page` share it). */
   storeFactory: () => Promise<StoreFixture>;
@@ -413,6 +420,14 @@ const CLIENT_ERROR_LOG =
 
 export const test = base.extend<Fixtures & Options>({
   signedIn: [true, { option: true }],
+  // Set up first, torn down last: the browser contexts are closed before their users go.
+  clerkCleanup: [
+    async ({}, use) => {
+      await use();
+      await deleteTestUsers();
+    },
+    { auto: true, timeout: 120_000 },
+  ],
   storeFactory: async ({}, use) => {
     let made: Promise<StoreFixture> | undefined;
     await use(() => (made ??= createStoreViaApi()));

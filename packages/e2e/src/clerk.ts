@@ -28,6 +28,19 @@ async function acquireSlot(): Promise<void> {
   return slot;
 }
 
+/** Clerk's `errors[0].code` (e.g. `quota_exceeded`) when the body has one; never anything else. */
+async function errorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { errors?: { code?: unknown }[] };
+    const code = body.errors?.[0]?.code;
+    return typeof code === 'string' && /^[\w.-]{1,64}$/.test(code)
+      ? code
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -59,10 +72,10 @@ async function request<T>(
       continue;
     }
     if (!response.ok) {
-      await response.body?.cancel();
-      // Do not include response bodies: they can contain identity data or tokens.
+      const code = await errorCode(response);
+      // Only the error code, never the body: it can contain identity data or tokens.
       throw new Error(
-        `Clerk Backend API ${method} failed: HTTP ${response.status}`,
+        `Clerk Backend API ${method} failed: HTTP ${response.status}${code ? ` (${code})` : ''}`,
       );
     }
     return (await response.json()) as T;
@@ -96,8 +109,36 @@ export async function createUser(options: {
 }
 
 export async function deleteUser(id: string): Promise<void> {
-  await request('DELETE', `/users/${encodeURIComponent(id)}`);
+  try {
+    await request('DELETE', `/users/${encodeURIComponent(id)}`);
+  } catch (error) {
+    // Already gone (deleted eagerly, then again by the global teardown): nothing to do.
+    if (!(error instanceof Error && error.message.includes('HTTP 404')))
+      throw error;
+  }
   createdUsers.delete(id);
+}
+
+/** Ids of the users this process created and has not deleted yet. */
+export const liveUserIds = (): string[] => [...createdUsers];
+
+/**
+ * Deletes the users this process created (all of them, or only `ids`) right away, so a run
+ * holds few users at once: the Clerk development instance is capped at 100 users. Best effort:
+ * the ones that fail stay tracked for the global teardown and `clerk:sweep`. Returns the failures.
+ */
+export async function deleteCreatedUsers(
+  ids: Iterable<string> = createdUsers,
+): Promise<string[]> {
+  const failed: string[] = [];
+  for (const id of [...ids]) {
+    try {
+      await deleteUser(id);
+    } catch {
+      failed.push(id);
+    }
+  }
+  return failed;
 }
 
 export function listUsers(

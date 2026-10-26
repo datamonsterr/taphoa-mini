@@ -4,6 +4,7 @@ import {
   createSession,
   createSessionToken,
   createUser,
+  deleteCreatedUsers,
   deleteUser,
   listUsers,
 } from '@taphoa/e2e/clerk';
@@ -42,6 +43,14 @@ export async function createClerkUser(
   const token = await createSessionToken(session.id, 3600);
   return { userId: user.id, email, sessionId: session.id, token };
 }
+
+/**
+ * Deletes every Clerk user this worker created (stores, sellers, newcomers), called after each
+ * test (see the `clerkCleanup` fixture): a Playwright worker runs one test at a time, so the
+ * run holds about workers x users-per-test users at once, far below the development instance
+ * cap of 100 users. Best effort: failures stay tracked for the global teardown and the sweep.
+ */
+export const deleteTestUsers = () => deleteCreatedUsers();
 
 /**
  * Deletes the users with exactly this address: the ones a spec created through the sign-in

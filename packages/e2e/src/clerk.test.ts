@@ -159,4 +159,113 @@ describe('Clerk Backend API', () => {
       'Bearer test-secret',
     );
   });
+
+  it('puts only the Clerk error code in the failure message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            errors: [
+              { code: 'quota_exceeded', message: 'secret-ish', meta: { a: 1 } },
+            ],
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+    const clerk = await import('./clerk.js');
+    const error = await clerk
+      .createUser({ email: 'a+clerk_test@example.com' })
+      .catch((e: Error) => e);
+    expect((error as Error).message).toBe(
+      'Clerk Backend API POST failed: HTTP 403 (quota_exceeded)',
+    );
+  });
+
+  it.each([
+    ['not json'],
+    [JSON.stringify({ errors: [] })],
+    [JSON.stringify({ errors: [{ code: 'bad code with spaces' }] })],
+  ])('omits the code when the body has no usable one: %s', async (body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(body, { status: 500 })),
+    );
+    const clerk = await import('./clerk.js');
+    await expect(clerk.createSession('user_1')).rejects.toThrow(
+      /^Clerk Backend API POST failed: HTTP 500$/,
+    );
+  });
+
+  describe('eager deletion', () => {
+    const created = async () => {
+      let n = 0;
+      const fetch = vi.fn((url: string, init: RequestInit) => {
+        if (init.method === 'POST')
+          return Promise.resolve(reply({ id: `user_${++n}` }));
+        return Promise.resolve(reply({ deleted: true }));
+      });
+      vi.stubGlobal('fetch', fetch);
+      const clerk = await import('./clerk.js');
+      for (let i = 0; i < 3; i++) {
+        const p = clerk.createUser({
+          email: `e2e-${i}+clerk_test@example.com`,
+        });
+        await vi.runAllTimersAsync();
+        await p;
+      }
+      return { clerk, fetch };
+    };
+
+    it('deletes every tracked user and forgets them', async () => {
+      const { clerk, fetch } = await created();
+      expect(clerk.liveUserIds()).toEqual(['user_1', 'user_2', 'user_3']);
+      const done = clerk.deleteCreatedUsers();
+      await vi.runAllTimersAsync();
+      expect(await done).toEqual([]);
+      expect(clerk.liveUserIds()).toEqual([]);
+      expect(
+        fetch.mock.calls
+          .filter(([, init]) => init.method === 'DELETE')
+          .map(([url]) => String(url)),
+      ).toEqual([
+        'https://clerk.invalid/v1/users/user_1',
+        'https://clerk.invalid/v1/users/user_2',
+        'https://clerk.invalid/v1/users/user_3',
+      ]);
+    });
+
+    it('deletes only the given ids', async () => {
+      const { clerk } = await created();
+      const done = clerk.deleteCreatedUsers(['user_2']);
+      await vi.runAllTimersAsync();
+      await done;
+      expect(clerk.liveUserIds()).toEqual(['user_1', 'user_3']);
+    });
+
+    it('keeps failures tracked and reports them without throwing', async () => {
+      const { clerk } = await created();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response('{}', { status: 500 })),
+      );
+      const done = clerk.deleteCreatedUsers();
+      await vi.runAllTimersAsync();
+      expect(await done).toEqual(['user_1', 'user_2', 'user_3']);
+      expect(clerk.liveUserIds()).toHaveLength(3);
+    });
+
+    it('treats an already deleted user (404) as deleted', async () => {
+      const { clerk } = await created();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response('{}', { status: 404 })),
+      );
+      const done = clerk.deleteCreatedUsers(['user_1']);
+      await vi.runAllTimersAsync();
+      expect(await done).toEqual([]);
+      expect(clerk.liveUserIds()).toEqual(['user_2', 'user_3']);
+    });
+  });
 });
