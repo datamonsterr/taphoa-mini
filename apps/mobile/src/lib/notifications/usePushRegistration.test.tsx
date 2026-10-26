@@ -160,9 +160,37 @@ describe('usePushRegistration', () => {
     await waitFor(() =>
       expect(pushModule.requestPushPermission).toHaveBeenCalled(),
     );
+    // Before request resolves, markAsked has NOT been called
+    let state = await promptTiming.getPromptState();
+    expect(state.asked).toBe(false);
+
     await hook.unmount();
 
     resolveRequest({ status: 'granted', granted: true, canAskAgain: true });
     expect(pushModule.registerForPush).not.toHaveBeenCalled();
+    state = await promptTiming.getPromptState();
+    expect(state.asked).toBe(false);
+  });
+
+  test('catches error in syncPush, logs warning, and does not leave unhandled rejection', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await promptTiming.incrementOpens();
+    (pushModule.requestPushPermission as jest.Mock).mockRejectedValueOnce(
+      new Error('Native permission dialog crashed'),
+    );
+
+    renderHook(() => usePushRegistration());
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to sync push registration:'),
+        expect.any(Error),
+      );
+    });
+
+    const state = await promptTiming.getPromptState();
+    // markAsked must NOT be called if request failed
+    expect(state.asked).toBe(false);
+    warnSpy.mockRestore();
   });
 });

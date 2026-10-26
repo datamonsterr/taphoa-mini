@@ -162,5 +162,19 @@ describe('promptTiming', () => {
         .mockRejectedValueOnce(new Error('disk error'));
       expect(await getLastToken()).toBeNull();
     });
+
+    test('handles AsyncStorage errors gracefully in prompt state helpers', async () => {
+      jest
+        .spyOn(AsyncStorage, 'setItem')
+        .mockRejectedValueOnce(new Error('disk write error'));
+      const state1 = await incrementOpens();
+      expect(state1.opens).toBe(1);
+
+      jest
+        .spyOn(AsyncStorage, 'setItem')
+        .mockRejectedValueOnce(new Error('disk write error'));
+      const state2 = await markAsked();
+      expect(state2.asked).toBe(true);
+    });
   });
 });
