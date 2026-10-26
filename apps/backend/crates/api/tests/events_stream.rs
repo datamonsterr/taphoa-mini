@@ -4,6 +4,7 @@
 //! - `events::relay::spawn(pool, redis_url, shutdown_rx) -> JoinHandle<()>`
 //! - `events::Hub::{new, with_heartbeat(Duration)}` and `AppState.hub`
 //! - `events::spawn_background(&AppState, shutdown_rx) -> Vec<JoinHandle<()>>` (relay + hub subscriber)
+mod common;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -25,7 +26,7 @@ async fn pool() -> PgPool {
 }
 async fn new_store(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'stream','x')")
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'stream')")
         .bind(id)
         .execute(pool)
         .await
@@ -192,15 +193,20 @@ struct Server {
     tasks: Vec<JoinHandle<()>>,
 }
 async fn start() -> (Server, AppState) {
+    start_with(Hub::with_heartbeat(Duration::from_millis(300))).await
+}
+async fn start_with(hub: Hub) -> (Server, AppState) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("stream-test-secret-at-least-32-bytes".into()),
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
         "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("100000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
-    state.hub = Hub::with_heartbeat(Duration::from_millis(300));
+    common::clerk::install(&mut state);
+    state.hub = hub;
     let (shutdown, rx) = watch::channel(false);
     let mut tasks = spawn_background(&state, rx.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -239,19 +245,22 @@ impl Server {
     }
 }
 async fn create_store(base: &str) -> Value {
-    reqwest::Client::new()
+    let token = common::clerk::token();
+    let response = taphoa_api::http_client()
         .post(format!("{base}/v1/stores"))
-        .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
-        .json(&json!({"store_name":"SSE","display_name":"Lead","device":{"name":"d","platform":"web"}}))
+        .bearer_auth(&token)
+        .json(&json!({"store_name":"SSE","display_name":"Lead"}))
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let mut body: Value = response.json().await.unwrap();
+    body["access_token"] = json!(token);
+    body
 }
+
 async fn open(base: &str, token: &str, last_event_id: Option<&str>) -> reqwest::Response {
-    let mut request = reqwest::Client::new()
+    let mut request = taphoa_api::http_client()
         .get(format!("{base}/v1/events"))
         .bearer_auth(token);
     if let Some(id) = last_event_id {
@@ -296,7 +305,7 @@ async fn event(response: &mut reqwest::Response, buf: &mut String) -> (String, S
     }
 }
 async fn patch_store(base: &str, token: &str, name: &str) {
-    let response = reqwest::Client::new()
+    let response = taphoa_api::http_client()
         .patch(format!("{base}/v1/store"))
         .bearer_auth(token)
         .json(&json!({"name":name}))
@@ -348,7 +357,7 @@ async fn store_patch_reaches_the_sse_client_and_stays_inside_its_store() {
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn requires_a_valid_bearer_token_and_sends_heartbeats() {
     let (server, _) = start().await;
-    let anonymous = reqwest::Client::new()
+    let anonymous = taphoa_api::http_client()
         .get(format!("{}/v1/events", server.base))
         .send()
         .await
@@ -457,25 +466,110 @@ async fn replay_pages_through_a_backlog_larger_than_one_page() {
     server.stop().await;
 }
 
+/// The token is verified once at connect, so every stream has a bounded lifetime:
+/// clients then reconnect with a fresh token and resume from their last event id.
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn stream_ends_after_its_own_session_is_revoked() {
-    let (server, _) = start().await;
+async fn stream_ends_at_its_lifetime_cap_and_resumes_by_event_id() {
+    assert_eq!(
+        taphoa_api::events::MAX_STREAM_AGE,
+        Duration::from_secs(15 * 60)
+    );
+    let cap = Duration::from_millis(1500);
+    let (server, _) = start_with(Hub::with_limits(Duration::from_millis(300), cap)).await;
+    let lead = create_store(&server.base).await;
+    let token = lead["access_token"].as_str().unwrap();
+    let opened = std::time::Instant::now();
+    let mut stream = open(&server.base, token, None).await;
+    let mut buf = String::new();
+    patch_store(&server.base, token, "before").await;
+    let (seen, _, _) = event(&mut stream, &mut buf).await;
+
+    // Idle apart from heartbeats, the stream must still end cleanly at the cap.
+    loop {
+        let chunk = timeout(Duration::from_secs(5), stream.chunk())
+            .await
+            .expect("stream ends at its lifetime cap")
+            .expect("server closes the stream cleanly, not with a transport error");
+        if chunk.is_none() {
+            break;
+        }
+    }
+    let lived = opened.elapsed();
+    assert!(lived >= cap, "closed early after {lived:?}");
+    assert!(
+        lived < cap + Duration::from_secs(3),
+        "closed late: {lived:?}"
+    );
+
+    // A reconnect resumes from the last received id, without gaps.
+    patch_store(&server.base, token, "while-closed").await;
+    let mut resumed = open(&server.base, token, Some(&seen)).await;
+    let mut buf = String::new();
+    let (missed, name, data) = event(&mut resumed, &mut buf).await;
+    assert!(seen < missed);
+    assert_eq!(name, "store.changed");
+    assert_eq!(data["data"]["fields"], json!(["name"]));
+    server.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn stream_ends_after_its_member_is_deactivated() {
+    let (server, state) = start().await;
     let lead = create_store(&server.base).await;
     let token = lead["access_token"].as_str().unwrap();
     let mut mine = open(&server.base, token, None).await;
     let mut buf = String::new();
 
-    let logout = reqwest::Client::new()
-        .post(format!("{}/v1/auth/logout", server.base))
-        .bearer_auth(token)
-        .send()
-        .await
-        .unwrap();
-    assert!(logout.status().is_success());
-    let (_, name, data) = event(&mut mine, &mut buf).await;
-    assert_eq!(name, "session.revoked");
-    assert_eq!(data["data"]["reason"], "logout");
+    let store: Uuid = lead["store"]["id"].as_str().unwrap().parse().unwrap();
+    let member: Uuid = lead["member"]["id"].as_str().unwrap().parse().unwrap();
+    let mut tx = state.postgres.as_ref().unwrap().begin().await.unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":Uuid::new_v4(),"change":"deactivated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":member,"change":"updated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ: "member.changed",
+            version: 1,
+            data: json!({"member_id":member,"change":"deactivated"}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    for change in ["deactivated", "updated", "deactivated"] {
+        let (_, name, data) = event(&mut mine, &mut buf).await;
+        assert_eq!(name, "member.changed");
+        assert_eq!(data["data"]["change"], change);
+    }
     // Only heartbeats may still be buffered; the stream must then reach EOF.
     loop {
         let chunk = timeout(Duration::from_secs(5), mine.chunk())

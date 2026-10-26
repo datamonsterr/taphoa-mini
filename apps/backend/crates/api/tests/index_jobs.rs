@@ -126,7 +126,7 @@ fn tiny_png() -> Vec<u8> {
 
 async fn new_store(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id, name, recovery_code_hash) VALUES ($1, 'b5-test', 'x')")
+    sqlx::query("INSERT INTO stores (id, name) VALUES ($1, 'b5-test')")
         .bind(id)
         .execute(pool)
         .await
@@ -137,7 +137,7 @@ async fn new_store(pool: &PgPool) -> Uuid {
 async fn new_member(pool: &PgPool, store_id: Uuid) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO members (id, store_id, display_name, role) VALUES ($1, $2, 'b5', 'seller')",
+        "INSERT INTO members (clerk_user_id,id, store_id, display_name, role) VALUES ('fixture_' || gen_random_uuid()::text,$1, $2, 'b5', 'seller')",
     )
     .bind(id)
     .bind(store_id)

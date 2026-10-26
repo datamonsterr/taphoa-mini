@@ -6,37 +6,52 @@ import {
 import { expect } from 'vitest';
 import { getBackendUrl } from './env.js';
 
-export type AuthSession = components['schemas']['AuthSession'];
+import { randomUUID } from 'node:crypto';
+import { createUser, createSession, createSessionToken } from './clerk.js';
+
 export type Member = components['schemas']['Member'];
 export type Store = components['schemas']['Store'];
 export type Invite = components['schemas']['Invite'];
 export type ErrorResponse = components['schemas']['Error'];
 export type CreateStoreRequest = components['schemas']['CreateStoreRequest'];
-export type DeviceInfo = components['schemas']['DeviceInfo'];
 export type BankAccount = components['schemas']['BankAccount'];
 export type Role = components['schemas']['Role'];
+export type StoreMembership = components['schemas']['StoreMembership'];
+export type Me = components['schemas']['Me'];
 
-export const RECOVERY_CODE_REGEX = /^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/;
-
-/**
- * Generates an idempotent, unique name string to isolate tests.
- */
 export function uniqueName(prefix = 'e2e'): string {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).substring(2, 8);
-  return `${prefix}-${ts}-${rand}`;
+  return `${prefix}-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
 }
 
-/**
- * Creates an ApiClient against BACKEND_URL, optionally authenticated with a bearer token.
- */
-export function newClient(token?: string): ApiClient {
-  // Per-IP limits are not spoofable; run the backend under test with the
-  // RATE_LIMIT_* variables raised (see README) instead of faking addresses.
+export function uniqueEmail(): string {
+  return `e2e-${randomUUID()}+clerk_test@example.com`;
+}
+
+export async function createClerkUser(options?: {
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+}) {
+  const email = options?.email ?? uniqueEmail();
+  const user = await createUser({ ...options, email });
+  const session = await createSession(user.id);
+  const mint = () => createSessionToken(session.id);
+  const token = await mint();
+  return { userId: user.id, email, sessionId: session.id, token, mint };
+}
+
+export type TestUser = Awaited<ReturnType<typeof createClerkUser>>;
+export type StoreSession = StoreMembership & {
+  access_token: string;
+  clerk_user_id: string;
+  clerk_session_id: string;
+};
+
+export function newClient(token?: string, storeId?: string): ApiClient {
+  // Buffer request bodies: streaming races the server's early 401 (EPIPE).
   const bufferedFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     const headers = new Headers(request.headers);
-    // Buffer the body: streaming it races the server's early 401 (EPIPE).
     const body =
       request.method === 'GET' || request.method === 'HEAD'
         ? undefined
@@ -47,144 +62,116 @@ export function newClient(token?: string): ApiClient {
     baseUrl: getBackendUrl(),
     fetch: bufferedFetch,
     getToken: token ? () => token : undefined,
+    getStoreId: storeId ? () => storeId : undefined,
   });
 }
 
-/**
- * Creates an ApiClient authenticated with an AuthSession.
- */
 export function authedClient(
-  session: AuthSession | { access_token: string } | string,
+  session: { access_token: string; store?: { id: string } } | string,
+  storeId?: string,
 ): ApiClient {
-  const token = typeof session === 'string' ? session : session.access_token;
-  return newClient(token);
+  return typeof session === 'string'
+    ? newClient(session, storeId)
+    : newClient(session.access_token, storeId ?? session.store?.id);
 }
 
 export interface CreatedStore {
   client: ApiClient;
-  session: AuthSession;
-  recoveryCode: string;
+  session: StoreSession;
   storeName: string;
+  user: TestUser;
 }
 
-/**
- * Creates a fresh store and Lead member. Each spec must use its own store
- * to remain completely independent and idempotent against a shared database.
- */
+function membershipResult(data: StoreMembership, user: TestUser): CreatedStore {
+  assertStoreMembership(data);
+  const session = {
+    ...data,
+    access_token: user.token,
+    clerk_user_id: user.userId,
+    clerk_session_id: user.sessionId,
+  };
+  return {
+    client: authedClient(session),
+    session,
+    storeName: data.store.name,
+    user,
+  };
+}
+
 export async function createStore(
   overrides?: Partial<CreateStoreRequest>,
 ): Promise<CreatedStore> {
-  const client = newClient();
-  const storeName = overrides?.store_name ?? uniqueName('CuaHang');
-  const displayName = overrides?.display_name ?? 'Lead ' + uniqueName('lead');
-  const device: DeviceInfo = overrides?.device ?? {
-    name: 'E2E Runner Device',
-    platform: 'android',
-    app_version: '1.0.0',
-  };
-
-  const body: CreateStoreRequest = {
-    store_name: storeName,
-    display_name: displayName,
-    device,
-    ...(overrides?.bank_account
-      ? { bank_account: overrides.bank_account }
-      : {}),
-  };
-
-  const { data, error, response } = await client.raw.POST('/v1/stores', {
-    body,
+  const user = await createClerkUser();
+  const result = await newClient(user.token).raw.POST('/v1/stores', {
+    body: {
+      store_name: uniqueName('CuaHang'),
+      display_name: uniqueName('Lead'),
+      ...overrides,
+    },
   });
-
-  if (response.status !== 201 || !data) {
-    throw new Error(
-      `Failed to create store: HTTP ${response.status} ${JSON.stringify(error)}`,
-    );
+  if (result.response.status !== 201 || !result.data) {
+    throw new Error(`Failed to create store: HTTP ${result.response.status}`);
   }
-
-  assertAuthSession(data);
-  expect(data.recovery_code).toMatch(RECOVERY_CODE_REGEX);
-
-  return {
-    client: authedClient(data),
-    session: data,
-    recoveryCode: data.recovery_code,
-    storeName: data.store.name,
-  };
+  return membershipResult(result.data, user);
 }
 
-export interface JoinedSeller {
-  client: ApiClient;
-  session: AuthSession;
+export interface JoinedSeller extends CreatedStore {
   invite: Invite;
 }
 
-/**
- * Helper to invite and join a seller member using an existing Lead client.
- */
 export async function joinAsSeller(
   leadClient: ApiClient,
   options?: { can_enroll?: boolean; display_name?: string },
 ): Promise<JoinedSeller> {
-  const inviteRes = await leadClient.raw.POST('/v1/invites', {
+  const invite = await leadClient.raw.POST('/v1/invites', {
     body: {
       role: 'seller',
       can_enroll: options?.can_enroll ?? false,
       ttl_seconds: 600,
     },
   });
-
-  if (inviteRes.response.status !== 201 || !inviteRes.data) {
+  if (invite.response.status !== 201 || !invite.data) {
     throw new Error(
-      `Failed to create seller invite: HTTP ${inviteRes.response.status} ${JSON.stringify(inviteRes.error)}`,
+      `Failed to create seller invite: HTTP ${invite.response.status}`,
     );
   }
-
-  assertInvite(inviteRes.data);
-
-  const joinClient = newClient();
-  const displayName =
-    options?.display_name ?? 'Seller ' + uniqueName('banhang');
-  const joinRes = await joinClient.raw.POST('/v1/auth/join', {
+  assertInvite(invite.data);
+  const user = await createClerkUser();
+  const result = await newClient(user.token).raw.POST('/v1/auth/join', {
     body: {
-      invite_token: inviteRes.data.token,
-      display_name: displayName,
-      device: {
-        name: 'Seller Phone',
-        platform: 'android',
-        app_version: '1.0.0',
-      },
+      invite_token: invite.data.token,
+      display_name: options?.display_name ?? uniqueName('Seller'),
     },
   });
-
-  if (joinRes.response.status !== 201 || !joinRes.data) {
-    throw new Error(
-      `Failed to join as seller: HTTP ${joinRes.response.status} ${JSON.stringify(joinRes.error)}`,
-    );
+  if (result.response.status !== 201 || !result.data) {
+    throw new Error(`Failed to join as seller: HTTP ${result.response.status}`);
   }
-
-  assertAuthSession(joinRes.data);
-
-  return {
-    client: authedClient(joinRes.data),
-    session: joinRes.data,
-    invite: inviteRes.data,
-  };
+  return { ...membershipResult(result.data, user), invite: invite.data };
 }
 
-export function assertAuthSession(
-  session: unknown,
-): asserts session is AuthSession {
-  expect(session).toBeDefined();
-  const s = session as AuthSession;
-  expect(typeof s.access_token).toBe('string');
-  expect(s.access_token.length).toBeGreaterThan(0);
-  expect(typeof s.refresh_token).toBe('string');
-  expect(s.refresh_token.length).toBeGreaterThan(0);
-  expect(typeof s.expires_in).toBe('number');
-  expect(s.expires_in).toBeGreaterThan(0);
-  assertMember(s.member);
-  assertStore(s.store);
+export function assertStoreMembership(
+  value: unknown,
+): asserts value is StoreMembership {
+  expect(value).toBeDefined();
+  const membership = value as StoreMembership;
+  assertMember(membership.member);
+  assertStore(membership.store);
+}
+
+export function assertMe(value: unknown): asserts value is Me {
+  expect(value).toBeDefined();
+  const me = value as Me;
+  expect(typeof me.clerk_user_id).toBe('string');
+  expect(Array.isArray(me.memberships)).toBe(true);
+  for (const membership of me.memberships) assertStoreMembership(membership);
+  if (me.profile !== null) {
+    expect(me.profile).toBeDefined();
+    for (const field of ['display_name', 'email'] as const) {
+      expect(
+        me.profile[field] === null || typeof me.profile[field] === 'string',
+      ).toBe(true);
+    }
+  }
 }
 
 export function assertMember(member: unknown): asserts member is Member {

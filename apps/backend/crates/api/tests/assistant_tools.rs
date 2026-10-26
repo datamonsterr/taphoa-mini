@@ -22,7 +22,8 @@ fn context(w: &World, member: Uuid, role: Role) -> ToolContext {
         actor: Actor {
             member_id: member,
             store_id: w.store_id,
-            session_id: Uuid::nil(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role,
             can_enroll: role == Role::Lead,
         },

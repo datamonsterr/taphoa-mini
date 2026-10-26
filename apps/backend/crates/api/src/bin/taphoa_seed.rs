@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use sqlx::postgres::PgPoolOptions;
+use taphoa_api::seed::{ClerkUsers, clerk::TEST_CODE};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,14 +16,15 @@ async fn main() -> Result<()> {
         .run(&pool)
         .await
         .context("run migrations")?;
-    let report = taphoa_api::seed::run(&pool).await?;
+    // CLERK_SECRET_KEY (bearer) and CLERK_API_URL (default https://api.clerk.com).
+    let clerk = ClerkUsers::from_env();
+    let report = taphoa_api::seed::run_with(&pool, clerk.as_ref()).await?;
     // Credentials deliberately go to stdout only. Do not add tracing or file output.
     for store in report.stores {
         println!("\n{} ({})", store.name, store.store_id);
-        println!("Recovery code: {}", store.recovery_code);
         for member in store.members {
             println!(
-                "  {}: {} ({}){}{}",
+                "  {}: {} ({}){}{}{}",
                 member.display_name,
                 member.role,
                 member.member_id,
@@ -34,7 +36,12 @@ async fn main() -> Result<()> {
                 member
                     .pin
                     .map(|pin| format!("; PIN {pin}"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                if report.clerk_linked {
+                    format!("; email {}", member.email)
+                } else {
+                    String::new()
+                }
             );
         }
         println!(
@@ -42,9 +49,18 @@ async fn main() -> Result<()> {
             store.invite_token_hint
         );
     }
-    println!(
-        "\nRecovery rotates the code. Reruns preserve stored data; printed hints are the original fixture credentials."
-    );
+    if report.clerk_linked {
+        println!(
+            "\nSign in with an email above and the Clerk test code {TEST_CODE} (no mail is sent). Reruns reuse the same Clerk users and keep stored data; printed hints are the original fixture credentials."
+        );
+    } else {
+        eprintln!(
+            "\nWARNING: CLERK_SECRET_KEY is not set, so seeded members keep placeholder Clerk ids and cannot sign in. Set CLERK_SECRET_KEY (and CLERK_API_URL for a non-default Clerk API) and rerun to create or link their Clerk test users."
+        );
+        println!(
+            "\nReruns preserve stored data; printed hints are the original fixture credentials."
+        );
+    }
     pool.close().await;
     Ok(())
 }

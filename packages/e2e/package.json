@@ -3,10 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./clerk": "./src/clerk.ts"
+  },
   "scripts": {
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "clerk:sweep": "node src/sweep.ts"
   },
   "dependencies": {
     "@taphoa/api-client": "workspace:*"

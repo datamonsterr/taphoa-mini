@@ -420,7 +420,7 @@ pub(crate) async fn create(
         &mut tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "product", "ids": [request.id]}),
@@ -479,7 +479,7 @@ async fn resolve_manual_line(
         conn,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "review.line_resolved",
             version: 1,
             data: json!({"line_id": line_id, "action": "enrolled", "product_id": product_id}),
@@ -532,7 +532,7 @@ async fn price_changed_event(
         tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "price.changed",
             version: 1,
             data: json!({
@@ -584,7 +584,7 @@ async fn catalog_changed_event(
         tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "product", "ids": [product_id]}),

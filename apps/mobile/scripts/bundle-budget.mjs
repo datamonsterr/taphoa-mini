@@ -17,13 +17,13 @@ export const TARGETS = [
     name: 'android (hbc, raw)',
     dir: 'dist/_expo/static/js/android',
     gzip: false,
-    budget: 8_650_000, // measured 7_519_092
+    budget: 10_750_000, // measured 9_341_973 after Clerk integration (SDK 58.0.19)
   },
   {
     name: 'web (js, gzip)',
     dir: 'dist-web/_expo/static/js/web',
     gzip: true,
-    budget: 1_045_000, // measured 907_878
+    budget: 1_225_000, // measured 1_065_165 after Clerk integration and the X4 assistant chat
   },
 ];
 

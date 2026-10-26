@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 
 import * as stockApi from '@/lib/api/stock';
 import * as ledger from '@/lib/api/ledger';
-import { useSessionStore } from '@/stores/session';
+import { testSession, setTestMembership } from '@/test/session';
 import { renderWithProviders } from '@/test/render';
 import { colors } from '@/theme';
 import type { StockItem } from '@/lib/api';
@@ -51,9 +51,10 @@ test('shows at most five low/out items, quantity and status color; opens all sto
 
 test('stock alerts remain visible to Sellers without querying Lead-only margin alerts', async () => {
   seed();
-  const session = useSessionStore.getState().session!;
-  useSessionStore.setState({
-    session: { ...session, member: { ...session.member, role: 'seller' } },
+  const session = testSession();
+  setTestMembership({
+    ...session,
+    member: { ...session.member, role: 'seller' },
   });
   const margin = jest.spyOn(ledger, 'listAlerts');
   await renderWithProviders(<AlertsSection />);

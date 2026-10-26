@@ -12,7 +12,7 @@ async fn compacts_old_change_log_rows_and_records_a_floor() {
         .await
         .unwrap();
     let store = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'ret','x')")
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'ret')")
         .bind(store)
         .execute(&pool)
         .await
@@ -87,7 +87,7 @@ async fn deletes_outbox_rows_seven_days_after_publish_only() {
         .await
         .unwrap();
     let store = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'ret2','x')")
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'ret2')")
         .bind(store)
         .execute(&pool)
         .await

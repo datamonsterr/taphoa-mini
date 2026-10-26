@@ -11,7 +11,7 @@ fn envelope(kind: &str, data: Value) -> Value {
         "id": "evt_000000000000128", "type": kind, "version": 1,
         "store_id": "0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b",
         "occurred_at": "2026-10-23T09:14:02.511+07:00",
-        "actor": {"member_id": "0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3c", "session_id": "0192b1f1-7c1e-7a8a-9a51-2a4f0e7d1c3d"},
+        "actor": {"member_id": "0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3c", "session_id": "sess_clerk_example"},
         "cursor": "AAAAAAAAAIA", "data": data,
     })
 }
@@ -38,10 +38,6 @@ fn samples() -> Vec<(&'static str, Value)> {
             json!({"fields":["name","margin_threshold_pct"]}),
         ),
         ("member.changed", json!({"member_id":U1,"change":"joined"})),
-        (
-            "session.revoked",
-            json!({"session_id":U1,"reason":"token_reuse"}),
-        ),
         (
             "sale.created",
             json!({"sale_id":U1,"code":"TH0042","total":24500,"payment_method":"transfer","member_id":U2,"business_date":"2026-10-23","line_count":3,"credit_amount":5000,"customer_id":U2}),

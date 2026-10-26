@@ -191,3 +191,19 @@ jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn().mockResolvedValue(true),
   hideAsync: jest.fn().mockResolvedValue(true),
 }));
+
+jest.mock('@clerk/expo', () => require('./clerk'));
+jest.mock('@clerk/expo/token-cache', () => ({ tokenCache: {} }));
+jest.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: jest.fn(),
+  warmUpAsync: jest.fn(),
+  coolDownAsync: jest.fn(),
+}));
+process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_test_jest';
+
+jest.mock('expo-auth-session', () => ({
+  makeRedirectUri: jest.fn(
+    ({ scheme, path }: { scheme: string; path: string }) =>
+      `${scheme}://${path}`,
+  ),
+}));

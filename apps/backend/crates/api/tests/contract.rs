@@ -81,27 +81,47 @@ mod common;
 use common::Contract;
 
 fn state() -> AppState {
-    AppState {
-        jwt: taphoa_api::auth::JwtKeys::from_secret(&[42; 32]),
-        ..AppState::default()
-    }
+    let mut state = AppState::default();
+    common::clerk::install(&mut state);
+    state
+}
+thread_local! {
+    // One Clerk user per test: tests share a process, and a user who joined several stores would
+    // need X-Store-Id on every call.
+    static USER: String = format!("user_contract_{}", uuid::Uuid::new_v4().simple());
 }
 fn bearer() -> String {
-    let (token, _) = state().jwt.issue(&taphoa_api::auth::Actor {
-        member_id: Uuid::nil(),
-        store_id: Uuid::nil(),
-        session_id: Uuid::nil(),
-        role: taphoa_api::auth::Role::Lead,
-        can_enroll: true,
-    });
-    format!("Bearer {token}")
+    format!(
+        "Bearer {}",
+        USER.with(|user| common::clerk::clerk_token(user, "sess_contract"))
+    )
 }
 fn app() -> Router {
-    router(AppState {
-        storage: Some(Arc::new(FakeStore::default())),
-        image_repository: Some(Arc::new(FakeRepository::default())),
-        ..state()
-    })
+    router(state())
+}
+async fn authenticated_state() -> AppState {
+    let database = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let mut state = AppState::connect(Some(&database), None, None)
+        .await
+        .unwrap();
+    common::clerk::install(&mut state);
+    state.storage = Some(Arc::new(FakeStore::default()));
+    state.image_repository = Some(Arc::new(FakeRepository::default()));
+    let app = router(state.clone());
+    let response = app
+        .oneshot(
+            Request::post("/v1/stores")
+                .header("authorization", bearer())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"store_name":"Contract","display_name":"Lead"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    state
 }
 async fn call(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
     let mut request = request;
@@ -148,9 +168,10 @@ async fn health_and_readiness_match_the_contract() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL for active membership resolution"]
 async fn image_upload_and_fetch_match_the_contract() {
     let contract = Contract::load();
-    let app = app();
+    let app = router(authenticated_state().await);
     for purpose in [None, Some("expense_receipt")] {
         let (status, created) = call(&app, upload(purpose)).await;
         assert_eq!(status, StatusCode::CREATED);
@@ -170,9 +191,10 @@ async fn image_upload_and_fetch_match_the_contract() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL for active membership resolution"]
 async fn error_bodies_match_the_contract() {
     let contract = Contract::load();
-    let app = app();
+    let app = router(authenticated_state().await);
     let (status, body) = call(&app, upload(Some("not-a-purpose"))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     contract.assert_conforms("/v1/images", "post", status, &body);
@@ -202,6 +224,7 @@ fn the_validator_rejects_a_non_conforming_body() {
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL for active membership resolution"]
 async fn segment_points_matches_the_contract() {
     let contract = Contract::load();
     let app = router(AppState {
@@ -216,7 +239,7 @@ async fn segment_points_matches_the_contract() {
             256,
             192,
         ))),
-        ..state()
+        ..authenticated_state().await
     });
 
     let (status, created) = call(&app, upload(Some("enrollment"))).await;

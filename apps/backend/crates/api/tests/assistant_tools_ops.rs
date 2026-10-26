@@ -27,13 +27,13 @@ impl Fixture {
         taphoa_api::MIGRATOR.run(&db).await.unwrap();
         let store = Uuid::new_v4();
         let member = Uuid::new_v4();
-        sqlx::query("INSERT INTO stores(id,name,recovery_code_hash) VALUES($1,'T5','fixture')")
+        sqlx::query("INSERT INTO stores(id,name) VALUES($1,'T5')")
             .bind(store)
             .execute(&db)
             .await
             .unwrap();
         sqlx::query(
-            "INSERT INTO members(id,store_id,display_name,role) VALUES($1,$2,'Chủ T5','lead')",
+            "INSERT INTO members(id,clerk_user_id,store_id,display_name,role) VALUES($1,'fixture_' || gen_random_uuid()::text,$2,'Chủ T5','lead')",
         )
         .bind(member)
         .bind(store)
@@ -49,7 +49,8 @@ impl Fixture {
                 actor: Actor {
                     store_id: store,
                     member_id: member,
-                    session_id: Uuid::new_v4(),
+                    clerk_user_id: "user_test".into(),
+                    clerk_session_id: "sess_test".into(),
                     role: Role::Lead,
                     can_enroll: true,
                 },
@@ -628,7 +629,8 @@ async fn day_close_credit_sales_and_repayments_match_endpoint_and_snapshot() {
             actor: Actor {
                 store_id: w.store_id,
                 member_id: w.lead_id,
-                session_id: Uuid::new_v4(),
+                clerk_user_id: "user_test".into(),
+                clerk_session_id: "sess_test".into(),
                 role: Role::Lead,
                 can_enroll: true,
             },

@@ -483,7 +483,7 @@ async fn confirm(
         sqlx::query("INSERT INTO receipt_lines(id,receipt_id,store_id,position,raw_text,product_name,product_id,quantity,cost,match_confidence,candidates) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)").bind(line_id).bind(id).bind(actor.store_id).bind(position as i32).bind(raw).bind(name).bind(line.product_id).bind(line.quantity).bind(line.cost).bind(confidence).bind(candidates).execute(&mut *tx).await?;
     }
     sqlx::query("UPDATE receipts SET status='confirmed',total=$3,expense_id=$4,confirmed_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1 AND store_id=$2").bind(id).bind(actor.store_id).bind(total).bind(expense.id).execute(&mut *tx).await?;
-    emit(&mut tx,Event{store_id:actor.store_id,actor:Some((actor.member_id,actor.session_id)),typ:"receipt.confirmed",version:1,data:json!({"receipt_id":id,"expense_id":expense.id,"total":total,"line_count":input.lines.len()}),change:None}).await?;
+    emit(&mut tx,Event{store_id:actor.store_id,actor:Some(actor.event_actor()),typ:"receipt.confirmed",version:1,data:json!({"receipt_id":id,"expense_id":expense.id,"total":total,"line_count":input.lines.len()}),change:None}).await?;
     save(&mut tx, &actor, "confirm", &key, &hash, id).await?;
     let row = load(&mut tx, actor.store_id, id).await?;
     let value = response(&mut tx, &state, row).await?;

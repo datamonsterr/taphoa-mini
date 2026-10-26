@@ -1,3 +1,10 @@
+import {
+  mockMe,
+  mockCreateStore,
+  mockJoinStore,
+  mockSetPin,
+  mockVerifyPin,
+} from './auth';
 import { DEBT_ROUTES } from './debts';
 import type { AssistantStreamEvent } from '@taphoa/api-client';
 import * as assistant from './assistant';
@@ -205,6 +212,34 @@ export const MOCK_ROUTES: MockRoute[] = [
       ok(ledger.voidSale(params.saleId!, asObject(await readJson(request)))),
   },
   {
+    method: 'POST',
+    path: '/v1/stores',
+    handler: async ({ request }) =>
+      created(mockCreateStore(request, await readJson(request))),
+  },
+  {
+    method: 'POST',
+    path: '/v1/auth/join',
+    handler: async ({ request }) =>
+      created(mockJoinStore(request, await readJson(request))),
+  },
+  {
+    method: 'PUT',
+    path: '/v1/me/pin',
+    handler: async ({ request }) => {
+      mockSetPin(request, await readJson(request));
+      return { status: 204 };
+    },
+  },
+  {
+    method: 'POST',
+    path: '/v1/me/pin/verify',
+    handler: async ({ request }) => {
+      mockVerifyPin(request, await readJson(request));
+      return { status: 204 };
+    },
+  },
+  {
     method: 'GET',
     path: '/v1/assistant/threads',
     handler: ({ query }) => ok(assistant.listThreads(query)),
@@ -361,7 +396,7 @@ export const MOCK_ROUTES: MockRoute[] = [
   {
     method: 'GET',
     path: '/v1/me',
-    handler: () => ok({ member: db.getCurrentMember(), store: db.getStore() }),
+    handler: ({ request }) => ok(mockMe(request)),
   },
   { method: 'GET', path: '/v1/store', handler: () => ok(db.getStore()) },
   {

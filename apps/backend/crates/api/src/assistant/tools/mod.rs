@@ -251,7 +251,8 @@ mod tests {
         Actor {
             member_id: Uuid::new_v4(),
             store_id: Uuid::new_v4(),
-            session_id: Uuid::new_v4(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role,
             can_enroll: role == Role::Lead || can_enroll,
         }

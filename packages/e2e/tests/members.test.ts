@@ -3,13 +3,14 @@ import {
   assertErrorResponse,
   assertInvite,
   assertMember,
+  assertMe,
+  assertStoreMembership,
   createStore,
   joinAsSeller,
-  newClient,
   uniqueName,
 } from '../src/helpers.js';
 
-describe('Members & Invites Contract Specs (E1)', () => {
+describe('Members & Invites Contract Specs (Clerk)', () => {
   describe('GET /v1/members', () => {
     it('lists members with active members first', async () => {
       const { client: leadClient, session: leadSession } = await createStore();
@@ -104,7 +105,7 @@ describe('Members & Invites Contract Specs (E1)', () => {
         body: {
           display_name: updatedName,
           can_enroll: true,
-          role: 'seller',
+          role: 'lead',
         },
       });
 
@@ -113,6 +114,7 @@ describe('Members & Invites Contract Specs (E1)', () => {
       assertMember(patchRes.data!);
       expect(patchRes.data!.display_name).toBe(updatedName);
       expect(patchRes.data!.can_enroll).toBe(true);
+      expect(patchRes.data!.role).toBe('lead');
     });
 
     it('returns 403 Forbidden when a seller attempts to patch member details', async () => {
@@ -149,9 +151,10 @@ describe('Members & Invites Contract Specs (E1)', () => {
   });
 
   describe('DELETE /v1/members/{memberId}', () => {
-    it('deactivates member with 204, revoking their refresh token and marking active=false in list', async () => {
+    it('deactivates membership immediately and reactivates it through a new invite', async () => {
       const { client: leadClient } = await createStore();
-      const { session: sellerSession } = await joinAsSeller(leadClient);
+      const { client: sellerClient, session: sellerSession } =
+        await joinAsSeller(leadClient);
 
       // Lead deactivates the seller
       const deleteRes = await leadClient.raw.DELETE('/v1/members/{memberId}', {
@@ -159,15 +162,15 @@ describe('Members & Invites Contract Specs (E1)', () => {
       });
       expect(deleteRes.response.status).toBe(204);
 
-      // Seller's refresh token must now be revoked (401)
-      const unauthClient = newClient();
-      const refreshRes = await unauthClient.raw.POST('/v1/auth/refresh', {
-        body: {
-          refresh_token: sellerSession.refresh_token,
-        },
-      });
-      expect(refreshRes.response.status).toBe(401);
-      assertErrorResponse(refreshRes.error);
+      const denied = await sellerClient.raw.GET('/v1/store');
+      expect(denied.response.status).toBe(403);
+      assertErrorResponse(denied.error);
+      const me = await sellerClient.raw.GET('/v1/me');
+      expect(me.response.status).toBe(200);
+      assertMe(me.data);
+      expect(
+        me.data.memberships.some((m) => m.store.id === sellerSession.store.id),
+      ).toBe(false);
 
       // Members list shows the deactivated member with active === false
       const listRes = await leadClient.raw.GET('/v1/members');
@@ -177,6 +180,29 @@ describe('Members & Invites Contract Specs (E1)', () => {
       );
       expect(deactivated).toBeDefined();
       expect(deactivated!.active).toBe(false);
+
+      const invite = await leadClient.raw.POST('/v1/invites', {
+        body: { role: 'seller', can_enroll: true },
+      });
+      expect(invite.response.status).toBe(201);
+      const rejoined = await sellerClient.raw.POST('/v1/auth/join', {
+        body: { invite_token: invite.data!.token, display_name: 'Reactivated' },
+      });
+      expect(rejoined.response.status).toBe(201);
+      assertStoreMembership(rejoined.data);
+      expect(rejoined.data.member.id).toBe(sellerSession.member.id);
+      expect(rejoined.data.member.active).toBe(true);
+      expect(rejoined.data.member.role).toBe('seller');
+      expect(rejoined.data.member.can_enroll).toBe(true);
+      const restored = await sellerClient.raw.GET('/v1/store');
+      expect(restored.response.status).toBe(200);
+      expect(restored.data?.id).toBe(sellerSession.store.id);
+      const restoredMe = await sellerClient.raw.GET('/v1/me');
+      expect(restoredMe.response.status).toBe(200);
+      assertMe(restoredMe.data);
+      expect(restoredMe.data.memberships.map((m) => m.store.id)).toContain(
+        sellerSession.store.id,
+      );
     });
 
     it('returns 409 Conflict when attempting to delete the last active lead', async () => {

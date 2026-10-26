@@ -1,4 +1,5 @@
 //! Real PostgreSQL/Redis contract test for GET /v1/exports/price-list.
+mod common;
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -11,21 +12,25 @@ use uuid::Uuid;
 
 async fn setup() -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("catalog-test-secret-at-least-32-bytes!!".into()),
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
         k if k.starts_with("RATE_LIMIT_") => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    common::clerk::install(&mut state);
     state.rate_limiter = std::sync::Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
     (router(state.clone()), state)
 }
 
 async fn create_store(app: &Router) -> Value {
+    let token = common::clerk::token();
     let response = app
         .clone()
         .oneshot(
             Request::post("/v1/stores")
+                .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()))
                 .body(Body::from(
@@ -48,7 +53,9 @@ async fn create_store(app: &Router) -> Value {
         "{}",
         String::from_utf8_lossy(&bytes)
     );
-    serde_json::from_slice(&bytes).unwrap()
+    let mut body: Value = serde_json::from_slice(&bytes).unwrap();
+    body["access_token"] = json!(token);
+    body
 }
 
 async fn export(app: &Router, query: &str, token: Option<&str>) -> (StatusCode, String, Vec<u8>) {

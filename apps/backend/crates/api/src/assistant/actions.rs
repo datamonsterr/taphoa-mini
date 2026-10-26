@@ -555,7 +555,7 @@ async fn emit_decision(
         conn,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: if decision == "confirmed" {
                 "assistant.action.confirmed"
             } else {

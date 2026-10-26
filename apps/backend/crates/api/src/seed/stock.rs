@@ -53,7 +53,7 @@ pub(super) async fn seed(tx: &mut Tx<'_>, store: Store) -> Result<()> {
             tx,
             crate::events::Event {
                 store_id: store.store_id(),
-                actor: Some((store.id(1, 0), store.id(2, 0))),
+                actor: Some((store.id(1, 0), "seed_session".into())),
                 typ: "receipt.confirmed",
                 version: 1,
                 data: json!({"receipt_id":id,"expense_id":expense,"total":total,"line_count":3}),
@@ -83,7 +83,7 @@ async fn movement(
         tx,
         crate::events::Event {
             store_id: store.store_id(),
-            actor: Some((store.id(1, 0), store.id(2, 0))),
+            actor: Some((store.id(1, 0), "seed_session".into())),
             typ: "stock.changed",
             version: 1,
             data: json!({"product_id":product,"stock_quantity":quantity,"reason":reason}),

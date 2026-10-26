@@ -1,6 +1,8 @@
 appId: com.datamonsterr.taphoamini
 ---
 # Real segmentation and enrollment; virtualscene content is arbitrary, so no checkout match.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
 - runFlow:
     file: subflows/create-store.yaml
     env:

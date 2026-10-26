@@ -2,6 +2,9 @@
 # Seed the Railway `test` database with the `taphoa-seed` binary (created by epic E1).
 # Tolerates its absence with a notice so the pipeline works before E1 merges.
 # Needs RAILWAY_TOKEN (project token for `test`), cargo, python3.
+# taphoa-seed creates or reuses Clerk test users, so the caller passes CLERK_SECRET_KEY and
+# CLERK_PUBLISHABLE_KEY (optionally CLERK_API_URL) in the environment; `cargo run` inherits them
+# and this script never prints them.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"

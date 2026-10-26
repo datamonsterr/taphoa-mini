@@ -11,3 +11,8 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 
 [profile.ci.junit]
 path = "junit.xml"
+
+# The seed CLI test runs the taphoa-seed binary twice (about 70 s on a busy host).
+[[profile.ci.overrides]]
+filter = 'test(seed_cli_warns_without_key_and_prints_sign_in_emails_with_it)'
+slow-timeout = { period = "60s", terminate-after = 5 }

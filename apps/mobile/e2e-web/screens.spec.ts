@@ -3,6 +3,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import {
   button,
   cartPill,
+  createNewcomer,
   expect,
   fillEnroll,
   hydrate,
@@ -14,9 +15,12 @@ import {
   seedScannableProduct,
   seedTradingDay,
   shoot,
+  signInAs,
+  signInScreen,
   test,
   typeAmount,
   unknownPill,
+  welcomeScreen,
 } from './fixtures';
 
 /**
@@ -159,13 +163,20 @@ test.describe('board screenshots', () => {
 });
 
 test.describe('onboarding screenshots', () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
+  test.use({ signedIn: false });
+
+  test('Sign in', async ({ page }, testInfo) => {
+    await page.goto('/');
+    await hydrate(page, signInScreen(page));
+    await capture(page, testInfo, 'SignIn');
+  });
 
   test('Welcome and the create form', async ({ page }, testInfo) => {
-    await page.goto('/');
-    await hydrate(page, button(page, 'Tạo cửa hàng'));
+    // a Clerk user without a store: signing in lands on the welcome screen
+    await signInAs(page, await createNewcomer());
+    await hydrate(page, welcomeScreen(page));
     await capture(page, testInfo, 'Welcome');
-    await button(page, 'Tạo cửa hàng').click();
+    await page.getByTestId('onboarding-create').click();
     await expect(
       page.getByRole('textbox', { name: 'Tên cửa hàng' }),
     ).toBeVisible();

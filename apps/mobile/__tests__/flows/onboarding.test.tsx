@@ -1,368 +1,195 @@
-import { setApiTransport } from '@/lib/api';
-import { useSessionStore, SESSION_STORAGE_KEY } from '@/stores/session';
-import { testSession } from '@/test/session';
-import { fireEvent, renderApp, screen, waitFor } from '@/test/router';
+import { getMockDb } from '@/test/mock/db';
+import { clerkMock } from '@/test/clerk';
+import { setApiTransport } from '@/lib/api/client';
+import { renderApp, screen, fireEvent } from '@/test/router';
 
-const secureValues = (
-  jest.requireMock('expo-secure-store') as { __values: Map<string, string> }
-).__values;
+/** Nobody is signed in on this phone: Clerk has no active session and no session in its client. */
+const signedOut = () => clerkMock.signOut({ sessionId: 'sess_test' });
 
-const json = (status: number, body?: unknown) =>
-  new Response(body === undefined ? null : JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-
-type Sent = {
-  method: string;
-  path: string;
-  body: unknown;
-  auth: string | null;
-};
-
-/** A scripted backend. `answers` maps "METHOD /path" to a response; the rest answers 404. */
-function backend(answers: Record<string, () => Response>) {
-  const sent: Sent[] = [];
-  const transport = (async (input: RequestInfo | URL) => {
-    const request = input as Request;
-    const path = new URL(request.url).pathname;
-    const text = await request.clone().text();
-    sent.push({
-      method: request.method,
-      path,
-      body: text ? JSON.parse(text) : undefined,
-      auth: request.headers.get('authorization'),
-    });
-    const answer = answers[`${request.method} ${path}`];
-    return answer ? answer() : json(404, { error: 'not found' });
-  }) as typeof fetch;
-  setApiTransport(transport);
-  return sent;
-}
-
-const signedOut = () =>
-  useSessionStore.setState({
-    session: null,
-    hydrated: true,
-    pendingRecoveryCode: null,
-  });
-
-const authBody = (extra: object = {}) => {
-  const { member, store } = testSession();
-  return {
-    access_token: 'access-new',
-    refresh_token: 'refresh-new',
-    expires_in: 900,
-    member,
-    store,
-    ...extra,
-  };
-};
-
-const type = (label: string, text: string) =>
-  fireEvent.changeText(screen.getByLabelText(label), text);
-
-beforeEach(() => {
-  secureValues.clear();
-  signedOut();
-});
-
-test('without a session the app opens on the welcome screen, never on the camera', async () => {
-  backend({});
+test('signed out opens sign-in rather than the shop', async () => {
+  await signedOut();
   await renderApp('/');
-  expect(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
-  ).toBeOnTheScreen();
-  expect(
-    screen.getByRole('button', { name: 'Tham gia cửa hàng' }),
-  ).toBeOnTheScreen();
-  expect(
-    screen.getByRole('button', { name: 'Khôi phục cửa hàng' }),
-  ).toBeOnTheScreen();
+  expect(await screen.findByTestId('auth-email')).toBeOnTheScreen();
   expect(screen.queryByTestId('camera-screen')).toBeNull();
 });
 
-test('with a session the app opens on the camera', async () => {
-  useSessionStore.setState({ session: testSession(), hydrated: true });
-  await renderApp('/');
-  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
-});
-
-test('create store: sends the form, shows the recovery code once, then opens the camera', async () => {
-  const sent = backend({
-    'POST /v1/stores': () =>
-      json(201, authBody({ recovery_code: '7KQ4-MZ2P-9HXD-T3VA' })),
-  });
-  await renderApp('/');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
+test('a Clerk session without memberships opens onboarding', async () => {
+  setApiTransport(
+    async () =>
+      new Response(
+        JSON.stringify({
+          clerk_user_id: 'user_test',
+          profile: { display_name: 'Mẹ', email: 'me@example.com' },
+          memberships: [],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
   );
-  await type('Tên cửa hàng', '  Tạp hóa Cô Ba ');
-  await type('Tên của bạn', 'Mẹ');
-  await fireEvent.press(screen.getByRole('button', { name: 'Tạo cửa hàng' }));
-
-  expect(await screen.findByText('7KQ4-MZ2P-9HXD-T3VA')).toBeOnTheScreen();
-  expect(sent).toHaveLength(1);
-  expect(sent[0]).toMatchObject({
-    method: 'POST',
-    path: '/v1/stores',
-    auth: null,
-    body: {
-      store_name: 'Tạp hóa Cô Ba',
-      display_name: 'Mẹ',
-      device: { platform: 'ios' },
-    },
-  });
-  // The session is saved already, but the person has not confirmed the code yet.
+  await renderApp('/');
+  expect(await screen.findByTestId('onboarding-create')).toBeOnTheScreen();
   expect(screen.queryByTestId('camera-screen')).toBeNull();
-  expect(JSON.parse(secureValues.get(SESSION_STORAGE_KEY)!)).toMatchObject({
-    access_token: 'access-new',
-    refresh_token: 'refresh-new',
-  });
-  expect(secureValues.get(SESSION_STORAGE_KEY)).not.toContain('7KQ4');
-
-  await fireEvent.press(screen.getByRole('button', { name: 'Tiếp tục' }));
-  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
-  expect(useSessionStore.getState().pendingRecoveryCode).toBeNull();
 });
 
-test('create store: validates the fields before calling the server', async () => {
-  const sent = backend({});
-  await renderApp('/create');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
-  );
-  expect(
-    screen.getByText('Nhập tên cửa hàng (tối đa 80 ký tự)'),
-  ).toBeOnTheScreen();
-  expect(
-    screen.getByText('Nhập tên của bạn (tối đa 40 ký tự)'),
-  ).toBeOnTheScreen();
-  expect(sent).toHaveLength(0);
-});
-
-test.each([
-  [
-    json(400, { error: 'bad', code: 'validation_failed' }),
-    'Thông tin chưa hợp lệ.',
-  ],
-  [
-    json(429, { error: 'slow down' }),
-    'Thử quá nhiều lần. Đợi một lúc rồi thử lại.',
-  ],
-  [json(503, { error: 'down' }), 'Máy chủ đang bận. Thử lại sau.'],
-])(
-  'create store: a failed call keeps the form and says why (%#)',
-  async (response, message) => {
-    backend({ 'POST /v1/stores': () => response });
-    await renderApp('/create');
-    await type('Tên cửa hàng', 'Tạp hóa');
-    await type('Tên của bạn', 'Mẹ');
-    await fireEvent.press(
-      await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
-    );
-    expect(await screen.findByText(message)).toBeOnTheScreen();
-    expect(useSessionStore.getState().session).toBeNull();
-    // Retrying is possible: the button is enabled again.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Tạo cửa hàng' }),
-      ).toBeEnabled(),
-    );
-  },
-);
-
-test('create store: an unreachable server shows the network message', async () => {
-  setApiTransport((async () => {
-    throw new TypeError('Network request failed');
-  }) as typeof fetch);
-  await renderApp('/create');
-  await type('Tên cửa hàng', 'Tạp hóa');
-  await type('Tên của bạn', 'Mẹ');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
-  );
-  expect(
-    await screen.findByText(
-      'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.',
-    ),
-  ).toBeOnTheScreen();
-});
-
-test('join: a typed invite code (spaces, lower case) signs the member in and opens the camera', async () => {
-  const sent = backend({ 'POST /v1/auth/join': () => json(201, authBody()) });
-  await renderApp('/join');
-  await type('Mã mời', 'k7q4 mz2p 9hxd t3va');
-  await type('Tên của bạn', 'Bà nội');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tham gia' }),
-  );
-
-  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
-  expect(sent[0]).toMatchObject({
-    path: '/v1/auth/join',
-    auth: null,
-    body: { invite_token: 'K7Q4MZ2P9HXDT3VA', display_name: 'Bà nội' },
-  });
-  expect(useSessionStore.getState().session?.access_token).toBe('access-new');
-});
-
-test('join: accepts a pasted taphoa:// link', async () => {
-  const sent = backend({ 'POST /v1/auth/join': () => json(201, authBody()) });
-  await renderApp('/join');
-  await type('Mã mời', 'taphoa://join?token=K7Q4MZ2P9HXDT3VA');
-  await type('Tên của bạn', 'Bà nội');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tham gia' }),
-  );
-  await screen.findByTestId('camera-screen');
-  expect(sent[0]!.body).toMatchObject({ invite_token: 'K7Q4MZ2P9HXDT3VA' });
-});
-
-test('join: an expired or used invite is reported (410) and the form stays', async () => {
-  backend({
-    'POST /v1/auth/join': () =>
-      json(410, { error: 'invite expired', code: 'invite_unavailable' }),
-  });
-  await renderApp('/join');
-  await type('Mã mời', 'OLDCODE');
-  await type('Tên của bạn', 'Bà nội');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tham gia' }),
-  );
-  expect(
-    await screen.findByText('Mã mời đã hết hạn hoặc đã được dùng.'),
-  ).toBeOnTheScreen();
-  expect(useSessionStore.getState().session).toBeNull();
-});
-
-test('join: asks for both fields', async () => {
-  const sent = backend({});
-  await renderApp('/join');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Tham gia' }),
-  );
-  expect(screen.getByText('Nhập mã mời')).toBeOnTheScreen();
-  expect(
-    screen.getByText('Nhập tên của bạn (tối đa 40 ký tự)'),
-  ).toBeOnTheScreen();
-  expect(sent).toHaveLength(0);
-});
-
-test('recover: signs the Lead in and shows the rotated recovery code', async () => {
-  const sent = backend({
-    'POST /v1/auth/recover': () =>
-      json(200, authBody({ recovery_code: 'NEW1-NEW2-NEW3-NEW4' })),
-  });
-  await renderApp('/recover');
-  await type('Mã khôi phục', '7kq4-mz2p-9hxd-t3va');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Khôi phục' }),
-  );
-
-  expect(await screen.findByText('NEW1-NEW2-NEW3-NEW4')).toBeOnTheScreen();
-  expect(sent[0]).toMatchObject({
-    path: '/v1/auth/recover',
-    body: { recovery_code: '7kq4-mz2p-9hxd-t3va', device: { platform: 'ios' } },
-  });
-  await fireEvent.press(screen.getByRole('button', { name: 'Tiếp tục' }));
+test('a Clerk session with membership opens the shop', async () => {
+  await renderApp('/');
   expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
 });
 
-test('recover: a wrong code (401) is reported', async () => {
-  backend({
-    'POST /v1/auth/recover': () => json(401, { error: 'unauthorized' }),
-  });
-  await renderApp('/recover');
-  await type('Mã khôi phục', 'WRONG');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Khôi phục' }),
+test('email then code signs an existing user in with Core 3 finalize', async () => {
+  await signedOut();
+  await renderApp('/sign-in');
+  await fireEvent.changeText(
+    await screen.findByTestId('auth-email'),
+    'me@example.com',
   );
-  expect(await screen.findByText('Mã khôi phục không đúng.')).toBeOnTheScreen();
-  expect(useSessionStore.getState().session).toBeNull();
-});
-
-test('recover: asks for the code', async () => {
-  const sent = backend({});
-  await renderApp('/recover');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Khôi phục' }),
-  );
-  expect(screen.getByText('Nhập mã khôi phục')).toBeOnTheScreen();
-  expect(sent).toHaveLength(0);
-});
-
-test('the recovery-code screen without a pending code goes back to the welcome screen', async () => {
-  backend({});
-  await renderApp('/recovery-code');
-  expect(
-    await screen.findByRole('button', { name: 'Khôi phục cửa hàng' }),
-  ).toBeOnTheScreen();
-});
-
-test('sign out: revokes the session on the server, clears it and returns to onboarding', async () => {
-  useSessionStore.setState({ session: testSession(), hydrated: true });
-  secureValues.set(SESSION_STORAGE_KEY, JSON.stringify(testSession()));
-  const sent = backend({
-    'GET /v1/me': () =>
-      json(200, { member: testSession().member, store: testSession().store }),
-    'GET /v1/store': () => json(200, testSession().store),
-    'GET /v1/members': () => json(200, { items: [testSession().member] }),
-    'POST /v1/auth/logout': () => json(204),
+  await fireEvent.press(screen.getByRole('button', { name: 'Gửi mã' }));
+  await fireEvent.changeText(await screen.findByTestId('auth-code'), '424242');
+  await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
+  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
+  expect(clerkMock.signIn.emailCode.sendCode).toHaveBeenCalledWith({
+    emailAddress: 'me@example.com',
   });
-  await renderApp('/account');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Đăng xuất' }),
-  );
-
-  expect(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
-  ).toBeOnTheScreen();
-  const logout = sent.find((call) => call.path === '/v1/auth/logout')!;
-  expect(logout).toMatchObject({
-    method: 'POST',
-    auth: 'Bearer test-access-token',
+  expect(clerkMock.signIn.emailCode.verifyCode).toHaveBeenCalledWith({
+    code: '424242',
   });
-  expect(useSessionStore.getState().session).toBeNull();
-  expect(secureValues.has(SESSION_STORAGE_KEY)).toBe(false);
+  expect(clerkMock.signIn.finalize).toHaveBeenCalledTimes(1);
 });
 
-test('sign out still signs out locally when the server cannot be reached', async () => {
-  useSessionStore.setState({ session: testSession(), hydrated: true });
-  setApiTransport((async (input: RequestInfo | URL) => {
-    const path = new URL((input as Request).url).pathname;
-    if (path === '/v1/auth/logout') throw new TypeError('offline');
-    if (path === '/v1/me')
-      return json(200, {
-        member: testSession().member,
-        store: testSession().store,
-      });
-    if (path === '/v1/members')
-      return json(200, { items: [testSession().member] });
-    if (path === '/v1/store') return json(200, testSession().store);
-    return json(200, { items: [], next_cursor: null });
-  }) as typeof fetch);
-  await renderApp('/account');
-  await fireEvent.press(
-    await screen.findByRole('button', { name: 'Đăng xuất' }),
+test('an unknown identifier signs up with an email code and finalizes', async () => {
+  await signedOut();
+  clerkMock.signIn.create.mockResolvedValueOnce({
+    error: { code: 'form_identifier_not_found' },
+  });
+  await renderApp('/sign-in');
+  await fireEvent.changeText(
+    await screen.findByTestId('auth-email'),
+    'new@example.com',
   );
-  expect(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
-  ).toBeOnTheScreen();
-  expect(useSessionStore.getState().session).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Gửi mã' }));
+  await fireEvent.changeText(await screen.findByTestId('auth-code'), '424242');
+  await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
+  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
+  expect(clerkMock.signUp.create).toHaveBeenCalledWith({
+    emailAddress: 'new@example.com',
+  });
+  expect(clerkMock.signUp.verifications.sendEmailCode).toHaveBeenCalledTimes(1);
+  expect(clerkMock.signUp.verifications.verifyEmailCode).toHaveBeenCalledWith({
+    code: '424242',
+  });
+  expect(clerkMock.signUp.finalize).toHaveBeenCalledTimes(1);
 });
 
-test('a refused refresh signs the app out: the next 401 routes to onboarding', async () => {
-  useSessionStore.setState({ session: testSession(), hydrated: true });
-  backend({
-    'GET /v1/me': () => json(401, { error: 'expired' }),
-    'GET /v1/store': () => json(401, { error: 'expired' }),
-    'GET /v1/members': () => json(401, { error: 'expired' }),
-    'POST /v1/auth/refresh': () => json(401, { error: 'revoked' }),
+test('a wrong code is explained in Vietnamese and stays on verification', async () => {
+  await signedOut();
+  await renderApp('/sign-in');
+  await fireEvent.changeText(
+    await screen.findByTestId('auth-email'),
+    'me@example.com',
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'Gửi mã' }));
+  await fireEvent.changeText(await screen.findByTestId('auth-code'), '123456');
+  clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+    error: { code: 'form_code_incorrect' },
   });
-  await renderApp('/account');
+  await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
   expect(
-    await screen.findByRole('button', { name: 'Tạo cửa hàng' }),
+    await screen.findByText('Mã xác nhận không đúng. Vui lòng thử lại.'),
   ).toBeOnTheScreen();
-  expect(useSessionStore.getState().session).toBeNull();
+  expect(clerkMock.signIn.finalize).not.toHaveBeenCalled();
+});
+
+test('verification can resend and change the email', async () => {
+  await signedOut();
+  await renderApp('/sign-in');
+  await fireEvent.changeText(
+    await screen.findByTestId('auth-email'),
+    'me@example.com',
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'Gửi mã' }));
+  await fireEvent.press(await screen.findByTestId('auth-resend-code'));
+  expect(clerkMock.signIn.emailCode.sendCode).toHaveBeenCalledTimes(2);
+  await fireEvent.press(screen.getByTestId('auth-change-email'));
+  expect(await screen.findByTestId('auth-email')).toBeOnTheScreen();
+  expect(clerkMock.signIn.reset).toHaveBeenCalled();
+});
+
+test('Google SSO activates the created session', async () => {
+  await signedOut();
+  await renderApp('/sign-in');
+  await fireEvent.press(await screen.findByTestId('auth-google'));
+  expect(clerkMock.startSSOFlow).toHaveBeenCalledWith({
+    strategy: 'oauth_google',
+    redirectUrl: expect.stringContaining('sign-in'),
+  });
+  expect(clerkMock.setActive).toHaveBeenCalledWith(
+    expect.objectContaining({ session: 'sess_google' }),
+  );
+});
+
+test('a missing publishable key renders a configuration error', async () => {
+  const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  delete process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  try {
+    await renderApp('/');
+    expect(
+      await screen.findByTestId('auth-configuration-error'),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(/Thiếu EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY/),
+    ).toBeOnTheScreen();
+  } finally {
+    process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = key;
+  }
+});
+
+test('create store enters the shop immediately after selecting the returned membership', async () => {
+  getMockDb().hasMembership = false;
+  await renderApp('/welcome');
+  await fireEvent.press(await screen.findByTestId('onboarding-create'));
+  await fireEvent.changeText(
+    await screen.findByTestId('create-store-name'),
+    'Tạp hóa Mẹ',
+  );
+  await fireEvent.press(screen.getByTestId('create-store-submit'));
+  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
+});
+
+test('join accepts the taphoa deep-link path and enters the shop', async () => {
+  getMockDb().hasMembership = false;
+  await renderApp('/join?token=K7Q4MZ2P9HXDT3VA');
+  expect(await screen.findByTestId('join-invite-token')).toHaveProp(
+    'value',
+    'K7Q4MZ2P9HXDT3VA',
+  );
+  await fireEvent.press(screen.getByTestId('join-store-submit'));
+  expect(await screen.findByTestId('camera-screen')).toBeOnTheScreen();
+});
+
+test('onboarding can open join and sign out of only the current session', async () => {
+  getMockDb().hasMembership = false;
+  await renderApp('/welcome');
+  await fireEvent.press(await screen.findByTestId('onboarding-join'));
+  expect(await screen.findByTestId('join-invite-token')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Quay lại' }));
+  await fireEvent.press(await screen.findByTestId('onboarding-sign-out'));
+  expect(await screen.findByTestId('auth-email')).toBeOnTheScreen();
+  expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
+});
+
+test('an invitation opened while signed out survives email sign-in', async () => {
+  getMockDb().hasMembership = false;
+  await signedOut();
+  await renderApp('/join?token=K7Q4MZ2P9HXDT3VA');
+  await fireEvent.changeText(
+    await screen.findByTestId('auth-email'),
+    'me@example.com',
+  );
+  await fireEvent.press(screen.getByTestId('auth-send-code'));
+  await fireEvent.changeText(await screen.findByTestId('auth-code'), '424242');
+  await fireEvent.press(screen.getByTestId('auth-verify-code'));
+  await fireEvent.press(await screen.findByTestId('onboarding-join'));
+  expect(await screen.findByTestId('join-invite-token')).toHaveProp(
+    'value',
+    'K7Q4MZ2P9HXDT3VA',
+  );
 });
