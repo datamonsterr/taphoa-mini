@@ -2,6 +2,22 @@
   "name": "@taphoa/mobile",
   "version": "1.0.0",
   "main": "expo-router/entry",
+  "expo": {
+    "install": {
+      "exclude": [
+        "@shopify/flash-list",
+        "expo",
+        "expo-dev-client",
+        "expo-file-system",
+        "expo-font",
+        "expo-image",
+        "expo-router",
+        "react",
+        "react-dom",
+        "typescript"
+      ]
+    }
+  },
   "dependencies": {
     "@expo-google-fonts/be-vietnam-pro": "^0.4.1",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -52,6 +68,7 @@
     "ajv-formats": "^3.0.1",
     "eslint": "^10.13.0",
     "eslint-config-expo": "~58.0.4",
+    "expo-doctor": "~1.21.5",
     "expo-mcp": "~0.2.4",
     "jest": "~30.5.2",
     "jest-expo": "~58.0.12",
