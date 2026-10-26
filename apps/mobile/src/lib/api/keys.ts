@@ -72,4 +72,6 @@ export const keys = {
     dayClose: (date: string) =>
       [...keys.reports.all(), 'day-close', date] as const,
   },
+  digest: (businessDate?: string) =>
+    [...keys.all, 'digest', businessDate ?? null] as const,
 };
