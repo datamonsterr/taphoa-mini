@@ -38,8 +38,12 @@ describe('useDashboardData', () => {
       { client: createTestQueryClient() },
       children,
     );
-  const sale = (id: string, method: Sale['payment_method'], total: number) =>
-    ({ id, payment_method: method, total }) as Sale;
+  const sale = (
+    id: string,
+    method: Sale['payment_method'],
+    total: number,
+    credit_amount = 0,
+  ) => ({ id, payment_method: method, total, credit_amount }) as Sale;
 
   beforeEach(() => resetMockDb());
   afterEach(() => jest.restoreAllMocks());
@@ -74,6 +78,28 @@ describe('useDashboardData', () => {
     >;
     expect(ready.totals.cash).toBe(5000);
     expect(ready.totals.transfer).toBe(10000);
+  });
+
+  test('week cash and transfer count only the paid part of credit sales', async () => {
+    jest.spyOn(ledger, 'listSales').mockResolvedValue({
+      items: [
+        sale('a', 'cash', 100000, 60000),
+        sale('b', 'transfer', 50000, 20000),
+        sale('c', 'credit', 30000, 30000),
+        sale('d', 'cash', 5000),
+      ],
+      next_cursor: null,
+    });
+    const { result } = await renderHook(() => useDashboardData('week'), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const ready = result.current as Extract<
+      typeof result.current,
+      { status: 'ready' }
+    >;
+    expect(ready.totals.cash).toBe(45000);
+    expect(ready.totals.transfer).toBe(30000);
   });
 
   test('day mode does not query sales at all', async () => {

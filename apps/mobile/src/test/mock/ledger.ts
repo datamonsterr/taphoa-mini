@@ -1,3 +1,4 @@
+import { recordEntry, validateSaleCredit, reverseSaleCredit } from './debts';
 import {
   addDays,
   daysBetween,
@@ -26,7 +27,7 @@ import {
   nowIso,
   raiseMarginAlert,
 } from './db';
-import { badRequest, notFound } from './errors';
+import { badRequest, notFound, conflict, MockHttpError } from './errors';
 import { randomCode } from './ids';
 import { applyStock } from './stockReceipts';
 
@@ -44,7 +45,13 @@ export function createSale(req: CreateSaleRequest): {
 } {
   const db = getMockDb();
   const existing = db.sales.find((s) => s.id === req.id);
-  if (existing) return { sale: existing, created: false };
+  if (existing) {
+    const hash = db.idempotency.get(`sale:${req.id}`)?.hash;
+    if (hash && hash !== JSON.stringify(req))
+      throw conflict('id_conflict', 'Sale id reused');
+    return { sale: existing, created: false };
+  }
+  validateSaleCredit(req);
 
   const lines: SaleLine[] = req.lines.map((line) => {
     let productName: string | null = null;
@@ -87,15 +94,20 @@ export function createSale(req: CreateSaleRequest): {
       'total_mismatch',
     );
   }
+  const creditAmount = req.credit?.amount ?? 0;
+  const paid = total - creditAmount;
   const isCash = req.payment_method === 'cash';
-  const cashReceived = isCash ? (req.cash_received ?? total) : null;
-  if (cashReceived !== null && cashReceived < total) {
+  const cashReceived = isCash ? (req.cash_received ?? paid) : null;
+  if (cashReceived !== null && cashReceived < paid) {
     throw badRequest(
       'cash_received is less than total',
       { total },
       'cash_short',
     );
   }
+
+  if (req.cash_received !== undefined && req.cash_received < paid)
+    throw badRequest('cash_received is less than paid part');
 
   const code = randomCode(6);
   const at = nowIso();
@@ -107,17 +119,35 @@ export function createSale(req: CreateSaleRequest): {
     business_date: businessDate(req.sold_at),
     member_id: getCurrentMember().id,
     payment_method: req.payment_method,
+    credit_amount: creditAmount,
+    customer_id: req.credit?.customer_id ?? null,
     cash_received: cashReceived,
-    change_given: cashReceived === null ? null : cashReceived - total,
+    change_given: cashReceived === null ? null : cashReceived - paid,
     total,
     vietqr_memo:
       req.vietqr_memo ??
-      (isCash ? null : `${db.store.sales_memo_prefix ?? 'TH'} ${code}`),
+      (req.payment_method === 'transfer'
+        ? `${db.store.sales_memo_prefix ?? 'TH'} ${code}`
+        : null),
     status: 'completed',
     void: null,
     lines,
   };
   db.sales.push(sale);
+  db.idempotency.set(`sale:${req.id}`, {
+    hash: JSON.stringify(req),
+    value: sale,
+  });
+  if (req.credit)
+    recordEntry(
+      {
+        customer_id: req.credit.customer_id,
+        amount: creditAmount,
+        kind: 'credit_sale',
+        sale_id: sale.id,
+      },
+      req.sold_at,
+    );
   for (const line of lines) {
     if (!line.product_id) continue;
     const product = findProductRecord(line.product_id).product;
@@ -263,19 +293,33 @@ function dayTotals(date: string) {
   const expenses = db.expenses.filter((e) => e.business_date === date);
   const cashSales = sum(
     sales.filter((s) => s.payment_method === 'cash'),
-    (s) => s.total,
+    (s) => s.total - s.credit_amount,
   );
   const transferRevenue = sum(
     sales.filter((s) => s.payment_method === 'transfer'),
-    (s) => s.total,
+    (s) => s.total - s.credit_amount,
   );
   const cashExpenses = sum(
     expenses.filter((e) => e.paid_with === 'cash_box'),
     (e) => e.amount,
   );
+  const repayments = db.debtEntries.filter(
+    (e) => e.business_date === date && e.kind === 'repayment',
+  );
+  const cashRepayments = -sum(
+    repayments.filter((e) => e.method === 'cash'),
+    (e) => e.amount,
+  );
+  const transferRepayments = -sum(
+    repayments.filter((e) => e.method === 'transfer'),
+    (e) => e.amount,
+  );
   return {
     sales,
-    revenue: cashSales + transferRevenue,
+    cashRepayments,
+    transferRepayments,
+    creditSales: sum(sales, (s) => s.credit_amount),
+    revenue: sum(sales, (s) => s.total),
     cashSales,
     transferRevenue,
     expenses: sum(expenses, (e) => e.amount),
@@ -302,11 +346,16 @@ export function getDailyReport(date: string = businessDate()): DailyReport {
     ).length,
     cash_revenue: t.cashSales,
     transfer_revenue: t.transferRevenue,
+    cash_repayments: t.cashRepayments,
+    credit_sales: t.creditSales,
     expenses: t.expenses,
     net: t.revenue - t.expenses,
     expected_cash: Math.max(
       0,
-      (close?.opening_float ?? 0) + t.cashSales - t.cashExpenses,
+      (close?.opening_float ?? 0) +
+        t.cashSales +
+        t.cashRepayments -
+        t.cashExpenses,
     ),
     manual_lines_open: db.manualLines.filter(
       (l) =>
@@ -324,12 +373,15 @@ export function putDayClose(
   const t = dayTotals(date);
   const expected = Math.max(
     0,
-    input.opening_float + t.cashSales - t.cashExpenses,
+    input.opening_float + t.cashSales + t.cashRepayments - t.cashExpenses,
   );
   const close: DayClose = {
     business_date: date,
     opening_float: input.opening_float,
     cash_sales: t.cashSales,
+    cash_repayments: t.cashRepayments,
+    transfer_repayments: t.transferRepayments,
+    credit_sales: t.creditSales,
     cash_refunds: 0,
     cash_expenses: t.cashExpenses,
     expected_cash: expected,
@@ -389,4 +441,36 @@ function bucket(start: string, end: string): SummaryBucket {
     net: revenue - expenses,
     sales_count: sales.length,
   };
+}
+
+export function voidSale(id: string, body: Record<string, unknown>): Sale {
+  const sale = getMockDb().sales.find((s) => s.id === id);
+  if (!sale) throw notFound('Sale');
+  const member = getCurrentMember();
+  if (
+    member.role !== 'lead' &&
+    (sale.member_id !== member.id || sale.business_date !== businessDate())
+  )
+    throw new MockHttpError(403, 'forbidden', 'Cannot void this sale');
+  if (sale.status === 'voided') return sale;
+  if (typeof body.reason !== 'string' || !body.reason.trim())
+    throw badRequest('reason required');
+  const at = body.voided_at === undefined ? nowIso() : String(body.voided_at);
+  if (Number.isNaN(Date.parse(at))) throw badRequest('Invalid voided_at');
+  sale.status = 'voided';
+  sale.void = {
+    reason: body.reason,
+    voided_by: getCurrentMember().id,
+    voided_at: at,
+  };
+  reverseSaleCredit(sale, at);
+  for (const line of sale.lines) {
+    if (!line.product_id) continue;
+    const product = findProductRecord(line.product_id).product;
+    if (product.stock_quantity === null) continue;
+    const factor =
+      product.units.find((u) => u.id === line.unit_id)?.quantity_in_base ?? 1;
+    applyStock(product.id, line.quantity * factor, 'sale_void', sale.id);
+  }
+  return sale;
 }

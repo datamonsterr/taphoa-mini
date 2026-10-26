@@ -66,32 +66,38 @@ text, tokens, keys.
 | Recognition (`recognition.scan`) | `taphoa.scan.purpose`, `taphoa.scan.detections`, `taphoa.scan.match_class`, timings per stage                                    |
 | Background job (`job {name}`)    | `taphoa.job.name`, `taphoa.job.attempt`, outcome                                                                                 |
 
-## Assistant spans (instrumentation scope `taphoa.assistant`)
+## Assistant spans (shared instrumentation scope `taphoa.backend`)
 
 Spans follow the OpenTelemetry GenAI conventions and reach PostHog tracing through the collector,
 so a slow turn can be followed into DB and tool spans.
 
-| Span                            | Kind     | Required attributes                                                                                                                                                                                                                                                                                 |
-| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invoke_agent taphoa-assistant` | internal | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name=taphoa-assistant`, `gen_ai.conversation.id` (thread id), `taphoa.assistant.use_cases`, `taphoa.assistant.screen`, identity                                                                                                                 |
-| `chat {model}`                  | client   | `gen_ai.operation.name=chat`, `gen_ai.provider.name=openrouter`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`, `taphoa.assistant.fallback_index`, time to first token (no message content on spans) |
-| `execute_tool {tool}`           | internal | `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `taphoa.tool.kind` (read, propose), `taphoa.tool.ok`, `taphoa.tool.rows`, `taphoa.tool.denied`                                                                                                                     |
-| `assistant.action {kind}`       | internal | `taphoa.action.id`, `taphoa.action.kind`, `taphoa.action.status` (confirmed, rejected, expired, failed); linked to the proposing trace with a span link                                                                                                                                             |
-| `assistant.next_steps`          | internal | `taphoa.next_steps.count`, kinds                                                                                                                                                                                                                                                                    |
+| Span                            | Kind     | Required attributes                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoke_agent taphoa-assistant` | internal | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name=taphoa-assistant`, `gen_ai.conversation.id` (thread id), `taphoa.assistant.use_cases`, `taphoa.assistant.screen`, identity                                                                                                                                                                                  |
+| `chat {model}`                  | client   | `gen_ai.operation.name=chat`, `gen_ai.provider.name=openrouter`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`, `taphoa.assistant.fallback_index`, `taphoa.assistant.time_to_first_token_ms`, `server.address`, `error.type` on failure (no message content on spans) |
+| `execute_tool {tool}`           | internal | `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `taphoa.tool.kind` (read, propose), `taphoa.tool.ok`, `taphoa.tool.rows`, `taphoa.tool.denied`                                                                                                                                                                                      |
+| `assistant.action {kind}`       | internal | `taphoa.action.id`, `taphoa.action.kind`, `taphoa.action.status` (confirmed, rejected, expired, failed); linked to the proposing `execute_tool` span with both its trace id and span id                                                                                                                                                                              |
+| `assistant.next_steps`          | internal | `taphoa.next_steps.count`, kinds                                                                                                                                                                                                                                                                                                                                     |
+
+Action links use nullable `assistant_actions.span_id` and `assistant_messages.span_id` (migration
+`0804_assistant_span_ids.sql`). Proposals store the executing tool span id; messages without a
+proposal retain the turn span id. Legacy rows without both valid ids have no link. The current
+[GenAI conventions](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/docs/gen-ai)
+retain `gen_ai.provider.name` and `gen_ai.response.finish_reasons` (a string array).
 
 ## Assistant LLM analytics events (PostHog)
 
 Captured by the backend PostHog client after each turn (batched, never blocking the reply).
-Every event: `distinct_id` = Clerk user id, `$groups.store` = store id, properties `member_id`,
+Every event: `distinct_id` = member id until X1 switches to Clerk user id, `$groups.store` = store id, properties `member_id`,
 `role`, `environment`, `$ai_session_id` = thread id, `$ai_trace_id` = the OTel trace id (hex) of
 the turn, so PostHog LLM traces and backend traces share one id. Check the current PostHog
 manual-capture docs for property names before coding.
 
-| Event            | When           | Required properties                                                                                                                                                                                                                                                      |
-| ---------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `$ai_trace`      | one per turn   | `$ai_span_name=assistant.turn`, `$ai_input_state` (user text), `$ai_output_state` (final text), `$ai_latency`, `use_cases` (`U1`..`U23`), `entry` (button, chip, receipt, digest, push), `next_step_kind`, `eval_run_id` (eval only)                                     |
-| `$ai_generation` | per model call | `$ai_span_id`, `$ai_parent_id`, `$ai_model`, `$ai_provider=openrouter`, `$ai_input` (messages), `$ai_output_choices`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_http_status`, `$ai_is_error`, `$ai_error`, `fallback_index`, `time_to_first_token_ms` |
-| `$ai_span`       | per tool call  | `$ai_span_id`, `$ai_parent_id`, `$ai_span_name=tool:<name>`, `$ai_input_state` (arguments), `$ai_output_state` (summary and row count, not full rows), `$ai_latency`, `$ai_is_error`, `tool_kind`, `denied`                                                              |
+| Event            | When           | Required properties                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$ai_trace`      | one per turn   | `$ai_span_name=assistant.turn`, `$ai_input_state` (user text), `$ai_output_state` (final text), `$ai_latency`, `use_cases` (`U1`..`U23`), `entry` (button, chip, receipt, digest, push), `next_step_kind`, `prompt_version`, `eval_run_id` (eval only)                                                                                                                                                                                                                      |
+| `$ai_generation` | per model call | `$ai_span_id`, `$ai_parent_id`, `$ai_model`, `$ai_provider=openrouter`, `$ai_input` (messages), `$ai_output_choices`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_http_status`, `$ai_is_error`, `$ai_error`, `$ai_stop_reason`, `$ai_tools` (names only), `$ai_stream=true`, `fallback_index`, `$ai_time_to_first_token` (seconds), `time_to_first_token_ms`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd` (all zero for free models) |
+| `$ai_span`       | per tool call  | `$ai_span_id`, `$ai_parent_id`, `$ai_span_name=tool:<name>`, `$ai_input_state` (arguments), `$ai_output_state` (summary and row count, not full rows), `$ai_latency`, `$ai_is_error`, `tool_kind`, `denied`                                                                                                                                                                                                                                                                 |
 
 Message content is allowed in `$ai_*` events (needed for debugging the assistant); mask 9-15
 digit sequences (phones, bank numbers) before sending. Free models report zero cost; set PostHog
@@ -99,13 +105,14 @@ custom model pricing to 0 for them so cost charts stay correct.
 
 Score and outcome events (backend unless noted):
 
-| Event                                                     | Source                                        | Properties                                                                |
-| --------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
-| LLM feedback (`$ai_feedback` or the current PostHog name) | thumbs on a message (`POST .../feedback`)     | `$ai_trace_id`, `rating` (up, down), `comment`                            |
-| `assistant_action_decided`                                | proposed action decided                       | `$ai_trace_id`, `kind`, `decision` (confirmed, rejected, expired, failed) |
-| `assistant_quota_hit`                                     | turn ended by quota                           | `$ai_trace_id`, `scope` (store, openrouter)                               |
-| `eval_case_scored`                                        | eval harness ([golden-set.md](golden-set.md)) | `eval_run_id`, `model`, `case_id`, `use_case`, `scorer`, `value`          |
-| `eval_run_completed`                                      | eval harness                                  | `eval_run_id`, `model`, `set` (smoke, full), pass-bar results             |
+| Event                          | Source                                                      | Properties                                                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant_feedback_submitted` | thumbs on a message (`POST .../feedback`)                   | `$ai_trace_id`, `rating` (up, down), masked `comment`                                                                                                                           |
+| `survey sent`                  | feedback when survey and rating question ids are configured | `$survey_id`, `$survey_response_<question id>` (1 up, 2 down), optional comment question response, `$ai_trace_id`, `$survey_submission_id` (new UUID), `$survey_completed=true` |
+| `assistant_action_decided`     | proposed action decided                                     | `$ai_trace_id`, `kind`, `decision` (confirmed, rejected, expired, failed)                                                                                                       |
+| `assistant_quota_hit`          | turn ended by quota                                         | `$ai_trace_id`, `scope` (store, openrouter)                                                                                                                                     |
+| `eval_case_scored`             | eval harness ([golden-set.md](golden-set.md))               | `eval_run_id`, `model`, `case_id`, `use_case`, `scorer`, `value`                                                                                                                |
+| `eval_run_completed`           | eval harness                                                | `eval_run_id`, `model`, `set` (smoke, full), pass-bar results                                                                                                                   |
 
 ## Logs
 
@@ -147,8 +154,8 @@ the `store` group (store UUID) and properties `member_id`, `role`, `environment`
 | `assistant_opened`                                | app     | `entry` (button, chip, receipt, digest, push)                         |
 | `assistant_message_sent`                          | app     | `input` (text, voice), `thread_turn`                                  |
 | `assistant_reply_received`                        | app     | `latency_ms`, `tools_count`, `error_code`                             |
-| `assistant_action_proposed`                       | backend | `kind`                                                                |
-| `assistant_action_decided`                        | backend | `kind`, `decision`                                                    |
+| `assistant_action_proposed`                       | backend | `kind`, `$ai_trace_id`                                                |
+| `assistant_action_decided`                        | backend | `kind`, `decision`, `$ai_trace_id`                                    |
 | `assistant_feedback_given`                        | app     | `rating`                                                              |
 | `next_step_shown` / `next_step_tapped`            | app     | `kind`, `position`                                                    |
 | `digest_opened`                                   | app     | `entry` (card, push)                                                  |

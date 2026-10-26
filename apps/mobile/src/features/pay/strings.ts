@@ -6,10 +6,12 @@ export const payStrings: Dict = {
     'toggle.group': 'Cách trả',
     'toggle.transfer': 'Chuyển khoản',
     'toggle.cash': 'Tiền mặt',
+    'toggle.credit': 'Ghi nợ',
   },
   en: {
     'toggle.group': 'Payment method',
     'toggle.transfer': 'Bank transfer',
     'toggle.cash': 'Cash',
+    'toggle.credit': 'Credit',
   },
 };

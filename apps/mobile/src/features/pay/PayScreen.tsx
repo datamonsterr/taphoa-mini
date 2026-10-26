@@ -1,8 +1,16 @@
+import { CustomerPicker } from '../debts/CustomerPicker';
+import { debtStrings } from '../debts/strings';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Check, ChevronLeft, Landmark, Undo2 } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import Animated, { ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,9 +27,9 @@ import {
 } from '@/components/ui';
 import type { PayMethod } from '@/components/ui';
 import { useCreateSale, useStore } from '@/lib/api';
-import type { CreateSaleRequest } from '@/lib/api';
+import type { CreateSaleRequest, Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { useLabels } from '@/lib/i18n';
+import { useLabels, useT } from '@/lib/i18n';
 import { newUuid, saleCode } from '@/lib/uuid';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
 import type { CartLine } from '@/stores/cart';
@@ -96,6 +104,7 @@ const toggleLabels = (t: (key: string) => string) => ({
   group: t('toggle.group'),
   transfer: t('toggle.transfer'),
   cash: t('toggle.cash'),
+  credit: t('toggle.credit'),
 });
 
 export function PayScreen() {
@@ -108,6 +117,15 @@ export function PayScreen() {
   const store = useStore();
   const sale = useCreateSale();
 
+  const t = useT(debtStrings);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [picker, setPicker] = useState(false);
+  const [paidText, setPaidText] = useState('0');
+  const paidNow = Number(paidText || '0');
+  const invalidPaid =
+    !/^\d*$/.test(paidText) ||
+    !Number.isSafeInteger(paidNow) ||
+    paidNow > total;
   const [method, setMethod] = useState<PayMethod>('transfer');
   const [tendered, setTendered] = useState<number | null>(null);
   const [done, setDone] = useState(false);
@@ -159,11 +177,19 @@ export function PayScreen() {
     const body: CreateSaleRequest = {
       id: saleId,
       sold_at: (soldAt.current ??= new Date().toISOString()),
-      payment_method: method === 'cash' ? 'cash' : 'transfer',
+      payment_method:
+        method === 'credit' ? (paidNow === 0 ? 'credit' : 'cash') : method,
+      ...(method === 'credit' && customer && paidNow < total
+        ? { credit: { customer_id: customer.id, amount: total - paidNow } }
+        : {}),
       total,
-      ...(method === 'cash'
-        ? { cash_received: cashGiven }
-        : { vietqr_memo: memo }),
+      ...(method === 'credit'
+        ? paidNow > 0
+          ? { cash_received: paidNow }
+          : {}
+        : method === 'cash'
+          ? { cash_received: cashGiven }
+          : { vietqr_memo: memo }),
       lines: lines.map((line) => {
         let id = lineIds.get(line.productId);
         if (!id) {
@@ -194,7 +220,19 @@ export function PayScreen() {
         setDone(true);
       },
     });
-  }, [saleId, method, total, cashGiven, memo, lines, lineIds, sale, clearCart]);
+  }, [
+    saleId,
+    method,
+    total,
+    cashGiven,
+    memo,
+    lines,
+    lineIds,
+    sale,
+    clearCart,
+    customer,
+    paidNow,
+  ]);
 
   return (
     <View
@@ -212,12 +250,49 @@ export function PayScreen() {
           accessibilityLabel="Quay lại giỏ hàng"
           onPress={back}
         />
-        <PayToggle value={method} onChange={setMethod} labels={toggle} />
+        <PayToggle
+          value={method}
+          onChange={(next) => {
+            setMethod(next);
+            if (next === 'credit' && !customer) setPicker(true);
+          }}
+          labels={toggle}
+        />
       </View>
 
       <MoneyText amount={total} variant="total" style={styles.total} />
 
-      {method === 'transfer' ? (
+      {method === 'credit' ? (
+        <View style={styles.cashCard}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={customer ? t('change') : t('choose')}
+            onPress={() => setPicker(true)}
+            style={styles.retry}
+          >
+            <Text style={styles.retryText}>
+              {customer ? `${customer.name} · ${t('change')}` : t('choose')}
+            </Text>
+          </PressableScale>
+          <Text>{t('paidNow')}</Text>
+          <TextInput
+            accessibilityLabel={t('paidNow')}
+            value={paidText}
+            onChangeText={setPaidText}
+            keyboardType="number-pad"
+            style={styles.paidInput}
+          />
+          {invalidPaid ? (
+            <Text accessibilityRole="alert">{t('invalidPaid')}</Text>
+          ) : null}
+          {customer &&
+          paidNow < total &&
+          customer.credit_limit !== null &&
+          customer.balance + total - paidNow > customer.credit_limit ? (
+            <Text accessibilityRole="alert">{t('overLimit')}</Text>
+          ) : null}
+        </View>
+      ) : method === 'transfer' ? (
         <View style={styles.qrCard}>
           {store.isPending ? (
             <ActivityIndicator
@@ -315,10 +390,27 @@ export function PayScreen() {
         variant="success"
         accessibilityLabel="Đã nhận tiền"
         onPress={received}
-        disabled={sale.isPending || done || lines.length === 0 || short}
+        disabled={
+          sale.isPending ||
+          done ||
+          lines.length === 0 ||
+          short ||
+          (method === 'credit' && (!customer || invalidPaid)) ||
+          picker
+        }
         block
         xl
       />
+
+      {picker ? (
+        <CustomerPicker
+          onClose={() => setPicker(false)}
+          onSelect={(picked) => {
+            setCustomer(picked);
+            setPicker(false);
+          }}
+        />
+      ) : null}
 
       {done ? (
         <Animated.View
@@ -337,6 +429,14 @@ export function PayScreen() {
 }
 
 const styles = StyleSheet.create({
+  paidInput: {
+    ...typography.body,
+    color: colors.ink,
+    minHeight: 48,
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
   screen: {
     flex: 1,
     paddingHorizontal: space[4],
