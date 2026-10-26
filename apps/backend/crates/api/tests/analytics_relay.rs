@@ -114,7 +114,10 @@ async fn producer_metadata_is_additive_and_tracks_assistant_origin() {
     if std::env::var("DATABASE_URL").is_err() || std::env::var("REDIS_URL").is_err() {
         return;
     }
-    use axum::{body::Body, http::Request};
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
     use tower::ServiceExt;
     let w = World::new().await;
     let created: serde_json::Value = sqlx::query_scalar(
@@ -135,7 +138,7 @@ async fn producer_metadata_is_additive_and_tracks_assistant_origin() {
         (
             "POST",
             "/v1/expenses".into(),
-            json!({"id":Uuid::now_v7(),"spent_at":now_iso(),"amount":1000,"category":"dien","paid_with":"cash","purchase_lines":[]}),
+            json!({"id":Uuid::now_v7(),"spent_at":now_iso(),"amount":1000,"category":"dien","paid_with":"cash_box","purchase_lines":[]}),
         ),
         (
             "PATCH",
@@ -145,7 +148,7 @@ async fn producer_metadata_is_additive_and_tracks_assistant_origin() {
     ] {
         let request = Request::builder()
             .method(method)
-            .uri(path)
+            .uri(&path)
             .header(
                 "content-type",
                 if method == "PATCH" {
@@ -155,15 +158,18 @@ async fn producer_metadata_is_additive_and_tracks_assistant_origin() {
                 },
             )
             .header("authorization", format!("Bearer {}", w.lead))
+            .header("x-forwarded-for", "10.253.254.1")
             .header("x-taphoa-via", "assistant")
             .header("idempotency-key", Uuid::new_v4().to_string())
             .body(Body::from(body.to_string()))
             .unwrap();
         let response = w.app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 8 << 20).await.unwrap();
         assert!(
-            response.status().is_success(),
-            "{method}: {}",
-            response.status()
+            status.is_success(),
+            "{method} {path}: {status}: {}",
+            String::from_utf8_lossy(&body)
         );
     }
     for kind in ["stock.changed", "expense.created", "price.changed"] {
