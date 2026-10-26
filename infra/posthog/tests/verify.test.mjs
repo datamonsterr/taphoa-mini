@@ -103,3 +103,9 @@ test('a zero-percent formula still verifies when its denominator has input event
   assert.equal(result.ok, true);
   assert.ok(queryCount > 35);
 });
+
+test('a bold number with an aggregated value counts as data', async () => {
+  const { hasData } = await import('../verify.mjs');
+  assert.equal(hasData([{ data: [], aggregated_value: 13 }]), true);
+  assert.equal(hasData([{ data: [], aggregated_value: 0 }]), false);
+});

@@ -58,6 +58,12 @@ export function hasData(results) {
     )
       return true;
     if (typeof value.count === 'number' && value.count > 0) return true;
+    // BoldNumber trends report one aggregated value instead of a series.
+    if (
+      typeof value.aggregated_value === 'number' &&
+      value.aggregated_value > 0
+    )
+      return true;
     return Object.values(value).some(
       (child) =>
         typeof child === 'object' &&
