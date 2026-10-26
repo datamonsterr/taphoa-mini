@@ -12,6 +12,8 @@ import {
   getByGestureTestId,
 } from 'react-native-gesture-handler/jest-utils';
 
+import { useAssistantEnabled } from '@/features/assistant/flags';
+import { setAnalyticsSink } from '@/lib/analytics';
 import * as images from '@/lib/api/images';
 import * as receiptsApi from '@/lib/api/receipts';
 import { ApiError } from '@/lib/api/errors';
@@ -26,7 +28,10 @@ import { useCartStore } from '@/stores/cart';
 import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
-import { renderWithProviders } from '@/test/render';
+import {
+  createTestQueryClient,
+  renderWithProviders as render,
+} from '@/test/render';
 
 import { uploadPartsAsBlobs } from './testing';
 import { CameraScreen } from './CameraScreen';
@@ -74,6 +79,10 @@ jest.mock('@/components/camera/DetectionBox', () => {
     }),
   };
 });
+
+jest.mock('@/features/assistant/flags', () => ({
+  useAssistantEnabled: jest.fn(() => true),
+}));
 
 const mockPush = jest.fn();
 const mockTakePicture = jest.fn();
@@ -160,6 +169,7 @@ beforeEach(() => {
   mockState.autoReady = true;
   mockState.mounts = 0;
   mockPush.mockReset();
+  jest.mocked(useAssistantEnabled).mockReturnValue(true);
   mockRequestPermission.mockReset();
   mockTakePicture
     .mockReset()
@@ -168,6 +178,21 @@ beforeEach(() => {
   uploadPartsAsBlobs();
 });
 
+// The next-steps query resolves on its own clock, after the render that started it. Each render
+// waits for it (and for TanStack Query's zero-delay hand-off to the observers) inside `act`, so its
+// re-render is never reported as an update outside a test.
+let queryClient = createTestQueryClient();
+async function renderWithProviders(ui: React.ReactElement) {
+  const view = await render(ui, queryClient);
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return view;
+}
+beforeEach(() => {
+  queryClient = createTestQueryClient();
+});
 afterEach(() => jest.restoreAllMocks());
 
 const shutter = () =>
@@ -1107,4 +1132,223 @@ test('document action is hidden while scanning and an explicit create retry reus
   await waitFor(() => expect(mockPush).toHaveBeenCalled());
   expect(spy.mock.calls[0][1]).toBe(spy.mock.calls[1][1]);
   expect(getMockDb().receipts).toHaveLength(1);
+});
+
+describe('assistant entry points', () => {
+  const strip = () => screen.findByTestId('next-step-strip');
+  const chipNames = () =>
+    within(screen.getByTestId('next-step-strip'))
+      .getAllByRole('button')
+      .map((chip) => chip.props.accessibilityLabel as string);
+
+  it('puts the chat button at the right end of the bottom row, not in the shutter row', async () => {
+    await renderWithProviders(<CameraScreen />);
+    const row = screen.getByTestId('camera-bottom-row');
+    const button = within(row).getByRole('button', { name: 'Mở trợ lý' });
+    expect(row.children[row.children.length - 1]).toBe(button);
+    expect(
+      within(screen.getByTestId('camera-controls')).queryByTestId(
+        'chat-button',
+      ),
+    ).toBeNull();
+    await fireEvent.press(button);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/assistant',
+      params: { entry: 'button', screen: 'camera' },
+    });
+  });
+
+  it('shows the server chips in the strip slot under the viewfinder', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await strip();
+    expect(chipNames()).toEqual(['Cần nhập hàng', 'Hóa đơn nháp']);
+    const nodes = screen.getByTestId('camera-screen').children;
+    const finder = nodes.indexOf(screen.getByTestId('camera-finder-row'));
+    const slot = nodes[finder + 1] as unknown as { children: unknown[] };
+    expect(slot.children).toContain(screen.getByTestId('next-step-strip'));
+    expect(screen.getByTestId('viewfinder')).not.toContainElement(
+      screen.getByTestId('next-step-strip'),
+    );
+    expect(screen.getByTestId('viewfinder')).toHaveStyle({
+      width: 358,
+      height: 358,
+    });
+  });
+
+  it('puts the receipt chip first after a scan with a document', async () => {
+    setNextScanDocument();
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await waitFor(() => expect(chipNames()).toHaveLength(3));
+    expect(chipNames()).toEqual([
+      'Hóa đơn nhập hàng. Trợ lý đọc từng dòng',
+      'Cần nhập hàng',
+      'Hóa đơn nháp',
+    ]);
+    expect(screen.getByTestId('viewfinder')).toHaveStyle({ width: 358 });
+  });
+
+  it('puts the unknown-product chip first after a low match and opens enroll like the ? pill', async () => {
+    setMockScenario('unknown');
+    const create = jest.spyOn(images, 'createScan');
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    const scan = await create.mock.results[0]!.value;
+    await waitFor(() => expect(chipNames()).toHaveLength(3));
+    expect(chipNames()[0]).toBe('Hàng chưa có trong kho. Thêm vào kho');
+    await fireEvent.press(
+      screen.getByRole('button', { name: /^Hàng chưa có trong kho/ }),
+    );
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/enroll',
+      params: expect.objectContaining({
+        photoUri: 'file:///shot.jpg',
+        scanId: scan.id,
+        detectionId: scan.detections[0].id,
+      }),
+    });
+  });
+
+  it('hides the on-device chips from a Seller who cannot enroll', async () => {
+    setNextScanDocument();
+    const { session } = useSessionStore.getState();
+    useSessionStore.setState({
+      session: {
+        ...session!,
+        member: { ...session!.member, role: 'seller', can_enroll: false },
+      },
+    });
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await strip();
+    expect(chipNames()).toEqual(['Cần nhập hàng', 'Hóa đơn nháp']);
+  });
+
+  it('a chat chip opens the assistant with its prompt and context, and records the tap', async () => {
+    const events: [string, unknown][] = [];
+    setAnalyticsSink({ capture: (name, props) => events.push([name, props]) });
+    try {
+      await renderWithProviders(<CameraScreen />);
+      await strip();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Cần nhập hàng' }),
+      );
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/assistant',
+        params: {
+          entry: 'chip',
+          prompt: 'Tôi nên nhập thêm hàng gì?',
+          screen: 'camera',
+          nextStepId: 'restock',
+        },
+      });
+      expect(events).toContainEqual([
+        'next_step_shown',
+        { kind: 'restock', position: 0 },
+      ]);
+      expect(events).toContainEqual([
+        'next_step_tapped',
+        { kind: 'restock', position: 0 },
+      ]);
+    } finally {
+      setAnalyticsSink(null);
+    }
+  });
+
+  it('a navigate chip pushes its route', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await strip();
+    await fireEvent.press(screen.getByRole('button', { name: 'Hóa đơn nháp' }));
+    expect(mockPush).toHaveBeenCalledWith('/receipts');
+  });
+
+  it('the receipt chip creates the receipt from the scan image and opens it in the chat', async () => {
+    setNextScanDocument();
+    const create = jest.spyOn(receiptsApi, 'createReceipt');
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await waitFor(() => expect(chipNames()).toHaveLength(3));
+    await fireEvent.press(
+      screen.getByRole('button', { name: /^Hóa đơn nhập hàng/ }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+    const receiptId = getMockDb().receipts[0].id;
+    expect(create.mock.calls[0][0]).toEqual({
+      image_id: [...getMockDb().scans.values()][0].image.id,
+    });
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/assistant',
+      params: { entry: 'receipt', screen: 'camera', receiptId },
+    });
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('the receipt chip shows the same notice as the document button when reading fails', async () => {
+    setNextScanDocument();
+    jest
+      .spyOn(receiptsApi, 'createReceipt')
+      .mockRejectedValueOnce(
+        new ApiError(422, { error: 'x', code: 'no_text' }),
+      );
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await waitFor(() => expect(chipNames()).toHaveLength(3));
+    await fireEvent.press(
+      screen.getByRole('button', { name: /^Hóa đơn nhập hàng/ }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Không đọc được chữ trên hóa đơn',
+    );
+    expect(mockPush).not.toHaveBeenCalled();
+    // The notice owns the slot while it shows.
+    expect(screen.queryByTestId('next-step-strip')).toBeNull();
+  });
+
+  it('yields the slot to the alternatives strip and to quick enroll', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await strip();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /xem món khác$/ }),
+    );
+    expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
+    expect(screen.queryByTestId('next-step-strip')).toBeNull();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /xem món khác$/ }),
+    );
+    expect(await strip()).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
+    );
+    expect(screen.queryByTestId('next-step-strip')).toBeNull();
+    expect(screen.getByText(/Thêm hàng nhanh/)).toBeOnTheScreen();
+  });
+
+  it('asks the server only while the screen is focused', async () => {
+    mockState.focused = false;
+    await renderWithProviders(<CameraScreen />);
+    await waitFor(() => expect(mockState.listeners.size).toBeGreaterThan(0));
+    expect(screen.queryByTestId('next-step-strip')).toBeNull();
+    await setFocused(true);
+    expect(await strip()).toBeOnTheScreen();
+  });
+
+  it('renders neither the button nor the strip while the assistant is off', async () => {
+    jest.mocked(useAssistantEnabled).mockReturnValue(false);
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    expect(screen.queryByTestId('chat-button')).toBeNull();
+    expect(screen.queryByTestId('next-step-strip')).toBeNull();
+  });
+
+  it('follows the app language', async () => {
+    useSettingsStore.setState({ language: 'en' });
+    await renderWithProviders(<CameraScreen />);
+    await strip();
+    expect(chipNames()).toEqual(['Restock', 'Draft receipts']);
+    expect(
+      screen.getByRole('button', { name: 'Open assistant' }),
+    ).toBeOnTheScreen();
+  });
 });

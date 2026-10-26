@@ -622,7 +622,7 @@ export async function openCamera(page: Page) {
 const SCAN_LOCK = path.join(__dirname, 'test-results', 'scan.lock');
 const STALE_LOCK_MS = 60_000;
 
-async function withScanSlot<T>(work: () => Promise<T>): Promise<T> {
+export async function withScanSlot<T>(work: () => Promise<T>): Promise<T> {
   mkdirSync(path.dirname(SCAN_LOCK), { recursive: true });
   for (;;) {
     try {
