@@ -54,7 +54,7 @@ capture. Input/image/camera masking and network-body restrictions remain the
 mobile SDK's responsibility; project settings alone cannot prove replay masking.
 
 `verify.mjs` unwraps and runs every insight's source through `POST query/` with
-`refresh: blocking`. Each event series or retention entity gets an event property
+`refresh: force_blocking`. Each event series or retention entity gets an event property
 filter `environment = <name>`. HogQL templates scope events by
 `properties.environment` and logs by
 `resource_attributes['deployment.environment.name']`; `--days` applies to all

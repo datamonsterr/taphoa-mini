@@ -86,7 +86,7 @@ export async function verify({ client, environment, days = 7 }) {
         const query = scopeQuery(insight.query, { environment, days });
         const result = await client.post('query/', {
           query,
-          refresh: 'blocking',
+          refresh: 'force_blocking',
         });
         row.rows = result.results?.length ?? 0;
         row.ok = hasData(result.results);
@@ -101,7 +101,7 @@ export async function verify({ client, environment, days = 7 }) {
           evidence.series = [evidence.series.at(-1)];
           const denominator = await client.post('query/', {
             query: evidence,
-            refresh: 'blocking',
+            refresh: 'force_blocking',
           });
           row.ok = hasData(denominator.results);
         }
