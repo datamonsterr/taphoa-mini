@@ -100,4 +100,27 @@ for `TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `Lifecyc
 
 ## Evidence
 
-Filled in as tasks land.
+- **T1-T3 (2026-10-26).** Backend: `cargo fmt --check`, `cargo clippy --locked --all-targets -D warnings`
+  and `cargo test -p taphoa-api` against the local Postgres and Redis (271 passed, 247 ignored).
+  Mobile: typecheck, lint and `test:coverage` (121 suites, 1108 tests, statements 97.6 %). api-client:
+  30 vitest tests. Infra: 25 `node --test` tests, offline dry-run plan in CI (`posthog-infra` job).
+- **PostHog project 682994.** `node infra/posthog/apply.mjs` created 7 dashboards, 35 insights, the
+  `assistant_enabled` flag (active, 100 %), 3 replay playlists, 3 saved log views and enabled
+  session replay and exception autocapture. A rerun reports 50 `unchanged` and 1 `skip` (the `store`
+  group type is created by the first `$groupidentify` from the app). Two idempotency fixes came from
+  the real API: tag lists are returned sorted, and `refresh: blocking` serves cached results, so
+  `verify.mjs` uses `force_blocking`.
+- **Railway `test` (deploy run 40307720468, e2e green).** Within four minutes of the e2e run the
+  relay produced every backend product event (`store_created` 73, `member_joined` 104,
+  `sale_completed` 27, `scan_completed` 8, `receipt_scanned` 5, `receipt_confirmed`, `stock_adjusted`,
+  `expense_added` 11, `price_changed` 2, `day_closed` 2, `customer_created` 13, `debt_recorded` 9,
+  `debt_repaid` 8, `debt_adjusted` 4, `product_enrolled` 17, `sale_voided` 2), all with
+  `environment=test`, `app_version` = deployed SHA and `$groups.store`. The web e2e suite run locally
+  against the test backend with `EXPO_PUBLIC_POSTHOG_KEY` produced `$screen` (76, names such as
+  `/product/[id]`), `$exception` (49) and `Application Opened` from `posthog-react-native`.
+- **`verify.mjs --environment test --days 7`.** 24 of 35 insights return data. Empty by design until
+  the producing epic ships: Activation funnel (2, needs `signed_in` from X1), Assistant adoption
+  (7 of 8, app assistant events arrive with X4 builds; `Action confirm rate by kind` has data from the
+  backend), `Debt book · Overdue reminder shares` (`next_step_shown`, X4) and
+  `Reliability · Backend error logs per route` (no backend error logs on `test` in the window, which
+  is the healthy state).
