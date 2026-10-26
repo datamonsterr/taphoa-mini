@@ -49,6 +49,8 @@ const TABLES: &[&str] = &[
     "assistant_messages",
     "assistant_actions",
     "assistant_feedback",
+    "devices",
+    "push_tickets",
 ];
 
 #[tokio::test]

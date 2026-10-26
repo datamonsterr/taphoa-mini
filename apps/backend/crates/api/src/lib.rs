@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod config;
 pub mod debts;
 pub mod decisions;
+pub mod devices;
 pub mod error;
 pub mod events;
 pub mod expenses;
@@ -217,6 +218,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/images/{id}", get(images::get_image))
         .merge(auth::router())
+        .merge(devices::router())
         .merge(store::router())
         .merge(events::router())
         .merge(catalog::router())

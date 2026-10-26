@@ -398,7 +398,13 @@ pub async fn http_span(request: Request, next: Next) -> Response {
     // cardinality, so only matched requests record a path and route.
     if let Some(route) = route {
         span.record("http.route", route);
-        span.record("url.path", request.uri().path());
+        // Push tokens are credentials carried in this route's path.
+        let path = if route == "/v1/devices/{token}" {
+            route
+        } else {
+            request.uri().path()
+        };
+        span.record("url.path", path);
     }
     if let Some(session) = request
         .headers()
