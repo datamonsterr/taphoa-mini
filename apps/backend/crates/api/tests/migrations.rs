@@ -633,3 +633,103 @@ async fn assistant_checks_defaults_and_cascades() {
     .unwrap();
     assert_eq!(left, 0);
 }
+
+#[test]
+fn assistant_digests_migration_uses_reserved_epic_version() {
+    assert!(
+        taphoa_api::MIGRATOR
+            .iter()
+            .any(|m| m.version == 1002 && m.description == "assistant digests")
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn assistant_digest_schema_checks_and_cascades() {
+    let Some(pool) = pool().await else { return };
+    let mut tx = pool.begin().await.unwrap();
+    let store: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO stores(name,recovery_code_hash) VALUES('digest','x') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(store_id,display_name,role) VALUES($1,'Lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO assistant_digests(store_id,business_date,source,summary_vi,payload) VALUES($1,current_date,'template','Hôm qua chưa có đơn nào.','{}')").bind(store).execute(&mut *tx).await.unwrap();
+    let defaults: (bool, bool) = sqlx::query_as("SELECT generated_at IS NOT NULL, pushed_at IS NULL FROM assistant_digests WHERE store_id=$1").bind(store).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(defaults, (true, true));
+    sqlx::query("INSERT INTO assistant_digest_reads(store_id,business_date,member_id) VALUES($1,current_date,$2)").bind(store).bind(member).execute(&mut *tx).await.unwrap();
+    let read: bool = sqlx::query_scalar(
+        "SELECT read_at IS NOT NULL FROM assistant_digest_reads WHERE store_id=$1",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert!(read);
+    for (statement, code) in [
+        (
+            "UPDATE assistant_digests SET source='invalid' WHERE store_id=$1",
+            "23514",
+        ),
+        (
+            "INSERT INTO assistant_digests(store_id,business_date,source,summary_vi,payload) VALUES($1,current_date,'template','x','{}')",
+            "23505",
+        ),
+        (
+            "INSERT INTO assistant_digest_reads(store_id,business_date,member_id) VALUES($1,current_date-1,$2)",
+            "23503",
+        ),
+        (
+            "INSERT INTO assistant_digest_reads(store_id,business_date,member_id) VALUES($1,current_date,$2)",
+            "23505",
+        ),
+    ] {
+        sqlx::query("SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let mut query = sqlx::query(statement).bind(store);
+        if statement.contains("$2") {
+            query = query.bind(member);
+        }
+        let error = query.execute(&mut *tx).await.unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some(code)
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM members WHERE id=$1")
+        .bind(member)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM assistant_digest_reads WHERE store_id=$1")
+            .bind(store)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM assistant_digests WHERE store_id=$1")
+        .bind(store)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
