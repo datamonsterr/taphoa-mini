@@ -423,7 +423,7 @@ jobs:
         include:
           - target: android
             script: build
-            dist: dist
+            dist: dist/_expo/static/js
           - target: web
             script: build:web
             dist: dist-web
@@ -433,12 +433,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
-      - run: pnpm --filter @taphoa/mobile ${{ matrix.script }}
+      - if: matrix.target != 'web'
+        run: pnpm --filter @taphoa/mobile ${{ matrix.script }}
+      # The web export is shared with web-e2e, so it carries the e2e env values (embedded at
+      # build time); the bundle budget is measured on this same export.
+      - name: Export web with the e2e env
+        if: matrix.target == 'web'
+        env:
+          EXPO_PUBLIC_API_URL: http://localhost:8080
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: pnpm --filter @taphoa/mobile ${{ matrix.script }}
       - uses: actions/upload-artifact@v7
         if: matrix.dist != ''
         with:
           name: mobile-${{ matrix.target }}-export
-          path: apps/mobile/${{ matrix.dist }}/_expo/static/js
+          path: apps/mobile/${{ matrix.dist }}
           compression-level: 0
           retention-days: 1
       - name: Summary
@@ -462,7 +471,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: mobile-web-export
-          path: apps/mobile/dist-web/_expo/static/js
+          path: apps/mobile/dist-web
       - run: pnpm --filter @taphoa/mobile check:bundle
       - name: Summary
         if: always()
@@ -676,10 +685,14 @@ jobs:
   # models loaded. The binary is built in rust:bookworm (glibc 2.36); ubuntu-latest has a newer
   # glibc, and ONNX Runtime is loaded at run time (ort load-dynamic + ORT_DYLIB_PATH).
   web-e2e:
-    needs: [changes, backend-binary, clerk-secrets]
+    needs: [changes, backend-binary, clerk-secrets, mobile-build]
+    # !cancelled() keeps a skipped mobile-build (rust-only change) from skipping this job; the
+    # web export is then missing and Playwright exports it itself.
     if: >-
+      !cancelled() &&
       (needs.changes.outputs.js == 'true' || needs.changes.outputs.rust == 'true') &&
-      needs.clerk-secrets.outputs.configured == 'true'
+      needs.clerk-secrets.outputs.configured == 'true' &&
+      needs.backend-binary.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -722,10 +735,29 @@ jobs:
         if: steps.browsers.outputs.cache-hit == 'true'
         working-directory: apps/mobile
         run: pnpm exec playwright install-deps chromium
+      # The export built by mobile-build (same EXPO_PUBLIC_* values as below). Absent on a
+      # rust-only change, where mobile-build is skipped: Playwright then exports it itself.
+      - uses: actions/download-artifact@v8
+        id: web-export
+        continue-on-error: true
+        with:
+          name: mobile-web-export
+          path: apps/mobile/dist-web
+      # The clip only depends on make-video.sh and the photo, so cache it (and skip installing
+      # ffmpeg, which once took 728 s in apt).
+      - uses: actions/cache@v6
+        id: fake-camera
+        with:
+          path: |
+            apps/mobile/e2e-web/fixtures/product.mjpeg
+            apps/mobile/e2e-web/fixtures/product.jpg
+          key: fake-camera-${{ hashFiles('apps/mobile/e2e-web/fixtures/make-video.sh', 'apps/backend/tests/fixtures/shelf-1600.jpg') }}
       - name: Fake camera clip from the product photo
         run: |
-          command -v ffmpeg > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
-          apps/mobile/e2e-web/fixtures/make-video.sh
+          if [ "${{ steps.fake-camera.outputs.cache-hit }}" != "true" ]; then
+            command -v ffmpeg > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
+            apps/mobile/e2e-web/fixtures/make-video.sh
+          fi
           echo "PLAYWRIGHT_FAKE_VIDEO=$PWD/apps/mobile/e2e-web/fixtures/product.mjpeg" >> "$GITHUB_ENV"
       # The backend derives the Clerk issuer from CLERK_PUBLISHABLE_KEY and, with the secret key,
       # reads profiles from the Clerk Backend API.
@@ -742,6 +774,7 @@ jobs:
       # camera's clip.
       - name: Playwright web E2E
         env:
+          E2E_WEB_EXPORT_READY: ${{ steps.web-export.outcome == 'success' && '1' || '0' }}
           EXPO_PUBLIC_API_URL: http://localhost:8080
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}

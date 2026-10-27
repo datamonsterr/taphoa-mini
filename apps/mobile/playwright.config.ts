@@ -73,9 +73,11 @@ export default defineConfig({
       },
     },
   ],
-  // Production web export served statically; expo serve maps clean URLs to .html.
+  // Production web export served statically; expo serve maps clean URLs to .html. CI sets
+  // E2E_WEB_EXPORT_READY=1 after downloading the export built by mobile-build, which skips the
+  // export here.
   webServer: {
-    command: `pnpm exec expo export --platform web --output-dir dist-web && pnpm exec expo serve dist-web --port ${PORT}`,
+    command: `{ [ "$E2E_WEB_EXPORT_READY" = 1 ] && [ -f dist-web/index.html ] || pnpm exec expo export --platform web --output-dir dist-web; } && pnpm exec expo serve dist-web --port ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !isCi,
     timeout: 300_000,
