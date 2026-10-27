@@ -1,8 +1,10 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { useSessionStore } from '@/stores/session';
-import { testSession } from '@/test/session';
+import { setClerkState } from '@/test/clerk';
+import { registerAuthBridge } from '@/lib/api/clerkBridge';
+import { useCurrentStore } from '@/stores/currentStore';
+import { useDeviceLock } from '@/stores/deviceLock';
 import * as pushModule from './push';
 import * as promptTiming from './promptTiming';
 import { usePushRegistration } from './usePushRegistration';
@@ -16,10 +18,15 @@ describe('usePushRegistration', () => {
     jest.clearAllMocks();
     await AsyncStorage.clear();
     Platform.OS = 'android';
-    useSessionStore.setState({
-      session: testSession(),
+    setClerkState({
+      isSignedIn: true,
+      userId: 'user_test',
+      sessionId: 'sess_test',
+    });
+    useDeviceLock.setState({ locked: false, hydrated: true });
+    useCurrentStore.setState({
+      storeIds: { user_test: 'store_test' },
       hydrated: true,
-      pendingRecoveryCode: null,
     });
     (pushModule.getPushPermission as jest.Mock).mockResolvedValue({
       status: 'undetermined',
@@ -120,7 +127,38 @@ describe('usePushRegistration', () => {
   });
 
   test('not signed in is no-op', async () => {
-    useSessionStore.setState({ session: null });
+    setClerkState({ isSignedIn: false, userId: null, sessionId: null });
+
+    renderHook(() => usePushRegistration());
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(pushModule.getPushPermission).not.toHaveBeenCalled();
+    expect(pushModule.requestPushPermission).not.toHaveBeenCalled();
+    expect(pushModule.registerForPush).not.toHaveBeenCalled();
+    const state = await promptTiming.getPromptState();
+    expect(state.opens).toBe(0);
+  });
+
+  test('locked device is no-op', async () => {
+    useDeviceLock.setState({ locked: true });
+
+    renderHook(() => usePushRegistration());
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(pushModule.getPushPermission).not.toHaveBeenCalled();
+    expect(pushModule.requestPushPermission).not.toHaveBeenCalled();
+    expect(pushModule.registerForPush).not.toHaveBeenCalled();
+    const state = await promptTiming.getPromptState();
+    expect(state.opens).toBe(0);
+  });
+
+  test('no store selected is no-op', async () => {
+    useCurrentStore.setState({ storeIds: {} });
+    registerAuthBridge({
+      getToken: jest.fn(),
+      getStoreId: () => null,
+      membershipRequired: jest.fn(),
+    });
 
     renderHook(() => usePushRegistration());
 
