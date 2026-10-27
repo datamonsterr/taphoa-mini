@@ -64,6 +64,29 @@ class JunitSummary(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         self.assertIn("no JUnit report", out.stdout)
 
+    def test_budget_exceeded_fails_and_prints_slowest_tests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp, "junit.xml")
+            path.write_text(JUNIT)
+            out = run(
+                ["python3", "-I", str(HERE / "junit_summary.py"), "--budget-seconds", "1", "Integration", str(path)]
+            )
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("Total test time: 1.20s (budget: 1.00s)", out.stdout)
+        self.assertIn("ok_two", out.stdout)
+        self.assertIn("Test time budget exceeded", out.stdout)
+
+    def test_slowest_tests_are_limited_to_ten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp, "junit.xml")
+            cases = "".join(f'<testcase name="test_{i}" classname="suite" time="{i}"/>' for i in range(12))
+            path.write_text(f'<testsuite name="suite">{cases}</testsuite>')
+            out = run(["python3", "-I", str(HERE / "junit_summary.py"), "Integration", str(path)])
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("test_11", out.stdout)
+        self.assertIn("test_2", out.stdout)
+        self.assertNotIn("test_1`", out.stdout)
+
 
 class JobSummary(unittest.TestCase):
     def test_writes_status_and_duration(self):
