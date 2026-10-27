@@ -648,7 +648,7 @@ async function identitiesCommand(
     minted.set(role, token);
     deps.log(`${role}: Clerk token minted`);
   }
-  if (githubEnv) {
+  if (githubEnv && flags.booleans.has('--github-env')) {
     const storeId = env.EVAL_STORE_ID?.trim() || DEFAULT_EVAL_STORE_ID;
     let block = '';
     for (const [role, token] of minted) {

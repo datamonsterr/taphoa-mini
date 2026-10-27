@@ -74,6 +74,17 @@ describe('identities', () => {
     expect(out).not.toContain(SECRET);
   });
 
+  it('leaves GITHUB_ENV alone without --github-env', async () => {
+    // Tokens live 60 s; exporting them would shadow ClerkAuth and 401 mid-run.
+    const code = await run(
+      ['identities'],
+      { CLERK_SECRET_KEY: SECRET, GITHUB_ENV: githubEnv },
+      clerk(),
+    );
+    expect(code).toBe(0);
+    expect(readFileSync(githubEnv, 'utf8')).toBe('');
+  });
+
   it('writes masked tokens and the store id to GITHUB_ENV', async () => {
     const code = await run(
       ['identities', '--github-env'],
