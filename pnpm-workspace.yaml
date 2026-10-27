@@ -7,3 +7,5 @@ allowBuilds:
   lefthook: true
   unrs-resolver: true
   '@scarf/scarf': false
+  browser-tabs-lock: false
+  core-js: false

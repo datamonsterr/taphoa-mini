@@ -14,7 +14,7 @@ import { parse } from 'yaml';
 import * as api from '../../src/lib/api';
 import { newUuid } from '../../src/lib/uuid';
 import { PRODUCT_IDS } from '../../src/test/mock/fixtures';
-import { resetMockDb } from '../../src/test/mock/db';
+import { getMockDb, resetMockDb } from '../../src/test/mock/db';
 import { MOCK_ROUTES } from '../../src/test/mock/routes';
 import { setMockScenario } from '../../src/test/mock/scenario';
 
@@ -275,6 +275,31 @@ describe('success responses match the documented schema', () => {
           role: 'seller',
           can_enroll: true,
           ttl_seconds: 900,
+        }),
+      201,
+    );
+  });
+
+  test('Clerk store creation, joining and PIN verification', async () => {
+    getMockDb().hasMembership = false;
+    await call(
+      () => api.createStore({ store_name: 'Tạp hóa Mẹ', display_name: 'Mẹ' }),
+      201,
+    );
+    await call(() => api.setPin('1234'), 204);
+    await call(
+      () =>
+        api
+          .getApiClient()
+          .raw.POST('/v1/me/pin/verify', { body: { pin: '1234' } }),
+      204,
+    );
+    getMockDb().hasMembership = false;
+    await call(
+      () =>
+        api.joinStore({
+          invite_token: 'K7Q4MZ2P9HXDT3VA',
+          display_name: 'Bà nội',
         }),
       201,
     );

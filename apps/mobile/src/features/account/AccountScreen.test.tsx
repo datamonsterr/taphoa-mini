@@ -1,16 +1,12 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
-import * as authApi from '@/lib/api/auth';
-import { ApiError } from '@/lib/api/errors';
+import { clerkMock } from '@/test/clerk';
 import * as storeApi from '@/lib/api/store';
 import { useSettingsStore } from '@/stores/settings';
-import { SELLER_IDS } from '@/test/mock/fixtures';
 import { renderWithProviders } from '@/test/render';
 import { typography } from '@/theme';
 
 import { AccountScreen } from './AccountScreen';
-
-const SELLER_ID = SELLER_IDS[0];
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -153,7 +149,10 @@ test('a seller cannot invite or edit the bank account', async () => {
   const me = await storeApi.getMe();
   jest.spyOn(storeApi, 'getMe').mockResolvedValue({
     ...me,
-    member: { ...me.member, role: 'seller' },
+    memberships: me.memberships.map((membership) => ({
+      ...membership,
+      member: { ...membership.member, role: 'seller' },
+    })),
   });
   await open();
   expect(screen.getByText('Người bán')).toBeOnTheScreen();
@@ -271,132 +270,10 @@ test('bottom padding clears the floating tab bar at 150% text', async () => {
   expect(paddingBottom).toBeGreaterThanOrEqual(64 + 16);
 });
 
-describe('switching the acting member', () => {
-  const withPin = async () => {
-    const members = await storeApi.listMembers();
-    jest
-      .spyOn(storeApi, 'listMembers')
-      .mockResolvedValue(
-        members.map((m) =>
-          m.display_name === 'Bà nội' ? { ...m, has_pin: true } : m,
-        ),
-      );
-  };
-  const type = async (digits: string) => {
-    for (const digit of digits) {
-      await fireEvent.press(screen.getByRole('button', { name: digit }));
-    }
-  };
-  const SWITCH = 'Chuyển sang Bà nội';
-
-  test('shows who is acting and a switch action for each other member only', async () => {
-    await open();
-    expect(screen.getByText('Đang dùng: Cô Ba')).toBeOnTheScreen();
-    expect(
-      await screen.findByRole('button', { name: SWITCH }),
-    ).toBeOnTheScreen();
-    expect(
-      screen.getByRole('button', { name: 'Chuyển sang Chú Tư' }),
-    ).toBeOnTheScreen();
-    expect(
-      screen.queryByRole('button', { name: 'Chuyển sang Cô Ba' }),
-    ).toBeNull();
-  });
-
-  test('a member without a PIN is switched to at once', async () => {
-    const spy = jest.spyOn(authApi, 'switchMember').mockResolvedValue();
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    expect(spy).toHaveBeenCalledWith({ member_id: SELLER_ID });
-    expect(screen.queryByTestId('sheet-panel')).toBeNull();
-  });
-
-  test('a member with a PIN asks for it on a keypad, then switches and closes', async () => {
-    await withPin();
-    const spy = jest.spyOn(authApi, 'switchMember').mockResolvedValue();
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    expect(spy).not.toHaveBeenCalled();
-    expect(
-      await screen.findByRole('header', { name: 'Mã PIN của Bà nội' }),
-    ).toBeOnTheScreen();
-    // 4 digits needed before the check button works; the digits are never shown.
-    expect(screen.getByRole('button', { name: 'Xác nhận' })).toBeDisabled();
-    await type('0123');
-    expect(screen.getByLabelText('4 chữ số đã nhập')).toBeOnTheScreen();
-    expect(screen.queryByText(/^0123$/)).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith({ member_id: SELLER_ID, pin: '0123' }),
-    );
-    await waitFor(() => expect(screen.queryByTestId('sheet-panel')).toBeNull());
-  });
-
-  test('delete removes a digit and a PIN holds at most 6', async () => {
-    await withPin();
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    await type('12345678');
-    expect(screen.getByLabelText('6 chữ số đã nhập')).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole('button', { name: 'Xóa' }));
-    expect(screen.getByLabelText('5 chữ số đã nhập')).toBeOnTheScreen();
-  });
-
-  test('a wrong PIN (401) is explained and the sheet stays open', async () => {
-    await withPin();
-    jest
-      .spyOn(authApi, 'switchMember')
-      .mockRejectedValue(
-        new ApiError(401, { error: 'bad', code: 'invalid_pin' }),
-      );
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    await type('9999');
-    await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
-    expect(await screen.findByText('Mã PIN không đúng')).toBeOnTheScreen();
-    expect(screen.getByTestId('sheet-panel')).toBeOnTheScreen();
-  });
-
-  test('too many tries (429) tells how long to wait', async () => {
-    await withPin();
-    jest
-      .spyOn(authApi, 'switchMember')
-      .mockRejectedValue(
-        new ApiError(
-          429,
-          { error: 'slow down', code: 'rate_limited' },
-          240_000,
-        ),
-      );
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    await type('9999');
-    await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
-    expect(
-      await screen.findByText('Nhập sai quá nhiều lần. Thử lại sau 4 phút'),
-    ).toBeOnTheScreen();
-  });
-
-  test('any other failure of a PIN-less switch shows a message under the members', async () => {
-    jest.spyOn(authApi, 'switchMember').mockRejectedValue(new Error('offline'));
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    expect(await screen.findByText('Không chuyển được')).toBeOnTheScreen();
-  });
-
-  test('closing the PIN sheet forgets the error', async () => {
-    await withPin();
-    jest
-      .spyOn(authApi, 'switchMember')
-      .mockRejectedValue(new ApiError(401, { error: 'bad' }));
-    await open();
-    await fireEvent.press(await screen.findByRole('button', { name: SWITCH }));
-    await type('1111');
-    await fireEvent.press(screen.getByRole('button', { name: 'Xác nhận' }));
-    await screen.findByText('Mã PIN không đúng');
-    await fireEvent.press(screen.getByTestId('sheet-scrim'));
-    expect(screen.queryByText('Mã PIN không đúng')).toBeNull();
-  });
+test('sign out removes only the active Clerk session', async () => {
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+  expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
 });
 
 describe('setting a PIN', () => {
@@ -411,7 +288,7 @@ describe('setting a PIN', () => {
   };
 
   test('asks twice, saves through the API and confirms', async () => {
-    const spy = jest.spyOn(authApi, 'setPin').mockResolvedValue();
+    const spy = jest.spyOn(storeApi, 'setPin').mockResolvedValue();
     await openSheet();
     expect(
       await screen.findByRole('header', { name: 'Mã PIN mới (4–6 chữ số)' }),
@@ -435,7 +312,7 @@ describe('setting a PIN', () => {
   });
 
   test('two different PINs start over with a message and save nothing', async () => {
-    const spy = jest.spyOn(authApi, 'setPin').mockResolvedValue();
+    const spy = jest.spyOn(storeApi, 'setPin').mockResolvedValue();
     await openSheet();
     await type('4821');
     await fireEvent.press(screen.getByRole('button', { name: 'Tiếp' }));
@@ -449,7 +326,7 @@ describe('setting a PIN', () => {
   });
 
   test('a server failure keeps the sheet open with an error', async () => {
-    jest.spyOn(authApi, 'setPin').mockRejectedValue(new Error('offline'));
+    jest.spyOn(storeApi, 'setPin').mockRejectedValue(new Error('offline'));
     await openSheet();
     await type('4821');
     await fireEvent.press(screen.getByRole('button', { name: 'Tiếp' }));
@@ -522,10 +399,25 @@ describe('low stock threshold', () => {
 
   test('Seller cannot see the threshold control', async () => {
     const me = await storeApi.getMe();
-    jest
-      .spyOn(storeApi, 'getMe')
-      .mockResolvedValue({ ...me, member: { ...me.member, role: 'seller' } });
+    jest.spyOn(storeApi, 'getMe').mockResolvedValue({
+      ...me,
+      memberships: me.memberships.map((m) => ({
+        ...m,
+        member: { ...m.member, role: 'seller' },
+      })),
+    });
     await open();
     expect(screen.queryByText('Ngưỡng sắp hết hàng')).toBeNull();
   });
+});
+
+test('failed Clerk sign-out keeps the screen and allows retry', async () => {
+  clerkMock.signOut.mockRejectedValueOnce(new Error('offline'));
+  await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+  expect(
+    await screen.findByText('Không đăng xuất được. Vui lòng thử lại.'),
+  ).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+  expect(clerkMock.signOut).toHaveBeenCalledTimes(2);
 });

@@ -17,13 +17,13 @@ export const TARGETS = [
     name: 'android (hbc, raw)',
     dir: 'dist/_expo/static/js/android',
     gzip: false,
-    budget: 8_650_000, // measured 7_519_092
+    budget: 10_750_000, // measured 9_341_973 after Clerk integration (SDK 58.0.19)
   },
   {
     name: 'web (js, gzip)',
     dir: 'dist-web/_expo/static/js/web',
     gzip: true,
-    budget: 1_245_000, // measured 1_081_754 (posthog-react-native on web)
+    budget: 1_290_000, // measured ~1_081_754 + Clerk/assistant delta; posthog-react-native on web
   },
 ];
 

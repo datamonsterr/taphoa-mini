@@ -12,11 +12,11 @@ import { Share } from 'react-native';
 import * as debtsApi from '@/lib/api/debts';
 import { getStore } from '@/lib/api/store';
 import { businessDate } from '@/lib/date';
-import { useSessionStore } from '@/stores/session';
 import { useSettingsStore } from '@/stores/settings';
 import { holdNext } from '@/test/hold';
 import { voidSale } from '@/test/mock/ledger';
 import { renderWithProviders } from '@/test/render';
+import { setTestMembership, testSession } from '@/test/session';
 import { creditSale, seedCustomer } from '@/test/debts';
 import { newUuid } from '@/lib/uuid';
 
@@ -50,9 +50,10 @@ const ledgerRows = () =>
 const today = () => dayMonth(businessDate());
 
 function actAsSeller() {
-  const { session } = useSessionStore.getState();
-  useSessionStore.setState({
-    session: { ...session!, member: { ...session!.member, role: 'seller' } },
+  const session = testSession();
+  setTestMembership({
+    ...session,
+    member: { ...session.member, role: 'seller' },
   });
 }
 
@@ -546,8 +547,8 @@ describe('Sửa thông tin', () => {
 
 describe('as a Seller', () => {
   test('can collect, remind and edit, but not adjust or archive', async () => {
-    actAsSeller();
     const lan = await seedLan();
+    actAsSeller();
     await renderWithProviders(<CustomerScreen id={lan.id} />);
     await screen.findByLabelText('Còn nợ 105.000đ');
     expect(screen.getByRole('button', { name: 'Thu nợ' })).toBeOnTheScreen();
@@ -561,8 +562,8 @@ describe('as a Seller', () => {
   });
 
   test('a profile edit never sends archived', async () => {
-    actAsSeller();
     const lan = await seedLan();
+    actAsSeller();
     const update = jest.spyOn(debtsApi, 'updateCustomer');
     await renderWithProviders(<CustomerScreen id={lan.id} />);
     await screen.findByLabelText('Còn nợ 105.000đ');

@@ -1,14 +1,8 @@
-import { ArrowRightLeft, QrCode, Users } from 'lucide-react-native';
+import { QrCode, Users } from 'lucide-react-native';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import {
-  CircleButton,
-  Icon,
-  PressableScale,
-  ScaledText,
-  Text,
-} from '@/components/ui';
+import { CircleButton, Icon, ScaledText, Text } from '@/components/ui';
 import type { Member } from '@/lib/api';
 import { colors, fontFamily, radius, space } from '@/theme';
 
@@ -47,12 +41,6 @@ export type MemberRowProps = {
   errorLabel: string;
   inviteLabel: string | null;
   onInvite: () => void;
-  /** Who is acting on this phone; every other active member gets a switch action. */
-  currentMemberId: string;
-  switchLabel: (member: Member) => string;
-  onSwitch: (member: Member) => void;
-  /** Why the last switch failed (a member without a PIN is switched to straight away). */
-  switchError: string | null;
 };
 
 /**
@@ -67,12 +55,7 @@ export const MemberRow = memo(function MemberRow({
   errorLabel,
   inviteLabel,
   onInvite,
-  currentMemberId,
-  switchLabel,
-  onSwitch,
-  switchError,
 }: MemberRowProps) {
-  const others = members?.filter((m) => m.active && m.id !== currentMemberId);
   return (
     <View style={styles.group}>
       <View style={styles.row}>
@@ -107,46 +90,12 @@ export const MemberRow = memo(function MemberRow({
           />
         ) : null}
       </View>
-      {others?.map((member) => (
-        <PressableScale
-          key={member.id}
-          accessibilityRole="button"
-          accessibilityLabel={switchLabel(member)}
-          pressedScale={0.98}
-          onPress={() => onSwitch(member)}
-          style={styles.switchRow}
-        >
-          <Icon icon={ArrowRightLeft} color={colors.inkMuted} />
-          <ScaledText variant="label" style={styles.switchText}>
-            {switchLabel(member)}
-          </ScaledText>
-        </PressableScale>
-      ))}
-      {switchError ? (
-        <ScaledText
-          accessibilityRole="alert"
-          variant="caption"
-          style={styles.error}
-        >
-          {switchError}
-        </ScaledText>
-      ) : null}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   group: { gap: space[2] },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    minHeight: 56,
-    paddingHorizontal: space[4],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceSoft,
-  },
-  switchText: { flex: 1, minWidth: 0, color: colors.ink },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

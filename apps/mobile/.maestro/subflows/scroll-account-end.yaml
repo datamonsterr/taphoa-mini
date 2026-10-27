@@ -1,0 +1,9 @@
+appId: com.datamonsterr.taphoamini
+---
+# Scrolls the account tab to its end, where the people on this phone, "Thêm người trên máy này"
+# and the sign-out row sit above the floating tab bar. The extra scroll lets the last rows clear
+# the bar: an element that is only just on screen can sit under it, and a tap would hit the tab.
+- scrollUntilVisible:
+    element:
+      id: 'account-sign-out'
+- scroll

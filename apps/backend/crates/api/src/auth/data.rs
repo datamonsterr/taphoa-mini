@@ -1,7 +1,4 @@
-use super::{
-    Actor, Role,
-    crypto::{opaque_token, token_hash},
-};
+use super::Actor;
 use crate::{
     ApiError, ApiResult, AppState,
     events::{Event, emit},
@@ -15,8 +12,7 @@ use uuid::Uuid;
 pub fn pool(state: &AppState) -> ApiResult<&PgPool> {
     state.postgres.as_ref().ok_or_else(ApiError::unavailable)
 }
-/// Keep store/member/session write locks in the same order. Event foreign keys also
-/// touch the store, so locking sessions first can deadlock recovery or removal.
+/// Lock the parent before membership writes and event publication.
 pub async fn lock_store(conn: &mut PgConnection, id: Uuid) -> ApiResult<()> {
     sqlx::query("SELECT id FROM stores WHERE id=$1 FOR UPDATE")
         .bind(id)
@@ -29,21 +25,6 @@ pub fn length(value: &str, min: usize, max: usize) -> ApiResult<()> {
         Ok(())
     } else {
         Err(ApiError::validation_failed("invalid text length"))
-    }
-}
-#[derive(Clone, Deserialize)]
-pub struct Device {
-    pub name: String,
-    pub platform: String,
-    pub app_version: Option<String>,
-}
-impl Device {
-    pub fn validate(&self) -> ApiResult<()> {
-        length(&self.name, 0, 60)?;
-        if !["android", "ios", "web"].contains(&self.platform.as_str()) {
-            return Err(ApiError::validation_failed("invalid platform"));
-        }
-        Ok(())
     }
 }
 #[derive(Clone, Deserialize, Serialize)]
@@ -130,35 +111,6 @@ pub async fn member(conn: &mut PgConnection, store_id: Uuid, id: Uuid) -> ApiRes
         .await?
         .ok_or_else(ApiError::not_found)
 }
-pub async fn session_response(
-    conn: &mut PgConnection,
-    state: &AppState,
-    actor: &Actor,
-    refresh: &str,
-) -> ApiResult<Value> {
-    let (access, expires) = state.jwt.issue(actor);
-    Ok(
-        json!({"access_token":access,"refresh_token":refresh,"expires_in":expires,"member":member(conn,actor.store_id,actor.member_id).await?.json(),"store":store(conn,actor.store_id).await?}),
-    )
-}
-pub async fn new_session(
-    conn: &mut PgConnection,
-    state: &AppState,
-    member: &MemberRow,
-    device: &Device,
-) -> ApiResult<(Actor, Value)> {
-    let actor = Actor {
-        member_id: member.id,
-        store_id: member.store_id,
-        session_id: Uuid::new_v4(),
-        role: member.role.parse::<Role>()?,
-        can_enroll: member.role == "lead" || member.can_enroll,
-    };
-    let refresh = opaque_token();
-    sqlx::query("INSERT INTO sessions(id,store_id,member_id,device_name,platform,app_version,refresh_token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '90 days')").bind(actor.session_id).bind(actor.store_id).bind(actor.member_id).bind(&device.name).bind(&device.platform).bind(&device.app_version).bind(token_hash(&refresh)).execute(&mut *conn).await?;
-    let response = session_response(conn, state, &actor, &refresh).await?;
-    Ok((actor, response))
-}
 pub async fn member_event(
     conn: &mut PgConnection,
     actor: &Actor,
@@ -169,31 +121,11 @@ pub async fn member_event(
         conn,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "member.changed",
             version: 1,
             data: json!({"member_id":id,"change":change}),
             change: Some(("member", id, "upsert")),
-        },
-    )
-    .await?;
-    Ok(())
-}
-pub async fn revoked_event(
-    conn: &mut PgConnection,
-    actor: &Actor,
-    id: Uuid,
-    reason: &'static str,
-) -> ApiResult<()> {
-    emit(
-        conn,
-        Event {
-            store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
-            typ: "session.revoked",
-            version: 1,
-            data: json!({"session_id":id,"reason":reason}),
-            change: None,
         },
     )
     .await?;

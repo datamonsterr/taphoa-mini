@@ -5,29 +5,8 @@ use argon2::{
 };
 use sha2::{Digest, Sha256};
 
-pub const RECOVERY_ALPHABET: &[u8; 32] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-pub fn recovery_code() -> String {
-    let bytes = rand::random::<[u8; 16]>();
-    let mut result = String::with_capacity(19);
-    for (i, byte) in bytes.iter().enumerate() {
-        if i > 0 && i % 4 == 0 {
-            result.push('-');
-        }
-        result.push(RECOVERY_ALPHABET[(byte & 31) as usize] as char);
-    }
-    result
-}
-pub fn normalize_recovery(code: &str) -> String {
-    code.chars()
-        .filter(|c| *c != '-' && !c.is_whitespace())
-        .flat_map(char::to_uppercase)
-        .collect()
-}
 pub fn token_hash(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
-}
-pub fn opaque_token() -> String {
-    hex::encode(rand::random::<[u8; 32]>())
 }
 pub fn invite_token() -> String {
     base32::encode(

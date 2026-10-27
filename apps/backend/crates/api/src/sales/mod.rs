@@ -165,7 +165,7 @@ async fn event(
         conn,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ,
             version: 1,
             data,
@@ -234,8 +234,8 @@ async fn create(
     if let Some(customer) = input.customer_id() {
         crate::debts::lock_customer(&mut tx, actor.store_id, customer).await?;
     }
-    let won = sqlx::query("INSERT INTO sales(id,store_id,code,member_id,session_id,sold_at,business_date,payment_method,cash_received,total,vietqr_memo,request_hash,customer_id,credit_amount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO NOTHING")
-        .bind(input.id).bind(actor.store_id).bind(&code).bind(actor.member_id).bind(actor.session_id).bind(input.sold_at).bind(date).bind(&input.payment_method).bind(input.cash_received).bind(input.total).bind(&input.vietqr_memo).bind(hash.as_slice()).bind(input.customer_id()).bind(input.credit_amount())
+    let won = sqlx::query("INSERT INTO sales(id,store_id,code,member_id,clerk_session_id,sold_at,business_date,payment_method,cash_received,total,vietqr_memo,request_hash,customer_id,credit_amount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO NOTHING")
+        .bind(input.id).bind(actor.store_id).bind(&code).bind(actor.member_id).bind(&actor.clerk_session_id).bind(input.sold_at).bind(date).bind(&input.payment_method).bind(input.cash_received).bind(input.total).bind(&input.vietqr_memo).bind(hash.as_slice()).bind(input.customer_id()).bind(input.credit_amount())
         .execute(&mut *tx).await.map_err(write_error)?.rows_affected() == 1;
     if !won {
         let (store, stored): (Uuid, Vec<u8>) =
@@ -360,7 +360,7 @@ async fn create(
             date,
             None,
             None,
-            Some((actor.member_id, actor.session_id)),
+            Some(actor.event_actor()),
         )
         .await?;
     }
@@ -535,7 +535,7 @@ async fn void(
                 business_date(voided_at),
                 None,
                 None,
-                Some((actor.member_id, actor.session_id)),
+                Some(actor.event_actor()),
             )
             .await?;
         }

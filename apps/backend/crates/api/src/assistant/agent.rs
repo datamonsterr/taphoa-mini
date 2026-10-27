@@ -1212,7 +1212,8 @@ mod tests {
         Actor {
             store_id: Uuid::new_v4(),
             member_id: Uuid::new_v4(),
-            session_id: Uuid::new_v4(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role: Role::Lead,
             can_enroll: true,
         }

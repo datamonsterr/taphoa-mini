@@ -586,7 +586,7 @@ pub(crate) async fn persist_scan(
     write_detections(&mut tx, actor, scan_id, detections, &crop_ids).await?;
     let match_class = detections.first().map_or(MatchClass::Unknown, |d| d.class);
     let latency_ms = timings_ms["total"].as_u64().unwrap_or(wall_time_ms);
-    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some((actor.member_id,actor.session_id)),typ:"scan.completed",version:1,data:json!({"scan_id":scan_id,"mode":mode.as_str(),"detections":detections.len(),"timings":timings_ms,"model":embedder_model,"purpose":purpose.as_str(),"match_class":match_class,"latency_ms":latency_ms}),change:None }).await?;
+    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some(actor.event_actor()),typ:"scan.completed",version:1,data:json!({"scan_id":scan_id,"mode":mode.as_str(),"detections":detections.len(),"timings":timings_ms,"model":embedder_model,"purpose":purpose.as_str(),"match_class":match_class,"latency_ms":latency_ms}),change:None }).await?;
     tx.commit().await?;
     Ok((scan_id, created_at, catalog_version))
 }

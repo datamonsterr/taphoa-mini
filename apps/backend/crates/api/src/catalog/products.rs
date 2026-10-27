@@ -420,7 +420,7 @@ pub(crate) async fn create(
         &mut tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "product", "ids": [request.id]}),
@@ -435,7 +435,7 @@ pub(crate) async fn create(
     } else {
         "enroll"
     };
-    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some((actor.member_id,actor.session_id)),typ:"product.enrolled",version:1,data:json!({"product_id":request.id,"reference_count":request.references.as_ref().map_or_else(||request.image_ids().len(),Vec::len),"source":source}),change:None }).await?;
+    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some(actor.event_actor()),typ:"product.enrolled",version:1,data:json!({"product_id":request.id,"reference_count":request.references.as_ref().map_or_else(||request.image_ids().len(),Vec::len),"source":source}),change:None }).await?;
     // Capture pending before commit makes the job visible to the worker.
     let row = load_product(&mut tx, actor.store_id, request.id)
         .await?
@@ -487,7 +487,7 @@ async fn resolve_manual_line(
         conn,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "review.line_resolved",
             version: 1,
             data: json!({"line_id": line_id, "action": "enrolled", "product_id": product_id}),
@@ -542,7 +542,7 @@ async fn price_changed_event(
         tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "price.changed",
             version: 1,
             data: json!({
@@ -595,7 +595,7 @@ async fn catalog_changed_event(
         tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "product", "ids": [product_id]}),

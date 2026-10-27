@@ -2,6 +2,7 @@
 mod day_close;
 mod draft_receipts;
 mod margin_alert;
+mod overdue_debts;
 mod restock;
 mod review_queue;
 mod setup;
@@ -36,6 +37,7 @@ pub fn rules() -> Vec<Rule> {
         review_queue::run,
         setup::run,
         margin_alert::run,
+        overdue_debts::run,
     ]
 }
 
@@ -157,7 +159,8 @@ mod tests {
         let actor = Actor {
             member_id: uuid::Uuid::nil(),
             store_id: uuid::Uuid::nil(),
-            session_id: uuid::Uuid::nil(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role: Role::Seller,
             can_enroll: false,
         };

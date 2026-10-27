@@ -65,7 +65,7 @@ async fn catalog_event(
         tx,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "category", "ids": [id]}),

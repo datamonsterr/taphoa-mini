@@ -36,6 +36,7 @@ export type MockState = {
   store: Store;
   members: Member[];
   currentMemberId: string;
+  hasMembership: boolean;
   categories: Category[];
   products: ProductRecord[];
   images: Map<string, Image>;
@@ -552,6 +553,7 @@ export function buildSeed(now: Date = new Date()): MockState {
     store,
     members,
     currentMemberId: LEAD_ID,
+    hasMembership: true,
     categories,
     products,
     images,

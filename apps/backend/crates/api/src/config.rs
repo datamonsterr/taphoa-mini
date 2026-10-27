@@ -1,10 +1,79 @@
 use crate::ratelimit::{ClientIpSource, RateLimits};
 use anyhow::{Context, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD_INDIFFERENT};
 use std::{path::PathBuf, sync::Arc};
 use taphoa_recognition::ocr::{PpOcrDetector, VietOcr};
 use taphoa_recognition::{DinoEmbedder, Embedder, SamOptions, SamSegmenter, Segmenter};
 
-// No Debug: contains the signing secret.
+// No Debug: contains the optional Clerk secret key.
+#[derive(Clone)]
+pub struct ClerkSettings {
+    pub issuer: String,
+    pub jwks_url: String,
+    pub api_url: String,
+    pub authorized_parties: Vec<String>,
+    pub secret_key: Option<String>,
+}
+impl ClerkSettings {
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Option<Self>> {
+        // Values are trimmed, because a trailing newline or padding from a `.env` file or a
+        // secret store breaks a header or an exact issuer match. A blank value (an empty
+        // line, a whitespace-only secret) counts as unset.
+        let get = |name: &str| {
+            get(name)
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        };
+        let derived_issuer = get("CLERK_PUBLISHABLE_KEY")
+            .map(|key| -> anyhow::Result<String> {
+                let encoded = key
+                    .strip_prefix("pk_test_")
+                    .or_else(|| key.strip_prefix("pk_live_"))
+                    .context("CLERK_PUBLISHABLE_KEY must start with pk_test_ or pk_live_")?;
+                let decoded = STANDARD_NO_PAD_INDIFFERENT
+                    .decode(encoded)
+                    .context("CLERK_PUBLISHABLE_KEY must contain standard base64")?;
+                let decoded = String::from_utf8(decoded)
+                    .context("CLERK_PUBLISHABLE_KEY must encode a frontend API host")?;
+                let host = decoded.strip_suffix('$').unwrap_or(&decoded);
+                if host.is_empty()
+                    || host.len() > 253
+                    || !host.split('.').all(|label| {
+                        !label.is_empty()
+                            && label.len() <= 63
+                            && !label.starts_with('-')
+                            && !label.ends_with('-')
+                            && label
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    })
+                {
+                    bail!("CLERK_PUBLISHABLE_KEY must encode a frontend API host");
+                }
+                Ok(format!("https://{host}"))
+            })
+            .transpose()?;
+        let Some(issuer) = get("CLERK_ISSUER").or(derived_issuer) else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            jwks_url: get("CLERK_JWKS_URL")
+                .unwrap_or_else(|| format!("{issuer}/.well-known/jwks.json")),
+            issuer,
+            api_url: get("CLERK_API_URL").unwrap_or_else(|| "https://api.clerk.com".into()),
+            authorized_parties: get("CLERK_AUTHORIZED_PARTIES")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|party| !party.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            secret_key: get("CLERK_SECRET_KEY"),
+        }))
+    }
+}
+
+// No Debug: contains the optional Clerk secret key.
 #[derive(Clone)]
 pub struct Config {
     pub port: u16,
@@ -18,7 +87,7 @@ pub struct Config {
     pub ocr_decoder: Option<PathBuf>,
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
-    pub jwt_secret: String,
+    pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
     pub client_ip: ClientIpSource,
@@ -28,9 +97,9 @@ impl Config {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
-        let jwt_secret = get("JWT_SECRET").context("JWT_SECRET is required (at least 32 bytes)")?;
-        if jwt_secret.len() < 32 {
-            bail!("JWT_SECRET must be at least 32 bytes");
+        let clerk = ClerkSettings::from_lookup(&get)?;
+        if clerk.is_none() {
+            bail!("CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required");
         }
         let db_max_connections = get("DB_MAX_CONNECTIONS")
             .unwrap_or_else(|| "10".into())
@@ -72,10 +141,6 @@ impl Config {
                 defaults.store_create_per_hour,
             )?,
             join_per_hour: positive("RATE_LIMIT_JOIN_PER_HOUR", defaults.join_per_hour)?,
-            recover_per_10min: positive(
-                "RATE_LIMIT_RECOVER_PER_10MIN",
-                defaults.recover_per_10min,
-            )?,
             pin_attempts: positive("RATE_LIMIT_PIN_ATTEMPTS", defaults.pin_attempts)?,
         };
         let hops = positive("TRUSTED_PROXY_HOPS", 1)? as usize;
@@ -100,7 +165,7 @@ impl Config {
             encoder: get("SAM_ENCODER_PATH").map(PathBuf::from),
             decoder: get("SAM_DECODER_PATH").map(PathBuf::from),
             dino_model: get("DINO_MODEL_PATH").map(PathBuf::from),
-            jwt_secret,
+            clerk,
             db_max_connections,
         })
     }
@@ -176,8 +241,8 @@ mod tests {
         ];
         for mask in 0u8..16 {
             let config = Config::from_lookup(|name| {
-                if name == "JWT_SECRET" {
-                    return Some("x".repeat(32));
+                if name == "CLERK_ISSUER" {
+                    return Some("https://test.clerk.accounts.dev".into());
                 }
                 keys.iter()
                     .position(|k| *k == name)
@@ -195,7 +260,7 @@ mod tests {
         for value in ["0", "bad", "-1"] {
             assert!(
                 Config::from_lookup(|name| match name {
-                    "JWT_SECRET" => Some("x".repeat(32)),
+                    "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
                     "OCR_THREADS" => Some(value.into()),
                     _ => None,
                 })
@@ -203,7 +268,7 @@ mod tests {
             );
         }
         let config = Config::from_lookup(|name| match name {
-            "JWT_SECRET" => Some("x".repeat(32)),
+            "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
             "OCR_THREADS" => Some("2".into()),
             _ => None,
         })
@@ -217,7 +282,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("JWT_SECRET")
+                .contains("CLERK_ISSUER")
         );
         let secret = "private-short-value";
         let error = Config::from_lookup(|_| Some(secret.into()))
@@ -225,8 +290,10 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(!error.contains(secret));
-        let defaults =
-            Config::from_lookup(|name| (name == "JWT_SECRET").then(|| "x".repeat(32))).unwrap();
+        let defaults = Config::from_lookup(|name| {
+            (name == "CLERK_ISSUER").then(|| "https://test.clerk.accounts.dev".into())
+        })
+        .unwrap();
         assert_eq!(defaults.port, 8080);
         assert_eq!(defaults.db_max_connections, 10);
         assert_eq!(defaults.rate_limits, RateLimits::default());
@@ -243,7 +310,7 @@ mod tests {
         ] {
             assert!(
                 Config::from_lookup(|name| match name {
-                    "JWT_SECRET" => Some("x".repeat(32)),
+                    "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
                     name if name == key => Some(value.into()),
                     _ => None,
                 })
@@ -251,11 +318,67 @@ mod tests {
             );
         }
     }
+    const BLANKS: [&str; 4] = ["", " ", "\t", " \n "];
+
+    #[test]
+    fn blank_clerk_values_are_unset() {
+        let issuer = "https://test.clerk.accounts.dev";
+        for blank in BLANKS {
+            let settings = ClerkSettings::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some(issuer.into()),
+                n if n.starts_with("CLERK_") => Some(blank.into()),
+                _ => None,
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(settings.issuer, issuer);
+            assert_eq!(settings.jwks_url, format!("{issuer}/.well-known/jwks.json"));
+            assert_eq!(settings.api_url, "https://api.clerk.com");
+            assert!(settings.authorized_parties.is_empty());
+            assert!(settings.secret_key.is_none(), "{blank:?}");
+        }
+        for blank in BLANKS {
+            let derived = ClerkSettings::from_lookup(|name| match name {
+                "CLERK_PUBLISHABLE_KEY" => Some("pk_test_dGVzdC5jbGVyay5hY2NvdW50cy5kZXYk".into()),
+                n if n.starts_with("CLERK_") => Some(blank.into()),
+                _ => None,
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(derived.issuer, issuer, "{blank:?}");
+        }
+    }
+
+    #[test]
+    fn blank_publishable_key_without_issuer_is_not_configured() {
+        for blank in BLANKS {
+            let lookup = |name: &str| match name {
+                "CLERK_PUBLISHABLE_KEY" | "CLERK_ISSUER" | "CLERK_SECRET_KEY" => {
+                    Some(blank.to_string())
+                }
+                _ => None,
+            };
+            assert!(ClerkSettings::from_lookup(lookup).unwrap().is_none());
+            let error = Config::from_lookup(lookup).err().unwrap().to_string();
+            assert_eq!(error, "CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required");
+        }
+        let config = Config::from_lookup(|name| match name {
+            "CLERK_PUBLISHABLE_KEY" => Some(" ".into()),
+            "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(config.clerk.unwrap().secret_key.is_none());
+    }
+
     #[test]
     fn reads_service_and_model_settings() {
         let config = Config::from_lookup(|name| {
+            if name.starts_with("CLERK_") && name != "CLERK_ISSUER" {
+                return None;
+            }
             Some(match name {
-                "JWT_SECRET" => "x".repeat(32),
+                "CLERK_ISSUER" => "https://test.clerk.accounts.dev".into(),
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
                 "OCR_THREADS" => "4".into(),

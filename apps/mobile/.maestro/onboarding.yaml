@@ -1,16 +1,16 @@
 appId: com.datamonsterr.taphoamini
 ---
-# Onboarding against the real backend: create a store, see it on the account screen, sign out.
+# Onboarding against the real backend and Clerk: sign in with a new address, create a store, see
+# it on the account screen, sign out, then sign in again with the same address and find the store.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- takeScreenshot: onboarding-01-welcome
 - runFlow:
     file: subflows/create-store.yaml
     env:
       STORE_NAME: 'Tạp hóa Maestro'
       OWNER_NAME: 'Cô Ba'
-- tapOn: 'Vuốt lên: cửa hàng'
-- extendedWaitUntil:
-    visible: 'Tài khoản'
-    timeout: 15000
-- tapOn: 'Tài khoản'
+- runFlow: subflows/open-account.yaml
 - extendedWaitUntil:
     visible: 'Tạp hóa Maestro'
     timeout: 20000
@@ -18,13 +18,30 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: '1 thành viên'
 - assertVisible: 'Đang dùng: Cô Ba'
 - assertVisible: 'Đặt mã PIN'
-- takeScreenshot: onboarding-01-account
-# Sign out: back to the welcome screen with no session.
-- scrollUntilVisible:
-    element: 'Đăng xuất'
-- tapOn: 'Đăng xuất'
+- takeScreenshot: onboarding-02-account
+# Only this person is on the phone. Signing out ends their session and shows the sign-in screen.
+- runFlow: subflows/scroll-account-end.yaml
+- assertVisible:
+    id: 'account-session-0'
+- assertNotVisible:
+    id: 'account-session-1'
+- tapOn:
+    id: 'account-sign-out'
 - extendedWaitUntil:
-    visible: 'Khôi phục cửa hàng'
-    timeout: 20000
-- assertVisible: 'Tạo cửa hàng'
-- takeScreenshot: onboarding-02-signed-out
+    visible:
+      id: 'auth-email'
+    timeout: 30000
+- assertVisible: 'Gửi mã'
+- takeScreenshot: onboarding-03-signed-out
+# The same address finds its store again: no onboarding, straight to the camera.
+- runFlow:
+    file: subflows/sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+- assertVisible: 'Giỏ hàng trống'
+- runFlow: subflows/open-account.yaml
+- extendedWaitUntil:
+    visible: 'Tạp hóa Maestro'
+    timeout: 30000
+- assertVisible: 'Đang dùng: Cô Ba'
+- takeScreenshot: onboarding-04-signed-back-in

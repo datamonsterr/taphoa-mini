@@ -3,6 +3,7 @@ import { createApiClient, type ApiClient } from '@taphoa/api-client';
 import { analyticsSessionId } from '@/lib/analyticsBridge';
 
 import { createAuthFetch } from './authFetch';
+import { currentStoreId } from './clerkBridge';
 
 /** Used when `EXPO_PUBLIC_API_URL` is unset: the backend of `docker compose up`. */
 export const DEFAULT_API_URL = 'http://localhost:8080';
@@ -18,6 +19,7 @@ function createClient(): ApiClient {
   return createApiClient({
     baseUrl,
     getSessionId: analyticsSessionId,
+    getStoreId: currentStoreId,
     fetch: createAuthFetch({ baseUrl, fetch: transport }),
   });
 }

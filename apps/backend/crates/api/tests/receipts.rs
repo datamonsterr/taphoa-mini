@@ -575,10 +575,17 @@ async fn real_models_create_receipt_under_six_seconds() {
         config::Config,
         decisions::{DecisionsConfig, OpenRouterDecisions},
     };
-    let (Some(ocr), Some(decisions)) = (
-        Config::from_env().unwrap().ocr().unwrap(),
-        DecisionsConfig::from_env().unwrap(),
-    ) else {
+    // Only the OCR_* settings matter here; supply a placeholder Clerk issuer so the
+    // config loads in CI, which sets no CLERK_* variables.
+    let config = Config::from_lookup(|key| {
+        std::env::var(key)
+            .ok()
+            .or_else(|| (key == "CLERK_ISSUER").then(|| common::clerk::TEST_ISSUER.into()))
+    })
+    .unwrap();
+    let (Some(ocr), Some(decisions)) =
+        (config.ocr().unwrap(), DecisionsConfig::from_env().unwrap())
+    else {
         eprintln!("skipping: OCR_* model paths and OPENROUTER_API_KEY required");
         return;
     };

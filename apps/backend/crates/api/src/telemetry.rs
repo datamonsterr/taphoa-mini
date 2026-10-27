@@ -353,8 +353,8 @@ pub fn record_identity(actor: &crate::auth::Actor) {
     span.record("taphoa.store.id", actor.store_id.to_string());
     span.record("taphoa.member.id", actor.member_id.to_string());
     span.record("taphoa.member.role", actor.role.as_str());
-    span.record("session.id", actor.session_id.to_string());
-    // Actor currently has no person id. The future Clerk mapping belongs here.
+    span.record("session.id", actor.clerk_session_id.as_str());
+    span.record("user.id", actor.clerk_user_id.as_str());
 }
 
 struct Headers<'a>(&'a axum::http::HeaderMap);

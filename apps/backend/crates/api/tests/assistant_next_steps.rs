@@ -210,7 +210,8 @@ async fn fixed_rules(w: &World, clock: &str) -> Value {
     let actor = Actor {
         member_id: w.lead_id,
         store_id: w.store_id,
-        session_id: uuid::Uuid::nil(),
+        clerk_user_id: "user_test".into(),
+        clerk_session_id: "sess_test".into(),
         role: Role::Lead,
         can_enroll: true,
     };

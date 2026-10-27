@@ -30,7 +30,9 @@ channels:
       `text/event-stream`. One connection per foreground app. Each frame:
       `id: <envelope.id>`, `event: <envelope.type>`, `data: <envelope JSON>`.
       Heartbeat comment `: ping` every 25 s. Reconnect with `Last-Event-ID`.
-      Only events of the token's store are sent.
+      Only events of the store selected by `X-Store-Id` (or the only active membership) are sent. The stream closes when `member.changed` deactivates the connected member.
+      The bearer token is checked only when the stream opens, so the server also closes every stream cleanly after 15 minutes;
+      the client reconnects with a fresh token and `Last-Event-ID`.
     servers:
       - $ref: '#/servers/api'
     messages:
@@ -42,7 +44,6 @@ channels:
       priceChanged: { $ref: '#/components/messages/priceChanged' }
       storeChanged: { $ref: '#/components/messages/storeChanged' }
       memberChanged: { $ref: '#/components/messages/memberChanged' }
-      sessionRevoked: { $ref: '#/components/messages/sessionRevoked' }
       customerCreated: { $ref: '#/components/messages/customerCreated' }
       customerUpdated: { $ref: '#/components/messages/customerUpdated' }
       debtRecorded: { $ref: '#/components/messages/debtRecorded' }
@@ -84,7 +85,6 @@ channels:
       priceChanged: { $ref: '#/components/messages/priceChanged' }
       storeChanged: { $ref: '#/components/messages/storeChanged' }
       memberChanged: { $ref: '#/components/messages/memberChanged' }
-      sessionRevoked: { $ref: '#/components/messages/sessionRevoked' }
       customerCreated: { $ref: '#/components/messages/customerCreated' }
       customerUpdated: { $ref: '#/components/messages/customerUpdated' }
       debtRecorded: { $ref: '#/components/messages/debtRecorded' }
@@ -164,7 +164,8 @@ components:
           type: [object, 'null']
           properties:
             member_id: { $ref: '#/components/schemas/Uuid' }
-            session_id: { $ref: '#/components/schemas/Uuid' }
+            session_id:
+              { type: string, description: 'Clerk session id (`sid`).' }
         cursor:
           {
             type: string,
@@ -293,25 +294,6 @@ components:
                 properties:
                   member_id: { $ref: '#/components/schemas/Uuid' }
                   change: { type: string, enum: [joined, updated, deactivated] }
-    sessionRevoked:
-      name: session.revoked
-      contentType: application/json
-      payload:
-        allOf:
-          - $ref: '#/components/schemas/Envelope'
-          - type: object
-            properties:
-              type: { const: session.revoked }
-              data:
-                type: object
-                required: [session_id, reason]
-                properties:
-                  session_id: { $ref: '#/components/schemas/Uuid' }
-                  reason:
-                    {
-                      type: string,
-                      enum: [logout, member_removed, token_reuse, recovery],
-                    }
     customerCreated:
       name: customer.created
       summary: Debt book change; no customer names, phones or notes.

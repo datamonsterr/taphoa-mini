@@ -7,7 +7,7 @@ import * as productsApi from '@/lib/api/products';
 import * as stockApi from '@/lib/api/stock';
 import { keys } from '@/lib/api/keys';
 import type { Product } from '@/lib/api/types';
-import { useSessionStore } from '@/stores/session';
+import { testSession, setTestMembership } from '@/test/session';
 import { useSettingsStore } from '@/stores/settings';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { holdNext } from '@/test/hold';
@@ -96,9 +96,10 @@ test('hides missing cost and description', async () => {
 });
 
 test('a Seller cannot edit the price: no edit button (the server would answer 403)', async () => {
-  const { session } = useSessionStore.getState();
-  useSessionStore.setState({
-    session: { ...session!, member: { ...session!.member, role: 'seller' } },
+  const session = testSession();
+  setTestMembership({
+    ...session!,
+    member: { ...session!.member, role: 'seller' },
   });
   await renderProduct();
   await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' });
@@ -361,9 +362,10 @@ describe('stock adjustments', () => {
   });
 
   test('seller has no adjust button or threshold editor', async () => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: { ...session!, member: { ...session!.member, role: 'seller' } },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller' },
     });
     await renderProduct();
     await screen.findByLabelText('Tồn kho 20, Còn hàng');

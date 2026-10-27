@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 pub struct Event {
     pub store_id: Uuid,
-    pub actor: Option<(Uuid, Uuid)>,
+    pub actor: Option<(Uuid, String)>,
     pub typ: &'static str,
     pub version: i32,
     pub data: Value,
@@ -35,6 +35,12 @@ pub struct EmittedEvent {
     pub seq: Option<i64>,
     pub payload: Value,
 }
+
+/// The bearer token is verified once when a stream opens, so a signed-out or expired
+/// session must not keep receiving events: every stream ends after this long. The
+/// server closes it cleanly; clients reconnect with a fresh token and resume with
+/// `Last-Event-ID`.
+pub const MAX_STREAM_AGE: Duration = Duration::from_secs(15 * 60);
 
 pub fn router() -> axum::Router<crate::AppState> {
     axum::Router::new().route("/v1/events", get(stream_events))
@@ -72,6 +78,7 @@ async fn stream_events(
     // Subscribe before the replay query so commits during replay are buffered.
     let subscription = state.hub.subscribe(actor.store_id);
     let mut shutdown = state.hub.shutdown_signal();
+    let deadline = tokio::time::Instant::now() + state.hub.max_stream_age();
     let mut last_id = headers
         .get("last-event-id")
         .and_then(|value| value.to_str().ok())
@@ -104,7 +111,7 @@ async fn stream_events(
         }
     }
     let pool = state.postgres.clone();
-    let (store_id, session_id) = (actor.store_id, actor.session_id);
+    let (store_id, member_id) = (actor.store_id, actor.member_id);
     let stream = stream::unfold(
         (
             subscription,
@@ -142,6 +149,8 @@ async fn stream_events(
                     let message = tokio::select! {
                         biased;
                         () = stopped(&mut shutdown) => return None,
+                        // Ahead of the message branch so a long replay cannot outlive the cap.
+                        () = tokio::time::sleep_until(deadline) => return None,
                         message = async {
                             if let Some(message) = replay.pop_front() {
                                 Ok(message)
@@ -158,8 +167,8 @@ async fn stream_events(
                         continue;
                     }
                     last_id = message.id;
-                    // Deliver the revocation, then end the stream for the revoked session.
-                    let closing = ends_session(&message, session_id);
+                    // Deliver deactivation, then end this member's stream.
+                    let closing = ends_membership(&message, member_id);
                     let event = SseEvent::default()
                         .id(format!("evt_{last_id:015}"))
                         .event(&message.event_type)
@@ -214,17 +223,18 @@ async fn replay_page(
         .collect())
 }
 
-/// True when `message` revokes the session that owns this stream.
-fn ends_session(message: &HubMessage, session_id: Uuid) -> bool {
-    message.event_type == "session.revoked"
+/// True when this member's membership was deactivated.
+fn ends_membership(message: &HubMessage, member_id: Uuid) -> bool {
+    message.event_type == "member.changed"
         && serde_json::from_str::<Value>(&message.payload)
             .ok()
-            .and_then(|envelope| {
-                envelope["data"]["session_id"]
-                    .as_str()
-                    .and_then(|id| id.parse::<Uuid>().ok())
+            .is_some_and(|envelope| {
+                envelope["data"]["change"] == "deactivated"
+                    && envelope["data"]["member_id"]
+                        .as_str()
+                        .and_then(|id| id.parse::<Uuid>().ok())
+                        == Some(member_id)
             })
-            == Some(session_id)
 }
 
 fn parse_event_id(value: &str) -> Option<i64> {

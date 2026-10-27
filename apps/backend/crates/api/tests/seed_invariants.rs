@@ -2,7 +2,7 @@
 use argon2::{Argon2, password_hash::PasswordVerifier};
 use sha2::{Digest, Sha256};
 use sqlx::{
-    Connection, PgConnection, PgPool, Row,
+    Connection, PgConnection, PgPool,
     postgres::{PgConnectOptions, PgPoolOptions},
 };
 use std::str::FromStr;
@@ -38,21 +38,21 @@ async fn invariants(pool: &PgPool) -> anyhow::Result<()> {
     let report = taphoa_api::seed::run(&pool).await?;
     assert_eq!(report.stores.len(), 2);
     for store in &report.stores {
-        let row =
-            sqlx::query("SELECT recovery_code_hash,recovery_code_lookup FROM stores WHERE id=$1")
+        let identities: Vec<(uuid::Uuid, String)> =
+            sqlx::query_as("SELECT id,clerk_user_id FROM members WHERE store_id=$1")
                 .bind(store.store_id)
-                .fetch_one(&pool)
+                .fetch_all(&pool)
                 .await?;
-        let normalized = store.recovery_code.replace('-', "");
-        let hash: String = row.try_get("recovery_code_hash")?;
-        assert!(hash.starts_with("$argon2id$"));
-        assert!(
-            Argon2::default()
-                .verify_password(normalized.as_bytes(), hash.as_str())
-                .is_ok()
-        );
-        let lookup: Vec<u8> = row.try_get("recovery_code_lookup")?;
-        assert_eq!(lookup, Sha256::digest(normalized.as_bytes()).as_slice());
+        for (id, user) in identities {
+            assert_eq!(user, format!("seed_{id}"));
+        }
+        let sessions: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM sales WHERE store_id=$1 AND clerk_session_id IS NOT NULL",
+        )
+        .bind(store.store_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(sessions, 0);
         let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM invites WHERE store_id=$1 AND token_hash=$2 AND used_at IS NULL AND expires_at>now())")
             .bind(store.store_id).bind(Sha256::digest(store.invite_token_hint.as_bytes()).to_vec())
             .fetch_one(&pool).await?;
@@ -122,7 +122,6 @@ async fn fingerprints(pool: &PgPool) -> anyhow::Result<Vec<String>> {
     for table in [
         "stores",
         "members",
-        "sessions",
         "invites",
         "images",
         "categories",

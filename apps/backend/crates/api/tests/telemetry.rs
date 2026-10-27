@@ -14,6 +14,7 @@ use taphoa_api::{
     telemetry::{self, TelemetryConfig},
 };
 use tower::ServiceExt;
+mod common;
 use tracing_subscriber::prelude::*;
 
 fn config() -> TelemetryConfig {
@@ -296,17 +297,21 @@ async fn identity_child_logs_db_events_and_job_contract() {
     use taphoa_api::auth::{Actor, Role};
     let capture = Capture::new();
     let _default = tracing::subscriber::set_default(capture.subscriber());
-    let state = AppState::default();
+    // Actor resolution needs Postgres, so this DB-free test records a constructed Clerk
+    // actor through the same record_identity call the extractor makes; the real
+    // authenticated request is covered by the ignored integration test below.
     let actor = Actor {
+        clerk_user_id: "user_clerk_contract".into(),
         member_id: uuid::Uuid::new_v4(),
         store_id: uuid::Uuid::new_v4(),
-        session_id: uuid::Uuid::new_v4(),
+        clerk_session_id: "sess_clerk_contract".into(),
         role: Role::Seller,
         can_enroll: false,
     };
-    let (token, _) = state.jwt.issue(&actor);
+    let handler_actor = actor.clone();
     // The same public middleware as router(); no production route is added.
-    let app = Router::new().route("/actor", get(|_: Actor| async {
+    let app = Router::new().route("/actor", get(move || async move {
+        telemetry::record_identity(&handler_actor);
         let child = tracing::info_span!("handler child");
         let _entered = child.enter();
             let _unentered = tracing::info_span!("unentered child");
@@ -314,11 +319,10 @@ async fn identity_child_logs_db_events_and_job_contract() {
         tracing::debug!("local debug only");
         tracing::debug!(target: "sqlx::query", summary = "SELECT private", db.statement = "SELECT secret FROM members WHERE token='never-export'", rows_affected = 0_u64, rows_returned = 1_u64, elapsed_secs = 0.025_f64);
         tracing::warn!(target: "sqlx::query", summary = "UPDATE private", db.statement = "UPDATE members SET token='never-export'", rows_affected = 1_u64, rows_returned = 0_u64, elapsed_secs = 0.1_f64);
-    })).layer(axum::middleware::from_fn(telemetry::http_span)).with_state(state);
+    })).layer(axum::middleware::from_fn(telemetry::http_span));
     assert_eq!(
         app.oneshot(
             Request::get("/actor")
-                .header("authorization", format!("Bearer {token}"))
                 .header("x-posthog-session-id", "posthog-auth")
                 .body(Body::empty())
                 .unwrap()
@@ -353,11 +357,11 @@ async fn identity_child_logs_db_events_and_job_contract() {
             ("taphoa.store.id", actor.store_id.to_string()),
             ("taphoa.member.id", actor.member_id.to_string()),
             ("taphoa.member.role", "seller".into()),
-            ("session.id", actor.session_id.to_string()),
+            ("session.id", actor.clerk_session_id.clone()),
+            ("user.id", actor.clerk_user_id.clone()),
         ] {
             assert_eq!(attr(span, key), Some(value.into()), "{} {key}", span.name);
         }
-        assert_eq!(attr(span, "user.id"), None);
         assert!(
             !span
                 .attributes
@@ -411,6 +415,72 @@ async fn identity_child_logs_db_events_and_job_contract() {
             .any(|(k, v)| k.as_str() == "taphoa.job.name"
                 && *v == AnyValue::String("retention".into()))
     );
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "real Postgres and Redis required"]
+async fn authenticated_request_records_clerk_identity_on_server_span() {
+    use axum::body::to_bytes;
+    use taphoa_api::config::Config;
+    let capture = Capture::new();
+    let _default = tracing::subscriber::set_default(capture.subscriber());
+    let config = Config::from_lookup(|key| match key {
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
+        "CLIENT_IP_SOURCE" => Some("x-forwarded-for".into()),
+        _ => std::env::var(key).ok(),
+    })
+    .unwrap();
+    let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    common::clerk::install(&mut state);
+    let app = router(state);
+    let user = common::clerk::user();
+    let session = format!("sess_{}", uuid::Uuid::new_v4());
+    let token = common::clerk::clerk_token(&user, &session);
+    let create = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/stores")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.9.8.7")
+                .body(Body::from(
+                    r#"{"store_name":"Tap hoa","display_name":"Lead"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create.status(), 201);
+    let created: serde_json::Value =
+        serde_json::from_slice(&to_bytes(create.into_body(), 1 << 20).await.unwrap()).unwrap();
+    let store_id = created["store"]["id"].as_str().unwrap().to_owned();
+    let member_id = created["member"]["id"].as_str().unwrap().to_owned();
+    let response = app
+        .oneshot(
+            Request::get("/v1/store")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let spans = capture.spans.get_finished_spans().unwrap();
+    let server = spans
+        .iter()
+        .find(|s| s.name == "GET /v1/store")
+        .expect("server span");
+    for (key, value) in [
+        ("user.id", user.as_str()),
+        ("session.id", session.as_str()),
+        ("taphoa.store.id", store_id.as_str()),
+        ("taphoa.member.id", member_id.as_str()),
+        ("taphoa.member.role", "lead"),
+    ] {
+        assert_eq!(attr(server, key), Some(value.to_owned().into()), "{key}");
+    }
+    assert!(!format!("{spans:?}").contains(&token));
 }
 
 fn poll_outbox_query() {

@@ -10,8 +10,9 @@ account. See [the implementation spec](../../docs/specs/mobile-frontend.md) and
 
 The app talks only to the real backend (`apps/backend`), at `EXPO_PUBLIC_API_URL`
 (default `http://localhost:8080`, the `docker compose up` stack). Start the backend first.
-Without a session the app opens on the onboarding screens (create a store, join with an
-invite code, recover with the recovery code). Only libraries bundled in Expo Go are used.
+Without a Clerk session the app opens on the sign-in screens (email code or Google); a signed-in
+user without a store sees onboarding (create a store or join with an invite code). See
+[CLERK.md](CLERK.md). Only libraries bundled in Expo Go are used.
 
 ```sh
 pnpm install

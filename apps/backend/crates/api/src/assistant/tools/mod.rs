@@ -1,6 +1,7 @@
 //! Assistant tools. A tool reads store data (`Read`) or drafts a write for the owner to confirm
 //! (`Propose`); it never changes anything itself. Each batch file adds its tools to `all()`.
 pub mod catalog;
+pub mod debts;
 pub mod help;
 mod holidays;
 pub mod ops;
@@ -177,6 +178,7 @@ pub fn all() -> Vec<Arc<dyn Tool>> {
     tools.extend(catalog::all());
     tools.extend(help::all());
     tools.extend(tax::all());
+    tools.extend(debts::all());
     tools.extend(propose::all());
     tools
 }
@@ -249,7 +251,8 @@ mod tests {
         Actor {
             member_id: Uuid::new_v4(),
             store_id: Uuid::new_v4(),
-            session_id: Uuid::new_v4(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role,
             can_enroll: role == Role::Lead || can_enroll,
         }
@@ -367,7 +370,10 @@ mod tests {
                 .iter()
                 .all(|tool| tool.requires().is_none_or(|action| matches!(
                     action,
-                    Action::Sell | Action::VoidOwnSaleSameDay | Action::AddExpense
+                    Action::Sell
+                        | Action::VoidOwnSaleSameDay
+                        | Action::AddExpense
+                        | Action::RecordDebt
                 )))
         );
     }

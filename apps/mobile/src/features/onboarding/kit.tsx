@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  type TextInputProps,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +27,7 @@ import {
 import { strings } from './strings';
 
 type FrameProps = {
+  testID?: string;
   title: string;
   subtitle?: string;
   /** Shows the back arrow. The welcome screen has nowhere to go back to. */
@@ -34,12 +36,19 @@ type FrameProps = {
 };
 
 /** Page shell shared by every onboarding screen: scrolls, avoids the keyboard, honours insets. */
-export function Frame({ title, subtitle, back = true, children }: FrameProps) {
+export function Frame({
+  testID,
+  title,
+  subtitle,
+  back = true,
+  children,
+}: FrameProps) {
   const t = useT(strings);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   return (
     <KeyboardAvoidingView
+      testID={testID}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.screen}
     >
@@ -77,6 +86,9 @@ export function Frame({ title, subtitle, back = true, children }: FrameProps) {
 }
 
 type FieldProps = {
+  keyboardType?: TextInputProps['keyboardType'];
+  autoComplete?: TextInputProps['autoComplete'];
+  testID?: string;
   label: string;
   value: string;
   onChangeText: (text: string) => void;
@@ -88,6 +100,9 @@ type FieldProps = {
 
 /** Labelled text input; the label doubles as the accessible name (`getByLabel`, Playwright role+name). */
 export function Field({
+  keyboardType,
+  autoComplete,
+  testID,
   label,
   value,
   onChangeText,
@@ -103,6 +118,9 @@ export function Field({
         {label}
       </ScaledText>
       <TextInput
+        keyboardType={keyboardType}
+        autoComplete={autoComplete}
+        testID={testID}
         accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
@@ -132,6 +150,7 @@ export function Field({
 }
 
 type ButtonProps = {
+  testID?: string;
   label: string;
   onPress: () => void;
   disabled?: boolean;
@@ -141,6 +160,7 @@ type ButtonProps = {
 
 /** Full-width pill. `busy` swaps the label for a spinner but keeps the accessible name. */
 export function ActionButton({
+  testID,
   label,
   onPress,
   disabled = false,
@@ -150,6 +170,7 @@ export function ActionButton({
   const primary = variant === 'primary';
   return (
     <PressableScale
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: disabled || busy, busy }}

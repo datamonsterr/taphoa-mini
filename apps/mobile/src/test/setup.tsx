@@ -211,3 +211,18 @@ jest.mock('expo-application', () => ({ nativeBuildVersion: '123' }));
 jest.mock('expo-localization', () => ({
   getLocales: () => [{ languageTag: 'vi-VN', languageCode: 'vi' }],
 }));
+jest.mock('@clerk/expo', () => require('./clerk'));
+jest.mock('@clerk/expo/token-cache', () => ({ tokenCache: {} }));
+jest.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: jest.fn(),
+  warmUpAsync: jest.fn(),
+  coolDownAsync: jest.fn(),
+}));
+process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_test_jest';
+
+jest.mock('expo-auth-session', () => ({
+  makeRedirectUri: jest.fn(
+    ({ scheme, path }: { scheme: string; path: string }) =>
+      `${scheme}://${path}`,
+  ),
+}));

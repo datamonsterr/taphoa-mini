@@ -13,11 +13,7 @@ import {
   Text,
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
-import {
-  selectCanEnroll,
-  selectIsLead,
-  useSessionStore,
-} from '@/stores/session';
+import { useCanEnroll, useIsLead } from '@/features/auth/useMembership';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
@@ -43,8 +39,8 @@ export function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<Period>('day');
   const data = useDashboardData(period);
-  const isLead = useSessionStore(selectIsLead);
-  const canEnroll = useSessionStore(selectCanEnroll);
+  const isLead = useIsLead();
+  const canEnroll = useCanEnroll();
 
   const addExpense = useCallback(() => router.push('/expense'), []);
   const closeDay = useCallback(() => router.push('/close'), []);

@@ -130,6 +130,11 @@ async fn changed(conn: &mut PgConnection, actor: &Actor, row: &ActionRow) -> Api
             }
             Ok(false)
         }
+        "repayment" | "debt_adjustment" => {
+            // A missing or archived customer makes the proposal stale.
+            Ok(!sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM customers WHERE store_id=$1 AND id=$2 AND archived_at IS NULL)")
+                .bind(actor.store_id).bind(payload_id(p, "customer_id")?).fetch_one(conn).await?)
+        }
         "reorder_list" => {
             for item in p["items"].as_array().into_iter().flatten() {
                 if !active_product(conn, actor, payload_id(item, "product_id")?).await? {
@@ -362,6 +367,8 @@ fn execute(
             "price_change" => Some(Action::ChangePrice),
             "receipt_confirm" => Some(Action::EnrollProduct),
             "invite" => Some(Action::ManageInvites),
+            "repayment" => Some(Action::RecordDebt),
+            "debt_adjustment" => Some(Action::AdjustDebt),
             _ => None,
         };
         if let Some(action) = required {
@@ -416,6 +423,21 @@ fn execute(
                 "/v1/invites".into(),
                 json!({"role":p["role"],"can_enroll":p["can_enroll"]}),
             ),
+            // The debt endpoints get the action id as idempotency key, so a recovered or
+            // replayed confirm returns the same ledger entry.
+            "repayment" => (
+                Method::POST,
+                format!("/v1/customers/{}/repayments", payload_id(p, "customer_id")?),
+                json!({"amount":p["amount"],"method":p["method"]}),
+            ),
+            "debt_adjustment" => (
+                Method::POST,
+                format!(
+                    "/v1/customers/{}/adjustments",
+                    payload_id(p, "customer_id")?
+                ),
+                json!({"amount":p["amount"],"reason":p["reason"]}),
+            ),
             _ => return Err(ApiError::validation_failed("Loại đề xuất không được hỗ trợ").into()),
         };
         let content = if method == Method::PATCH {
@@ -440,7 +462,10 @@ fn execute(
         request = request
             .header("content-type", content)
             .header("x-taphoa-via", "assistant");
-        if matches!(row.kind.as_str(), "stock_adjustment" | "receipt_confirm") {
+        if matches!(
+            row.kind.as_str(),
+            "stock_adjustment" | "receipt_confirm" | "repayment" | "debt_adjustment"
+        ) {
             request = request.header("idempotency-key", derived.to_string());
         }
         let mut request = request
@@ -476,6 +501,7 @@ fn execute(
             "price_change" | "threshold_update" => json!({"product_id":body["id"]}),
             "receipt_confirm" => json!({"receipt_id":body["id"],"expense_id":body["expense_id"]}),
             "invite" => json!({"expires_at":body["expires_at"],"join_url":body["join_url"]}),
+            "repayment" | "debt_adjustment" => json!({"entry_id":body["id"]}),
             _ => return Err(ApiError::internal().into()),
         };
         Ok(result)
@@ -529,7 +555,7 @@ async fn emit_decision(
         conn,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: if decision == "confirmed" {
                 "assistant.action.confirmed"
             } else {
@@ -609,6 +635,8 @@ pub(crate) fn analytics_kind(kind: &str) -> Option<ActionKind> {
         "receipt_line_update" => ActionKind::ReceiptLineUpdate,
         "receipt_confirm" => ActionKind::ReceiptConfirm,
         "invite" => ActionKind::Invite,
+        "repayment" => ActionKind::Repayment,
+        "debt_adjustment" => ActionKind::DebtAdjustment,
         _ => return None,
     })
 }
