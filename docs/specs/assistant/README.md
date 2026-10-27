@@ -57,7 +57,10 @@ The final DoD report lives at `docs/specs/assistant/dod-report.md` (written by e
 - **Use cases:** all of U1-U23 (expiry tracking is out of scope).
 - **Receipts:** a detected document opens a chat thread that walks through the receipt; the
   old form stays one release as the "Xem dạng bảng" fallback.
-- **Voice:** on-device speech recognition (`vi-VN`), no server speech model.
+- **Voice:** on-device speech recognition (`vi-VN`), no server speech model. _Amended
+  2026-10-27:_ the [voice program](../voice/README.md) adds server speech through one
+  audio-native model call for voice sales and the chat microphone; on-device recognition
+  stays the offline fallback (ADR 0008).
 - **New entry points** go into the next-step strip, not as new buttons. Existing buttons stay.
 - **Golden set:** Vietnamese only, about 140 cases, smoke 25 per PR, full nightly or on demand,
   at most one full run per day.

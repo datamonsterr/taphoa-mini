@@ -1,8 +1,13 @@
 {
   "v": 3,
-  "createdOnFiles": { "v": 1, "at": "2026-10-23T10:00:00Z" },
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-23T10:00:00Z"
+  },
   "title": "Tạp Hóa Mini App",
-  "launch": { "view": "canvas" },
+  "launch": {
+    "view": "canvas"
+  },
   "pages": [],
   "boards": {
     "Main.dc.html": {
@@ -122,13 +127,55 @@
       "is_interactive": true,
       "radius": 44
     },
-    "Flow.dc.html": { "x": 0, "y": 2724, "w": 1720, "h": 980, "title": "Flow" },
+    "Flow.dc.html": {
+      "x": 0,
+      "y": 2724,
+      "w": 1720,
+      "h": 980,
+      "title": "Flow"
+    },
     "Components.dc.html": {
       "x": 1800,
       "y": 2724,
       "w": 1240,
       "h": 980,
       "title": "Components"
+    },
+    "VoiceBubble.dc.html": {
+      "x": 0,
+      "y": 3804,
+      "w": 390,
+      "h": 844,
+      "title": "14 Nút nói (Android)",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "VoiceListen.dc.html": {
+      "x": 470,
+      "y": 3804,
+      "w": 390,
+      "h": 844,
+      "title": "15 Đang nghe",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "VoiceSale.dc.html": {
+      "x": 940,
+      "y": 3804,
+      "w": 390,
+      "h": 844,
+      "title": "16 Bán hàng bằng giọng nói",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "ChatVoice.dc.html": {
+      "x": 1410,
+      "y": 3804,
+      "w": 390,
+      "h": 844,
+      "title": "17 Trợ lý · nói",
+      "is_interactive": true,
+      "radius": 44
     }
   },
   "order": [
@@ -146,7 +193,11 @@
     "Account.dc.html",
     "Close.dc.html",
     "Flow.dc.html",
-    "Components.dc.html"
+    "Components.dc.html",
+    "VoiceBubble.dc.html",
+    "VoiceListen.dc.html",
+    "VoiceSale.dc.html",
+    "ChatVoice.dc.html"
   ],
   "notes": {
     "rowA": {
@@ -169,6 +220,13 @@
       "text": "Flow & every button",
       "kind": "title1",
       "maxW": 3040
+    },
+    "rowD": {
+      "x": 0,
+      "y": 3504,
+      "text": "Voice — bubble, listen, sale, chat (2026-10-27)",
+      "kind": "title1",
+      "maxW": 1800
     }
   },
   "designSystems": [
