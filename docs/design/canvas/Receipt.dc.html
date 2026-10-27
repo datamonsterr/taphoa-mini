@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Import receipt</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; padding: 16px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 14px">
+  <div style="display: flex; align-items: center; gap: 12px">
+    <a href="Dashboard.dc.html" class="th-ib" aria-label="Quay lại"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <div style="flex: 1; min-width: 0">
+      <h1 class="heading" style="margin: 0">Hóa đơn nhập</h1>
+      <span class="caption" style="color: var(--ink-muted)">Minh Phát · 27/10 · bản nháp</span>
+    </div>
+    <a href="Assistant.dc.html" class="th-ib" aria-label="Xử lý trong trợ lý"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"></path><path d="M9 11h6M9 14h3"></path></svg></a>
+  </div>
+
+  <button type="button" aria-label="Ảnh hóa đơn, chạm để phóng to" style="display: flex; align-items: center; justify-content: center; gap: 10px; height: 96px; border: 0; border-radius: 22px; background: #2a2a2e; color: var(--camera-muted); font: 500 15px/20px var(--font-sans); cursor: pointer">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>Ảnh hóa đơn
+  </button>
+
+  <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px">
+    <div class="th-line" style="min-height: 0; padding-top: 8px; padding-bottom: 8px"><span class="th-photo"><svg viewBox="0 0 40 40" aria-hidden="true" style="width: 32px; height: 32px"><rect x="0" y="0" width="40" height="40" rx="6" fill="#e2a94b"></rect><circle cx="20" cy="22" r="10" fill="#c62f2f"></circle></svg></span><span class="th-line-body" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; flex: 1 1 0"><span class="th-line-name">Hảo Hảo tôm chua cay</span><span class="caption th-num" style="color: var(--ink-muted); font-size: 13px; line-height: 16px">30 gói × 3.500đ</span><span class="th-badge th-badge-success" style="margin-top: 2px; align-self: flex-start; height: 24px; font-size: 12px; padding: 0px 10px; gap: 4px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M20 6 9 17l-5-5"></path></svg>Hảo Hảo</span></span><b class="th-num" style="font-size: 20px">105.000đ</b></div>
+    <div class="th-line" style="min-height: 0; padding-top: 8px; padding-bottom: 8px"><span class="th-photo"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 20px; height: 34px"><rect x="15" y="2" width="10" height="8" rx="2" fill="#111114"></rect><path d="M14 10h12l4 10v44a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V20z" fill="#c62f2f"></path></svg></span><span class="th-line-body" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; flex: 1 1 0"><span class="th-line-name">Sting đỏ</span><span class="caption th-num" style="color: var(--ink-muted); font-size: 13px; line-height: 16px">24 chai × 7.800đ</span><span class="th-badge th-badge-success" style="margin-top: 2px; align-self: flex-start; height: 24px; font-size: 12px; padding: 0px 10px; gap: 4px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M20 6 9 17l-5-5"></path></svg>Sting đỏ 330ml</span></span><b class="th-num" style="font-size: 20px">187.200đ</b></div>
+    <div class="th-line" style="border-radius: 22px; background: var(--warning-soft); min-height: 0; padding-top: 8px; padding-bottom: 8px"><span class="th-photo" style="background: var(--surface)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--warning)"><path d="M12 8v5M12 17h.01"></path></svg></span><span class="th-line-body" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; flex: 1 1 0"><span class="th-line-name">Mì Omachi</span><span class="caption th-num" style="color: var(--ink-muted); font-size: 13px; line-height: 16px">20 gói × 5.200đ</span><button type="button" class="th-badge th-badge-warning" style="margin-top: 2px; align-self: flex-start; border: 0; cursor: pointer; height: 24px; font-size: 12px; padding: 0px 10px; gap: 4px">Chọn sản phẩm<svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M9 6l6 6-6 6"></path></svg></button></span><b class="th-num" style="font-size: 20px">104.000đ</b></div>
+  </div>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px"><span class="label">Tổng tiền</span><b class="th-num" style="font: 800 28px/32px var(--font-sans)">396.200đ</b></div>
+
+  <div role="radiogroup" aria-label="Nguồn tiền" style="display: flex; gap: 8px">
+    <button type="button" class="th-chip" role="radio" aria-checked="true" aria-pressed="true" aria-label="Tiền mặt" style="min-width: 72px; justify-content: center; align-items: center"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle></svg></button>
+    <button type="button" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" aria-label="Chuyển khoản" style="min-width: 72px; justify-content: center; align-items: center"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"></path></svg></button>
+    <span class="caption" style="align-self: center; color: var(--ink-muted)">→ khoản chi Nhập hàng</span>
+  </div>
+
+  <a href="Inventory.dc.html" class="th-btn th-btn-block th-btn-xl" style="background: var(--success); color: var(--on-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Xác nhận nhập kho</a>
+  <button type="button" class="th-btn th-btn-soft" style="align-self: center; background: transparent; color: var(--danger)">Bỏ bản nháp</button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

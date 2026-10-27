@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Voice listen</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<!-- 15 · /voice listening state: translucent modal over the previous screen (here the camera). -->
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); font-family: var(--font-sans); color: var(--camera-ink)">
+  <div style="position: absolute; left: 16px; top: 136px; width: 358px; height: 358px; border-radius: 28px; background: #2a2a2e"></div>
+  <div style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: var(--scrim)"></div>
+
+  <div style="position: absolute; left: 0; top: 356px; width: 390px; height: 488px; box-sizing: border-box; padding: 16px 16px 32px; border-radius: 36px 36px 0 0; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; align-items: center; gap: 12px">
+    <div style="display: flex; justify-content: center; width: 100%"><span style="display: block; width: 40px; height: 5px; border-radius: 9999px; background: var(--surface-pressed)"></span></div>
+    <div style="display: flex; align-items: center; width: 100%">
+      <a href="Main.dc.html" class="th-ib" aria-label="Đóng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></a>
+      <span style="flex: 1; text-align: center; font-size: var(--text-label); font-weight: 600; color: var(--ink-muted)">Đang nghe…</span>
+      <span style="width: 56px; text-align: right; font-size: 15px; font-weight: 600; color: var(--ink-muted); font-variant-numeric: tabular-nums">0:07</span>
+    </div>
+
+    <!-- level bars from the recorder metering -->
+    <div aria-hidden="true" style="display: flex; align-items: center; gap: 6px; height: 48px; margin-top: 4px">
+      <span style="width: 6px; height: 12px; border-radius: 3px; background: var(--accent-soft)"></span><span style="width: 6px; height: 22px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 40px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 30px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 46px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 26px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 36px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 16px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 28px; border-radius: 3px; background: var(--accent)"></span><span style="width: 6px; height: 10px; border-radius: 3px; background: var(--accent-soft)"></span>
+    </div>
+
+    <!-- microphone: 88 px accent circle with a pulse ring and the 30 s countdown ring -->
+    <div style="position: relative; width: 132px; height: 132px; display: grid; place-items: center; margin-top: 4px">
+      <span aria-hidden="true" style="position: absolute; inset: 0; border-radius: 9999px; background: var(--accent); opacity: .16"></span>
+      <svg aria-hidden="true" viewBox="0 0 132 132" style="position: absolute; inset: 0; width: 132px; height: 132px; fill: none; stroke-linecap: round"><circle cx="66" cy="66" r="62" stroke="var(--accent-soft)" stroke-width="4"></circle><circle cx="66" cy="66" r="62" stroke="var(--accent)" stroke-width="4" stroke-dasharray="389.6" stroke-dashoffset="298.7" transform="rotate(-90 66 66)"></circle></svg>
+      <span style="display: grid; place-items: center; width: 88px; height: 88px; border-radius: 9999px; background: var(--accent); color: var(--on-accent)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"></path></svg></span>
+    </div>
+
+    <div style="font-size: var(--text-heading); font-weight: 700; text-align: center">Nói tên hàng và giá</div>
+    <div style="font-size: var(--text-caption); color: var(--ink-muted); text-align: center">“một chai tương ớt hai mươi nghìn”</div>
+
+    <span style="flex: 1"></span>
+    <a href="VoiceSale.dc.html" class="th-btn th-btn-ink th-btn-xl th-btn-block" aria-label="Xong, hiểu lời vừa nói" style="max-width: 358px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="margin-left: 10px">Xong</span></a>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

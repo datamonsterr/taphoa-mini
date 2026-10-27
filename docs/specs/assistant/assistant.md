@@ -24,7 +24,7 @@ requires a Lead-only `auth::Action`; sellers get a polite refusal, never the dat
 | U12 | App how-to                    | Answers from the in-repo Vietnamese help articles, with the screen to open                                                                   | `search_help`                                                                      | all              |
 | U13 | Daily digest                  | Morning summary card + push: yesterday's numbers, restock, overdue debts, open drafts                                                        | digest job (X8) reuses U1, U2, U23 tools                                           | all              |
 | U14 | Receipt in chat               | A detected receipt is walked through line by line in chat, fixed by text or voice, confirmed with one card                                   | `get_receipt`, `propose_receipt_line_update`, `propose_receipt_confirm`            | can_enroll       |
-| U15 | Voice input                   | Hold-to-talk dictation into the chat input (`vi-VN`, on device)                                                                              | none (client)                                                                      | all              |
+| U15 | Voice input                   | Hold-to-talk dictation into the chat input (`vi-VN`, on device). Server transcription with on-device fallback: voice program V-U6            | none (client)                                                                      | all              |
 | U16 | Natural-language lookup       | "Hôm qua bán mấy chai Coca?", "tuần này chi bao nhiêu tiền điện?"                                                                            | `search_sales`, `search_products`, `list_expenses`                                 | all              |
 | U17 | Supplier price comparison     | Cost of a product across suppliers and dates from receipt history; cheapest recent supplier                                                  | `get_supplier_prices`                                                              | Lead             |
 | U18 | Demand forecast, holiday prep | Expected units for the next 7 days per product (weekday pattern, recent trend, Tết and holiday uplift table)                                 | `forecast_demand`                                                                  | all              |
@@ -212,7 +212,9 @@ Analytics: `next_step_shown` (per chip, once per screen visit) and `next_step_ta
   action cards with Confirm / Reject (Confirm sends `Idempotency-Key` = action id), thumbs up /
   down per assistant message, retry on error, quota message.
 - **Voice:** hold-to-talk microphone in the input, on-device recognition `vi-VN` (or `en-US`),
-  partial results shown live, release to fill the input (not auto-send).
+  partial results shown live, release to fill the input (not auto-send). The
+  [voice program](../voice/voice.md) (V-U6) switches the default to server transcription
+  (`mode=transcribe`) with on-device as the offline fallback; the never-auto-send rule stays.
 - **Next-step strip:** one horizontally scrolling row of chips directly under the camera frame,
   snap scrolling, swipe left and right, haptic on tap; hidden when empty; does not change
   existing buttons.

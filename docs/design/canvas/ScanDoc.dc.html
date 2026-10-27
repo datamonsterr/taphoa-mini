@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Camera: receipt detected</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+.th-strip{scrollbar-width:none}
+.th-strip::-webkit-scrollbar{display:none}
+</style>
+</helmet>
+<!-- 01b · camera with a supplier receipt in the frame: text detection found a document, the OCR entry points appear. -->
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); color: var(--camera-ink); font-family: var(--font-sans)">
+
+  <div style="position: absolute; left: 0; top: 20px; width: 390px; display: flex; justify-content: center">
+    <div style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(255,255,255,.14)">
+      <a href="Main.dc.html" aria-label="Một món" aria-current="page" style="display: grid; place-items: center; width: 56px; height: 48px; border-radius: 9999px; background: var(--camera-ink); color: var(--ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
+      <a href="Multi.dc.html" aria-label="Nhiều món" style="display: grid; place-items: center; width: 56px; height: 48px; border-radius: 9999px; color: var(--camera-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M17 14v6M14 17h6"/></svg></a>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 16px; top: 136px; width: 358px; height: 358px; border-radius: 28px; overflow: hidden; background: #2a2a2e">
+    <div style="position: absolute; left: 0; top: 300px; width: 358px; height: 58px; background: #38383e"></div>
+    <!-- the paper receipt -->
+    <div aria-hidden="true" style="position: absolute; left: 79px; top: 24px; width: 200px; height: 318px; border-radius: 6px; background: #f7f5ef; box-shadow: 0 8px 24px rgba(0,0,0,.45)">
+      <div style="position: absolute; left: 50px; top: 14px; width: 100px; height: 10px; border-radius: 3px; background: #3a3a40"></div>
+      <div style="position: absolute; left: 70px; top: 30px; width: 60px; height: 6px; border-radius: 3px; background: #a1a1a8"></div>
+      <div style="position: absolute; left: 14px; top: 58px; width: 120px; height: 7px; border-radius: 3px; background: #4a4a52"></div><div style="position: absolute; left: 150px; top: 58px; width: 36px; height: 7px; border-radius: 3px; background: #4a4a52"></div>
+      <div style="position: absolute; left: 14px; top: 80px; width: 100px; height: 7px; border-radius: 3px; background: #4a4a52"></div><div style="position: absolute; left: 150px; top: 80px; width: 36px; height: 7px; border-radius: 3px; background: #4a4a52"></div>
+      <div style="position: absolute; left: 14px; top: 102px; width: 112px; height: 7px; border-radius: 3px; background: #4a4a52"></div><div style="position: absolute; left: 150px; top: 102px; width: 36px; height: 7px; border-radius: 3px; background: #4a4a52"></div>
+      <div style="position: absolute; left: 14px; top: 124px; width: 90px; height: 7px; border-radius: 3px; background: #4a4a52"></div><div style="position: absolute; left: 150px; top: 124px; width: 36px; height: 7px; border-radius: 3px; background: #4a4a52"></div>
+      <div style="position: absolute; left: 14px; top: 146px; width: 130px; height: 7px; border-radius: 3px; background: #4a4a52"></div><div style="position: absolute; left: 150px; top: 146px; width: 36px; height: 7px; border-radius: 3px; background: #4a4a52"></div>
+      <div style="position: absolute; left: 14px; top: 168px; width: 96px; height: 7px; border-radius: 3px; background: #4a4a52"></div><div style="position: absolute; left: 150px; top: 168px; width: 36px; height: 7px; border-radius: 3px; background: #4a4a52"></div>
+      <div style="position: absolute; left: 14px; top: 198px; width: 172px; height: 2px; background: #c9c7c0"></div>
+      <div style="position: absolute; left: 14px; top: 212px; width: 60px; height: 8px; border-radius: 3px; background: #3a3a40"></div><div style="position: absolute; left: 126px; top: 210px; width: 60px; height: 12px; border-radius: 3px; background: #111114"></div>
+      <div style="position: absolute; left: 14px; top: 250px; width: 172px; height: 6px; border-radius: 3px; background: #c9c7c0"></div>
+      <div style="position: absolute; left: 14px; top: 266px; width: 120px; height: 6px; border-radius: 3px; background: #c9c7c0"></div>
+    </div>
+    <!-- text detection: one thin box per text line -->
+    <div aria-hidden="true" style="position: absolute; left: 89px; top: 78px; width: 142px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 225px; top: 78px; width: 46px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 89px; top: 100px; width: 142px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 225px; top: 100px; width: 46px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 89px; top: 122px; width: 142px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 225px; top: 122px; width: 46px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 89px; top: 144px; width: 142px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 225px; top: 144px; width: 46px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 89px; top: 166px; width: 142px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 225px; top: 166px; width: 46px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 89px; top: 188px; width: 142px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 225px; top: 188px; width: 46px; height: 15px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 201px; top: 232px; width: 70px; height: 20px; border: 1.5px solid rgba(90,67,232,.9); border-radius: 3px"></div>
+    <!-- document badge on the frame -->
+    <div style="position: absolute; left: 79px; top: -2px; transform: translateY(0); display: flex; align-items: center; gap: 6px; height: 28px; margin-top: 2px; padding: 0 12px; border-radius: 9999px; background: var(--accent); color: var(--on-accent); font: 700 14px/18px var(--font-sans)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Hóa đơn · 12 dòng chữ</div>
+  </div>
+
+  <!-- next-step strip: the receipt entry points -->
+  <div class="th-strip" role="list" aria-label="Gợi ý bước tiếp theo" style="position: absolute; left: 0; top: 512px; width: 390px; box-sizing: border-box; padding: 0 16px; display: flex; gap: 8px; overflow-x: auto">
+    <a href="ReceiptEdit.dc.html" role="listitem" style="flex: none; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px 0 12px; border-radius: 9999px; background: var(--accent); color: var(--on-accent); font: 600 16px/20px var(--font-sans); box-shadow: 0 0 0 4px rgba(90,67,232,.3)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Đọc hóa đơn nhập</a>
+    <a href="Assistant.dc.html" role="listitem" style="flex: none; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 16px 0 12px; border-radius: 9999px; background: rgba(255,255,255,.14); color: var(--camera-ink); font: 600 16px/20px var(--font-sans)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"/><path d="M9 11h6M9 14h3"/></svg>Nhập trong trợ lý</a>
+  </div>
+
+  <div style="position: absolute; left: 0; top: 590px; width: 390px; display: flex; align-items: center; justify-content: space-around">
+    <a href="Enroll.dc.html" class="th-ib th-ib-lg" aria-label="Thêm vào kho với giá" style="background: rgba(255,255,255,.14); color: var(--camera-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></a>
+    <a href="ReceiptEdit.dc.html" class="th-shutter" aria-label="Chụp và đọc hóa đơn" style="display: block; box-sizing: border-box"><span></span></a>
+    <span class="th-ib th-ib-lg" aria-label="Thêm vào giỏ" aria-disabled="true" style="background: rgba(255,255,255,.14); color: var(--camera-ink); opacity: .4"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+  </div>
+  <div style="position: absolute; left: 0; top: 668px; width: 390px; text-align: center; font: 500 15px/20px var(--font-sans); color: var(--camera-muted)">Giữ máy thẳng, đủ sáng · chụp để đọc chữ</div>
+
+  <div style="position: absolute; left: 16px; top: 756px; width: 358px; display: flex; align-items: center; justify-content: space-between">
+    <a href="Cart.dc.html" aria-label="Giỏ hàng trống" style="display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 16px; border-radius: 9999px; background: rgba(255,255,255,.14); color: var(--camera-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg><b class="th-num" style="font-size: 18px">0</b></a>
+    <a href="Inventory.dc.html" aria-label="Vuốt lên: cửa hàng" style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; height: 56px; justify-content: center; color: var(--camera-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg><span style="display: block; width: 36px; height: 5px; border-radius: 9999px; background: var(--camera-muted)"></span></a>
+    <a href="Assistant.dc.html" class="th-ib th-ib-accent th-ib-float" aria-label="Mở trợ lý, giữ để nói bán hàng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"/><path d="M9 11h6M9 14h3"/></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
