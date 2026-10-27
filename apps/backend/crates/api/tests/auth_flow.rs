@@ -1,568 +1,480 @@
-//! Real PostgreSQL/Redis API and OpenAPI contract tests.
+//! Clerk identity, persisted memberships and PIN contracts over real PostgreSQL/Redis.
 mod common;
 use axum::{
     Router,
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use common::Contract;
+use common::{
+    Contract,
+    clerk::{self, clerk_token},
+    world::{World, send},
+};
 use serde_json::{Value, json};
 use taphoa_api::{AppState, config::Config, router};
 use tower::ServiceExt;
 use uuid::Uuid;
-fn fake_ip() -> String {
-    let b = Uuid::new_v4().into_bytes();
-    format!("10.{}.{}.{}", b[0], b[1], b[2])
-}
 async fn setup() -> (Router, AppState) {
-    // Tests mint a unique single-entry X-Forwarded-For per request, which the
-    // rightmost-entry mode accepts as the proxy-appended client address.
-    setup_with(&[
-        ("CLIENT_IP_SOURCE", "x-forwarded-for"),
-        ("TRUSTED_PROXY_HOPS", "1"),
-    ])
-    .await
-}
-async fn setup_with(overrides: &[(&str, &str)]) -> (Router, AppState) {
-    let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("auth-flow-test-secret-at-least-32-bytes".into()),
-        _ => overrides
-            .iter()
-            .find(|(name, _)| *name == key)
-            .map(|(_, value)| (*value).to_owned())
-            .or_else(|| std::env::var(key).ok()),
+    let config = Config::from_lookup(|k| match k {
+        "CLERK_ISSUER" => Some(clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
+        "CLIENT_IP_SOURCE" => Some("x-forwarded-for".into()),
+        _ => std::env::var(k).ok(),
     })
     .unwrap();
-    let state = AppState::connect_with_config(&config, None).await.unwrap();
+    let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    clerk::install(&mut state);
     (router(state.clone()), state)
 }
-async fn call(
-    app: &Router,
-    method: &str,
-    path: &str,
-    token: Option<&str>,
-    body: Value,
-) -> (StatusCode, Value) {
-    let mut request = Request::builder()
-        .method(method)
-        .uri(path)
-        .header("content-type", "application/json")
-        .header("x-forwarded-for", fake_ip());
-    if let Some(token) = token {
-        request = request.header("authorization", format!("Bearer {token}"));
+async fn selected(app: &Router, token: &str, store: Option<&str>) -> (StatusCode, Value) {
+    let mut req = Request::get("/v1/store").header("authorization", format!("Bearer {token}"));
+    if let Some(store) = store {
+        req = req.header("X-Store-Id", store);
     }
-    let response = app
+    let res = app
         .clone()
-        .oneshot(request.body(Body::from(body.to_string())).unwrap())
+        .oneshot(req.body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let status = response.status();
-    let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();
-    (
-        status,
-        if bytes.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&bytes).unwrap()
-        },
+    let status = res.status();
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+async fn create(app: &Router, token: &str) -> Value {
+    let r = send(
+        app,
+        "POST",
+        "/v1/stores",
+        Some(token),
+        json!({"store_name":"Tạp hóa","display_name":"Lead"}),
     )
-}
-fn device() -> Value {
-    json!({"name":"counter","platform":"web","app_version":"1.0"})
-}
-fn access(s: &Value) -> &str {
-    s["access_token"].as_str().unwrap()
-}
-async fn checked(
-    app: &Router,
-    method: &str,
-    path: &str,
-    template: &str,
-    token: Option<&str>,
-    input: Value,
-    expected: StatusCode,
-) -> Value {
-    let (status, body) = call(app, method, path, token, input).await;
-    assert_eq!(status, expected, "{method} {path}: {body}");
-    if expected != StatusCode::NO_CONTENT {
-        Contract::load().assert_conforms(template, &method.to_lowercase(), status, &body);
-    }
-    body
-}
-async fn create(app: &Router) -> Value {
-    checked(app,"POST","/v1/stores","/v1/stores",None,json!({"store_name":"Tạp hóa","display_name":"Lead","device":device(),"bank_account":{"bank_bin":"970436","account_number":"AB1234","account_name":"CO BA"}}),StatusCode::CREATED).await
+    .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    Contract::load().assert_conforms("/v1/stores", "post", r.status, &r.body);
+    r.body
 }
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn full_auth_store_member_invite_lifecycle() {
+async fn actor_resolves_zero_one_two_memberships_and_store_headers() {
     let (app, state) = setup().await;
-    let lead = create(&app).await;
-    let token = access(&lead);
-    let sid = lead["store"]["id"].as_str().unwrap();
-    let mid = lead["member"]["id"].as_str().unwrap();
-    let store_uuid: Uuid = sid.parse().unwrap();
-    let initial:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM change_log WHERE store_id=$1),(SELECT count(*) FROM outbox_events WHERE store_id=$1 AND type='member.changed' AND payload->'data'->>'change'='joined'),(SELECT count(*) FROM outbox_events WHERE store_id=$1 AND type='store.changed')").bind(store_uuid).fetch_one(state.postgres.as_ref().unwrap()).await.unwrap();
-    assert_eq!(initial, (2, 1, 0));
-
-    checked(
-        &app,
-        "GET",
-        "/v1/me",
-        "/v1/me",
-        Some(token),
-        Value::Null,
-        StatusCode::OK,
-    )
-    .await;
-    checked(
-        &app,
-        "GET",
-        "/v1/store",
-        "/v1/store",
-        Some(token),
-        Value::Null,
-        StatusCode::OK,
-    )
-    .await;
-    let changed=checked(&app,"PATCH","/v1/store","/v1/store",Some(token),json!({"name":"New","bank_account":null,"margin_threshold_pct":12.5,"sales_memo_prefix":"BA"}),StatusCode::OK).await;
-    assert!(changed["bank_account"].is_null());
-    assert_eq!(changed["version"], 2);
-    let unchanged = checked(
-        &app,
-        "PATCH",
-        "/v1/store",
-        "/v1/store",
-        Some(token),
-        json!({}),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(unchanged["name"], "New");
-    checked(
-        &app,
-        "PATCH",
-        "/v1/store",
-        "/v1/store",
-        Some(token),
-        json!({"margin_threshold_pct":101}),
-        StatusCode::BAD_REQUEST,
-    )
-    .await;
-    checked(
-        &app,
-        "PUT",
-        "/v1/me/pin",
-        "/v1/me/pin",
-        Some(token),
-        json!({"pin":"abc"}),
-        StatusCode::BAD_REQUEST,
-    )
-    .await;
-    checked(
-        &app,
-        "PUT",
-        "/v1/me/pin",
-        "/v1/me/pin",
-        Some(token),
-        json!({"pin":"1234"}),
-        StatusCode::NO_CONTENT,
-    )
-    .await;
-    let invite = checked(
-        &app,
-        "POST",
-        "/v1/invites",
-        "/v1/invites",
-        Some(token),
-        json!({}),
-        StatusCode::CREATED,
-    )
-    .await;
-    let join = json!({"invite_token":invite["token"],"display_name":"Seller","device":device()});
-    let seller = checked(
-        &app,
-        "POST",
-        "/v1/auth/join",
-        "/v1/auth/join",
-        None,
-        join.clone(),
-        StatusCode::CREATED,
-    )
-    .await;
+    let user = clerk::user();
+    let token = clerk_token(&user, "sess_selection");
+    let zero = selected(&app, &token, None).await;
+    assert_eq!(zero.0, StatusCode::FORBIDDEN);
+    assert_eq!(zero.1["code"], "membership_required");
+    let first = create(&app, &token).await;
+    let a = first["store"]["id"].as_str().unwrap();
+    assert_eq!(selected(&app, &token, None).await.1["id"], a);
+    assert_eq!(selected(&app, &token, Some(a)).await.0, StatusCode::OK);
+    for invalid in ["garbage", ""] {
+        let r = selected(&app, &token, Some(invalid)).await;
+        assert_eq!(r.0, StatusCode::BAD_REQUEST);
+        assert_eq!(r.1["code"], "validation_failed");
+    }
+    let foreign = Uuid::new_v4().to_string();
+    let r = selected(&app, &token, Some(&foreign)).await;
+    assert_eq!(r.0, StatusCode::FORBIDDEN);
+    assert_eq!(r.1["code"], "forbidden");
+    let second = create(&app, &token).await;
+    let b = second["store"]["id"].as_str().unwrap();
+    let r = selected(&app, &token, None).await;
+    assert_eq!(r.0, StatusCode::BAD_REQUEST);
+    assert_eq!(r.1["code"], "store_required");
+    assert_eq!(selected(&app, &token, Some(b)).await.1["id"], b);
+    let me = send(&app, "GET", "/v1/me", Some(&token), Value::Null).await;
+    Contract::load().assert_conforms("/v1/me", "get", me.status, &me.body);
+    assert_eq!(me.body["clerk_user_id"], user);
+    assert!(me.body["profile"].is_null());
+    assert_eq!(me.body["memberships"][0], first);
+    assert_eq!(me.body["memberships"][1], second);
+    sqlx::query("UPDATE members SET active=false WHERE store_id=$1")
+        .bind(b.parse::<Uuid>().unwrap())
+        .execute(state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(selected(&app, &token, None).await.1["id"], a);
+    assert_eq!(selected(&app, &token, Some(b)).await.1["code"], "forbidden");
+    let me = send(&app, "GET", "/v1/me", Some(&token), Value::Null).await;
+    assert_eq!(me.body["memberships"].as_array().unwrap().len(), 1);
+    sqlx::query("UPDATE members SET active=false WHERE clerk_user_id=$1")
+        .bind(&user)
+        .execute(state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
     assert_eq!(
-        checked(
-            &app,
+        selected(&app, &token, None).await.1["code"],
+        "membership_required"
+    );
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn join_conflict_consumption_and_reactivation() {
+    let w = World::new().await;
+    let token = clerk::token();
+    let invite = w.call("POST", "/v1/invites", &w.lead, json!({})).await.body;
+    let body = json!({"invite_token":invite["token"],"display_name":"New"});
+    let joined = w.call("POST", "/v1/auth/join", &token, body.clone()).await;
+    assert_eq!(joined.status, StatusCode::CREATED, "{}", joined.body);
+    Contract::load().assert_conforms("/v1/auth/join", "post", joined.status, &joined.body);
+    // A retried join (lost response, double tap) by the now-active member is a conflict,
+    // not "invite unavailable", even though the invite is used.
+    let retried = w.call("POST", "/v1/auth/join", &token, body.clone()).await;
+    assert_eq!(retried.status, StatusCode::CONFLICT, "{}", retried.body);
+    assert_eq!(retried.body["code"], "already_member");
+    let stranger = w
+        .call("POST", "/v1/auth/join", &clerk::token(), body.clone())
+        .await;
+    assert_eq!(stranger.status, StatusCode::GONE);
+    assert_eq!(stranger.body["code"], "invite_unavailable");
+    let invite = w
+        .call(
+            "POST",
+            "/v1/invites",
+            &w.lead,
+            json!({"role":"lead","can_enroll":true}),
+        )
+        .await
+        .body;
+    let body = json!({"invite_token":invite["token"],"display_name":"Returned"});
+    let conflict = w.call("POST", "/v1/auth/join", &token, body.clone()).await;
+    assert_eq!(conflict.status, StatusCode::CONFLICT);
+    assert_eq!(conflict.body["code"], "already_member");
+    let id = joined.body["member"]["id"].as_str().unwrap();
+    assert_eq!(
+        w.call("DELETE", &format!("/v1/members/{id}"), &w.lead, Value::Null)
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        w.call("GET", "/v1/store", &token, Value::Null).await.body["code"],
+        "membership_required"
+    );
+    let back = w.call("POST", "/v1/auth/join", &token, body).await;
+    assert_eq!(back.status, StatusCode::CREATED, "{}", back.body);
+    assert_eq!(back.body["member"]["id"], id);
+    assert_eq!(back.body["member"]["role"], "lead");
+    assert_eq!(back.body["member"]["can_enroll"], true);
+    assert_eq!(back.body["member"]["display_name"], "Returned");
+    let expired = w.call("POST", "/v1/invites", &w.lead, json!({})).await.body;
+    sqlx::query("UPDATE invites SET expires_at=now()-interval '1 second' WHERE token_hash=$1")
+        .bind(taphoa_api::auth::crypto::token_hash(
+            expired["token"].as_str().unwrap(),
+        ))
+        .execute(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.call(
             "POST",
             "/v1/auth/join",
-            "/v1/auth/join",
-            None,
-            join,
-            StatusCode::GONE
+            &clerk::token(),
+            json!({"invite_token":expired["token"],"display_name":"Late"})
         )
-        .await["code"],
-        "invite_unavailable"
+        .await
+        .status,
+        StatusCode::GONE
     );
-    checked(
-        &app,
-        "PATCH",
-        "/v1/store",
-        "/v1/store",
-        Some(access(&seller)),
-        json!({"name":"forbidden"}),
-        StatusCode::FORBIDDEN,
-    )
-    .await;
-    checked(
-        &app,
-        "POST",
-        "/v1/invites",
-        "/v1/invites",
-        Some(access(&seller)),
-        json!({}),
-        StatusCode::FORBIDDEN,
-    )
-    .await;
-    let members = checked(
-        &app,
-        "GET",
-        "/v1/members",
-        "/v1/members",
-        Some(access(&seller)),
-        Value::Null,
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(members["items"].as_array().unwrap().len(), 2);
-    for method in ["PATCH", "DELETE"] {
+}
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn pin_verify_no_pin_match_failure_reset_and_lockout() {
+    let w = World::new().await;
+    assert_eq!(
+        w.call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    for pin in [json!("abc"), json!(12)] {
         assert_eq!(
-            checked(
-                &app,
-                method,
-                &format!("/v1/members/{mid}"),
-                "/v1/members/{memberId}",
-                Some(token),
-                json!({"role":"seller"}),
-                StatusCode::CONFLICT
-            )
-            .await["code"],
-            "last_lead"
+            w.call("PUT", "/v1/me/pin", &w.lead, json!({"pin":pin}))
+                .await
+                .status,
+            StatusCode::BAD_REQUEST
         );
     }
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/switch",
-        "/v1/auth/switch",
-        Some(access(&seller)),
-        json!({"member_id":mid}),
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    for _ in 0..3 {
-        checked(
-            &app,
-            "POST",
-            "/v1/auth/switch",
-            "/v1/auth/switch",
-            Some(access(&seller)),
-            json!({"member_id":mid,"pin":"9999"}),
-            StatusCode::UNAUTHORIZED,
-        )
-        .await;
-    }
-    let switched = checked(
-        &app,
-        "POST",
-        "/v1/auth/switch",
-        "/v1/auth/switch",
-        Some(access(&seller)),
-        json!({"member_id":mid,"pin":"1234"}),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(switched["member"]["id"], mid);
-    let switched_actor = state.jwt.verify(access(&switched)).unwrap();
-    let seller_actor = state.jwt.verify(access(&seller)).unwrap();
-    assert_ne!(switched_actor.session_id, seller_actor.session_id);
-    let copied: (String, String, Option<String>) =
-        sqlx::query_as("SELECT device_name,platform,app_version FROM sessions WHERE id=$1")
-            .bind(switched_actor.session_id)
-            .fetch_one(state.postgres.as_ref().unwrap())
+    assert_eq!(
+        w.call("PUT", "/v1/me/pin", &w.lead, json!({"pin":"1234"}))
             .await
-            .unwrap();
-    assert_eq!(copied, ("counter".into(), "web".into(), Some("1.0".into())));
-
-    for n in 0..5 {
-        let (status, _) = call(
-            &app,
-            "POST",
-            "/v1/auth/switch",
-            Some(access(&seller)),
-            json!({"member_id":mid,"pin":"9999"}),
-        )
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    let wrong = w
+        .call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"9999"}))
         .await;
+    assert_eq!(wrong.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(wrong.body["code"], "invalid_pin");
+    assert_eq!(
+        w.call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    for n in 0..w.state.rate_limits.pin_attempts {
+        let r = w
+            .call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"9999"}))
+            .await;
         assert_eq!(
-            status,
-            if n == 4 {
+            r.status,
+            if n + 1 == w.state.rate_limits.pin_attempts {
                 StatusCode::TOO_MANY_REQUESTS
             } else {
                 StatusCode::UNAUTHORIZED
             }
         );
     }
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/switch",
-        "/v1/auth/switch",
-        Some(access(&seller)),
-        json!({"member_id":mid,"pin":"1234"}),
-        StatusCode::TOO_MANY_REQUESTS,
-    )
-    .await;
-    let path = format!("/v1/members/{}", seller["member"]["id"].as_str().unwrap());
-    checked(
-        &app,
-        "PATCH",
-        &path,
-        "/v1/members/{memberId}",
-        Some(token),
-        json!({"display_name":"Updated","can_enroll":true}),
-        StatusCode::OK,
-    )
-    .await;
-    checked(
-        &app,
-        "DELETE",
-        &path,
-        "/v1/members/{memberId}",
-        Some(token),
-        Value::Null,
-        StatusCode::NO_CONTENT,
-    )
-    .await;
-    checked(
-        &app,
-        "DELETE",
-        &path,
-        "/v1/members/{memberId}",
-        Some(token),
-        Value::Null,
-        StatusCode::NO_CONTENT,
-    )
-    .await;
-    checked(
-        &app,
-        "GET",
-        "/v1/me",
-        "/v1/me",
-        Some(access(&seller)),
-        Value::Null,
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    let refresh = checked(
-        &app,
-        "POST",
-        "/v1/auth/refresh",
-        "/v1/auth/refresh",
-        None,
-        json!({"refresh_token":lead["refresh_token"]}),
-        StatusCode::OK,
-    )
-    .await;
-    for old in [&lead, &refresh] {
-        checked(
-            &app,
-            "POST",
-            "/v1/auth/refresh",
-            "/v1/auth/refresh",
-            None,
-            json!({"refresh_token":old["refresh_token"]}),
-            StatusCode::UNAUTHORIZED,
-        )
+    let r = w
+        .call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))
         .await;
-    }
-    let normalized = lead["recovery_code"]
-        .as_str()
-        .unwrap()
-        .to_lowercase()
-        .replace('-', " ");
-    let recovered = checked(
-        &app,
-        "POST",
-        "/v1/auth/recover",
-        "/v1/auth/recover",
-        None,
-        json!({"recovery_code":normalized,"device":device(),"revoke_other_sessions":true}),
-        StatusCode::OK,
-    )
-    .await;
-    assert_ne!(recovered["recovery_code"], lead["recovery_code"]);
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/recover",
-        "/v1/auth/recover",
-        None,
-        json!({"recovery_code":lead["recovery_code"],"device":device()}),
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    checked(
-        &app,
-        "PUT",
-        "/v1/me/pin",
-        "/v1/me/pin",
-        Some(access(&recovered)),
-        json!({"pin":null}),
-        StatusCode::NO_CONTENT,
-    )
-    .await;
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/logout",
-        "/v1/auth/logout",
-        Some(access(&recovered)),
-        Value::Null,
-        StatusCode::NO_CONTENT,
-    )
-    .await;
-    checked(
-        &app,
-        "GET",
-        "/v1/me",
-        "/v1/me",
-        Some(access(&recovered)),
-        Value::Null,
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    let pool = state.postgres.as_ref().unwrap();
-    let store_id: Uuid = sid.parse().unwrap();
-    let entities: Vec<String> =
-        sqlx::query_scalar("SELECT DISTINCT entity FROM change_log WHERE store_id=$1")
-            .bind(store_id)
-            .fetch_all(pool)
+    assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(r.headers.contains_key("retry-after"));
+    assert_eq!(
+        w.call("PUT", "/v1/me/pin", &w.lead, json!({"pin":null}))
             .await
-            .unwrap();
-    for entity in ["store", "member"] {
-        assert!(entities.contains(&entity.into()));
-    }
-    let reasons:Vec<String>=sqlx::query_scalar("SELECT payload->'data'->>'reason' FROM outbox_events WHERE store_id=$1 AND type='session.revoked'").bind(store_id).fetch_all(pool).await.unwrap();
-    for reason in ["logout", "recovery", "token_reuse", "member_removed"] {
-        assert!(reasons.contains(&reason.into()), "{reasons:?}");
-    }
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        w.call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
 }
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn cross_store_isolation_and_refresh_concurrency() {
-    let (app, state) = setup().await;
-    let a = create(&app).await;
-    let b = create(&app).await;
-    let target = a["member"]["id"].as_str().unwrap();
-    for method in ["PATCH", "DELETE"] {
-        checked(
-            &app,
-            method,
-            &format!("/v1/members/{target}"),
-            "/v1/members/{memberId}",
-            Some(access(&b)),
-            json!({"display_name":"intruder"}),
-            StatusCode::NOT_FOUND,
-        )
+async fn parallel_pin_verifications_stop_at_the_attempt_cap() {
+    let w = World::new().await;
+    assert_eq!(
+        w.call("PUT", "/v1/me/pin", &w.lead, json!({"pin":"1234"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    let cap = w.state.rate_limits.pin_attempts as usize;
+    // Every request is in flight before the first hash check finishes. Counting an
+    // attempt only after verifying it would let all of them be verified.
+    let replies = futures_util::future::join_all(
+        (0..cap * 3).map(|_| w.call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))),
+    )
+    .await;
+    let verified = replies
+        .iter()
+        .filter(|r| r.status == StatusCode::NO_CONTENT)
+        .count();
+    let limited = replies
+        .iter()
+        .filter(|r| r.status == StatusCode::TOO_MANY_REQUESTS)
+        .count();
+    assert!(
+        (1..=cap).contains(&verified),
+        "{verified} verified, cap {cap}"
+    );
+    assert_eq!(verified + limited, cap * 3);
+    // The overflow locked the member out, even for the right PIN.
+    let locked = w
+        .call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1234"}))
         .await;
-    }
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/switch",
-        "/v1/auth/switch",
-        Some(access(&b)),
-        json!({"member_id":target}),
-        StatusCode::NOT_FOUND,
-    )
-    .await;
-    let members = checked(
-        &app,
-        "GET",
-        "/v1/members",
-        "/v1/members",
-        Some(access(&b)),
-        Value::Null,
-        StatusCode::OK,
-    )
-    .await;
-    assert!(
-        members["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|m| m["id"] != target)
-    );
-    let input = json!({"refresh_token":a["refresh_token"]});
-    let (x, y) = tokio::join!(
-        call(&app, "POST", "/v1/auth/refresh", None, input.clone()),
-        call(&app, "POST", "/v1/auth/refresh", None, input)
-    );
-    assert!(
-        (x.0 == StatusCode::OK && y.0 == StatusCode::UNAUTHORIZED)
-            || (y.0 == StatusCode::OK && x.0 == StatusCode::UNAUTHORIZED)
-    );
-    let winner = if x.0 == StatusCode::OK { x.1 } else { y.1 };
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/refresh",
-        "/v1/auth/refresh",
-        None,
-        json!({"refresh_token":winner["refresh_token"]}),
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    sqlx::query("UPDATE sessions SET expires_at=now()-interval '1 second' WHERE store_id=$1")
-        .bind(b["store"]["id"].as_str().unwrap().parse::<Uuid>().unwrap())
-        .execute(state.postgres.as_ref().unwrap())
-        .await
-        .unwrap();
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/refresh",
-        "/v1/auth/refresh",
-        None,
-        json!({"refresh_token":b["refresh_token"]}),
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
+    assert_eq!(locked.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(locked.headers.contains_key("retry-after"));
 }
+
+#[tokio::test]
+async fn invalid_tokens_and_no_database_fail_closed() {
+    let mut state = AppState::default();
+    clerk::install(&mut state);
+    let app = router(state);
+    let now = jsonwebtoken::get_current_timestamp();
+    for token in [
+        "garbage".into(),
+        clerk::sign(
+            json!({"sub":"user","sid":"sess","iss":clerk::TEST_ISSUER,"exp":now-30,"nbf":now-100}),
+        ),
+        clerk::sign(
+            json!({"sub":"user","sid":"sess","iss":"https://foreign.test","exp":now+1000,"nbf":now-100}),
+        ),
+    ] {
+        assert_eq!(
+            send(&app, "GET", "/v1/me", Some(&token), Value::Null)
+                .await
+                .status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        send(&app, "GET", "/v1/store", Some(&clerk::token()), Value::Null)
+            .await
+            .status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    for path in [
+        "/v1/auth/recover",
+        "/v1/auth/refresh",
+        "/v1/auth/switch",
+        "/v1/auth/logout",
+    ] {
+        assert_eq!(
+            send(&app, "POST", path, None, json!({})).await.status,
+            StatusCode::NOT_FOUND
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn validation_invite_expiry_and_ip_limits() {
+    let (_, mut state) = setup().await;
+    state.rate_limiter = std::sync::Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
+    state.client_ip = taphoa_api::ratelimit::ClientIpSource::Peer;
+    state.rate_limits.store_create_per_hour = 2;
+    state.rate_limits.join_per_hour = 2;
+    let app = router(state);
+    let token = clerk::token();
+    for (path, body, status) in [
+        (
+            "/v1/stores",
+            json!({"store_name":"","display_name":"Lead"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/v1/auth/join",
+            json!({"invite_token":"unknown","display_name":"Seller"}),
+            StatusCode::GONE,
+        ),
+    ] {
+        for n in 0..3 {
+            // send() changes the forwarded IP each time, but peer mode keeps one counter.
+            let r = send(&app, "POST", path, Some(&token), body.clone()).await;
+            assert_eq!(
+                r.status,
+                if n < 2 {
+                    status
+                } else {
+                    StatusCode::TOO_MANY_REQUESTS
+                },
+                "{}",
+                r.body
+            );
+            if n == 2 {
+                assert!(r.headers.contains_key("retry-after"));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn member_and_store_lifecycle_and_single_use_invite_concurrency() {
+    let w = World::new().await;
+    let initial:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM change_log WHERE store_id=$1),(SELECT count(*) FROM outbox_events WHERE store_id=$1 AND type='member.changed')").bind(w.store_id).fetch_one(w.pool()).await.unwrap();
+    assert_eq!(initial, (3, 2));
+    for (path, method, body, code) in [
+        (
+            "/v1/store".to_owned(),
+            "PATCH",
+            json!({"name":"foreign"}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "/v1/invites".to_owned(),
+            "POST",
+            json!({}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("/v1/members/{}", w.lead_id),
+            "DELETE",
+            Value::Null,
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        assert_eq!(w.call(method, &path, &w.seller, body).await.status, code);
+    }
+    for method in ["PATCH", "DELETE"] {
+        let r = w
+            .call(
+                method,
+                &format!("/v1/members/{}", w.lead_id),
+                &w.lead,
+                json!({"role":"seller"}),
+            )
+            .await;
+        assert_eq!(r.status, StatusCode::CONFLICT);
+        assert_eq!(r.body["code"], "last_lead");
+    }
+    let changed=w.call("PATCH","/v1/store",&w.lead,json!({"name":"New","margin_threshold_pct":12.5,"bank_account":{"bank_bin":"970436","account_number":"AB1234","account_name":"CO BA"}})).await;
+    assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+    assert_eq!(changed.body["version"], 2);
+    let same = w.call("PATCH", "/v1/store", &w.lead, json!({})).await;
+    assert_eq!(same.body["version"], 2);
+    let malformed=send(&w.app,"POST","/v1/stores",Some(&clerk::token()),json!({"store_name":"s","display_name":"d","bank_account":{"bank_bin":"bad","account_number":"1234","account_name":"A"}})).await;
+    assert_eq!(malformed.status, StatusCode::BAD_REQUEST);
+    let invite = w.call("POST", "/v1/invites", &w.lead, json!({})).await.body;
+    let body = json!({"invite_token":invite["token"],"display_name":"Concurrent"});
+    let a = clerk::token();
+    let b = clerk::token();
+    let (a, b) = tokio::join!(
+        w.call("POST", "/v1/auth/join", &a, body.clone()),
+        w.call("POST", "/v1/auth/join", &b, body)
+    );
+    assert!([a.status, b.status].contains(&StatusCode::CREATED));
+    assert!([a.status, b.status].contains(&StatusCode::GONE));
+    let token = clerk::token();
+    let me = send(&w.app, "GET", "/v1/me", Some(&token), Value::Null).await;
+    assert_eq!(me.status, StatusCode::OK);
+    assert_eq!(me.body["memberships"], json!([]));
+    for path in ["/v1/stores", "/v1/auth/join"] {
+        assert_eq!(
+            send(&w.app, "POST", path, None, json!({})).await.status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sales_and_event_actor_persist_the_clerk_session_id() {
+    let w = World::new().await;
+    let product = w.product("Clerk sale", 10000, None).await;
+    let id = Uuid::now_v7();
+    let input = common::world::sale_body(
+        id,
+        &common::world::now_iso(),
+        "cash",
+        &[(product, 1, 10000)],
+    );
+    let r = w.call("POST", "/v1/sales", &w.seller, input).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let sid = w.state.clerk.verify(&w.seller).await.unwrap().session_id;
+    let persisted: Option<String> =
+        sqlx::query_scalar("SELECT clerk_session_id FROM sales WHERE id=$1")
+            .bind(id)
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(persisted.as_deref(), Some(sid.as_str()));
+    let actor: Value = sqlx::query_scalar(
+        "SELECT payload->'actor' FROM outbox_events WHERE store_id=$1 AND type='sale.created'",
+    )
+    .bind(w.store_id)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert_eq!(actor, json!({"member_id":w.seller_id,"session_id":sid}));
+}
+
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL; prints local latency evidence"]
 async fn local_postgres_endpoint_latencies() {
-    let (app, _) = setup().await;
-    let mut session = create(&app).await;
-    for path in ["/v1/auth/refresh", "/v1/me"] {
+    let w = World::new().await;
+    for path in ["/v1/me", "/v1/store"] {
         let mut micros = Vec::new();
         for _ in 0..200 {
             let start = std::time::Instant::now();
-            let (status, body) = if path.ends_with("refresh") {
-                call(
-                    &app,
-                    "POST",
-                    path,
-                    None,
-                    json!({"refresh_token":session["refresh_token"]}),
-                )
-                .await
-            } else {
-                call(&app, "GET", path, Some(access(&session)), Value::Null).await
-            };
-            assert_eq!(status, StatusCode::OK, "{body}");
+            let r = w.call("GET", path, &w.lead, Value::Null).await;
+            assert_eq!(r.status, StatusCode::OK, "{}", r.body);
             micros.push(start.elapsed().as_micros());
-            if path.ends_with("refresh") {
-                session = body;
-            }
         }
         micros.sort_unstable();
         println!("{path} n=200 p50={}us p95={}us", micros[99], micros[189]);
@@ -571,193 +483,43 @@ async fn local_postgres_endpoint_latencies() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn validation_invite_expiry_and_ip_limits() {
-    let (app, state) = setup().await;
-    for invalid in [
-        json!({"store_name":"","display_name":"A","device":device()}),
-        json!({"store_name":"A","display_name":"","device":device()}),
-        json!({"store_name":"A","display_name":"A","device":{"name":"x","platform":"linux"}}),
-        json!({"store_name":"A","display_name":"A","device":device(),"bank_account":{"bank_bin":"123","account_number":"1","account_name":"x"}}),
-    ] {
-        checked(
-            &app,
-            "POST",
-            "/v1/stores",
-            "/v1/stores",
-            None,
-            invalid,
-            StatusCode::BAD_REQUEST,
-        )
-        .await;
-    }
-    let lead = create(&app).await;
-    let token = access(&lead);
-    for invalid in [
-        json!({"sales_memo_prefix":"123456789"}),
-        json!({"name":null}),
-        json!({"margin_threshold_pct":-1}),
-        json!({"bank_account":{"account_number":"invalid_"}}),
-    ] {
-        checked(
-            &app,
+async fn membership_permissions_update_without_reissuing_the_token() {
+    let w = World::new().await;
+    let path = format!("/v1/members/{}", w.seller_id);
+    assert_eq!(
+        w.call(
             "PATCH",
-            "/v1/store",
-            "/v1/store",
-            Some(token),
-            invalid,
-            StatusCode::BAD_REQUEST,
+            &path,
+            &w.lead,
+            json!({"role":"lead","can_enroll":false})
         )
-        .await;
-    }
-    let partial = checked(
-        &app,
-        "PATCH",
-        "/v1/store",
-        "/v1/store",
-        Some(token),
-        json!({"bank_account":{"account_name":"NEW NAME"}}),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(partial["bank_account"]["bank_bin"], "970436");
-    let invite = checked(
-        &app,
-        "POST",
-        "/v1/invites",
-        "/v1/invites",
-        Some(token),
-        json!({"role":"lead","can_enroll":false,"ttl_seconds":60}),
-        StatusCode::CREATED,
-    )
-    .await;
-    assert_eq!(invite["can_enroll"], false);
-    let hash = taphoa_api::auth::crypto::token_hash(invite["token"].as_str().unwrap());
-    sqlx::query("UPDATE invites SET expires_at=now()-interval '1 second' WHERE token_hash=$1")
-        .bind(hash)
-        .execute(state.postgres.as_ref().unwrap())
         .await
-        .unwrap();
-    for token in [invite["token"].as_str().unwrap(), "unknown"] {
-        checked(
-            &app,
-            "POST",
-            "/v1/auth/join",
-            "/v1/auth/join",
-            None,
-            json!({"invite_token":token,"display_name":"A","device":device()}),
-            StatusCode::GONE,
-        )
-        .await;
-    }
-    checked(
-        &app,
-        "POST",
-        "/v1/auth/refresh",
-        "/v1/auth/refresh",
-        None,
-        json!({"refresh_token":"unknown"}),
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    let ip = fake_ip();
-    for n in 0..6 {
-        let response = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/auth/recover")
-                    .header("content-type", "application/json")
-                    .header("x-forwarded-for", &ip)
-                    .body(Body::from(
-                        json!({"recovery_code":"wrong","device":device()}).to_string(),
-                    ))
-                    .unwrap(),
-            )
+        .body["can_enroll"],
+        true
+    );
+    assert_eq!(
+        w.call("POST", "/v1/invites", &w.seller, json!({}))
             .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            if n < 5 {
-                StatusCode::UNAUTHORIZED
-            } else {
-                StatusCode::TOO_MANY_REQUESTS
-            }
-        );
-        if n == 5 {
-            assert!(response.headers().contains_key("retry-after"));
-        }
-    }
-    for (path, limit, input) in [
-        (
-            "/v1/stores",
-            10,
-            json!({"store_name":"","display_name":"A","device":device()}),
-        ),
-        (
-            "/v1/auth/join",
-            10,
-            json!({"invite_token":"invalid","display_name":"A","device":device()}),
-        ),
-    ] {
-        let ip = fake_ip();
-        for n in 0..=limit {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::post(path)
-                        .header("content-type", "application/json")
-                        .header("x-forwarded-for", &ip)
-                        .body(Body::from(input.to_string()))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            if n == limit {
-                assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-            }
-        }
-    }
-}
-
-#[tokio::test]
-async fn protected_routes_require_bearer_and_errors_match_contract() {
-    let app = router(AppState::default());
-    for (method, path, template) in [
-        ("GET", "/v1/me", "/v1/me"),
-        ("PUT", "/v1/me/pin", "/v1/me/pin"),
-        ("GET", "/v1/store", "/v1/store"),
-        ("PATCH", "/v1/store", "/v1/store"),
-        ("GET", "/v1/members", "/v1/members"),
-        (
+            .status,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        w.call(
             "PATCH",
-            "/v1/members/00000000-0000-0000-0000-000000000000",
-            "/v1/members/{memberId}",
-        ),
-        (
-            "DELETE",
-            "/v1/members/00000000-0000-0000-0000-000000000000",
-            "/v1/members/{memberId}",
-        ),
-        ("POST", "/v1/auth/logout", "/v1/auth/logout"),
-        ("POST", "/v1/auth/switch", "/v1/auth/switch"),
-        ("POST", "/v1/invites", "/v1/invites"),
-        ("POST", "/v1/images", "/v1/images"),
-        (
-            "GET",
-            "/v1/images/00000000-0000-0000-0000-000000000000",
-            "/v1/images/{imageId}",
-        ),
-    ] {
-        checked(
-            &app,
-            method,
-            path,
-            template,
-            None,
-            json!({}),
-            StatusCode::UNAUTHORIZED,
+            &path,
+            &w.lead,
+            json!({"role":"seller","can_enroll":false})
         )
-        .await;
-    }
+        .await
+        .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        w.call("POST", "/v1/invites", &w.seller, json!({}))
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
 }
 
 struct ImageObjects;
@@ -792,8 +554,10 @@ async fn persisted_images_are_owned_by_token_store_and_uploader() {
     let (_, mut state) = setup().await;
     state.storage = Some(std::sync::Arc::new(ImageObjects));
     let app = router(state.clone());
-    let a = create(&app).await;
-    let b = create(&app).await;
+    let token_a = clerk::token();
+    let token_b = clerk::token();
+    let a = create(&app, &token_a).await;
+    let b = create(&app, &token_b).await;
     let mut body=format!("--b\r\nContent-Disposition: form-data; name=\"store_id\"\r\n\r\n{}\r\n--b\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n",b["store"]["id"].as_str().unwrap()).into_bytes();
     body.extend_from_slice(include_bytes!("../../../tests/fixtures/sample.png"));
     body.extend_from_slice(b"\r\n--b--\r\n");
@@ -801,7 +565,7 @@ async fn persisted_images_are_owned_by_token_store_and_uploader() {
         .clone()
         .oneshot(
             Request::post("/v1/images")
-                .header("authorization", format!("Bearer {}", access(&a)))
+                .header("authorization", format!("Bearer {}", token_a.as_str()))
                 .header("content-type", "multipart/form-data; boundary=b")
                 .body(Body::from(body))
                 .unwrap(),
@@ -822,222 +586,18 @@ async fn persisted_images_are_owned_by_token_store_and_uploader() {
     assert_eq!(owner.0.to_string(), a["store"]["id"].as_str().unwrap());
     assert_eq!(owner.1.to_string(), a["member"]["id"].as_str().unwrap());
     for (token, expected) in [
-        (access(&a), StatusCode::OK),
-        (access(&b), StatusCode::NOT_FOUND),
+        (token_a.as_str(), StatusCode::OK),
+        (token_b.as_str(), StatusCode::NOT_FOUND),
     ] {
-        checked(
+        let r = send(
             &app,
             "GET",
             &format!("/v1/images/{image_id}"),
-            "/v1/images/{imageId}",
             Some(token),
             Value::Null,
-            expected,
         )
         .await;
+        assert_eq!(r.status, expected);
+        Contract::load().assert_conforms("/v1/images/{imageId}", "get", r.status, &r.body);
     }
-}
-
-#[tokio::test]
-#[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn lead_changes_and_single_use_invites_are_serialized() {
-    let (app, state) = setup().await;
-    let original = create(&app).await;
-    let invite = checked(
-        &app,
-        "POST",
-        "/v1/invites",
-        "/v1/invites",
-        Some(access(&original)),
-        json!({"role":"lead"}),
-        StatusCode::CREATED,
-    )
-    .await;
-    let input = json!({"invite_token":invite["token"],"display_name":"New Lead","device":device()});
-    let (x, y) = tokio::join!(
-        call(&app, "POST", "/v1/auth/join", None, input.clone()),
-        call(&app, "POST", "/v1/auth/join", None, input)
-    );
-    assert!(
-        (x.0 == StatusCode::CREATED && y.0 == StatusCode::GONE)
-            || (y.0 == StatusCode::CREATED && x.0 == StatusCode::GONE)
-    );
-    let joined = if x.0 == StatusCode::CREATED { x.1 } else { y.1 };
-    assert_eq!(joined["member"]["can_enroll"], true);
-    let original_id = original["member"]["id"].as_str().unwrap();
-    let joined_id = joined["member"]["id"].as_str().unwrap();
-    let result = checked(
-        &app,
-        "PATCH",
-        &format!("/v1/members/{joined_id}"),
-        "/v1/members/{memberId}",
-        Some(access(&original)),
-        json!({"can_enroll":false}),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(result["can_enroll"], true);
-    checked(
-        &app,
-        "PATCH",
-        &format!("/v1/members/{original_id}"),
-        "/v1/members/{memberId}",
-        Some(access(&joined)),
-        json!({"role":"seller","can_enroll":false}),
-        StatusCode::OK,
-    )
-    .await;
-    checked(
-        &app,
-        "PATCH",
-        "/v1/store",
-        "/v1/store",
-        Some(access(&original)),
-        json!({"name":"denied after demotion"}),
-        StatusCode::FORBIDDEN,
-    )
-    .await;
-    let recovered = checked(
-        &app,
-        "POST",
-        "/v1/auth/recover",
-        "/v1/auth/recover",
-        None,
-        json!({"recovery_code":original["recovery_code"],"device":device()}),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(recovered["member"]["id"], joined_id);
-    checked(
-        &app,
-        "GET",
-        "/v1/me",
-        "/v1/me",
-        Some(access(&original)),
-        Value::Null,
-        StatusCode::OK,
-    )
-    .await;
-    // Two concurrent attempts cannot remove every active Lead.
-    checked(
-        &app,
-        "PATCH",
-        &format!("/v1/members/{original_id}"),
-        "/v1/members/{memberId}",
-        Some(access(&joined)),
-        json!({"role":"lead"}),
-        StatusCode::OK,
-    )
-    .await;
-    let input = json!({"role":"seller"});
-    let original_path = format!("/v1/members/{original_id}");
-    let joined_path = format!("/v1/members/{joined_id}");
-    let (x, y) = tokio::join!(
-        call(
-            &app,
-            "PATCH",
-            &original_path,
-            Some(access(&joined)),
-            input.clone()
-        ),
-        call(&app, "PATCH", &joined_path, Some(access(&joined)), input)
-    );
-    assert_eq!(
-        [x.0, y.0].iter().filter(|s| **s == StatusCode::OK).count(),
-        1
-    );
-    assert!(
-        [x.0, y.0]
-            .iter()
-            .any(|s| *s == StatusCode::CONFLICT || *s == StatusCode::FORBIDDEN)
-    );
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM members WHERE store_id=$1 AND active AND role='lead'",
-    )
-    .bind(
-        original["store"]["id"]
-            .as_str()
-            .unwrap()
-            .parse::<Uuid>()
-            .unwrap(),
-    )
-    .fetch_one(state.postgres.as_ref().unwrap())
-    .await
-    .unwrap();
-    assert_eq!(count, 1);
-}
-
-#[tokio::test]
-#[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn recovery_refresh_and_logout_use_consistent_lock_order() {
-    let (app, _) = setup().await;
-    let lead = create(&app).await;
-    let recover = json!({"recovery_code":lead["recovery_code"],"device":device(),"revoke_other_sessions":true});
-    let refresh = json!({"refresh_token":lead["refresh_token"]});
-    let (recovered, refreshed, logged_out) =
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            tokio::join!(
-                call(&app, "POST", "/v1/auth/recover", None, recover),
-                call(&app, "POST", "/v1/auth/refresh", None, refresh),
-                call(
-                    &app,
-                    "POST",
-                    "/v1/auth/logout",
-                    Some(access(&lead)),
-                    Value::Null
-                )
-            )
-        })
-        .await
-        .expect("auth writes must not deadlock");
-    assert_eq!(recovered.0, StatusCode::OK, "{}", recovered.1);
-    assert!(
-        [StatusCode::OK, StatusCode::UNAUTHORIZED].contains(&refreshed.0),
-        "{refreshed:?}"
-    );
-    assert!(
-        [StatusCode::NO_CONTENT, StatusCode::UNAUTHORIZED].contains(&logged_out.0),
-        "{logged_out:?}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn spoofed_forwarded_for_cannot_bypass_the_store_create_limit() {
-    // Default CLIENT_IP_SOURCE=peer ignores client-supplied headers entirely.
-    let (app, state) = setup_with(&[("RATE_LIMIT_STORE_CREATE_PER_HOUR", "2")]).await;
-    let mut redis = state.redis.clone().unwrap();
-    // The in-process router has no socket peer, so every request shares this key.
-    let _: () = redis::cmd("DEL")
-        .arg("auth:create:unknown")
-        .query_async(&mut redis)
-        .await
-        .unwrap();
-    for n in 0..3 {
-        let response = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/stores")
-                    .header("content-type", "application/json")
-                    .header("x-forwarded-for", fake_ip())
-                    .header("x-real-ip", "203.0.113.9")
-                    .body(Body::from(
-                        json!({"store_name":"","display_name":"A","device":device()}).to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        if n < 2 {
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        } else {
-            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-            assert!(response.headers().contains_key("retry-after"));
-        }
-    }
-    let _: () = redis::cmd("DEL")
-        .arg("auth:create:unknown")
-        .query_async(&mut redis)
-        .await
-        .unwrap();
 }

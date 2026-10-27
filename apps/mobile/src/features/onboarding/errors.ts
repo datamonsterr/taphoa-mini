@@ -1,8 +1,7 @@
 import { isApiError } from '@/lib/api/errors';
 
 /**
- * Dictionary key of the message for a failed onboarding call. `unauthorized` names the 401 of this
- * screen (a wrong recovery code); a thrown non-API error means the request never got an answer.
+ * Dictionary key for a failed onboarding call; a non-API error means the server was unreachable.
  */
 export function onboardingErrorKey(
   error: unknown,

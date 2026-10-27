@@ -19,7 +19,6 @@ async fn pool() -> Option<PgPool> {
 const TABLES: &[&str] = &[
     "stores",
     "members",
-    "sessions",
     "invites",
     "images",
     "categories",
@@ -116,12 +115,11 @@ async fn hnsw_index_and_store_leading_indexes() {
 async fn check_constraints_reject_bad_rows() {
     let Some(pool) = pool().await else { return };
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name, recovery_code_hash) VALUES ('t','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('t') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     // Partial bank account violates bank_all_or_none.
     let err = sqlx::query("UPDATE stores SET bank_bin='970436' WHERE id=$1")
         .bind(store)
@@ -130,14 +128,13 @@ async fn check_constraints_reject_bad_rows() {
     assert!(err.is_err(), "bank_all_or_none not enforced");
     drop(tx); // rollback
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name, recovery_code_hash) VALUES ('t','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('t') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let bad_role =
-        sqlx::query("INSERT INTO members(store_id, display_name, role) VALUES ($1,'a','admin')")
+        sqlx::query("INSERT INTO members(clerk_user_id,store_id, display_name, role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'a','admin')")
             .bind(store)
             .execute(&mut *tx)
             .await;
@@ -150,15 +147,14 @@ async fn quick_enroll_schema_and_constraints() {
     let Some(pool) = pool().await else { return };
     let mut tx = pool.begin().await.unwrap();
 
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name, recovery_code_hash) VALUES ('qe','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('qe') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
 
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id, display_name, role) VALUES ($1,'lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id, display_name, role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)
@@ -344,14 +340,13 @@ async fn quick_enroll_schema_and_constraints() {
 async fn stock_receipts_columns_and_checks() {
     let Some(pool) = pool().await else { return };
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name,recovery_code_hash) VALUES ('stock','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('stock') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id,display_name,role) VALUES ($1,'Lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)
@@ -443,14 +438,13 @@ async fn debt_book_schema_checks_and_sales_constraint_replacement() {
     let check:String=sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='sales'::regclass AND conname='sales_check1'").fetch_one(&pool).await.unwrap();
     assert!(check.contains("total - credit_amount"), "{check}");
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name,recovery_code_hash) VALUES('debts','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES('debts') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id,display_name,role) VALUES($1,'Lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)
@@ -520,14 +514,13 @@ async fn migrator_tolerates_missing_versions() {
 async fn assistant_checks_defaults_and_cascades() {
     let Some(pool) = pool().await else { return };
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name,recovery_code_hash) VALUES ('assistant','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('assistant') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id,display_name,role) VALUES ($1,'Lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)

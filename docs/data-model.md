@@ -31,7 +31,6 @@ Everything else is a proposal that later migrations implement.
 erDiagram
     stores ||--o{ members : has
     stores ||--o{ invites : issues
-    members ||--o{ sessions : "signs in on"
     stores ||--o{ categories : has
     stores ||--o{ products : sells
     categories |o--o{ products : groups
@@ -129,24 +128,17 @@ erDiagram
         int low_stock_threshold
         numeric margin_threshold_pct
         text sales_memo_prefix
-        text recovery_code_hash
         bigint version
     }
     members {
         uuid id PK
         uuid store_id FK
+        text clerk_user_id "Clerk user id, UK with store_id"
         text display_name
         text role "lead | seller"
         bool can_enroll
         text pin_hash
         bool active
-    }
-    sessions {
-        uuid id PK
-        uuid member_id FK
-        bytea refresh_token_hash UK
-        timestamptz expires_at
-        timestamptz revoked_at
     }
     invites {
         uuid id PK
@@ -254,6 +246,7 @@ erDiagram
         uuid store_id FK
         text code
         uuid member_id FK
+        text clerk_session_id "Clerk session id, no FK"
         timestamptz sold_at
         date business_date
         text payment_method
@@ -342,45 +335,32 @@ ALTER TABLE stores
     ADD COLUMN margin_threshold_pct NUMERIC(5,2) NOT NULL DEFAULT 0
                                     CHECK (margin_threshold_pct BETWEEN 0 AND 100),
     ADD COLUMN sales_memo_prefix    TEXT NOT NULL DEFAULT 'TH' CHECK (char_length(sales_memo_prefix) <= 8),
-    ADD COLUMN recovery_code_hash   TEXT NOT NULL,          -- Argon2id PHC string
     ADD COLUMN version              BIGINT NOT NULL DEFAULT 1,
     ADD COLUMN updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     ADD CONSTRAINT bank_all_or_none CHECK (
         (bank_bin IS NULL) = (bank_account_number IS NULL)
         AND (bank_bin IS NULL) = (bank_account_name IS NULL));
 
+-- Identity is Clerk (ADR 0004): a member is one Clerk user's membership in one store.
+-- The backend keeps no sessions, refresh tokens or recovery codes.
 CREATE TABLE members (
-    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id     UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
-    display_name TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 40),
-    role         TEXT NOT NULL CHECK (role IN ('lead', 'seller')),
-    can_enroll   BOOLEAN NOT NULL DEFAULT false,
-    pin_hash     TEXT,                                      -- Argon2id, null = no PIN
-    active       BOOLEAN NOT NULL DEFAULT true,
-    version      BIGINT NOT NULL DEFAULT 1,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id      UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    clerk_user_id TEXT NOT NULL,                            -- Clerk `sub`
+    display_name  TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 40),
+    role          TEXT NOT NULL CHECK (role IN ('lead', 'seller')),
+    can_enroll    BOOLEAN NOT NULL DEFAULT false,
+    pin_hash      TEXT,                                     -- Argon2id, null = no PIN
+    active        BOOLEAN NOT NULL DEFAULT true,
+    version       BIGINT NOT NULL DEFAULT 1,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT members_store_clerk_user_unique UNIQUE (store_id, clerk_user_id)
 );
 CREATE INDEX members_store ON members (store_id) WHERE active;
+CREATE INDEX members_active_clerk_user ON members (clerk_user_id) WHERE active;
 -- "at least one active lead" is enforced in the handler inside the transaction
 -- (SELECT ... FOR UPDATE on the store's lead rows).
-
-CREATE TABLE sessions (
-    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id           UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
-    member_id          UUID NOT NULL REFERENCES members ON DELETE CASCADE,
-    device_name        TEXT NOT NULL,
-    platform           TEXT NOT NULL CHECK (platform IN ('android', 'ios', 'web')),
-    app_version        TEXT,
-    refresh_token_hash BYTEA NOT NULL UNIQUE,               -- SHA-256 of current token
-    previous_token_hash BYTEA,                              -- reuse detection
-    expires_at         TIMESTAMPTZ NOT NULL,
-    revoked_at         TIMESTAMPTZ,
-    last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX sessions_member ON sessions (member_id) WHERE revoked_at IS NULL;
-CREATE INDEX sessions_previous ON sessions (previous_token_hash) WHERE previous_token_hash IS NOT NULL;
 
 CREATE TABLE invites (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -594,7 +574,7 @@ CREATE TABLE sales (
     store_id       UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
     code           TEXT NOT NULL,                           -- 6 chars Crockford base32 from id
     member_id      UUID NOT NULL REFERENCES members,
-    session_id     UUID REFERENCES sessions ON DELETE SET NULL,
+    clerk_session_id TEXT,                                  -- Clerk `sid`, no FK
     sold_at        TIMESTAMPTZ NOT NULL,                    -- device time
     received_at    TIMESTAMPTZ NOT NULL DEFAULT now(),      -- server time
     business_date  DATE NOT NULL,
@@ -869,7 +849,6 @@ CREATE INDEX outbox_unpublished ON outbox_events (id) WHERE published_at IS NULL
 | Sales, lines, expenses, day closes | Forever (tax records); deleted only with the store        |
 | Price history                      | Forever                                                   |
 | Scans, detections, checkout photos | Forever in phase 1 (training data); review before phase 3 |
-| Sessions                           | 30 days after expiry or revoke                            |
 | Invites                            | 30 days after expiry                                      |
 | change_log                         | Newest per entity; others 30 days                         |
 | outbox_events                      | 7 days after publish                                      |
@@ -992,7 +971,7 @@ Every event, in Redis and on SSE, is this JSON (formal schema in
   "version": 1,
   "store_id": "0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b",
   "occurred_at": "2026-10-23T09:14:02.511+07:00",
-  "actor": { "member_id": "0192b1f0-…", "session_id": "0192b1f1-…" },
+  "actor": { "member_id": "0192b1f0-…", "session_id": "sess_2abc…" },
   "cursor": "AAAAAAAAAIA",
   "data": {
     "product_id": "…",
@@ -1009,17 +988,17 @@ Every event, in Redis and on SSE, is this JSON (formal schema in
 - `version` is per `type`. Adding optional fields keeps the version; removing or
   renaming a field adds a new version, and the server sends both for one release.
 - `cursor` is present when the event comes with a change-log entry.
+- `actor.session_id` is the Clerk session id (`sid`) string of the request that caused the event.
 - SSE frame: `id: <id>`, `event: <type>`, `data: <envelope JSON>`.
 
 ### 5.3 Catalog
 
-| Type              | When                                                   | `data`                                                                        | Phone reaction                                  |
-| ----------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| `catalog.changed` | Product/category/unit/image created, updated, archived | `{entity: "product"\|"category", ids: [uuid]}`                                | Pull change feed                                |
-| `price.changed`   | Selling price or unit price changed                    | `{product_id, unit_id, field, old_value, new_value, source}`                  | Pull; toast "Giá mới: …" on open carts with it  |
-| `store.changed`   | Store settings updated                                 | `{fields: [string]}`                                                          | Pull                                            |
-| `member.changed`  | Member joined, updated, deactivated                    | `{member_id, change: "joined"\|"updated"\|"deactivated"}`                     | Pull                                            |
-| `session.revoked` | Session revoked (logout, member removed, token reuse)  | `{session_id, reason: "logout"\|"member_removed"\|"token_reuse"\|"recovery"}` | If own session: clear tokens, go to join screen |
+| Type              | When                                                   | `data`                                                       | Phone reaction                                  |
+| ----------------- | ------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------- |
+| `catalog.changed` | Product/category/unit/image created, updated, archived | `{entity: "product"\|"category", ids: [uuid]}`               | Pull change feed                                |
+| `price.changed`   | Selling price or unit price changed                    | `{product_id, unit_id, field, old_value, new_value, source}` | Pull; toast "Giá mới: …" on open carts with it  |
+| `store.changed`   | Store settings updated                                 | `{fields: [string]}`                                         | Pull                                            |
+| `member.changed`  | Member joined, updated, deactivated                    | `{member_id, change: "joined"\|"updated"\|"deactivated"}`    | Pull; the stream of a deactivated member closes |
 
 ### 5.4 Sales and money
 
@@ -1098,7 +1077,7 @@ stateDiagram-v2
     dismissed --> [*]
 ```
 
-### 6.4 Session and invite
+### 6.4 Invite
 
 ```mermaid
 stateDiagram-v2
@@ -1106,12 +1085,6 @@ stateDiagram-v2
         [*] --> pending
         pending --> used: join
         pending --> expired: ttl passes
-    }
-    state Session {
-        [*] --> active
-        active --> active: refresh (rotate)
-        active --> revoked: logout / member removed / reuse detected
-        active --> expired: 90 days without refresh
     }
 ```
 

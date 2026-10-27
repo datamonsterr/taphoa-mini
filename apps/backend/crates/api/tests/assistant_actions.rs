@@ -78,7 +78,8 @@ async fn context(w: &World, seller: bool) -> ToolContext {
         actor: Actor {
             member_id: member,
             store_id: w.store_id,
-            session_id: Uuid::new_v4(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role: if seller { Role::Seller } else { Role::Lead },
             can_enroll: !seller,
         },
@@ -103,11 +104,21 @@ fn id(a: &Value) -> Uuid {
     a["id"].as_str().unwrap().parse().unwrap()
 }
 async fn decide(w: &World, a: &Value, token: &str, decision: &str, key: Option<&str>) -> Reply {
+    decide_in(w, w.store_id, a, token, decision, key).await
+}
+async fn decide_in(
+    w: &World,
+    store_id: Uuid,
+    a: &Value,
+    token: &str,
+    decision: &str,
+    key: Option<&str>,
+) -> Reply {
     let mut req = Request::builder()
         .method("POST")
         .uri(format!("/v1/assistant/actions/{}/{decision}", id(a)))
         .header("authorization", format!("Bearer {token}"))
-        .header("x-store-id", w.store_id.to_string())
+        .header("x-store-id", store_id.to_string())
         .header("x-forwarded-for", "10.97.1.1");
     if let Some(key) = key {
         req = req.header("idempotency-key", key);
@@ -491,7 +502,7 @@ async fn permission_ownership_rejection_and_missing_key() {
     }
     let other = World::new().await;
     assert_eq!(
-        decide(&w, &a, &other.lead, "confirm", Some("key"))
+        decide_in(&w, other.store_id, &a, &other.lead, "confirm", Some("key"))
             .await
             .status,
         StatusCode::NOT_FOUND
@@ -746,9 +757,9 @@ async fn seller_owned_forged_price_action_is_denied_and_expired_reject_is_stale(
 async fn assistant_member_foreign_keys_allow_data_reset() {
     let (w, _) = world().await;
     let ctx = context(&w, false).await;
-    let proposer: Uuid = sqlx::query_scalar("INSERT INTO members(store_id,display_name,role) VALUES($1,'Temporary','seller') RETURNING id")
+    let proposer: Uuid = sqlx::query_scalar("INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES('fixture_' || gen_random_uuid()::text,$1,'Temporary','seller') RETURNING id")
         .bind(w.store_id).fetch_one(w.pool()).await.unwrap();
-    let decider: Uuid = sqlx::query_scalar("INSERT INTO members(store_id,display_name,role) VALUES($1,'Temporary','lead') RETURNING id")
+    let decider: Uuid = sqlx::query_scalar("INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES('fixture_' || gen_random_uuid()::text,$1,'Temporary','lead') RETURNING id")
         .bind(w.store_id).fetch_one(w.pool()).await.unwrap();
     let action: Uuid = sqlx::query_scalar("INSERT INTO assistant_actions(store_id,thread_id,message_id,kind,payload,summary_vi,proposed_by,decided_by,expires_at) VALUES($1,$2,$3,'expense','{}','Chi phí',$4,$5,now()+interval '24 hours') RETURNING id")
         .bind(w.store_id).bind(ctx.thread_id).bind(ctx.message_id).bind(proposer).bind(decider)

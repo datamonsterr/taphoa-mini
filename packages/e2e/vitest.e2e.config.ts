@@ -8,6 +8,8 @@ export default mergeConfig(
       // Live suites share the backend's inference slot. Keep latency samples
       // independent of OCR, segmentation and enrollment in other test files.
       fileParallelism: false,
+      setupFiles: ['./src/cleanup-setup.ts'],
+      globalSetup: ['./src/global-setup.ts'],
       env: {
         BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:8080',
       },

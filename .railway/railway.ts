@@ -66,6 +66,12 @@ export default defineRailway((ctx) => {
     env: {
       DATABASE_URL: Postgres.env.DATABASE_URL,
       REDIS_URL: Redis.env.REDIS_URL,
+      // Clerk identity (docs/specs/assistant/auth-clerk.md). The backend derives the issuer and
+      // JWKS from the publishable key and uses the secret key for profile reads. Both are set once
+      // per environment with the CLI, never committed (docs/deploy.md).
+      CLERK_PUBLISHABLE_KEY: preserve(),
+      CLERK_SECRET_KEY: preserve(),
+      // The backend no longer reads it; remove after the Clerk release is live (X1).
       JWT_SECRET: preserve(),
       RUST_LOG: 'info',
       LOG_FORMAT: 'json',
@@ -108,15 +114,12 @@ export default defineRailway((ctx) => {
       AWS_SECRET_ACCESS_KEY: preserve(),
       AWS_S3_BUCKET_NAME: preserve(),
       AWS_DEFAULT_REGION: preserve(),
-      // Secret per environment: generated once in the terminal, never committed (docs/deploy.md).
-      JWT_SECRET: preserve(),
       S3_FORCE_PATH_STYLE: 'false',
       // Behind Railway's proxy the client address comes from X-Real-IP.
       CLIENT_IP_SOURCE: 'x-real-ip',
       // Set only on the test environment (high limits for e2e); preserved, never managed here.
       RATE_LIMIT_STORE_CREATE_PER_HOUR: preserve(),
       RATE_LIMIT_JOIN_PER_HOUR: preserve(),
-      RATE_LIMIT_RECOVER_PER_10MIN: preserve(),
       S3_CREATE_BUCKET: 'false',
       IMAGE_URL_TTL_SECONDS: '900',
     },

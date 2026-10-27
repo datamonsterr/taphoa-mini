@@ -1,13 +1,16 @@
+import type { Membership } from '@/stores/currentStore';
 import { getMockDb } from '@/test/mock/db';
-import type { Session } from '@/stores/session';
 
-/** A signed-in Lead of the seeded test store, so screens under test pass the auth guard. */
-export function testSession(): Session {
+/** Seed membership; credentials are provided by the reusable Clerk mock. */
+export function testSession(): Membership {
   const { members, currentMemberId, store } = getMockDb();
-  return {
-    access_token: 'test-access-token',
-    refresh_token: 'test-refresh-token',
-    member: members.find((m) => m.id === currentMemberId)!,
-    store,
-  };
+  return { member: members.find((m) => m.id === currentMemberId)!, store };
+}
+export function setTestMembership(membership: Membership) {
+  const db = getMockDb();
+  db.store = membership.store;
+  db.currentMemberId = membership.member.id;
+  db.members = db.members.map((member) =>
+    member.id === membership.member.id ? membership.member : member,
+  );
 }

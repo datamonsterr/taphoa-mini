@@ -22,7 +22,7 @@ under `src/test/mock`; E2E runs use the real backend (`scripts/e2e/stack.sh`).
    `docs/design/canvas/*.dc.html`, `tokens.css` and `DESIGN.md` §2–§6. Each icon-only control has the
    Vietnamese `accessibilityLabel` that the board uses as `aria-label`.
 4. **Every control works** against the real backend along the flow in `DESIGN.md` §5:
-   onboarding (create a store, join, recover) →
+   Clerk sign-in, onboarding (create a store or join) →
    camera → box/price → `+` → cart pill → cart → QR → pay → received (sale created, cart cleared);
    low match → enroll → product created and line added to cart;
    swipe up → shop (Kho / Báo cáo / Tài khoản) → product detail / expense sheet / Chốt sổ sheet.
@@ -81,8 +81,9 @@ components/camera/           camera-surface components (DESIGN.md §6 camera tab
 features/<feature>/          screen component, hooks, pure logic, strings.ts
   camera/ enroll/ checkout/ pay/ inventory/ product/ dashboard/ expense/ close/ account/
 lib/api/                     client factory, typed calls per operation, React Query hooks + keys
-(onboarding)/                welcome, create, join, recover, recovery-code (no session yet)
-stores/session.ts            token pair, member, store; Keychain / Keystore, localStorage on the web
+(auth)/                      sign-in, verify-code (no Clerk session yet)
+(onboarding)/                welcome, create, join (signed in, no membership yet)
+stores/currentStore.ts       selected store id per Clerk user; Clerk keeps the credentials
 lib/format.ts                VND money (`12.000đ`), dates
 lib/i18n.ts                  `t()` + VI/EN; each feature owns its strings in features/<x>/strings.ts
 stores/                      zustand stores
@@ -112,10 +113,10 @@ Coverage thresholds live in the jest config so CI fails below them.
 
 - `getApiClient()` returns a client for `EXPO_PUBLIC_API_URL` (default `http://localhost:8080`;
   the Android emulator reaches the host as `http://10.0.2.2:8080`). There is no `EXPO_PUBLIC_API_MODE`
-  and no mock mode. The client wraps `fetch` with `createAuthFetch`: bearer token from the session
-  store, one refresh-token rotation on a 401, the session cleared when the server refuses it.
-- The root layout shows the onboarding screens until a session exists and its recovery code (if
-  any) has been acknowledged; signing out returns there and clears the cache and the cart.
+  and no mock mode. The client wraps `fetch` with `createAuthFetch`: Clerk session token from
+  `getToken()` and the `X-Store-Id` header, one retry with `getToken({ skipCache: true })` on a 401.
+- The root gate shows sign-in until a Clerk session exists and onboarding until it has a
+  membership; signing out returns to sign-in and clears the cache and the cart.
 - Jest injects the fake of `src/test/mock` through `setApiTransport`. It routes by method + path,
   reads multipart / JSON bodies, mutates an in-memory DB and returns JSON typed with
   `components['schemas'][...]`. `createScan` returns dummy boxes in image pixels (scenario control:

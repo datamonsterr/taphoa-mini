@@ -7,6 +7,8 @@ jest.mock('expo-status-bar', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.mock factories must require lazily
   const { View } = require('react-native');
   return {
+    // Expo Router 58.0.26 also reads the native edge context.
+    useVerticalBarEdgeIOS: () => null,
     StatusBar: ({ style }: { style: string }) => (
       <View testID={`status-bar-${style}`} />
     ),

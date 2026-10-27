@@ -41,11 +41,13 @@ impl ObjectStore for FakeStore {
 
 async fn setup() -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("sync-test-secret-at-least-32-bytes!!".into()),
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
         _ => std::env::var(key).ok(),
     })
     .unwrap();
     let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    common::clerk::install(&mut state);
     state.storage = Some(Arc::new(FakeStore));
     (router(state.clone()), state)
 }
@@ -56,6 +58,10 @@ async fn call(
     token: Option<&str>,
     body: Value,
 ) -> (StatusCode, Value) {
+    // Auth setup uses independently signed Clerk identities, never API-issued tokens.
+    let minted = (token.is_none() && ["/v1/stores", "/v1/auth/join"].contains(&path))
+        .then(common::clerk::token);
+    let token = token.or(minted.as_deref());
     let mut request = Request::builder()
         .method(method)
         .uri(path)
@@ -71,14 +77,13 @@ async fn call(
         .unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1 << 22).await.unwrap();
-    (
-        status,
-        if bytes.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&bytes).unwrap()
-        },
-    )
+    let mut response: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    if status == StatusCode::CREATED
+        && let Some(token) = minted
+    {
+        response["access_token"] = json!(token);
+    }
+    (status, response)
 }
 async fn create_store(app: &Router) -> Value {
     let (status, body) = call(

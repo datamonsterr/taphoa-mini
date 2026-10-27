@@ -28,7 +28,8 @@ fn request(text: &str) -> ChatRequest {
             .for_actor(&taphoa_api::auth::Actor {
                 store_id: Uuid::nil(),
                 member_id: Uuid::nil(),
-                session_id: Uuid::nil(),
+                clerk_user_id: "user_test".into(),
+                clerk_session_id: "sess_test".into(),
                 role: taphoa_api::auth::Role::Lead,
                 can_enroll: true,
             })

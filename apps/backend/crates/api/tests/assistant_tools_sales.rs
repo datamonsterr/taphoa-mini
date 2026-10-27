@@ -82,7 +82,8 @@ impl Fixture {
                 } else {
                     self.world.seller_id
                 },
-                session_id: Uuid::new_v4(),
+                clerk_user_id: "user_test".into(),
+                clerk_session_id: "sess_test".into(),
                 role,
                 can_enroll: role == Role::Lead,
             },

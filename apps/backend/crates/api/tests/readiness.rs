@@ -27,9 +27,7 @@ async fn real_dependencies_and_migration() {
             .unwrap();
     assert_eq!(vector, "vector");
     let id: sqlx::types::Uuid =
-        sqlx::query_scalar(
-            "INSERT INTO stores(name, recovery_code_hash) VALUES ('integration fixture', 'x') RETURNING id",
-        )
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('integration fixture') RETURNING id")
             .fetch_one(&pool)
             .await
             .unwrap();

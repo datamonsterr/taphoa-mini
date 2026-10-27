@@ -69,7 +69,7 @@ pub(super) async fn create(
     emit_customer(
         &mut tx,
         actor.store_id,
-        Some((actor.member_id, actor.session_id)),
+        Some(actor.event_actor()),
         "customer.created",
         row.id,
         row.balance,
@@ -154,7 +154,7 @@ pub(super) async fn patch(
     emit_customer(
         &mut tx,
         actor.store_id,
-        Some((actor.member_id, actor.session_id)),
+        Some(actor.event_actor()),
         "customer.updated",
         id,
         row.balance,

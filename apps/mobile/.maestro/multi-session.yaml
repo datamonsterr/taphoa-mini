@@ -1,0 +1,206 @@
+appId: com.datamonsterr.taphoamini
+---
+# Two people on one phone (Clerk multi-session) against the real backend and Clerk:
+#  1. Person A signs in, creates a store and sets a PIN in the account tab.
+#  2. A taps "Thêm người trên máy này" (cancel keeps A signed in), then person B signs in with a
+#     new address and creates a store of their own.
+#  3. In B's account tab, switching to A opens the PIN sheet. A wrong PIN shows the error and
+#     does not switch; the right PIN does (A's store opens).
+#  4. Signing out A removes only A's session and activates nobody. B is still on the phone, so
+#     the device is locked on the sign-in screen: the person picker (`auth-device-sessions`) lists
+#     B above the email form. B has no PIN, so picking B opens B's store at once.
+#  5. Signing out B, the last person, shows the sign-in screen without the picker.
+# The picker's PIN sheet (`auth-switch-pin`) is left to the Jest route tests: A and B end for good
+# when they sign out, so reaching a person with a PIN through the picker as well would take a
+# third Clerk sign-in in the same run.
+# PIN digits avoid 5: the account tab shows the low-stock threshold (default 5) as a text of its
+# own, so a tap on keypad key "5" would be ambiguous while a PIN sheet is open.
+# Store and owner names are plain ASCII (inputText on Android does not do Unicode reliably).
+
+# 1. Person A
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tiem A Maestro'
+      OWNER_NAME: 'Chu A'
+- runFlow: subflows/open-account.yaml
+- extendedWaitUntil:
+    visible: 'Tiem A Maestro'
+    timeout: 20000
+# New PIN 2468, then the same again.
+- tapOn: 'Đặt mã PIN'
+- extendedWaitUntil:
+    visible: 'Mã PIN mới.*'
+    timeout: 15000
+- tapOn: '2'
+- tapOn: '4'
+- tapOn: '6'
+- tapOn: '8'
+- tapOn: 'Tiếp'
+- extendedWaitUntil:
+    visible: 'Nhập lại mã PIN'
+    timeout: 15000
+- tapOn: '2'
+- tapOn: '4'
+- tapOn: '6'
+- tapOn: '8'
+- tapOn: 'Xác nhận'
+- extendedWaitUntil:
+    visible: 'Đã đặt mã PIN'
+    timeout: 30000
+- takeScreenshot: multi-session-01-pin-set
+
+# 2. Add person B. A is the only one on the phone for now.
+- runFlow: subflows/scroll-account-end.yaml
+- assertVisible:
+    id: 'account-session-0'
+- assertNotVisible:
+    id: 'account-session-1'
+- tapOn:
+    id: 'account-add-person'
+- extendedWaitUntil:
+    visible:
+      id: 'auth-add-cancel'
+    timeout: 15000
+- assertVisible:
+    id: 'auth-email'
+- takeScreenshot: multi-session-02-add-person
+# Cancel goes back to the account tab; nobody is signed out.
+- tapOn:
+    id: 'auth-add-cancel'
+- runFlow: subflows/scroll-account-end.yaml
+- assertVisible:
+    id: 'account-session-0'
+- assertNotVisible:
+    id: 'account-session-1'
+- tapOn:
+    id: 'account-add-person'
+- extendedWaitUntil:
+    visible:
+      id: 'auth-email'
+    timeout: 15000
+# B signs in with a new address (same screens as the first sign-in) and has no store yet.
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tiem B Maestro'
+      OWNER_NAME: 'Chu B'
+- runFlow: subflows/open-account.yaml
+- extendedWaitUntil:
+    visible: 'Tiem B Maestro'
+    timeout: 20000
+- assertVisible: 'Đang dùng: Chu B'
+- runFlow: subflows/scroll-account-end.yaml
+- assertVisible:
+    id: 'account-session-0'
+- assertVisible:
+    id: 'account-session-1'
+- assertNotVisible:
+    id: 'account-session-2'
+- takeScreenshot: multi-session-03-two-people
+
+# 3. Switch from B to A: A has a PIN, so the PIN sheet comes first.
+# The only row that is not the current person is A.
+- tapOn: 'Chuyển sang .*'
+- extendedWaitUntil:
+    visible: 'Mã PIN của .*'
+    timeout: 30000
+- takeScreenshot: multi-session-04-pin-sheet
+# Wrong PIN 1379: the error shows, the sheet stays, nobody is switched.
+- tapOn: '1'
+- tapOn: '3'
+- tapOn: '7'
+- tapOn: '9'
+- tapOn: 'Xác nhận'
+- extendedWaitUntil:
+    visible: 'Sai mã PIN'
+    timeout: 30000
+- assertVisible: 'Mã PIN của .*'
+- takeScreenshot: multi-session-05-wrong-pin
+# Right PIN 2468 (the wrong digits were cleared): A's screens replace B's.
+- tapOn: '2'
+- tapOn: '4'
+- tapOn: '6'
+- tapOn: '8'
+- tapOn: 'Xác nhận'
+# B's account tab goes away while the app is rebuilt around A. The gap can be short, so a missed
+# one is not a failure: the checks below still prove who is signed in.
+- extendedWaitUntil:
+    notVisible:
+      id: 'account-sessions'
+    timeout: 30000
+    optional: true
+- runFlow: subflows/open-account.yaml
+- extendedWaitUntil:
+    visible: 'Tiem A Maestro'
+    timeout: 30000
+- assertVisible: 'Đang dùng: Chu A'
+- takeScreenshot: multi-session-06-switched-to-a
+
+# 4. Sign out A (the current person). Only A's session ends and nobody else is activated: the
+# sign-in screen shows the person picker above the email form, with B in it.
+- runFlow: subflows/scroll-account-end.yaml
+- assertVisible:
+    id: 'account-session-1'
+- tapOn:
+    id: 'account-sign-out'
+- extendedWaitUntil:
+    visible:
+      id: 'auth-device-sessions'
+    timeout: 30000
+# Clerk's list can hold A for an instant after the sign-out: wait until B is the only row, listed
+# by name, so the tap below cannot hit A.
+- extendedWaitUntil:
+    notVisible:
+      id: 'auth-device-session-1'
+    timeout: 30000
+- extendedWaitUntil:
+    visible: '.*Chu B.*'
+    timeout: 30000
+- assertVisible:
+    id: 'auth-device-session-0'
+- assertVisible:
+    id: 'auth-email'
+- assertVisible: 'Chọn người trên máy này'
+# Nobody was activated: no shop screen behind the picker.
+- assertNotVisible: 'Giỏ hàng trống'
+- takeScreenshot: multi-session-07-picker-after-sign-out
+
+# 5. Pick B. B has no PIN, so no sheet opens: B is activated at once and B's store replaces the
+# sign-in screen.
+- tapOn:
+    id: 'auth-device-session-0'
+- extendedWaitUntil:
+    visible: 'Giỏ hàng trống'
+    timeout: 60000
+- runFlow: subflows/open-account.yaml
+- extendedWaitUntil:
+    visible: 'Tiem B Maestro'
+    timeout: 30000
+- assertVisible: 'Đang dùng: Chu B'
+- runFlow: subflows/scroll-account-end.yaml
+- assertVisible:
+    id: 'account-session-0'
+- assertNotVisible:
+    id: 'account-session-1'
+- assertNotVisible: 'Chuyển sang .*'
+- takeScreenshot: multi-session-08-b-picked
+
+# 6. B is the last person: signing out shows the sign-in screen without the picker.
+- tapOn:
+    id: 'account-sign-out'
+- extendedWaitUntil:
+    visible:
+      id: 'auth-email'
+    timeout: 30000
+- extendedWaitUntil:
+    notVisible:
+      id: 'auth-device-sessions'
+    timeout: 30000
+- assertNotVisible:
+    id: 'auth-device-session-0'
+- assertVisible: 'Gửi mã'
+- takeScreenshot: multi-session-09-signed-out

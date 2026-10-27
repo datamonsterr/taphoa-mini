@@ -13,7 +13,6 @@ use std::{
 pub struct RateLimits {
     pub store_create_per_hour: u32,
     pub join_per_hour: u32,
-    pub recover_per_10min: u32,
     /// Wrong PINs before the member is locked for 5 minutes.
     pub pin_attempts: u32,
 }
@@ -22,7 +21,6 @@ impl Default for RateLimits {
         Self {
             store_create_per_hour: 10,
             join_per_hour: 10,
-            recover_per_10min: 5,
             pin_attempts: 5,
         }
     }

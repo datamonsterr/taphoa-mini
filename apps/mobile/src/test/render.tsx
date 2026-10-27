@@ -1,5 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react-native';
+import { getMe } from '@/lib/api/store';
+import { keys } from '@/lib/api/keys';
+import { getClerkState } from './clerk';
 import type { ReactElement } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -23,11 +26,23 @@ const defaultMetrics: TestMetrics = {
   insets: { top: 0, left: 0, right: 0, bottom: 0 },
 };
 
-export function renderWithProviders(
+export async function renderWithProviders(
   ui: ReactElement,
   queryClient = createTestQueryClient(),
   metrics: TestMetrics = defaultMetrics,
 ) {
+  // A real screen mounts after the root membership gate has resolved /me.
+  const { userId, isSignedIn } = getClerkState();
+  if (isSignedIn && userId) {
+    await queryClient
+      .fetchQuery({
+        queryKey: keys.me(userId),
+        queryFn: getMe,
+        retry: false,
+        staleTime: 60_000,
+      })
+      .catch(() => undefined);
+  }
   return render(
     <SafeAreaProvider initialMetrics={metrics}>
       <GestureHandlerRootView>

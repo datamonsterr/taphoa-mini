@@ -46,7 +46,7 @@ pub(crate) async fn record_entry(
     business_date: NaiveDate,
     key_hash: Option<&[u8]>,
     request_hash: Option<&[u8]>,
-    actor: Option<(Uuid, Uuid)>,
+    actor: Option<(Uuid, String)>,
 ) -> ApiResult<DebtEntryRow> {
     if !match kind {
         "credit_sale" => amount > 0,
@@ -99,7 +99,7 @@ pub(crate) async fn record_entry(
         tx,
         Event {
             store_id,
-            actor,
+            actor: actor.clone(),
             typ,
             version: 1,
             data,
@@ -122,7 +122,7 @@ pub(crate) async fn record_entry(
 pub(super) async fn emit_customer(
     tx: &mut PgConnection,
     store_id: Uuid,
-    actor: Option<(Uuid, Uuid)>,
+    actor: Option<(Uuid, String)>,
     typ: &'static str,
     id: Uuid,
     balance: i64,
@@ -178,14 +178,13 @@ mod tests {
             .unwrap();
         crate::MIGRATOR.run(&pool).await.unwrap();
         let mut tx = pool.begin().await.unwrap();
-        let store: Uuid = sqlx::query_scalar(
-            "INSERT INTO stores(name,recovery_code_hash) VALUES('writer','x') RETURNING id",
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap();
+        let store: Uuid =
+            sqlx::query_scalar("INSERT INTO stores(name) VALUES('writer') RETURNING id")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
         let member: Uuid = sqlx::query_scalar(
-            "INSERT INTO members(store_id,display_name,role) VALUES($1,'Lead','lead') RETURNING id",
+            "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
         )
         .bind(store)
         .fetch_one(&mut *tx)
