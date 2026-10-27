@@ -783,6 +783,13 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/e2e/stack.sh up
+      # Leaked users (the Android Maestro flows never delete theirs) eat into the development
+      # instance's 100-user cap.
+      - name: Sweep stale Clerk e2e users
+        continue-on-error: true
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm --filter @taphoa/e2e clerk:sweep --max-age-hours 2
       # The export embeds EXPO_PUBLIC_API_URL and EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: the app and
       # the specs talk to the backend that stack.sh started on :8080, and the app signs in through
       # the same Clerk instance. The specs create users with the secret key (Backend API) and

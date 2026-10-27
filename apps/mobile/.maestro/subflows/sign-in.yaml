@@ -7,14 +7,16 @@ appId: com.datamonsterr.taphoamini
 # Input (optional): EMAIL. Without it a unique address is made, so every run gets a user of its
 # own: `e2e-maestro-<timestamp><random>+clerk_test@example.com`. The `+clerk_test` subaddress
 # sends no mail and always verifies with 424242; the `e2e-` prefix lets the e2e sweep
-# (packages/e2e) delete these users later.
+# (packages/e2e) delete these users later. With RUN_TAG set (CI passes `-e RUN_TAG=...`) the
+# address is `e2e-maestro-<RUN_TAG>-<timestamp><random>+clerk_test@example.com`, so the CI job
+# can delete exactly its own users when it ends.
 # Output: output.email, the address that was used.
 #
 # Ends on the first screen of the signed-in app: the welcome screen for an address Clerk has not
 # seen (no store yet), the camera for a person who already has a store.
 # Clerk's Frontend API allows 5 sign-in creations and 3 attempts per 10 s: one pass through
 # this flow stays far below that, so never retry it in a loop.
-- evalScript: "${output.email = (typeof EMAIL !== 'undefined' && EMAIL) ? EMAIL : 'e2e-maestro-' + Date.now() + Math.floor(Math.random() * 1000000) + '+clerk_test@example.com'}"
+- evalScript: "${output.email = (typeof EMAIL !== 'undefined' && EMAIL) ? EMAIL : 'e2e-maestro-' + ((typeof RUN_TAG !== 'undefined' && RUN_TAG) ? RUN_TAG + '-' : '') + Date.now() + Math.floor(Math.random() * 1000000) + '+clerk_test@example.com'}"
 - tapOn:
     id: 'auth-email'
 - inputText: ${output.email}

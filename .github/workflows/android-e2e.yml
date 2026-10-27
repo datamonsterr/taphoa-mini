@@ -173,9 +173,17 @@ jobs:
       # Opt out of Maestro telemetry and the update/analyze banners in CI logs.
       MAESTRO_CLI_NO_ANALYTICS: '1'
       MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: 'true'
+      # Tags the Clerk users the flows create (sign-in.yaml) so the last step can delete exactly
+      # this shard's users. Only [a-z0-9-].
+      RUN_TAG: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v7
-      # Only the jank budget script needs Node (no npm dependencies), so no pnpm install or cache.
+      # Only the jank budget script and the final Clerk sweep need Node; the sweep installs just
+      # @taphoa/e2e, so no full pnpm install or cache.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+          standalone: true
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -300,6 +308,17 @@ jobs:
           name: gfxinfo-${{ matrix.shard }}
           path: apps/mobile/gfxinfo.txt
           if-no-files-found: warn
+
+      # The flows sign up through the app and never delete their users; the Clerk development
+      # instance is capped at 100 users. Best effort: the deploy workflow sweeps stragglers.
+      - name: Delete this shard's Clerk users
+        if: always()
+        continue-on-error: true
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: |
+          pnpm install --frozen-lockfile --filter @taphoa/e2e...
+          pnpm --filter @taphoa/e2e clerk:sweep --prefix "e2e-maestro-$RUN_TAG-" --max-age-hours 0
 
   # Proves the app previews in Expo Go (dev client from Metro, no native build): Metro runs on
   # the runner, Expo Go on the emulator loads it over 10.0.2.2.

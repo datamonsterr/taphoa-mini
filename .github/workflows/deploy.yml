@@ -114,6 +114,14 @@ jobs:
         run: scripts/ci/seed-test.sh
       - uses: ./.github/actions/setup-js
         if: steps.railway.outputs.configured == 'true' && hashFiles('packages/e2e/package.json') != ''
+      # Leaked users (the Android Maestro flows never delete theirs) eat into the development
+      # instance's 100-user cap and make the suite fail with user_quota_exceeded.
+      - name: Sweep stale Clerk e2e users
+        if: steps.railway.outputs.configured == 'true' && hashFiles('packages/e2e/package.json') != ''
+        continue-on-error: true
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm --filter @taphoa/e2e clerk:sweep --max-age-hours 2
       - name: End-to-end tests and latency probes
         if: steps.railway.outputs.configured == 'true'
         env:
