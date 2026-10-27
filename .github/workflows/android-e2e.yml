@@ -3,8 +3,8 @@ name: Android E2E
 # Free alternative to EAS Workflows Maestro jobs (those need a paid Expo plan).
 # Builds a release-like APK on the runner and drives it with Maestro on an emulator.
 # The app talks to the real backend (with SAM/DINO models) that scripts/e2e/stack.sh starts on
-# the runner; the emulator reaches the runner as 10.0.2.2. Cost: a cold backend release build
-# plus ~250 MB of models on top of the APK build, and inference shares 4 cores with the
+# the runner; the emulator reaches the runner as 10.0.2.2. Cost: ~250 MB of models
+# on top of the APK build (the backend binary comes from the backend-binary job), and inference shares 4 cores with the
 # emulator. If that proves too slow or flaky, drop the pull_request trigger and keep
 # workflow_dispatch only.
 
@@ -58,8 +58,37 @@ jobs:
             exit 1
           fi
 
-  maestro:
+  # Same prebuilt binary as ci.yml: built in rust:1-bookworm with a persistent cargo/target
+  # cache, so maestro never runs a cold cargo build on the emulator runner.
+  backend-binary:
     needs: clerk-secrets
+    if: needs.clerk-secrets.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start job timer
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: .ci-cache
+          key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
+      - run: scripts/ci/build-backend-binary.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-binary
+          path: ci-bin/taphoa-api
+          retention-days: 3
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "backend-binary" "release build in rust-bookworm container"
+
+  maestro:
+    needs: [clerk-secrets, backend-binary]
     if: needs.clerk-secrets.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -85,9 +114,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - run: pnpm install --frozen-lockfile
 
-      - uses: ./.github/actions/setup-rust
+      - uses: actions/download-artifact@v8
         with:
-          cache-key: android-e2e
+          name: backend-binary
+          path: ci-bin
+      - run: chmod +x ci-bin/taphoa-api
       - uses: actions/cache@v6
         id: models
         with:
@@ -99,6 +130,7 @@ jobs:
       # S3 URLs are presigned for 10.0.2.2 so the emulator can download images.
       - name: Start backend stack
         env:
+          BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
           E2E_PUBLIC_HOST: 10.0.2.2
           # Request lines (method, path, status) so a failed save in a flow shows in the log.
           RUST_LOG: info,tower_http=debug
