@@ -28,21 +28,22 @@ levels of ordinary products from here.
 
 Store id `e7a10e7a-0000-4000-8000-000000000000`, name `Tạp hóa Cô Ba`. VietQR bank account set
 (Vietcombank, `970436`, account holder `NGUYEN THI BA`). Margin alert threshold 12 %, store
-default low-stock threshold 5. Recovery code `2DQE-Y3P3-Q2JE-PHMA`.
+default low-stock threshold 5.
 
-| Member | Key    | Role   | Can enroll | Login                                  | Member id                            |
-| ------ | ------ | ------ | ---------- | -------------------------------------- | ------------------------------------ |
-| Cô Ba  | co-ba  | lead   | yes        | PIN 1357, session `eval-refresh-co-ba` | e7a10e7a-0000-4000-8000-010000000000 |
-| Bé Na  | be-na  | seller | no         | PIN 2468, session `eval-refresh-be-na` | e7a10e7a-0000-4000-8000-010000000001 |
-| Anh Tư | anh-tu | seller | yes        | none (no PIN, no session)              | e7a10e7a-0000-4000-8000-010000000002 |
+| Member | Key    | Role   | Can enroll | Login (PIN, Clerk email)                           | Member id                            |
+| ------ | ------ | ------ | ---------- | -------------------------------------------------- | ------------------------------------ |
+| Cô Ba  | co-ba  | lead   | yes        | PIN 1357, `seed-eval-co-ba+clerk_test@example.com` | e7a10e7a-0000-4000-8000-010000000000 |
+| Bé Na  | be-na  | seller | no         | PIN 2468, `seed-eval-be-na+clerk_test@example.com` | e7a10e7a-0000-4000-8000-010000000001 |
+| Anh Tư | anh-tu | seller | yes        | none (no PIN, no Clerk user)                       | e7a10e7a-0000-4000-8000-010000000002 |
 
 Roles for permission cases: **Cô Ba** is the Lead (every tool). **Bé Na** is a plain seller: no
 cost, margin, member-activity, day-close, review-queue, receipt or export access. **Anh Tư** can
 enroll (receipts) but cannot log in; he appears in data only (sales, voids, out-of-hours sales).
 
-Until X1 lands, the stub `AuthProvider` logs in with the refresh tokens above (the first
-`POST /v1/auth/refresh` rotates a token; `--reset` restores it) or with the recovery code. Task T7
-replaces this with Clerk users keyed by the member keys. Invites: one pending seller invite
+Sign-in is Clerk. `taphoa-seed --profile eval` (with `CLERK_SECRET_KEY`) finds or creates the two
+Clerk test users above by email and links them to the members, so the same users are reused on
+every run and reset (verification code `424242`). Anh Tư keeps a placeholder `seed_<member id>`
+Clerk id. The harness mints session tokens for the two emails (`ClerkAuth`). Invites: one pending seller invite
 (token `eval-invite-pending`, created 2026-10-18 by Cô Ba, `can_enroll` false) and two used ones
 (Bé Na and Anh Tư joined with them).
 
@@ -532,9 +533,8 @@ first day close done (2026-08-22 is closed).
 - **Customers and debts (U23, X5).** The tables do not exist on this branch. Task T7 adds the
   fixtures when X5 lands: the hook is the `TODO(X5)` comment in `insert_all`
   (`apps/backend/crates/api/src/seed/eval/insert.rs`).
-- **Clerk identity (X1).** All member, store-credential, session and invite inserts live in one
-  function, `insert_identity`; sales reference members by id and leave `session_id` NULL, so T7
-  changes only that function.
+- **Clerk identity (X1).** Store, member (PIN and `clerk_user_id`) and invite inserts live in one
+  function, `insert_identity`; sales reference members by id and leave `clerk_session_id` NULL.
 - Stock changes are not emitted as outbox events (the ledger rows are enough); sale, expense,
   receipt, alert and review events are, all marked published.
 

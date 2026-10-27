@@ -1,11 +1,11 @@
 //! Writes a generated [`Dataset`] in the caller's transaction, and deletes it again.
 //!
-//! Identity is isolated in [`insert_identity`]: store credentials, members, sessions and invites.
-//! Everything else refers to members by id only (`sales.session_id` stays NULL).
+//! Identity is isolated in [`insert_identity`]: store, members (PINs and Clerk user ids) and invites.
+//! Everything else refers to members by id only (`sales.clerk_session_id` stays NULL).
 use super::build::{T_EMBEDDING, id};
 use super::catalog::SUPPLIERS;
 use super::model::*;
-use crate::seed::{digest, password_hash, vector};
+use crate::seed::{ClerkUsers, digest, member_email, password_hash, vector};
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use chrono_tz::Asia::Ho_Chi_Minh;
@@ -50,9 +50,13 @@ fn hash(row_id: Uuid) -> Vec<u8> {
     digest(&row_id.to_string())
 }
 
-pub(super) async fn insert_all(tx: &mut Tx<'_>, ds: &Dataset) -> Result<()> {
+pub(super) async fn insert_all(
+    tx: &mut Tx<'_>,
+    ds: &Dataset,
+    clerk_ids: &BTreeMap<Uuid, String>,
+) -> Result<()> {
     let mut outbox = Vec::new();
-    insert_identity(tx, ds, &mut outbox).await?;
+    insert_identity(tx, ds, clerk_ids, &mut outbox).await?;
     insert_catalog(tx, ds, &mut outbox).await?;
     insert_purchasing(tx, ds, &mut outbox).await?;
     insert_sales(tx, ds, &mut outbox).await?;
@@ -62,11 +66,51 @@ pub(super) async fn insert_all(tx: &mut Tx<'_>, ds: &Dataset) -> Result<()> {
     flush_outbox(tx, ds, outbox).await
 }
 
-/// Store row with its credentials, members with PINs, sessions and invites, plus their change
-/// feed entries. Epic X1 replaces this with Clerk users (`members.clerk_user_id`, no sessions).
-async fn insert_identity(tx: &mut Tx<'_>, ds: &Dataset, outbox: &mut Vec<Outbox>) -> Result<()> {
+/// Store key of the eval seed in the Clerk emails: `seed-eval-<member key>+clerk_test@example.com`.
+pub(super) const CLERK_STORE_KEY: &str = "eval";
+
+/// Clerk user id of every member that can sign in (found or created by email, so users are
+/// reused across runs). Empty without a Clerk client: the members then keep placeholder ids.
+pub(super) async fn clerk_user_ids(
+    clerk: Option<&ClerkUsers>,
+    ds: &Dataset,
+) -> Result<BTreeMap<Uuid, String>> {
+    let mut ids = BTreeMap::new();
+    let Some(clerk) = clerk else { return Ok(ids) };
+    for m in ds.identity.members.iter().filter(|m| m.login) {
+        let email = member_email(CLERK_STORE_KEY, m.key);
+        let id = clerk
+            .find_or_create(&email, m.name)
+            .await
+            .with_context(|| format!("Clerk test user for {email}"))?;
+        ids.insert(m.id, id);
+    }
+    Ok(ids)
+}
+
+/// Points members of an existing eval store at their Clerk users (a rerun without --reset).
+/// Rows that already match change nothing.
+pub(super) async fn link_members(
+    tx: &mut Tx<'_>,
+    ds: &Dataset,
+    clerk_ids: &BTreeMap<Uuid, String>,
+) -> Result<()> {
+    for (member, user) in clerk_ids {
+        sqlx::query("UPDATE members SET clerk_user_id=$3 WHERE id=$1 AND store_id=$2 AND clerk_user_id IS DISTINCT FROM $3")
+            .bind(member).bind(ds.store.id).bind(user)
+            .execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
+/// Store row, members with PINs and Clerk user ids, and invites, plus their change feed entries.
+async fn insert_identity(
+    tx: &mut Tx<'_>,
+    ds: &Dataset,
+    clerk_ids: &BTreeMap<Uuid, String>,
+    outbox: &mut Vec<Outbox>,
+) -> Result<()> {
     let store = &ds.store;
-    let normalized = ds.identity.recovery_code.replace('-', "");
     let salt = store.id.to_string();
     let pins: Vec<(Uuid, &'static str)> = ds
         .identity
@@ -74,38 +118,34 @@ async fn insert_identity(tx: &mut Tx<'_>, ds: &Dataset, outbox: &mut Vec<Outbox>
         .iter()
         .filter_map(|m| m.pin.map(|pin| (m.id, pin)))
         .collect();
-    let lookup = digest(&normalized);
-    let (recovery_hash, pin_hashes) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let recovery = password_hash(&normalized, &salt)?;
+    let pin_hashes = tokio::task::spawn_blocking(move || -> Result<_> {
         let mut hashes = BTreeMap::new();
         for (member, pin) in pins {
             hashes.insert(member, password_hash(pin, &format!("{salt}/pin/{member}"))?);
         }
-        Ok((recovery, hashes))
+        Ok(hashes)
     })
     .await
     .context("join credential hashing")??;
-    sqlx::query("INSERT INTO stores (id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct,low_stock_threshold,recovery_code_hash,recovery_code_lookup,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)")
+    sqlx::query("INSERT INTO stores (id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct,low_stock_threshold,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)")
         .bind(store.id).bind(store.name).bind(store.bank_bin).bind(store.bank_short_name)
         .bind(store.bank_account_number).bind(store.bank_account_name).bind(store.margin_threshold_pct)
-        .bind(store.low_stock_threshold).bind(recovery_hash).bind(lookup).bind(store.created_at)
+        .bind(store.low_stock_threshold).bind(store.created_at)
         .execute(&mut **tx).await?;
-    // Credentials never expire on the wall clock: the pinned date, not today's, drives the eval.
+    // Invites never expire on the wall clock: the pinned date, not today's, drives the eval.
     let never = Utc
         .with_ymd_and_hms(2030, 1, 1, 0, 0, 0)
         .single()
         .expect("valid date");
     for m in &ds.identity.members {
-        sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)")
+        let clerk_user_id = clerk_ids
+            .get(&m.id)
+            .cloned()
+            .unwrap_or_else(|| format!("seed_{}", m.id));
+        sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,clerk_user_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)")
             .bind(m.id).bind(store.id).bind(m.name).bind(m.role).bind(m.can_enroll)
-            .bind(pin_hashes.get(&m.id)).bind(m.created_at)
+            .bind(pin_hashes.get(&m.id)).bind(clerk_user_id).bind(m.created_at)
             .execute(&mut **tx).await?;
-        if let Some(s) = &m.session {
-            sqlx::query("INSERT INTO sessions (id,store_id,member_id,device_name,platform,app_version,refresh_token_hash,expires_at,created_at,last_seen_at) VALUES ($1,$2,$3,$4,$5,'1.0.0-eval',$6,$7,$8,$9)")
-                .bind(s.id).bind(store.id).bind(m.id).bind(s.device).bind(s.platform)
-                .bind(digest(s.refresh_token)).bind(never).bind(m.created_at).bind(ds.now)
-                .execute(&mut **tx).await?;
-        }
     }
     for i in &ds.identity.invites {
         sqlx::query("INSERT INTO invites (id,store_id,token_hash,role,can_enroll,created_by,expires_at,used_at,used_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
@@ -706,9 +746,8 @@ pub(super) async fn delete_store(tx: &mut Tx<'_>, store: Uuid) -> Result<()> {
 }
 
 /// The counterpart of [`insert_identity`]: everything that references members goes first, so
-/// invites and members can follow. Task T7 adapts both functions to the Clerk schema.
+/// invites and members can follow.
 async fn delete_identity(tx: &mut Tx<'_>, store: Uuid) -> Result<()> {
-    // Sessions cascade from members.
     for sql in [
         "DELETE FROM invites WHERE store_id=$1",
         "DELETE FROM members WHERE store_id=$1",

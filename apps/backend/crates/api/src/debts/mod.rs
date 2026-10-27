@@ -195,7 +195,7 @@ async fn entry(
         business_date(at.unwrap_or_else(Utc::now)),
         Some(key_hash.as_slice()),
         Some(hash.as_slice()),
-        Some((actor.member_id, actor.session_id)),
+        Some(actor.event_actor()),
     )
     .await?;
     tx.commit().await.map_err(db_error)?;

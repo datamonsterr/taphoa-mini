@@ -317,16 +317,13 @@ fn store_and_members() {
     assert_eq!(DS.identity.members.len(), 3);
     let ba = member(MEMBER_LEAD);
     assert_eq!((ba.role, ba.can_enroll), ("lead", true));
-    assert!(ba.pin.is_some() && ba.session.is_some(), "Cô Ba can log in");
+    assert!(ba.pin.is_some() && ba.login, "Cô Ba can log in");
     let na = member(MEMBER_SELLER);
     assert_eq!((na.role, na.can_enroll), ("seller", false));
-    assert!(na.pin.is_some() && na.session.is_some(), "Bé Na can log in");
+    assert!(na.pin.is_some() && na.login, "Bé Na can log in");
     let tu = member(MEMBER_ENROLLER);
     assert_eq!((tu.role, tu.can_enroll), ("seller", true));
-    assert!(
-        tu.pin.is_none() && tu.session.is_none(),
-        "Anh Tư cannot log in"
-    );
+    assert!(tu.pin.is_none() && !tu.login, "Anh Tư cannot log in");
     let pending: Vec<_> = DS
         .identity
         .invites
@@ -343,12 +340,6 @@ fn store_and_members() {
 fn ids_are_unique_and_disjoint_from_the_v1_fixtures() {
     let mut all: Vec<Uuid> = vec![DS.store.id];
     all.extend(DS.identity.members.iter().map(|m| m.id));
-    all.extend(
-        DS.identity
-            .members
-            .iter()
-            .filter_map(|m| m.session.as_ref().map(|s| s.id)),
-    );
     all.extend(DS.identity.invites.iter().map(|i| i.id));
     all.extend(DS.categories.iter().map(|c| c.id));
     all.extend(DS.products.iter().map(|p| p.id));
@@ -1528,12 +1519,11 @@ fn store_md_documents_every_fixture() {
         .find(|i| i.used_at.is_none())
         .unwrap();
     need("invite token", &invite.token);
-    need("recovery code", &DS.identity.recovery_code);
     need("store id", &DS.store.id.to_string());
     for m in &DS.identity.members {
         need("member id", &m.id.to_string());
-        if let Some(s) = &m.session {
-            need("refresh token", s.refresh_token);
+        if m.login {
+            need("clerk email", &crate::seed::member_email("eval", m.key));
         }
         if let Some(pin) = m.pin {
             need("pin", pin);
@@ -1583,10 +1573,7 @@ fn print_rows() {
     }
     let d = DS.receipts.iter().find(|r| r.status == "draft").unwrap();
     println!("DRAFT receipt id {} created {}", d.id, local(d.created_at));
-    println!(
-        "STORE {} recovery {}",
-        DS.store.id, DS.identity.recovery_code
-    );
+    println!("STORE {}", DS.store.id);
     for m in &DS.identity.members {
         println!("MEMBER {} {} {}", m.name, m.key, m.id);
     }
@@ -1635,5 +1622,18 @@ fn print_rows() {
         "DIFF {} {}",
         diff.date,
         diff.counted_cash - diff.expected_cash
+    );
+}
+
+#[test]
+fn clerk_emails_follow_the_member_keys() {
+    use crate::seed::member_email;
+    assert_eq!(
+        member_email("eval", "co-ba"),
+        "seed-eval-co-ba+clerk_test@example.com"
+    );
+    assert_eq!(
+        member_email("eval", "be-na"),
+        "seed-eval-be-na+clerk_test@example.com"
     );
 }

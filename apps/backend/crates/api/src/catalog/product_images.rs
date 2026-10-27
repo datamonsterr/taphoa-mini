@@ -177,7 +177,7 @@ pub(crate) async fn add(
         &mut tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "product", "ids": [product_id]}),
@@ -253,7 +253,7 @@ pub(crate) async fn remove(
         &mut tx,
         crate::events::Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ: "catalog.changed",
             version: 1,
             data: json!({"entity": "product", "ids": [product_id]}),

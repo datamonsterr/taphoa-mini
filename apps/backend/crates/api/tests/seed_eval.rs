@@ -9,9 +9,8 @@ use uuid::Uuid;
 /// Tables with a `store_id`, fingerprinted row by row. `change_log` and `outbox_events` carry
 /// database-generated ids and `scans.catalog_version` points into `change_log`, so those three
 /// are only counted when comparing a reset against the previous seed.
-const CONTENT_TABLES: [&str; 20] = [
+const CONTENT_TABLES: [&str; 19] = [
     "members",
-    "sessions",
     "invites",
     "images",
     "categories",
@@ -154,7 +153,15 @@ async fn eval_store_fixtures_rerun_and_reset() {
     let v1_counts_before = all_counts(&pool, &v1).await;
 
     // Start from a known state, whatever earlier runs left behind.
-    let reset = eval::run(&pool, EvalOptions { reset: true }).await.unwrap();
+    let reset = eval::run(
+        &pool,
+        EvalOptions {
+            reset: true,
+            clerk: None,
+        },
+    )
+    .await
+    .unwrap();
     assert!(matches!(
         reset.status,
         EvalStatus::Created | EvalStatus::Reset
@@ -211,10 +218,10 @@ async fn eval_store_fixtures_rerun_and_reset() {
         scalar(
             &pool,
             store,
-            "SELECT count(*) FROM sessions WHERE store_id=$1"
+            "SELECT count(*) FROM members WHERE store_id=$1 AND clerk_user_id <> ''"
         )
         .await,
-        2
+        3
     );
     assert_eq!(
         scalar(
@@ -420,7 +427,15 @@ async fn eval_store_fixtures_rerun_and_reset() {
     assert_eq!(counts_1, all_counts(&pool, &eval_ids).await);
 
     // ---- reset deletes every row of the store and reproduces the same content ----
-    let again = eval::run(&pool, EvalOptions { reset: true }).await.unwrap();
+    let again = eval::run(
+        &pool,
+        EvalOptions {
+            reset: true,
+            clerk: None,
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(again.status, EvalStatus::Reset);
     assert_eq!(again.store_id, store);
     let counts_2 = all_counts(&pool, &eval_ids).await;
@@ -463,7 +478,15 @@ async fn eval_store_fixtures_rerun_and_reset() {
 async fn reset_removes_the_eval_store_completely_before_reseeding() {
     let _one_at_a_time = DATABASE.lock().await;
     let Some(pool) = connect().await else { return };
-    let report = eval::run(&pool, EvalOptions { reset: true }).await.unwrap();
+    let report = eval::run(
+        &pool,
+        EvalOptions {
+            reset: true,
+            clerk: None,
+        },
+    )
+    .await
+    .unwrap();
     let store = report.store_id;
     // Anything the eval store owns, including images and outbox events, is gone after a delete
     // that precedes the reseed; prove it by tagging rows with a marker and resetting.
@@ -478,7 +501,15 @@ async fn reset_removes_the_eval_store_completely_before_reseeding() {
         .execute(&pool)
         .await
         .unwrap();
-    eval::run(&pool, EvalOptions { reset: true }).await.unwrap();
+    eval::run(
+        &pool,
+        EvalOptions {
+            reset: true,
+            clerk: None,
+        },
+    )
+    .await
+    .unwrap();
     for sql in [
         "SELECT count(*) FROM outbox_events WHERE type='eval.marker'",
         "SELECT count(*) FROM images WHERE object_key='images/eval-marker.jpg'",

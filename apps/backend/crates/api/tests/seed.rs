@@ -28,7 +28,6 @@ async fn counts(pool: &sqlx::PgPool) -> Vec<(String, i64)> {
     for table in [
         "stores",
         "members",
-        "sessions",
         "invites",
         "images",
         "categories",

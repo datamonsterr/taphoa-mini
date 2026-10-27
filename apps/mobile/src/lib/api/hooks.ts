@@ -10,6 +10,7 @@ import {
   type ListCustomersParams,
 } from './debts';
 import { useRef } from 'react';
+import { useAuth } from '@clerk/expo';
 
 import { newUuid } from '@/lib/uuid';
 import {
@@ -37,7 +38,6 @@ import {
   listExpenses,
   listSales,
 } from './ledger';
-import { setPin, switchMember } from './auth';
 import { isApiError } from './errors';
 import {
   createScan,
@@ -74,6 +74,7 @@ import {
 } from './products';
 import {
   createInvite,
+  setPin,
   getMe,
   getStore,
   listMembers,
@@ -110,7 +111,17 @@ const invalidate = (qc: QueryClient, ...queryKeys: (readonly unknown[])[]) =>
 
 // ---- queries --------------------------------------------------------------
 
-export const useMe = () => useQuery({ queryKey: keys.me(), queryFn: getMe });
+export function useMe(enabled = true) {
+  const { userId, isSignedIn } = useAuth();
+  return useQuery({
+    queryKey: keys.me(userId),
+    queryFn: getMe,
+    enabled: enabled && !!isSignedIn,
+    staleTime: 60_000,
+    retry: false,
+    retryOnMount: false,
+  });
+}
 
 export const useStore = () =>
   useQuery({ queryKey: keys.store(), queryFn: getStore });
@@ -556,16 +567,6 @@ export function usePatchStore() {
         keys.stock.all(),
         keys.products.all(),
       ),
-  });
-}
-
-/** The phone acts as another member: everything cached belonged to the previous one. */
-export function useSwitchMember() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: Parameters<typeof switchMember>[0]) =>
-      switchMember(input),
-    onSuccess: () => qc.resetQueries({ queryKey: keys.all }),
   });
 }
 

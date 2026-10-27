@@ -49,7 +49,8 @@ mod tests {
         let actor = Actor {
             member_id: uuid::Uuid::nil(),
             store_id: uuid::Uuid::nil(),
-            session_id: uuid::Uuid::nil(),
+            clerk_user_id: "user_test".into(),
+            clerk_session_id: "sess_test".into(),
             role: Role::Seller,
             can_enroll: false,
         };

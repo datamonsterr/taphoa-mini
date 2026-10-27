@@ -97,7 +97,7 @@ describe('queries', () => {
         expect(q.result.current.isSuccess).toBe(true);
       }
     });
-    expect(me.result.current.data?.member.role).toBe('lead');
+    expect(me.result.current.data?.memberships[0]?.member.role).toBe('lead');
     expect(store.result.current.data?.name).toBe('Tạp hóa Cô Ba');
     expect(members.result.current.data).toHaveLength(3);
     expect(categories.result.current.data).toHaveLength(5);

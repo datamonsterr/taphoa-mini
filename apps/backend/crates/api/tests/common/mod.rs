@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
@@ -88,4 +89,5 @@ impl Contract {
         );
     }
 }
+pub mod clerk;
 pub mod world;

@@ -33,15 +33,15 @@ pub(super) struct MemberSpec {
     pub role: &'static str,
     pub can_enroll: bool,
     pub pin: Option<&'static str>,
-    /// Device name, platform and raw refresh token of the stub login session.
-    pub session: Option<(&'static str, &'static str, &'static str)>,
+    /// Linked to a Clerk test user (can sign in).
+    pub login: bool,
 }
 
 #[rustfmt::skip]
 pub(super) const MEMBERS: [MemberSpec; 3] = [
-    MemberSpec { key: "co-ba", name: MEMBER_LEAD, role: "lead", can_enroll: true, pin: Some("1357"), session: Some(("Samsung A15 quầy", "android", "eval-refresh-co-ba")) },
-    MemberSpec { key: "be-na", name: MEMBER_SELLER, role: "seller", can_enroll: false, pin: Some("2468"), session: Some(("iPhone của Bé Na", "ios", "eval-refresh-be-na")) },
-    MemberSpec { key: "anh-tu", name: MEMBER_ENROLLER, role: "seller", can_enroll: true, pin: None, session: None },
+    MemberSpec { key: "co-ba", name: MEMBER_LEAD, role: "lead", can_enroll: true, pin: Some("1357"), login: true },
+    MemberSpec { key: "be-na", name: MEMBER_SELLER, role: "seller", can_enroll: false, pin: Some("2468"), login: true },
+    MemberSpec { key: "anh-tu", name: MEMBER_ENROLLER, role: "seller", can_enroll: true, pin: None, login: false },
 ];
 
 pub(super) const PENDING_INVITE_TOKEN: &str = "eval-invite-pending";

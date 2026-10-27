@@ -25,6 +25,9 @@ export interface ApiClientOptions {
   baseUrl: string;
   /** Returns the bearer access token, or null when signed out. */
   getToken?: () => string | null | Promise<string | null>;
+  /** Returns the selected store id, or null/undefined when no store is selected. */
+  getStoreId?: () =>
+    string | null | undefined | Promise<string | null | undefined>;
   /** Injected for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
 }
@@ -50,6 +53,18 @@ export function createApiClient(options: ApiClientOptions) {
       },
     };
     client.use(auth);
+  }
+
+  if (options.getStoreId) {
+    const getStoreId = options.getStoreId;
+    const store: Middleware = {
+      async onRequest({ request }) {
+        const storeId = await getStoreId();
+        if (storeId) request.headers.set('X-Store-Id', storeId);
+        return request;
+      },
+    };
+    client.use(store);
   }
 
   return {

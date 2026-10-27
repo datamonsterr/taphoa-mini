@@ -87,8 +87,8 @@ for CI and for you. `identities --github-env` also appends masked `EVAL_LEAD_TOK
 `EVAL_SELLER_TOKEN` and `EVAL_STORE_ID` to `$GITHUB_ENV`. Do not export those to a long run:
 the tokens last about 60 s. Pass `CLERK_SECRET_KEY` instead.
 
-Until epic X1 is on `main`, the seed creates no Clerk users and `identities` fails with the
-missing email. `X1-SEED-PATCH.md` describes the seed change that makes them.
+Without `CLERK_SECRET_KEY` the seed creates no Clerk users and `identities` fails with the
+missing email.
 
 ## Local stack
 

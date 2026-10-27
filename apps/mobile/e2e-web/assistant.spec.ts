@@ -64,6 +64,7 @@ function probeModel(): Promise<string | null> {
         method: 'POST',
         headers: {
           authorization: `Bearer ${api.token}`,
+          'x-store-id': String(api.session.store.id),
           'content-type': 'application/json',
         },
         body: JSON.stringify({ content: 'Xin chào', language: 'vi' }),
@@ -81,7 +82,10 @@ function probeModel(): Promise<string | null> {
 
 test.beforeEach(async ({ request, store }) => {
   const response = await request.get(`${API_URL}/v1/assistant/threads`, {
-    headers: { authorization: `Bearer ${store.api.token}` },
+    headers: {
+      authorization: `Bearer ${store.api.token}`,
+      'x-store-id': String(store.api.session.store.id),
+    },
   });
   test.skip(
     [404, 405, 501].includes(response.status()),

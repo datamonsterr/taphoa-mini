@@ -30,3 +30,11 @@ debug = 0
 
 [profile.test]
 debug = 0
+
+# Test helpers generate an RSA key per test process (nextest runs one process per
+# test). Unoptimized `rsa` key generation takes seconds; optimize just these crates.
+[profile.dev.package.rsa]
+opt-level = 3
+
+[profile.dev.package.num-bigint-dig]
+opt-level = 3

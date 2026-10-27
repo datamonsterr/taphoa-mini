@@ -3,7 +3,7 @@
 use super::catalog::*;
 use super::model::*;
 use super::{ledger, sales, supply};
-use crate::seed::{Prng, crockford};
+use crate::seed::Prng;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Asia::Ho_Chi_Minh;
 use std::collections::BTreeMap;
@@ -17,7 +17,6 @@ pub(super) const SEED: &str = "taphoa-mini/eval-store/seed-v1";
 const NAMESPACE: u128 = 0xe7a1_0e7a_0000_4000_8000_0000_0000_0000;
 pub(super) const T_STORE: u16 = 0;
 pub(super) const T_MEMBER: u16 = 1;
-pub(super) const T_SESSION: u16 = 2;
 pub(super) const T_INVITE: u16 = 3;
 pub(super) const T_CATEGORY: u16 = 4;
 pub(super) const T_PRODUCT: u16 = 5;
@@ -298,16 +297,6 @@ impl Images {
     }
 }
 
-fn recovery_code() -> String {
-    let mut rng = Prng::new(&format!("{SEED}/recovery"));
-    let raw = crockford((u128::from(rng.next()) << 64) | u128::from(rng.next()), 16);
-    raw.as_bytes()
-        .chunks(4)
-        .map(|s| String::from_utf8_lossy(s).into_owned())
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
 fn identity(ctx: &Ctx) -> Identity {
     let created = ctx.created;
     let members = MEMBERS
@@ -320,12 +309,7 @@ fn identity(ctx: &Ctx) -> Identity {
             role: m.role,
             can_enroll: m.can_enroll,
             pin: m.pin,
-            session: m.session.map(|(device, platform, token)| SessionRow {
-                id: id(T_SESSION, i as u64),
-                device,
-                platform,
-                refresh_token: token,
-            }),
+            login: m.login,
             created_at: created + Duration::minutes(5 + i as i64),
         })
         .collect();
@@ -341,7 +325,6 @@ fn identity(ctx: &Ctx) -> Identity {
         used_at: Some(created + Duration::minutes(5 + who as i64)),
     };
     Identity {
-        recovery_code: recovery_code(),
         members,
         invites: vec![
             used(0, 1, "eval-invite-used-be-na"),

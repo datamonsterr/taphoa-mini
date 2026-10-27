@@ -185,7 +185,7 @@ async fn event(
         conn,
         Event {
             store_id: actor.store_id,
-            actor: Some((actor.member_id, actor.session_id)),
+            actor: Some(actor.event_actor()),
             typ,
             version: 1,
             data,

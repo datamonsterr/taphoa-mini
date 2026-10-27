@@ -108,6 +108,9 @@ jobs:
         if: steps.railway.outputs.configured == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+          # taphoa-seed creates or reuses Clerk test users through the Backend API.
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/ci/seed-test.sh
       - uses: ./.github/actions/setup-js
         if: steps.railway.outputs.configured == 'true' && hashFiles('packages/e2e/package.json') != ''
@@ -116,6 +119,9 @@ jobs:
         env:
           BACKEND_URL: ${{ vars.BACKEND_URL_TEST }}
           LATENCY_P95_MS: ${{ vars.LATENCY_P95_MS || '200' }}
+          # The e2e helpers create Clerk users and session tokens; run-e2e.sh fails fast without it.
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: scripts/ci/run-e2e.sh
       - name: Summary
         if: always()

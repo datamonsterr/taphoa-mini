@@ -46,6 +46,43 @@ describe('api client', () => {
     expect(req.headers.get('Authorization')).toBe('Bearer tok');
   });
 
+  it.each([false, true])(
+    'sends X-Store-Id on every request (async: %s)',
+    async (asyncStoreId) => {
+      const fetchMock = vi.fn(async (_req: Request) => json(image));
+      const api = createApiClient({
+        baseUrl: 'https://api.example.test',
+        fetch: fetchMock as unknown as typeof fetch,
+        getToken: () => 'tok',
+        getStoreId: asyncStoreId ? async () => image.id : () => image.id,
+      });
+      await api.getHealth();
+      await api.getImage(image.id);
+      await api.uploadImage(new Blob(['photo']));
+      await api.raw.GET('/v1/me');
+      for (const [request] of fetchMock.mock.calls) {
+        expect(request.headers.get('X-Store-Id')).toBe(image.id);
+        expect(request.headers.get('Authorization')).toBe('Bearer tok');
+      }
+    },
+  );
+
+  it.each([null, undefined])(
+    'omits X-Store-Id when the callback returns %s',
+    async (storeId) => {
+      const fetchMock = vi.fn(async (_req: Request) => json(image));
+      const getStoreId = vi.fn(() => storeId);
+      const api = createApiClient({
+        baseUrl: 'https://api.example.test',
+        fetch: fetchMock as unknown as typeof fetch,
+        getStoreId,
+      });
+      await api.getImage(image.id);
+      expect(getStoreId).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0]![0].headers.has('X-Store-Id')).toBe(false);
+    },
+  );
+
   it('getImage surfaces error responses', async () => {
     const { api } = setup(
       json({ code: 'not_found', message: 'nope' }, 404),

@@ -1,6 +1,7 @@
 import { createApiClient, type ApiClient } from '@taphoa/api-client';
 
 import { createAuthFetch } from './authFetch';
+import { currentStoreId } from './clerkBridge';
 
 /** Used when `EXPO_PUBLIC_API_URL` is unset: the backend of `docker compose up`. */
 export const DEFAULT_API_URL = 'http://localhost:8080';
@@ -15,6 +16,7 @@ function createClient(): ApiClient {
   const baseUrl = apiBaseUrl();
   return createApiClient({
     baseUrl,
+    getStoreId: currentStoreId,
     fetch: createAuthFetch({ baseUrl, fetch: transport }),
   });
 }

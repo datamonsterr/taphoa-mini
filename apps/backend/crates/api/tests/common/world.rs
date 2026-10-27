@@ -29,7 +29,8 @@ pub struct Reply {
 
 async fn app() -> (Router, AppState) {
     let config = Config::from_lookup(|key| match key {
-        "JWT_SECRET" => Some("e4-test-secret-at-least-32-bytes-long".into()),
+        "CLERK_ISSUER" => Some(super::clerk::TEST_ISSUER.into()),
+        "CLERK_SECRET_KEY" => None,
         // Each request carries a unique x-forwarded-for so rate-limit counters in the
         // shared Redis never collide with other suites using the peer address.
         "CLIENT_IP_SOURCE" => Some("x-forwarded-for".into()),
@@ -38,7 +39,8 @@ async fn app() -> (Router, AppState) {
         _ => std::env::var(key).ok(),
     })
     .unwrap();
-    let state = AppState::connect_with_config(&config, None).await.unwrap();
+    let mut state = AppState::connect_with_config(&config, None).await.unwrap();
+    super::clerk::install(&mut state);
     (router(state.clone()), state)
 }
 pub async fn send(
@@ -90,29 +92,27 @@ fn unique_ip() -> String {
     let b = Uuid::new_v4().into_bytes();
     format!("10.{}.{}.{}", b[0], b[1], b[2])
 }
-fn device() -> Value {
-    json!({"name":"counter","platform":"web","app_version":"1.0"})
-}
 impl World {
     pub async fn new() -> Self {
         let (app, state) = app().await;
+        let token = super::clerk::token();
+        let seller_token = super::clerk::token();
         let lead = send(
             &app,
             "POST",
             "/v1/stores",
-            None,
-            json!({"store_name":"Tạp hóa E4","display_name":"Lead","device":device()}),
+            Some(&token),
+            json!({"store_name":"Tạp hóa E4","display_name":"Lead"}),
         )
         .await;
         assert_eq!(lead.status, StatusCode::CREATED, "{}", lead.body);
-        let token = lead.body["access_token"].as_str().unwrap().to_string();
         let invite = send(&app, "POST", "/v1/invites", Some(&token), json!({})).await;
         let seller = send(
             &app,
             "POST",
             "/v1/auth/join",
-            None,
-            json!({"invite_token":invite.body["token"],"display_name":"Seller","device":device()}),
+            Some(&seller_token),
+            json!({"invite_token":invite.body["token"],"display_name":"Seller"}),
         )
         .await;
         assert_eq!(seller.status, StatusCode::CREATED, "{}", seller.body);
@@ -127,7 +127,7 @@ impl World {
                 .unwrap()
                 .parse()
                 .unwrap(),
-            seller: seller.body["access_token"].as_str().unwrap().to_string(),
+            seller: seller_token,
         }
     }
     pub fn pool(&self) -> &sqlx::PgPool {

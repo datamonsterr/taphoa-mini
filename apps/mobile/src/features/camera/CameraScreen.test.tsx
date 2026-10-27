@@ -25,7 +25,7 @@ import {
   setNextScanDocument,
 } from '@/test/mock';
 import { useCartStore } from '@/stores/cart';
-import { useSessionStore } from '@/stores/session';
+import { testSession, setTestMembership } from '@/test/session';
 import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
 import {
@@ -689,12 +689,10 @@ describe('low match', () => {
 describe('enroll permission', () => {
   beforeEach(() => setMockScenario('unknown'));
   const asSeller = (can_enroll: boolean) => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: {
-        ...session!,
-        member: { ...session!.member, role: 'seller', can_enroll },
-      },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll },
     });
   };
 
@@ -997,12 +995,10 @@ describe('quick enroll capture', () => {
 
 describe('import receipt document', () => {
   it('hides the document button for a Seller without can_enroll', async () => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: {
-        ...session!,
-        member: { ...session!.member, role: 'seller', can_enroll: false },
-      },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll: false },
     });
     setNextScanDocument();
     await renderWithProviders(<CameraScreen />);
@@ -1015,12 +1011,10 @@ describe('import receipt document', () => {
   });
 
   it('shows the document button for a Seller with can_enroll', async () => {
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: {
-        ...session!,
-        member: { ...session!.member, role: 'seller', can_enroll: true },
-      },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll: true },
     });
     setNextScanDocument();
     await renderWithProviders(<CameraScreen />);
@@ -1212,12 +1206,10 @@ describe('assistant entry points', () => {
 
   it('hides the on-device chips from a Seller who cannot enroll', async () => {
     setNextScanDocument();
-    const { session } = useSessionStore.getState();
-    useSessionStore.setState({
-      session: {
-        ...session!,
-        member: { ...session!.member, role: 'seller', can_enroll: false },
-      },
+    const session = testSession();
+    setTestMembership({
+      ...session!,
+      member: { ...session!.member, role: 'seller', can_enroll: false },
     });
     await renderWithProviders(<CameraScreen />);
     await capture();

@@ -34,15 +34,13 @@ impl FromStr for Role {
         }
     }
 }
+/// Verified Clerk identity, independent of any store membership.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Actor {
-    pub member_id: Uuid,
-    pub store_id: Uuid,
-    pub session_id: Uuid,
-    pub role: Role,
-    pub can_enroll: bool,
+pub struct ClerkIdentity {
+    pub user_id: String,
+    pub session_id: String,
 }
-impl FromRequestParts<AppState> for Actor {
+impl FromRequestParts<AppState> for ClerkIdentity {
     type Rejection = ApiError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> ApiResult<Self> {
         let header = parts
@@ -57,14 +55,76 @@ impl FromRequestParts<AppState> for Actor {
         {
             return Err(ApiError::unauthorized());
         }
-        let mut actor = state.jwt.verify(token)?;
-        if let Some(pool) = &state.postgres {
-            let member:Option<(String,bool)>=sqlx::query_as("SELECT m.role,m.can_enroll FROM sessions s JOIN members m ON m.id=s.member_id AND m.store_id=s.store_id WHERE s.id=$1 AND s.store_id=$2 AND s.member_id=$3 AND s.revoked_at IS NULL AND s.expires_at>now() AND m.active")
-                .bind(actor.session_id).bind(actor.store_id).bind(actor.member_id).fetch_optional(pool).await?;
-            let (role, enroll) = member.ok_or_else(ApiError::unauthorized)?;
-            actor.role = role.parse()?;
-            actor.can_enroll = actor.role == Role::Lead || enroll;
+        let claims = state.clerk.verify(token).await?;
+        Ok(Self {
+            user_id: claims.user_id,
+            session_id: claims.session_id,
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Actor {
+    pub clerk_user_id: String,
+    pub member_id: Uuid,
+    pub store_id: Uuid,
+    pub clerk_session_id: String,
+    pub role: Role,
+    pub can_enroll: bool,
+}
+impl Actor {
+    pub fn event_actor(&self) -> (Uuid, String) {
+        (self.member_id, self.clerk_session_id.clone())
+    }
+}
+impl FromRequestParts<AppState> for Actor {
+    type Rejection = ApiError;
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> ApiResult<Self> {
+        let identity = ClerkIdentity::from_request_parts(parts, state).await?;
+        let selected = parts
+            .headers
+            .get("X-Store-Id")
+            .map(|header| {
+                header
+                    .to_str()
+                    .ok()
+                    .and_then(|id| id.parse::<Uuid>().ok())
+                    .ok_or_else(|| ApiError::validation_failed("invalid X-Store-Id"))
+            })
+            .transpose()?;
+        let pool = state.postgres.as_ref().ok_or_else(ApiError::unavailable)?;
+        let memberships: Vec<(Uuid,Uuid,String,bool)> = sqlx::query_as(
+            "SELECT id,store_id,role,can_enroll FROM members WHERE clerk_user_id=$1 AND active ORDER BY created_at,id")
+            .bind(&identity.user_id).fetch_all(pool).await?;
+        if memberships.is_empty() {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "membership_required",
+                "active store membership required",
+            ));
         }
+        let membership = if let Some(store) = selected {
+            memberships
+                .iter()
+                .find(|m| m.1 == store)
+                .ok_or_else(ApiError::forbidden)?
+        } else if memberships.len() == 1 {
+            &memberships[0]
+        } else {
+            return Err(ApiError::new(
+                axum::http::StatusCode::BAD_REQUEST,
+                "store_required",
+                "X-Store-Id is required",
+            ));
+        };
+        let role: Role = membership.2.parse()?;
+        let actor = Self {
+            clerk_user_id: identity.user_id,
+            clerk_session_id: identity.session_id,
+            member_id: membership.0,
+            store_id: membership.1,
+            role,
+            can_enroll: role == Role::Lead || membership.3,
+        };
         crate::telemetry::record_identity(&actor);
         Ok(actor)
     }
@@ -74,45 +134,28 @@ mod tests {
     use super::*;
     use axum::http::Request;
     #[tokio::test]
-    async fn extracts_without_services_and_rejects_bad_headers() {
-        let state = AppState::default();
-        let actor = Actor {
-            member_id: Uuid::new_v4(),
-            store_id: Uuid::new_v4(),
-            session_id: Uuid::new_v4(),
-            role: Role::Seller,
-            can_enroll: true,
-        };
-        let (token, _) = state.jwt.issue(&actor);
+    async fn rejects_invalid_credentials_without_services() {
         for header in [
             None,
             Some("Basic abc"),
             Some("Bearer"),
             Some("Bearer bad"),
             Some("Bearer "),
+            Some("Bearer a b"),
         ] {
             let mut request = Request::builder();
-            if let Some(value) = header {
-                request = request.header(AUTHORIZATION, value);
+            if let Some(header) = header {
+                request = request.header(AUTHORIZATION, header);
             }
             let (mut parts, _) = request.body(()).unwrap().into_parts();
             assert_eq!(
-                Actor::from_request_parts(&mut parts, &state)
+                Actor::from_request_parts(&mut parts, &AppState::default())
                     .await
                     .unwrap_err()
                     .code,
                 "unauthorized"
             );
         }
-        let (mut parts, _) = Request::builder()
-            .header(AUTHORIZATION, format!("Bearer {token}"))
-            .body(())
-            .unwrap()
-            .into_parts();
-        assert_eq!(
-            Actor::from_request_parts(&mut parts, &state).await.unwrap(),
-            actor
-        );
         assert_eq!(Role::from_str("lead").unwrap().as_str(), "lead");
         assert!(Role::from_str("admin").is_err());
     }

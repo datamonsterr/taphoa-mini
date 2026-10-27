@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use sqlx::postgres::PgPoolOptions;
 use taphoa_api::seed::eval::{self, EvalOptions, EvalReport, EvalStatus};
+use taphoa_api::seed::{ClerkUsers, clerk::TEST_CODE};
 
 const USAGE: &str = "usage: taphoa-seed [--profile default|eval] [--reset]\n  --profile eval   build the deterministic eval store \"Tạp hóa Cô Ba\" (business date 2026-10-20)\n  --reset          with --profile eval: delete the eval store and everything it owns, then reseed";
 
@@ -52,10 +53,19 @@ async fn main() -> Result<()> {
         .run(&pool)
         .await
         .context("run migrations")?;
+    // CLERK_SECRET_KEY (bearer) and CLERK_API_URL (default https://api.clerk.com).
+    let clerk = ClerkUsers::from_env();
     match profile {
-        Profile::Default => seed_default(&pool).await?,
+        Profile::Default => seed_default(&pool, clerk.as_ref()).await?,
         Profile::Eval { reset } => {
-            let report = eval::run(&pool, EvalOptions { reset }).await?;
+            let report = eval::run(
+                &pool,
+                EvalOptions {
+                    reset,
+                    clerk: clerk.as_ref(),
+                },
+            )
+            .await?;
             print_eval(&report);
         }
     }
@@ -63,15 +73,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn seed_default(pool: &sqlx::PgPool) -> Result<()> {
-    let report = taphoa_api::seed::run(pool).await?;
+async fn seed_default(pool: &sqlx::PgPool, clerk: Option<&ClerkUsers>) -> Result<()> {
+    let report = taphoa_api::seed::run_with(pool, clerk).await?;
     // Credentials deliberately go to stdout only. Do not add tracing or file output.
     for store in report.stores {
         println!("\n{} ({})", store.name, store.store_id);
-        println!("Recovery code: {}", store.recovery_code);
         for member in store.members {
             println!(
-                "  {}: {} ({}){}{}",
+                "  {}: {} ({}){}{}{}",
                 member.display_name,
                 member.role,
                 member.member_id,
@@ -83,7 +92,12 @@ async fn seed_default(pool: &sqlx::PgPool) -> Result<()> {
                 member
                     .pin
                     .map(|pin| format!("; PIN {pin}"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                if report.clerk_linked {
+                    format!("; email {}", member.email)
+                } else {
+                    String::new()
+                }
             );
         }
         println!(
@@ -91,9 +105,18 @@ async fn seed_default(pool: &sqlx::PgPool) -> Result<()> {
             store.invite_token_hint
         );
     }
-    println!(
-        "\nRecovery rotates the code. Reruns preserve stored data; printed hints are the original fixture credentials."
-    );
+    if report.clerk_linked {
+        println!(
+            "\nSign in with an email above and the Clerk test code {TEST_CODE} (no mail is sent). Reruns reuse the same Clerk users and keep stored data; printed hints are the original fixture credentials."
+        );
+    } else {
+        eprintln!(
+            "\nWARNING: CLERK_SECRET_KEY is not set, so seeded members keep placeholder Clerk ids and cannot sign in. Set CLERK_SECRET_KEY (and CLERK_API_URL for a non-default Clerk API) and rerun to create or link their Clerk test users."
+        );
+        println!(
+            "\nReruns preserve stored data; printed hints are the original fixture credentials."
+        );
+    }
     Ok(())
 }
 
@@ -108,7 +131,6 @@ fn print_eval(report: &EvalReport) {
         }
     );
     println!("Business date pinned to {}", report.business_date);
-    println!("Recovery code: {}", report.recovery_code);
     for member in &report.members {
         println!(
             "  {} [{}]: {} ({}){}{}{}",
@@ -126,15 +148,21 @@ fn print_eval(report: &EvalReport) {
                 .as_ref()
                 .map(|pin| format!("; PIN {pin}"))
                 .unwrap_or_default(),
-            member
-                .refresh_token
-                .as_ref()
-                .map(|token| format!("; refresh token {token}"))
-                .unwrap_or_default(),
+            if member.clerk_user_id.is_some() {
+                format!("; email {}", member.email)
+            } else {
+                String::new()
+            },
         );
     }
     println!("Pending invite token: {}", report.invite_token);
-    println!(
-        "\nThe first POST /v1/auth/refresh rotates a member's refresh token; run --reset to restore the printed ones."
-    );
+    if report.clerk_linked {
+        println!(
+            "\nSign in with an email above and the Clerk test code {TEST_CODE} (no mail is sent). Reruns reuse the same Clerk users."
+        );
+    } else {
+        eprintln!(
+            "\nWARNING: CLERK_SECRET_KEY is not set, so the eval members keep placeholder Clerk ids and the harness cannot mint tokens. Set CLERK_SECRET_KEY and rerun."
+        );
+    }
 }

@@ -45,10 +45,9 @@ pub(super) struct StoreRow {
     pub created_at: DateTime<Utc>,
 }
 
-/// Everything epic X1 replaces with Clerk: members, credentials, sessions and invites.
+/// Members, PINs and invites. Sign-in is Clerk: members with `login` get a Clerk test user.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct Identity {
-    pub recovery_code: String,
     pub members: Vec<MemberRow>,
     pub invites: Vec<InviteRow>,
 }
@@ -61,16 +60,9 @@ pub(super) struct MemberRow {
     pub role: &'static str,
     pub can_enroll: bool,
     pub pin: Option<&'static str>,
-    pub session: Option<SessionRow>,
+    /// Linked to a Clerk test user (can sign in).
+    pub login: bool,
     pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub(super) struct SessionRow {
-    pub id: Uuid,
-    pub device: &'static str,
-    pub platform: &'static str,
-    pub refresh_token: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

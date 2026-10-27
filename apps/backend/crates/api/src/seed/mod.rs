@@ -2,7 +2,12 @@
 //!
 //! A store is inserted atomically with its entire 30-day snapshot. Existing fixture
 //! store IDs are skipped, even on later dates: reruns preserve counts and edits.
+//!
+//! With a [`ClerkUsers`] client every member is linked to a Clerk test user (created or
+//! reused by deterministic `+clerk_test` email), also for stores that already exist.
+//! Without one, new members get placeholder Clerk ids and cannot sign in.
 mod catalog;
+pub mod clerk;
 pub mod eval;
 mod stock;
 mod trading;
@@ -17,21 +22,31 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use catalog::{CATEGORIES, PRODUCTS};
+pub use clerk::{ClerkUsers, member_email};
 
 const SEED: &str = "taphoa-mini/local-development/seed-v1";
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 type Tx<'a> = Transaction<'a, Postgres>;
+/// Member key (used in the Clerk email) and display name, in seeding order. The first one
+/// is the Lead.
+const MEMBERS: [(&str, &str); 4] = [
+    ("me", "Mẹ"),
+    ("ba-noi", "Bà nội"),
+    ("con-trai", "Con trai"),
+    ("co-lan", "Cô Lan"),
+];
 
 /// Contains local credentials. Deliberately does not implement Debug or Serialize.
 pub struct SeedReport {
     pub stores: Vec<StoreReport>,
+    /// True when members were linked to Clerk users; false when placeholders were kept.
+    pub clerk_linked: bool,
 }
 
 /// Plaintext hints must only be printed to the seed CLI's stdout.
 pub struct StoreReport {
     pub store_id: Uuid,
     pub name: String,
-    pub recovery_code: String,
     pub members: Vec<MemberReport>,
     pub invite_token_hint: String,
 }
@@ -42,6 +57,10 @@ pub struct MemberReport {
     pub role: String,
     pub can_enroll: bool,
     pub pin: Option<String>,
+    /// Clerk test-user email (`+clerk_test`, verification code 424242).
+    pub email: String,
+    /// The linked Clerk user id; `None` when the seed ran without a Clerk client.
+    pub clerk_user_id: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -75,28 +94,26 @@ impl Store {
         }
     }
 
+    /// Store part of the Clerk emails.
+    fn key(self) -> &'static str {
+        if self.number == 1 { "coba" } else { "minhkhai" }
+    }
+
     fn report(self) -> StoreReport {
-        let mut rng = Prng::new(&format!("{SEED}/recovery/{}", self.number));
-        let raw = crockford((u128::from(rng.next()) << 64) | u128::from(rng.next()), 16);
-        let recovery_code = raw
-            .as_bytes()
-            .chunks(4)
-            .map(|s| String::from_utf8_lossy(s).into_owned())
-            .collect::<Vec<_>>()
-            .join("-");
         StoreReport {
             store_id: self.store_id(),
             name: self.name().into(),
-            recovery_code,
-            members: ["Mẹ", "Bà nội", "Con trai", "Cô Lan"]
+            members: MEMBERS
                 .iter()
                 .enumerate()
-                .map(|(n, name)| MemberReport {
+                .map(|(n, (key, name))| MemberReport {
                     member_id: self.id(1, n as u64),
                     display_name: (*name).into(),
                     role: if n == 0 { "lead" } else { "seller" }.into(),
                     can_enroll: n <= 1,
                     pin: (n == 2).then(|| "2468".into()),
+                    email: member_email(self.key(), key),
+                    clerk_user_id: None,
                 })
                 .collect(),
             invite_token_hint: format!(
@@ -118,26 +135,54 @@ impl Store {
     }
 }
 
+/// Seed two stores without Clerk: members keep placeholder Clerk ids and cannot sign in.
+pub async fn run(pool: &PgPool) -> Result<SeedReport> {
+    run_with(pool, None).await
+}
+
 /// Seed two stores in separate transactions, serializing competing seed invocations.
 /// Dates end on today's Asia/Ho_Chi_Minh business date on the first successful run.
 /// Later runs skip existing stores entirely and return the same deterministic hints.
-pub async fn run(pool: &PgPool) -> Result<SeedReport> {
+///
+/// With `clerk`, every member's Clerk user is found or created first (nothing is written
+/// to the database when Clerk fails), then new members are inserted with that id and
+/// existing members are relinked when their id differs, which upgrades placeholders.
+/// Without it nothing about Clerk changes, so a keyless rerun never downgrades real ids.
+pub async fn run_with(pool: &PgPool, clerk: Option<&ClerkUsers>) -> Result<SeedReport> {
     let now = Utc::now();
     let today = now.with_timezone(&Ho_Chi_Minh).date_naive();
-    let mut reports = Vec::with_capacity(2);
+    let mut stores = Vec::with_capacity(2);
     for number in 1..=2 {
         let store = Store { number, today, now };
-        let report = store.report();
+        let mut report = store.report();
+        if let Some(clerk) = clerk {
+            for member in &mut report.members {
+                member.clerk_user_id = Some(
+                    clerk
+                        .find_or_create(&member.email, &member.display_name)
+                        .await
+                        .with_context(|| format!("Clerk test user for {}", member.email))?,
+                );
+            }
+        }
+        stores.push((store, report));
+    }
+    let mut reports = Vec::with_capacity(2);
+    for (store, report) in stores {
         let mut tx = pool.begin().await.context("begin seed store transaction")?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(7_063_000_i64 + number as i64)
+            .bind(7_063_000_i64 + store.number as i64)
             .execute(&mut *tx)
             .await?;
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM stores WHERE id=$1)")
             .bind(store.store_id())
             .fetch_one(&mut *tx)
             .await?;
-        if !exists {
+        if exists {
+            link_members(&mut tx, store, &report)
+                .await
+                .with_context(|| format!("link Clerk users of {}", store.name()))?;
+        } else {
             seed_store(&mut tx, store, &report)
                 .await
                 .with_context(|| format!("seed store {}", store.name()))?;
@@ -145,39 +190,46 @@ pub async fn run(pool: &PgPool) -> Result<SeedReport> {
         tx.commit().await.context("commit seed store transaction")?;
         reports.push(report);
     }
-    Ok(SeedReport { stores: reports })
+    Ok(SeedReport {
+        stores: reports,
+        clerk_linked: clerk.is_some(),
+    })
+}
+
+/// Points existing fixture members at their Clerk users. Rows that already match, and
+/// reports without Clerk ids, change nothing.
+async fn link_members(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Result<()> {
+    for member in &report.members {
+        let Some(user) = &member.clerk_user_id else {
+            continue;
+        };
+        sqlx::query("UPDATE members SET clerk_user_id=$3 WHERE id=$1 AND store_id=$2 AND clerk_user_id IS DISTINCT FROM $3")
+            .bind(member.member_id)
+            .bind(store.store_id())
+            .bind(user)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn seed_store(tx: &mut Tx<'_>, store: Store, report: &StoreReport) -> Result<()> {
-    let normalized = report.recovery_code.replace('-', "");
-    let lookup = digest(&normalized);
     let salt = store.store_id().to_string();
-    let (recovery_hash, pin_hash) = tokio::task::spawn_blocking(move || -> Result<_> {
-        Ok((
-            password_hash(&normalized, &salt)?,
-            password_hash("2468", &format!("{salt}/pin"))?,
-        ))
-    })
-    .await
-    .context("join credential hashing")??;
+    let pin_hash =
+        tokio::task::spawn_blocking(move || password_hash("2468", &format!("{salt}/pin")))
+            .await
+            .context("join PIN hashing")??;
     let start = store.at(store.today - Duration::days(29), 0, 0)?;
     let bank = store.number == 1;
-    sqlx::query("INSERT INTO stores (id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct,recovery_code_hash,recovery_code_lookup,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,20,$7,$8,$9,$9) ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO stores (id,name,bank_bin,bank_short_name,bank_account_number,bank_account_name,margin_threshold_pct,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,20,$7,$7) ON CONFLICT DO NOTHING")
         .bind(store.store_id()).bind(store.name()).bind(bank.then_some("970436"))
         .bind(bank.then_some("Vietcombank")).bind(bank.then_some("0123456789"))
-        .bind(bank.then_some("NGUYEN THI BA")).bind(recovery_hash).bind(lookup).bind(start)
+        .bind(bank.then_some("NGUYEN THI BA")).bind(start)
         .execute(&mut **tx).await?;
-    for (n, member) in report.members.iter().enumerate() {
-        sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT DO NOTHING")
+    for member in &report.members {
+        sqlx::query("INSERT INTO members (id,store_id,display_name,role,can_enroll,pin_hash,created_at,updated_at,clerk_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8) ON CONFLICT DO NOTHING")
             .bind(member.member_id).bind(store.store_id()).bind(&member.display_name).bind(&member.role)
-            .bind(member.can_enroll).bind(member.pin.as_ref().map(|_| pin_hash.as_str())).bind(start)
-            .execute(&mut **tx).await?;
-        sqlx::query("INSERT INTO sessions (id,store_id,member_id,device_name,platform,app_version,refresh_token_hash,expires_at,created_at,last_seen_at) VALUES ($1,$2,$3,$4,$5,'1.0.0-seed',$6,$7,$8,$9) ON CONFLICT DO NOTHING")
-            .bind(store.id(2,n as u64)).bind(store.store_id()).bind(member.member_id)
-            .bind(["Samsung A15 quầy", "iPhone của bà", "Redmi của con", "Máy tính quầy"][n])
-            .bind(["android","ios","android","web"][n])
-            .bind(digest(&format!("{SEED}/session/{}/{n}",store.number)))
-            .bind(store.at(store.today + Duration::days(90),0,0)?).bind(start).bind(store.now)
+            .bind(member.can_enroll).bind(member.pin.as_ref().map(|_| pin_hash.as_str())).bind(start).bind(member.clerk_user_id.clone().unwrap_or_else(|| format!("seed_{}",member.member_id)))
             .execute(&mut **tx).await?;
         change(tx, store, "member", member.member_id, start).await?;
     }
@@ -301,16 +353,7 @@ async fn event(
         .get("member_id")
         .cloned()
         .unwrap_or_else(|| json!(store.id(1, 0)));
-    let actor_session = if let Some(member) = actor_member
-        .as_str()
-        .and_then(|id| Uuid::parse_str(id).ok())
-    {
-        (0..4)
-            .find(|n| store.id(1, *n) == member)
-            .map(|n| store.id(2, n))
-    } else {
-        None
-    };
+    let actor_session = "seed_session";
     let mut payload = json!({"id":format!("evt_{id:015}"),"type":kind,"version":1,"store_id":store.store_id(),"occurred_at":at.with_timezone(&Ho_Chi_Minh).to_rfc3339(),"actor":{"member_id":actor_member,"session_id":actor_session},"data":data});
     if let Some(cursor) = cursor {
         payload["cursor"] = json!(cursor);
@@ -382,19 +425,14 @@ mod tests {
             now: DateTime::from_timestamp(1_792_720_800, 0).unwrap(),
         };
         let first = store.report();
-        assert_eq!(first.recovery_code, store.report().recovery_code);
-        assert_eq!(first.recovery_code.len(), 19);
-        assert!(
-            first
-                .recovery_code
-                .split('-')
-                .all(|s| s.len() == 4 && s.bytes().all(|c| CROCKFORD.contains(&c)))
+        assert_eq!(
+            first.members[0].member_id,
+            store.report().members[0].member_id
         );
-        let normalized = first.recovery_code.replace('-', "");
-        let hash = password_hash(&normalized, "fixture salt").unwrap();
+        let hash = password_hash("2468", "fixture salt").unwrap();
         assert!(hash.starts_with("$argon2id$"));
         Argon2::default()
-            .verify_password(normalized.as_bytes(), hash.as_str())
+            .verify_password(b"2468", hash.as_str())
             .unwrap();
         let embedding: Vec<f64> = serde_json::from_str(&vector(store.id(5, 0))).unwrap();
         assert_eq!(embedding.len(), 384);

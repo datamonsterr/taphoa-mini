@@ -1,6 +1,8 @@
 appId: com.datamonsterr.taphoamini
 ---
 # A new store has an empty stock; a product added by hand shows in it and its price can change.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
 - runFlow:
     file: subflows/create-store.yaml
     env:

@@ -9,7 +9,7 @@ use uuid::Uuid;
 fn event(store_id: Uuid, name: &str) -> Event {
     Event {
         store_id,
-        actor: Some((Uuid::new_v4(), Uuid::new_v4())),
+        actor: Some((Uuid::new_v4(), "sess_order".into())),
         typ: "store.changed",
         version: 1,
         data: json!({"fields":[name]}),
@@ -24,7 +24,7 @@ async fn concurrent_writers_in_one_store_cannot_commit_out_of_order() {
         .await
         .unwrap();
     let store = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'order','x')")
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'order')")
         .bind(store)
         .execute(&pool)
         .await
@@ -66,7 +66,7 @@ async fn concurrent_writers_in_one_store_cannot_commit_out_of_order() {
 
     // Writers in different stores never wait for each other.
     let other = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id,name,recovery_code_hash) VALUES ($1,'order2','x')")
+    sqlx::query("INSERT INTO stores (id,name) VALUES ($1,'order2')")
         .bind(other)
         .execute(&pool)
         .await
