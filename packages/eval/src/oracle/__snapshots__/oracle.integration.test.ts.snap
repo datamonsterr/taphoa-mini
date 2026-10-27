@@ -1,0 +1,927 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`oracles against the eval store > every oracle runs with its example > anomaly_out_of_hours_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    5,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > anomaly_out_of_hours_products 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bia Tiger lon 330ml",
+    "Nước tăng lực Redbull lon 250ml",
+    "Bia Heineken lon 330ml",
+    "Bia 333 lon 330ml",
+    "Bia Sài Gòn Special lon 330ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > anomaly_out_of_hours_times 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "2026-09-14 02:17",
+    "2026-09-26 05:03",
+    "2026-10-04 23:41",
+    "2026-10-09 03:05",
+    "2026-10-11 22:58",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > anomaly_price_jump_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Đường cát trắng Biên Hòa 1kg",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > anomaly_price_jump_pct 1`] = `
+{
+  "kind": "percent",
+  "values": [
+    40.9,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > catalog_duplicate_pair_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Sữa đặc Ông Thọ 380g",
+    "Sữa đặc Ông Thọ đỏ 380g",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > catalog_few_refs_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Chổi quét nhà cán nhôm",
+    "Gạo thơm ST25 5kg",
+    "Rau muống bó",
+    "Thịt heo xay 200g",
+    "Tiêu đen xay 50g",
+    "Bánh quy Cosy vani 140g",
+    "Nước suối Aquafina 500ml",
+    "Sữa đặc Ông Thọ đỏ 380g",
+    "Trà xanh 0 độ chai 455ml",
+    "Bánh gạo One One 150g",
+    "Bánh quy bơ Danisa 200g",
+    "Hành lá bó",
+    "Pepsi lon 320ml",
+    "Sữa Vinamilk không đường 180ml",
+    "Sữa chua Vinamilk có đường hộp 100g",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > catalog_no_category_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bật lửa Tianzi",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > catalog_no_photo_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Chổi quét nhà cán nhôm",
+    "Gạo thơm ST25 5kg",
+    "Rau muống bó",
+    "Thịt heo xay 200g",
+    "Tiêu đen xay 50g",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > catalog_search_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Coca-Cola lon 320ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > dayclose_cash_expenses 1`] = `
+{
+  "kind": "money",
+  "values": [
+    80000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > dayclose_cash_refunds 1`] = `
+{
+  "kind": "money",
+  "values": [
+    60000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > dayclose_cash_sales 1`] = `
+{
+  "kind": "money",
+  "values": [
+    1409000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > dayclose_counted_cash 1`] = `
+{
+  "kind": "money",
+  "values": [
+    1649000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > dayclose_difference 1`] = `
+{
+  "kind": "money",
+  "values": [
+    -120000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > dayclose_expected_cash 1`] = `
+{
+  "kind": "money",
+  "values": [
+    1769000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > deadstock_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    8,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > deadstock_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bình xịt muỗi Raid 600ml",
+    "Lăn khử mùi Nivea 50ml",
+    "Rượu Soju Chum-Churum 360ml",
+    "Chổi quét nhà cán nhôm",
+    "Dao cạo râu Gillette",
+    "Nui xoắn Safoco 400g",
+    "Nhang muỗi Mosfly hộp 10 vòng",
+    "Tăm bông Mamamy hộp",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > deadstock_tied_money 1`] = `
+{
+  "kind": "money",
+  "values": [
+    4917700,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > denied_dayclose_figures 1`] = `
+{
+  "kind": "money",
+  "values": [
+    -120000,
+    60000,
+    80000,
+    120000,
+    1409000,
+    1649000,
+    1769000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > denied_member_activity 1`] = `
+{
+  "kind": "count",
+  "values": [
+    315,
+    223,
+    433,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > denied_supplier_costs 1`] = `
+{
+  "kind": "money",
+  "values": [
+    8200,
+    8050,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > expense_cash_total 1`] = `
+{
+  "kind": "money",
+  "values": [
+    395000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > expense_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    2,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > expense_total 1`] = `
+{
+  "kind": "money",
+  "values": [
+    395000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > margin_below_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Dầu ăn Neptune 1L",
+    "Bột giặt OMO 400g",
+    "Bột ngọt Ajinomoto 400g",
+    "Nước súc miệng Listerine 250ml",
+    "Sữa bột Dielac Alpha Gold 2 400g",
+    "Nước suối Lavie 500ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > margin_negative_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Dầu ăn Neptune 1L",
+    "Bột giặt OMO 400g",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > margin_pct 1`] = `
+{
+  "kind": "percent",
+  "values": [
+    9,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > margin_thin_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bột ngọt Ajinomoto 400g",
+    "Nước súc miệng Listerine 250ml",
+    "Sữa bột Dielac Alpha Gold 2 400g",
+    "Nước suối Lavie 500ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_can_enroll_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Cô Ba",
+    "Anh Tư",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    3,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_manual_line_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    20,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_most_voids_name 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Anh Tư",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Cô Ba",
+    "Anh Tư",
+    "Bé Na",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_sale_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    433,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > member_void_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    16,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > product_id_by_name 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "e7a10e7a-0000-4000-8000-05000000000c",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > product_last_cost 1`] = `
+{
+  "kind": "money",
+  "values": [
+    8900,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > product_last_supplier 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Công ty Minh Phát",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > product_price 1`] = `
+{
+  "kind": "money",
+  "values": [
+    11000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > product_stock 1`] = `
+{
+  "kind": "count",
+  "values": [
+    9,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > product_threshold 1`] = `
+{
+  "kind": "count",
+  "values": [
+    24,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_line_cost 1`] = `
+{
+  "kind": "money",
+  "values": [
+    780000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_line_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "MI HAO HAO TOM CHUA CAY 75G",
+    "MI 3 MIEN GA 65G",
+    "NUOC MAM NAM NGU 500ML",
+    "HAT NEM KNORR THIT THAN 400G",
+    "DUONG CAT TRANG BIEN HOA 1KG",
+    "BOT NGOT AJINOMOTO 400G",
+    "DAU AN NEP 1L",
+    "TUONG CA CHUA CHOLIMEX 250G",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_line_quantity 1`] = `
+{
+  "kind": "count",
+  "values": [
+    24,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_line_unit_cost 1`] = `
+{
+  "kind": "money",
+  "values": [
+    32500,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_low_confidence_alt_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Dầu ăn Simply 1L",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_low_confidence_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Dầu ăn Neptune 1L",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_matched_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Mì Hảo Hảo tôm chua cay 75g",
+    "Mì 3 Miền gà 65g",
+    "Nước mắm Nam Ngư 500ml",
+    "Hạt nêm Knorr thịt thăn 400g",
+    "Đường cát trắng Biên Hòa 1kg",
+    "Bột ngọt Ajinomoto 400g",
+    "Dầu ăn Neptune 1L",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_supplier 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Đại lý Hưng Thịnh",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_total 1`] = `
+{
+  "kind": "money",
+  "values": [
+    3726800,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_unmatched_closest_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Tương ớt Chin-su 250g",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_unmatched_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    1,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > receipt_draft_unmatched_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "TUONG CA CHUA CHOLIMEX 250G",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > recog_confused_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Sữa Vinamilk không đường 180ml",
+    "Pepsi lon 320ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > recog_confused_with_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Coca-Cola lon 320ml",
+    "Sữa Vinamilk có đường 180ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > recog_missed_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Sữa chua Vinamilk có đường hộp 100g",
+    "Trà xanh 0 độ chai 455ml",
+    "Nước suối Aquafina 500ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > review_manual_candidate_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Dầu ăn Simply 1L",
+    "Dầu ăn Neptune 1L",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > review_manual_match_name 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Coca-Cola lon 320ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > review_manual_open_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    9,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > review_manual_open_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "coca lon",
+    "mì hảo hảo",
+    "trứng gà lẻ",
+    "bia 333",
+    "nước lavie nhỏ",
+    "sữa vinamilk đường",
+    "kẹo alpen",
+    "dầu ăn chai",
+    "sting đỏ",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > review_mismatch_open_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bia Heineken lon 330ml",
+    "Kem đánh răng P/S 180g",
+    "Xà phòng Lifebuoy 90g",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_cash_revenue 1`] = `
+{
+  "kind": "money",
+  "values": [
+    1349000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_category_units 1`] = `
+{
+  "kind": "count",
+  "values": [
+    224,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    29,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_gross_profit 1`] = `
+{
+  "kind": "money",
+  "values": [
+    284900,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_product_units 1`] = `
+{
+  "kind": "count",
+  "values": [
+    6,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_revenue 1`] = `
+{
+  "kind": "money",
+  "values": [
+    1793000,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_revenue_change_pct 1`] = `
+{
+  "kind": "percent",
+  "values": [
+    20.4,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_top_revenue_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bia 333 lon 330ml",
+    "Bia Heineken lon 330ml",
+    "Gạo Nàng Hoa 5kg",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_top_units_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bia 333 lon 330ml",
+    "Trứng gà ta",
+    "Bia Heineken lon 330ml",
+    "Mì Hảo Hảo sa tế hành 75g",
+    "Coca-Cola lon 320ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > sales_void_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    4,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > setup_bank_account_set 1`] = `
+{
+  "kind": "count",
+  "values": [
+    1,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > setup_day_close_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    53,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > setup_pending_invite_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    1,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > stock_low_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bột giặt OMO 400g",
+    "Bánh quy bơ Danisa 200g",
+    "Dầu ăn Simply 1L",
+    "Nước mắm Nam Ngư 500ml",
+    "Nước tăng lực Sting dâu chai 330ml",
+    "Snack Oishi tôm cay 40g",
+    "Coca-Cola lon 320ml",
+    "Sữa Vinamilk có đường 180ml",
+    "Mì Hảo Hảo tôm chua cay 75g",
+    "Bia 333 lon 330ml",
+    "Nước suối Lavie 500ml",
+    "Trứng gà ta",
+    "Pepsi lon 320ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > stock_negative_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Mì Kokomi đại 90g",
+    "Cà phê sữa Birdy lon 170ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > stock_out_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Pin AA Con Ó vỉ 2 viên",
+    "Sữa tươi Vinamilk 100% 1L",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > stock_restock_by_supplier_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Coca-Cola lon 320ml",
+    "Nước suối Lavie 500ml",
+    "Sữa Vinamilk có đường 180ml",
+    "Cà phê sữa Birdy lon 170ml",
+    "Sữa tươi Vinamilk 100% 1L",
+    "Nước tăng lực Sting dâu chai 330ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > stock_restock_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Mì Hảo Hảo tôm chua cay 75g",
+    "Mì Kokomi đại 90g",
+    "Coca-Cola lon 320ml",
+    "Nước suối Lavie 500ml",
+    "Sữa Vinamilk có đường 180ml",
+    "Trứng gà ta",
+    "Bia 333 lon 330ml",
+    "Cà phê sữa Birdy lon 170ml",
+    "Pin AA Con Ó vỉ 2 viên",
+    "Sữa tươi Vinamilk 100% 1L",
+    "Dầu ăn Simply 1L",
+    "Bột giặt OMO 400g",
+    "Nước tăng lực Sting dâu chai 330ml",
+    "Bánh quy bơ Danisa 200g",
+    "Snack Oishi tôm cay 40g",
+    "Nước mắm Nam Ngư 500ml",
+    "Pepsi lon 320ml",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > supplier_cheapest_cost 1`] = `
+{
+  "kind": "money",
+  "values": [
+    8050,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > supplier_cheapest_recent 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Sỉ Bà Sáu chợ Bình Tây",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > supplier_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Đại lý Hưng Thịnh",
+    "Sỉ Bà Sáu chợ Bình Tây",
+    "Công ty Minh Phát",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > supplier_product_latest_cost 1`] = `
+{
+  "kind": "money",
+  "values": [
+    8200,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > supplier_product_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Sỉ Bà Sáu chợ Bình Tây",
+    "Công ty Minh Phát",
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > tax_revenue 1`] = `
+{
+  "kind": "money",
+  "values": [
+    121064500,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > threshold_missing_count 1`] = `
+{
+  "kind": "count",
+  "values": [
+    8,
+  ],
+}
+`;
+
+exports[`oracles against the eval store > every oracle runs with its example > threshold_missing_names 1`] = `
+{
+  "kind": "names",
+  "values": [
+    "Bóng đèn LED Rạng Đông 9W",
+    "Bột mì đa dụng Meizan 1kg",
+    "Chả lụa Vissan 200g",
+    "Hủ tiếu Nam Vang Vifon 65g",
+    "Mì Cung Đình bò hầm 80g",
+    "Nấm mèo khô 50g",
+    "Sữa đặc Ông Thọ đỏ 380g",
+    "Đậu xanh hạt 500g",
+  ],
+}
+`;

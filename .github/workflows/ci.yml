@@ -31,6 +31,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       docker: ${{ steps.filter.outputs.docker }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      eval: ${{ steps.filter.outputs.eval }}
       otel-collector: ${{ steps.filter.outputs.otel-collector }}
       posthog-infra: ${{ steps.filter.outputs.posthog-infra }}
     steps:
@@ -80,6 +81,16 @@ jobs:
             workflows:
               - '.github/**'
               - 'scripts/ci/**'
+            eval:
+              - 'packages/eval/**'
+              - 'apps/backend/crates/api/src/assistant/**'
+              - 'apps/backend/crates/api/src/seed/**'
+              - 'apps/backend/crates/api/src/bin/taphoa_seed.rs'
+              - 'scripts/ci/build-backend-binary.sh'
+              - 'scripts/ci/eval-ci.sh'
+              - 'scripts/ci/eval-stack-lib.sh'
+              - 'apps/backend/migrations/**'
+              - '.github/workflows/ci.yml'
 
   # ---------- Rust ----------
 
@@ -548,7 +559,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: backend-binary
-          path: ci-bin/taphoa-api
+          path: |
+            ci-bin/taphoa-api
+            ci-bin/taphoa-seed
           retention-days: 3
       - name: Summary
         if: always()
@@ -769,6 +782,113 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: scripts/ci/job-summary.sh "web-e2e" "Playwright chromium + real backend with SAM/DINO models"
 
+  # ---------- Assistant evaluation (epic X7) ----------
+
+  # Smoke set (25 golden cases, packages/eval). Two modes, picked by scripts/ci/eval-ci.sh:
+  #   live: the assistant (X3) and Clerk identity (X1, members.clerk_user_id) are in the checkout
+  #         and the secrets are available (not a fork PR). A
+  #         local stack (compose postgres + redis, taphoa-seed --profile eval, the prebuilt
+  #         backend with ASSISTANT_ALLOW_EVAL_HEADERS=1) answers the cases. The shared free
+  #         OpenRouter quota pays for it, so a newer push cancels the run. PostHog gets nothing
+  #         from pull requests; the nightly workflow eval.yml sends the events.
+  #   stub: otherwise, a dry run against the in-process stub assistant: no network, no secrets.
+  assistant-eval-smoke:
+    needs: [changes, backend-binary]
+    if: needs.changes.outputs.eval == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: assistant-eval-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - name: Pick live or stub mode
+        id: mode
+        env:
+          EVAL_FORK_PR: ${{ github.event.pull_request.head.repo.fork }}
+          EVAL_HAVE_SECRETS: ${{ secrets.OPENROUTER_API_KEY != '' && secrets.CLERK_SECRET_KEY != '' && secrets.CLERK_PUBLISHABLE_KEY != '' }}
+        run: scripts/ci/eval-ci.sh mode
+      - name: Dry run against the stub assistant
+        if: steps.mode.outputs.mode == 'stub'
+        run: pnpm --filter @taphoa/eval run smoke -- --stub --out "$RUNNER_TEMP/eval"
+      - uses: actions/download-artifact@v8
+        if: steps.mode.outputs.mode == 'live'
+        with:
+          name: backend-binary
+          path: ci-bin
+      - name: Make the binaries executable
+        if: steps.mode.outputs.mode == 'live'
+        run: chmod +x ci-bin/taphoa-api ci-bin/taphoa-seed
+      # Starts compose postgres + redis, runs `taphoa-seed --profile eval`, starts the backend
+      # and waits for /readyz. Appends BACKEND_URL and EVAL_DATABASE_URL to $GITHUB_ENV.
+      - name: Start the eval stack
+        if: steps.mode.outputs.mode == 'live'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: scripts/ci/eval-ci.sh up
+      # Pre-flight: the seed linked Clerk test users to the eval store's members (epic X1); mint
+      # one token per role and fail here, with the missing email, when a user is absent. Clerk
+      # session tokens live about 60 s, so no token is exported: the run step gets
+      # CLERK_SECRET_KEY and ClerkAuth (packages/eval/src/runner/auth.ts) mints and refreshes
+      # them during the run, within the Backend API budget of 100 requests per 10 s.
+      - name: Check eval identities
+        if: steps.mode.outputs.mode == 'live'
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm --filter @taphoa/eval run identities
+      # BACKEND_URL and EVAL_DATABASE_URL come from the stack step. Without EVAL_LEAD_TOKEN the
+      # harness mints the Clerk tokens itself from CLERK_SECRET_KEY (store: the eval default).
+      - name: Smoke run against the local stack
+        if: steps.mode.outputs.mode == 'live'
+        env:
+          OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        # A run that finishes but misses a pass bar is the free models' and the assistant's score,
+        # not a broken stack: it is reported (annotation, summary, artifact) and the nightly
+        # workflow eval.yml enforces the bars. A refused or aborted run still fails the job.
+        run: |
+          pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval" 2>&1 | tee "$RUNNER_TEMP/eval-smoke.log"
+          rc=${PIPESTATUS[0]}
+          # The shared free quota (1,000 requests a day) can be spent by other runs: not a failure.
+          if [ "$rc" -eq 1 ] && grep -q 'free quota too low' "$RUNNER_TEMP/eval-smoke.log"; then
+            echo "::warning title=Assistant eval::skipped, the shared OpenRouter free quota is used up for today"
+            exit 0
+          fi
+          if [ "$rc" -eq 1 ] && grep -qs '^- Result: FAIL' "$RUNNER_TEMP"/eval/*.md; then
+            echo "::warning title=Assistant eval::smoke run finished below the pass bars; see the job summary"
+            exit 0
+          fi
+          exit "$rc"
+      - name: Results to the job summary
+        if: always()
+        run: scripts/ci/eval-ci.sh summary "$RUNNER_TEMP/eval"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: eval-smoke-results
+          path: ${{ runner.temp }}/eval
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure() && steps.mode.outputs.mode == 'live'
+        with:
+          name: eval-smoke-stack-logs
+          path: ${{ runner.temp }}/taphoa-eval-stack/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop the eval stack
+        if: always() && steps.mode.outputs.mode == 'live'
+        run: scripts/ci/eval-ci.sh down
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          EVAL_MODE: ${{ steps.mode.outputs.mode }}
+        run: scripts/ci/job-summary.sh "assistant-eval-smoke" "mode = ${EVAL_MODE:-not decided}" "golden smoke set (packages/eval)"
+
   # ---------- OpenTelemetry Collector ----------
 
   otel-collector:
@@ -878,6 +998,7 @@ jobs:
       - docker-e2e
       - clerk-secrets
       - web-e2e
+      - assistant-eval-smoke
       - actionlint
       - ci-scripts
       - otel-collector

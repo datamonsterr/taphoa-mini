@@ -1,0 +1,30 @@
+{
+  "name": "@taphoa/eval",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "validate": "node src/cli.ts validate",
+    "oracles": "node src/cli.ts oracles",
+    "smoke": "node src/cli.ts smoke",
+    "full": "node src/cli.ts full",
+    "compare": "node src/cli.ts compare",
+    "calibrate": "node src/cli.ts calibrate",
+    "identities": "node src/cli.ts identities"
+  },
+  "dependencies": {
+    "@taphoa/api-client": "workspace:*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "@typescript/native": "npm:typescript@~7.0.2",
+    "typescript": "npm:@typescript/typescript6@~6.0.2",
+    "vitest": "^5.0.5"
+  }
+}

@@ -8,6 +8,7 @@
 //! Without one, new members get placeholder Clerk ids and cannot sign in.
 mod catalog;
 pub mod clerk;
+pub mod eval;
 mod stock;
 mod trading;
 

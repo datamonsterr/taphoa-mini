@@ -82,6 +82,10 @@ export const Composer = memo(function Composer({
         placeholder={t('inputPlaceholder')}
         placeholderTextColor={colors.inkMuted}
         multiline
+        // Enter sends and closes the keyboard (the sheet does not lift the composer above it).
+        submitBehavior="blurAndSubmit"
+        returnKeyType="send"
+        onSubmitEditing={send}
         value={text}
         onChangeText={(next) => {
           heldBase.current = null;
