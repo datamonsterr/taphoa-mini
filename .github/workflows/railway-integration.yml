@@ -2,6 +2,7 @@ name: Railway integration
 
 # Runs the #[ignore] integration tests against the real Postgres, Redis and bucket of the
 # Railway `test` environment (public TCP proxies), with a throwaway database per run.
+# The `railway` nextest profile fails a hanging test after 60 s.
 on:
   workflow_dispatch:
   schedule:
@@ -25,9 +26,11 @@ env:
   CARGO_INCREMENTAL: '0'
 
 jobs:
-  integration:
+  # Every ignored test except the heavy binaries below. Two jobs keep a slow seed or vector
+  # test from eating the whole budget of the rest.
+  api:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - name: Check for Railway test credentials
@@ -65,18 +68,77 @@ jobs:
           RATE_LIMIT_JOIN_PER_HOUR: '100000'
         run: >-
           ../../scripts/ci/with-railway-test-services.sh
-          cargo nextest run --locked --workspace --profile ci --run-ignored only --test-threads 1 --no-tests=pass -E 'not test(validation_invite_expiry_and_ip_limits)'
+          cargo nextest run --locked --workspace --profile railway --run-ignored only --test-threads 1 --no-tests=pass -E 'not (binary(seed) | binary(seed_clerk) | binary(recognition_vector) | test(validation_invite_expiry_and_ip_limits))'
       - name: Summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
           CONFIGURED: ${{ steps.railway.outputs.configured }}
         run: |
-          python3 -I scripts/ci/junit_summary.py "Railway integration" apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
-          scripts/ci/job-summary.sh "Railway integration timing" "railway configured: ${CONFIGURED:-false}"
+          python3 -I scripts/ci/junit_summary.py "Railway integration (api)" apps/backend/target/nextest/railway/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          scripts/ci/job-summary.sh "Railway integration (api) timing" "railway configured: ${CONFIGURED:-false}"
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: always()
         with:
-          name: junit-railway-integration
-          path: apps/backend/target/nextest/ci/junit.xml
+          name: junit-railway-api
+          path: apps/backend/target/nextest/railway/junit.xml
+          if-no-files-found: ignore
+
+  # The seed, seed_clerk and recognition_vector binaries: the ones that hit the 120 s timeout.
+  heavy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check for Railway test credentials
+        id: railway
+        env:
+          RAILWAY_TOKEN_TEST: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: |
+          if [ -n "$RAILWAY_TOKEN_TEST" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Secret RAILWAY_TOKEN_TEST is not set; skipping Railway integration tests (see docs/deploy.md)."
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.railway.outputs.configured == 'true'
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install Railway CLI and database clients
+        if: steps.railway.outputs.configured == 'true'
+        run: |
+          npm install --global @railway/cli@5.71.0
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client redis-tools
+      - uses: ./.github/actions/setup-rust
+        if: steps.railway.outputs.configured == 'true'
+        with:
+          cache-key: test
+          nextest: 'true'
+      - name: Integration tests on Railway services
+        if: steps.railway.outputs.configured == 'true'
+        working-directory: apps/backend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+          RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
+          RATE_LIMIT_JOIN_PER_HOUR: '100000'
+          # api uses Redis db 15; the two jobs run at the same time
+          IT_REDIS_DB: '14'
+        run: >-
+          ../../scripts/ci/with-railway-test-services.sh
+          cargo nextest run --locked --workspace --profile railway --run-ignored only --test-threads 1 --no-tests=pass -E 'binary(seed) | binary(seed_clerk) | binary(recognition_vector)'
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CONFIGURED: ${{ steps.railway.outputs.configured }}
+        run: |
+          python3 -I scripts/ci/junit_summary.py "Railway integration (heavy)" apps/backend/target/nextest/railway/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          scripts/ci/job-summary.sh "Railway integration (heavy) timing" "railway configured: ${CONFIGURED:-false}"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: junit-railway-heavy
+          path: apps/backend/target/nextest/railway/junit.xml
           if-no-files-found: ignore

@@ -4,7 +4,7 @@
 #   with-railway-test-services.sh <command> [args...]
 # Needs RAILWAY_TOKEN (project token for `test`) or a linked CLI, plus psql on PATH.
 # Isolation: a throwaway database `it_<run>` on the shared Postgres (dropped on exit)
-# and Redis logical database 15 (flushed on exit). The bucket is shared and append-only;
+# and Redis logical database IT_REDIS_DB (default 15, flushed on exit). The bucket is shared and append-only;
 # tests must use unique object keys.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,6 +23,7 @@ done < <(python3 -I "$here/railway_env.py" "$environment")
 admin_url="$DATABASE_URL"
 run_id="${GITHUB_RUN_ID:-local}_${GITHUB_RUN_ATTEMPT:-0}_$$"
 db_name="it_${run_id}"
+redis_db="${IT_REDIS_DB:-15}"
 redis_base="$REDIS_URL"
 
 cleanup() {
@@ -30,7 +31,7 @@ cleanup() {
   psql "$admin_url" --quiet --command "DROP DATABASE IF EXISTS \"$db_name\" WITH (FORCE)" >/dev/null 2>&1 \
     || echo "::warning::could not drop database $db_name"
   if command -v redis-cli >/dev/null 2>&1; then
-    redis-cli -u "$redis_base" -n 15 FLUSHDB >/dev/null 2>&1 || echo "::warning::could not flush Redis db 15"
+    redis-cli -u "$redis_base" -n "$redis_db" FLUSHDB >/dev/null 2>&1 || echo "::warning::could not flush Redis db $redis_db"
   fi
   exit "$status"
 }
@@ -38,8 +39,8 @@ trap cleanup EXIT
 
 psql "$admin_url" --quiet --command "CREATE DATABASE \"$db_name\""
 export DATABASE_URL="${admin_url%/*}/$db_name"
-export REDIS_URL="$redis_base/15"
+export REDIS_URL="$redis_base/$redis_db"
 export S3_CREATE_BUCKET=false
-echo "Isolated database $db_name; Redis db 15; bucket ${AWS_S3_BUCKET_NAME:-unset}"
+echo "Isolated database $db_name; Redis db $redis_db; bucket ${AWS_S3_BUCKET_NAME:-unset}"
 
 "$@"

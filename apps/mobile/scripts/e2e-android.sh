@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Runs inside the emulator booted by reactivecircus/android-emulator-runner:
-# install the release APK, grant the camera, run every Maestro flow, then check the jank budget.
-# Usage: e2e-android.sh <apk>
+# install the release APK, grant the camera, run the Maestro flows, then check the jank budget.
+# Usage: e2e-android.sh <apk> [flow...]
+# Each flow is a flow file or folder relative to apps/mobile; with none, the whole .maestro folder runs.
 set -euo pipefail
 
-apk="${1:?usage: e2e-android.sh <apk>}"
+apk="${1:?usage: e2e-android.sh <apk> [flow...]}"
+shift
+flows=("$@")
+if [ "${#flows[@]}" -eq 0 ]; then flows=(.maestro); fi
 # Resolve against the caller's directory before the cd below.
 apk="$(realpath "$apk")"
 app_id=com.datamonsterr.taphoamini
@@ -27,7 +31,7 @@ adb shell dumpsys gfxinfo "$app_id" reset >/dev/null || true
 # --debug-output keeps screenshots + logs for the artifact; flatten drops the per-run timestamp dirs.
 # Keep the exit code: the jank report must still be produced when a flow fails.
 maestro_status=0
-maestro test .maestro \
+maestro test "${flows[@]}" \
   --format junit --output maestro-report.xml \
   --debug-output maestro-debug --flatten-debug-output || maestro_status=$?
 

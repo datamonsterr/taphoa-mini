@@ -1,0 +1,5 @@
+# Namespace runner profiles (namespace.so) used by the heavy jobs.
+self-hosted-runner:
+  labels:
+    - namespace-profile-datamonster01
+    - namespace-profile-linux-xl

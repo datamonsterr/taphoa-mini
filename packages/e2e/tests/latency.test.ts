@@ -3,7 +3,7 @@ import { createStore } from '../src/helpers.js';
 
 /**
  * Hot-endpoint latency (epic E5). Excludes recognition, which has its own budget in
- * recognition.test.ts. Sequential requests after a warm-up; p95 over HOT_SAMPLES.
+ * recognition-latency.test.ts. Sequential requests after a warm-up; p95 over HOT_SAMPLES.
  * The budget applies to the deployed backend as seen from the test runner.
  */
 const SAMPLES = Number(process.env.HOT_SAMPLES ?? 30);
