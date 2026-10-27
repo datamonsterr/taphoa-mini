@@ -224,7 +224,8 @@ Screens 14-16 in [DESIGN.md](../../design/DESIGN.md).
   modal that slides from the bottom, like the assistant; params `entry` (`bubble`, `tile`,
   `control`, `action_button`, `siri`, `longpress`, `chip`), `returnToPrevious` (Android bubble
   sets it; Confirm or Close then call the native `moveTaskToBack`).
-- **Listening state.** Dark sheet, large pulsing microphone (88 dp, camera-ring colour),
+- **Listening state.** Dark sheet, large pulsing microphone (88 dp, accent
+  colour),
   level bars from metering, a 30 s countdown ring, hint "Nói tên hàng và giá", a big stop
   button. From the bubble it is tap-to-stop (phone may be on the counter); inside the app it is
   hold-to-talk like the chat. Auto-stop after 2 s of silence once something was heard.
