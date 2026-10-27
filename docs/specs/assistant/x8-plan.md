@@ -44,7 +44,9 @@ Epic brief: [epics.md](epics.md#x8--push-notifications-and-daily-digest) · Cont
   overrides the time), generates digests for active stores (stores with at least one registered
   device updated in the last 30 days, avoiding spending the shared 1,000/day OpenRouter quota on
   throwaway stores created by e2e suites where pushes cannot land), pushes to every registered device
-  of the store, then checks receipts 15 minutes later. On startup it catches up: if today's send time
+  of the store, then checks receipts 15 minutes later. When a store has nothing to report (zero
+  sales, empty restock, zero overdue debts, zero open drafts), generation skips model calls and
+  falls back to the template immediately to save quota. On startup it catches up: if today's send time
   has passed and a store has no pushed digest for today, it generates and pushes once
   (`assistant_digests.pushed_at` prevents duplicates across restarts). `GET /v1/assistant/digest`
   without a stored digest for today generates it on demand through the same code path, so a store
@@ -126,4 +128,4 @@ Filled in as work lands: commands run, Railway `test` evidence, PR link.
 
 - 2026-10-26 backend review fixes (from `apps/backend`, shared X8 Cargo cache and supplied local Postgres/Redis; regressions confirmed RED before fixes): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (231 passed, 4 ignored); `RUST_TEST_THREADS=1 cargo test -p taphoa-api --test devices --test push --test assistant_digest --test digest_job --test assistant_next_steps --test migrations -- --include-ignored` PASS (55 passed: devices 5, push 9, assistant_digest 10, digest_job 12, assistant_next_steps 6, migrations 13; 0 failed, 0 ignored).
 
-- 2026-10-27 active stores device-only filter (from `apps/backend`, `CARGO_TARGET_DIR=/media/storage/cache/x8-t3` and supplied local Postgres/Redis; regressions confirmed RED before fixes): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (293 passed, 4 ignored); `DATABASE_URL=postgres://taphoa:taphoa@localhost:55432/taphoa REDIS_URL=redis://localhost:56379 RUST_TEST_THREADS=1 cargo test -p taphoa-api --test digest_job --test assistant_digest --test devices -- --include-ignored` PASS (27 passed: assistant_digest 10, devices 5, digest_job 12; 0 failed, 0 ignored).
+- 2026-10-27 active stores device-only filter and empty payload template fallback (from `apps/backend`, `CARGO_TARGET_DIR=/media/storage/cache/x8-t3` and supplied local Postgres/Redis; regressions confirmed RED before fixes): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (294 passed, 4 ignored); `DATABASE_URL=postgres://taphoa:taphoa@localhost:55432/taphoa REDIS_URL=redis://localhost:56379 RUST_TEST_THREADS=1 cargo test -p taphoa-api --test digest_job --test assistant_digest --test devices -- --include-ignored` PASS (28 passed: assistant_digest 11, devices 5, digest_job 12; 0 failed, 0 ignored).

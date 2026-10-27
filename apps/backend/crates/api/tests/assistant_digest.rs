@@ -478,6 +478,12 @@ async fn model_cap_uses_business_date_even_for_backfills() {
     let today = taphoa_api::time::business_date(chrono::Utc::now());
     let date = today - chrono::Duration::days(1000);
     let (other, capped) = (World::new().await, World::new().await);
+    for target in [&other, &capped] {
+        let sale_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO sales(id,store_id,code,member_id,sold_at,business_date,payment_method,total,request_hash) VALUES($1,$2,$3,$4,now(),$5,'cash',10000,'hash')")
+            .bind(sale_id).bind(target.store_id).bind(sale_id.to_string()).bind(target.lead_id)
+            .bind(date - chrono::Duration::days(1)).execute(w.pool()).await.unwrap();
+    }
     // Today's generated_at must not consume a backfill business date's budget.
     sqlx::query("INSERT INTO assistant_digests(store_id,business_date,source,model,summary_vi,payload) VALUES($1,$2,'model','test','A stored summary', '{}')")
         .bind(w.store_id).bind(today).execute(w.pool()).await.unwrap();
@@ -516,4 +522,32 @@ async fn model_cap_uses_business_date_even_for_backfills() {
             .await
             .unwrap();
     }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn empty_fresh_store_with_mock_model_yields_template_without_model_call() {
+    use std::sync::{Arc, Mutex};
+    use taphoa_api::assistant::digest;
+    let mut w = World::new().await;
+    w.state.redis = None;
+    let mut config = (*w.state.assistant.config).clone();
+    config.models = vec!["first:free".into()];
+    config.digest_model_max_per_day = 100;
+    w.state.assistant.config = Arc::new(config);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    w.state.assistant.model = Some(Arc::new(FixedModel {
+        answer: Ok("Hôm qua cửa hàng có doanh thu và cần xem hàng cần nhập.".into()),
+        calls: calls.clone(),
+    }));
+    let today = taphoa_api::time::business_date(chrono::Utc::now());
+    let res = digest::generate(&w.state, w.store_id, today).await.unwrap();
+    assert_eq!(res.source, "template");
+    assert!(res.model.is_none());
+    assert_eq!(calls.lock().unwrap().len(), 0);
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(w.store_id)
+        .execute(w.pool())
+        .await
+        .unwrap();
 }

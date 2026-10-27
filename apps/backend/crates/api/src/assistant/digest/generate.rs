@@ -106,11 +106,23 @@ async fn generate_inner(
         .ok_or_else(|| anyhow::anyhow!("digest missing after insert"))
 }
 
+fn is_empty_payload(payload: &Value) -> bool {
+    payload["sales"]["sale_count"].as_i64().unwrap_or(0) == 0
+        && payload["restock"]
+            .as_array()
+            .is_none_or(|items| items.is_empty())
+        && payload["overdue_debts"]["count"].as_i64().unwrap_or(0) == 0
+        && payload["open_drafts"]["count"].as_i64().unwrap_or(0) == 0
+}
+
 async fn model_summary(
     state: &AppState,
     payload: &Value,
     business_date: NaiveDate,
 ) -> anyhow::Result<Option<(String, String)>> {
+    if is_empty_payload(payload) {
+        return Ok(None);
+    }
     let config = &state.assistant.config;
     let Some(model) = &state.assistant.model else {
         return Ok(None);
@@ -262,5 +274,48 @@ mod tests {
         ] {
             assert!(!safe_summary(text, &data), "{text}");
         }
+    }
+
+    #[test]
+    fn empty_payload_detected_when_no_sales_restock_debts_or_drafts() {
+        let empty = json!({
+            "sales": {"revenue": 0, "sale_count": 0, "gross_profit": 0, "change_pct": null},
+            "restock": [],
+            "overdue_debts": {"count": 0, "total": 0},
+            "open_drafts": {"count": 0}
+        });
+        assert!(is_empty_payload(&empty));
+
+        let with_sale = json!({
+            "sales": {"revenue": 1000, "sale_count": 1, "gross_profit": 500, "change_pct": null},
+            "restock": [],
+            "overdue_debts": {"count": 0, "total": 0},
+            "open_drafts": {"count": 0}
+        });
+        assert!(!is_empty_payload(&with_sale));
+
+        let with_restock = json!({
+            "sales": {"revenue": 0, "sale_count": 0, "gross_profit": 0, "change_pct": null},
+            "restock": [{"product_id": "p1"}],
+            "overdue_debts": {"count": 0, "total": 0},
+            "open_drafts": {"count": 0}
+        });
+        assert!(!is_empty_payload(&with_restock));
+
+        let with_debt = json!({
+            "sales": {"revenue": 0, "sale_count": 0, "gross_profit": 0, "change_pct": null},
+            "restock": [],
+            "overdue_debts": {"count": 1, "total": 50000},
+            "open_drafts": {"count": 0}
+        });
+        assert!(!is_empty_payload(&with_debt));
+
+        let with_draft = json!({
+            "sales": {"revenue": 0, "sale_count": 0, "gross_profit": 0, "change_pct": null},
+            "restock": [],
+            "overdue_debts": {"count": 0, "total": 0},
+            "open_drafts": {"count": 1}
+        });
+        assert!(!is_empty_payload(&with_draft));
     }
 }
