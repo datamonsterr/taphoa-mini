@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Image } from 'expo-image';
 import { useState } from 'react';
 import {
@@ -121,22 +122,26 @@ export function PointOverlay({
           if (point) onTap({ ...point, label: 1 });
         }}
       >
-        <Image
-          testID="point-overlay-photo"
-          pointerEvents="none"
-          source={{ uri: shot.uri }}
-          contentFit="contain"
-          style={StyleSheet.absoluteFill}
-        />
-        {shot.mask && hasLayout ? (
+        <PostHogMaskView pointerEvents="none" style={StyleSheet.absoluteFill}>
           <Image
-            testID="point-overlay-mask"
+            testID="point-overlay-photo"
             pointerEvents="none"
-            source={{ uri: `data:image/png;base64,${shot.mask.pngBase64}` }}
-            contentFit="fill"
-            tintColor={colors.accent}
-            style={[styles.mask, rect]}
+            source={{ uri: shot.uri }}
+            contentFit="contain"
+            style={StyleSheet.absoluteFill}
           />
+        </PostHogMaskView>
+        {shot.mask && hasLayout ? (
+          <PostHogMaskView pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <Image
+              testID="point-overlay-mask"
+              pointerEvents="none"
+              source={{ uri: `data:image/png;base64,${shot.mask.pngBase64}` }}
+              contentFit="fill"
+              tintColor={colors.accent}
+              style={[styles.mask, rect]}
+            />
+          </PostHogMaskView>
         ) : null}
         {hasLayout
           ? shot.points.map((point, i) => (

@@ -1,7 +1,8 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Image } from 'expo-image';
 import { Package } from 'lucide-react-native';
 import { memo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { Icon } from '@/components/ui';
 import { colors, radius } from '@/theme';
@@ -18,7 +19,9 @@ export const LineThumb = memo(function LineThumb({
   dimension = 64,
 }: LineThumbProps) {
   return (
-    <View style={[styles.box, { width: dimension, height: dimension }]}>
+    <PostHogMaskView
+      style={[styles.box, { width: dimension, height: dimension }]}
+    >
       {uri ? (
         <Image
           source={{ uri }}
@@ -30,7 +33,7 @@ export const LineThumb = memo(function LineThumb({
       ) : (
         <Icon icon={Package} color={colors.inkMuted} />
       )}
-    </View>
+    </PostHogMaskView>
   );
 });
 

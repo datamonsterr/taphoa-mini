@@ -425,7 +425,9 @@ describe('stock movements', () => {
     });
     await renderProduct();
     expect(await screen.findByText('Biến động gần đây')).toBeOnTheScreen();
-    for (const reason of ['Nhập hàng', 'Bán hàng', 'Hủy bán', 'Kiểm kho']) {
+    // The heading renders before the movement query resolves; wait for the first row.
+    expect((await screen.findAllByText('Nhập hàng')).length).toBeGreaterThan(0);
+    for (const reason of ['Bán hàng', 'Hủy bán', 'Kiểm kho']) {
       expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
     }
     expect(screen.getByText('+12')).toBeOnTheScreen();

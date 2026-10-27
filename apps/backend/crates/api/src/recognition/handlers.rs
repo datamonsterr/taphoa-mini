@@ -496,6 +496,7 @@ async fn create_scan(
             mode: request.mode,
             purpose: request.purpose,
             embedder_model: embedder.model().to_owned(),
+            wall_time_ms: wall.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             timings_ms: timings_ms.clone(),
         },
         &detections_persist,

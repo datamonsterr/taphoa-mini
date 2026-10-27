@@ -529,6 +529,7 @@ pub(crate) struct ScanDraft {
     pub mode: ScanMode,
     pub purpose: ScanPurpose,
     pub embedder_model: String,
+    pub wall_time_ms: u64,
     pub timings_ms: serde_json::Value,
 }
 
@@ -544,6 +545,7 @@ pub(crate) async fn persist_scan(
         mode,
         purpose,
         embedder_model,
+        wall_time_ms,
         timings_ms,
     } = draft;
     let mut tx = pool.begin().await?;
@@ -577,11 +579,14 @@ pub(crate) async fn persist_scan(
     .bind(mode.as_str())
     .bind(purpose.as_str())
     .bind(SCAN_SEGMENTER)
-    .bind(embedder_model)
-    .bind(timings_ms)
+    .bind(&embedder_model)
+    .bind(&timings_ms)
     .fetch_one(&mut *tx)
     .await?;
     write_detections(&mut tx, actor, scan_id, detections, &crop_ids).await?;
+    let match_class = detections.first().map_or(MatchClass::Unknown, |d| d.class);
+    let latency_ms = timings_ms["total"].as_u64().unwrap_or(wall_time_ms);
+    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some(actor.event_actor()),typ:"scan.completed",version:1,data:json!({"scan_id":scan_id,"mode":mode.as_str(),"detections":detections.len(),"timings":timings_ms,"model":embedder_model,"purpose":purpose.as_str(),"match_class":match_class,"latency_ms":latency_ms}),change:None }).await?;
     tx.commit().await?;
     Ok((scan_id, created_at, catalog_version))
 }

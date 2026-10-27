@@ -234,3 +234,11 @@ export const useSignUp = () => ({
 export const useSSO = () => ({ startSSOFlow: clerkMock.startSSOFlow });
 export const ClerkProvider = ({ children }: { children: ReactNode }) =>
   children;
+export const useUser = () => ({
+  isLoaded: true,
+  isSignedIn: state.isSignedIn,
+  user: null as {
+    fullName?: string | null;
+    primaryEmailAddress?: { emailAddress: string } | null;
+  } | null,
+});

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react-native';
+import { screen, within } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { camera, radius } from '@/theme';
@@ -53,6 +53,13 @@ it('draws `behind` under the photo and children over it', async () => {
     (c: { props?: { testID?: string; children?: string } }) =>
       c?.props?.testID ?? c?.props?.children,
   );
-  expect(names.indexOf('live')).toBeLessThan(names.indexOf('viewfinder-photo'));
-  expect(names.indexOf('viewfinder-photo')).toBeLessThan(names.indexOf('over'));
+  const mask = screen.getByTestId('viewfinder-photo-mask');
+  expect(mask).toHaveProp('collapsable', false);
+  expect(within(mask).getByTestId('viewfinder-photo')).toBeOnTheScreen();
+  expect(names.indexOf('live')).toBeLessThan(
+    names.indexOf('viewfinder-photo-mask'),
+  );
+  expect(names.indexOf('viewfinder-photo-mask')).toBeLessThan(
+    names.indexOf('over'),
+  );
 });

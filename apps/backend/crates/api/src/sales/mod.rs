@@ -320,6 +320,7 @@ async fn create(
                 Some(input.id),
                 Some(actor.member_id),
                 None,
+                None,
             )
             .await?;
         }
@@ -343,7 +344,7 @@ async fn create(
             .execute(&mut *tx)
             .await?;
     }
-    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
+    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"manual_lines":input.lines.iter().filter(|line| line.product_id.is_none()).count(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
     if let Some(customer) = input.customer_id() {
         // The customer row is already locked; the sale and its debt entry commit together.
         crate::debts::record_entry(
@@ -505,6 +506,7 @@ async fn void(
                 Some(id),
                 Some(actor.member_id),
                 None,
+                None,
             )
             .await?;
         }
@@ -514,7 +516,7 @@ async fn void(
             &mut tx,
             &actor,
             "sale.voided",
-            json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total}),
+            json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total,"same_day":date == business_date(Utc::now())}),
         )
         .await?;
         if let Some(customer) = customer.filter(|_| credit_amount > 0) {

@@ -421,6 +421,14 @@ No GitHub job runs EAS, so **EXPO_TOKEN is not required** in GitHub. Configure E
 account authorization/GitHub linkage in Expo when enabling the existing native
 build and Maestro workflows.
 
+### PostHog dashboards
+
+The seven product dashboards, replay playlists, assistant kill switch, saved log views,
+store group labels and replay/error project settings are managed by
+[`infra/posthog`](../infra/posthog/README.md). Use its offline dry-run in CI and review a
+credentialed dry-run before the controller applies changes. The README covers the runtime
+secrets file and environment-scoped data verification.
+
 ## References
 
 - [Railway Dockerfiles and cache mounts](https://docs.railway.com/builds/dockerfiles)
