@@ -20,11 +20,10 @@ let failed = false;
 for (const TZ of ZONES) {
   for (const TEST_NOW of CLOCKS) {
     console.log(`\n== TZ=${TZ} TEST_NOW=${TEST_NOW}`);
-    const run = spawnSync(
-      'pnpm',
-      ['exec', 'jest', '--runInBand', '--silent', ...SUITES],
-      { stdio: 'inherit', env: { ...process.env, TZ, TEST_NOW } },
-    );
+    const run = spawnSync('pnpm', ['exec', 'jest', '--silent', ...SUITES], {
+      stdio: 'inherit',
+      env: { ...process.env, TZ, TEST_NOW },
+    });
     if (run.status !== 0) failed = true;
   }
 }

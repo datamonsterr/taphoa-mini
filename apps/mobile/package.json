@@ -75,13 +75,13 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand && pnpm test:scripts",
+    "test": "jest && pnpm test:scripts",
     "test:e2e": "maestro test .maestro",
     "build": "expo export --platform android --output-dir dist",
     "build:web": "expo export --platform web --output-dir dist-web",
     "build:ios": "expo export --platform ios --output-dir dist-ios",
     "build:all": "pnpm build && pnpm build:web && pnpm build:ios",
-    "test:coverage": "jest --runInBand --coverage && pnpm test:tz && pnpm test:scripts",
+    "test:coverage": "jest --coverage && pnpm test:tz && pnpm test:scripts",
     "test:tz": "node scripts/test-tz.mjs",
     "test:scripts": "node --test 'scripts/**/*.test.mjs'",
     "start:go": "expo start --go",
@@ -92,6 +92,7 @@
   },
   "private": true,
   "jest": {
+    "maxWorkers": "50%",
     "preset": "jest-expo",
     "transformIgnorePatterns": [
       "node_modules/(?!(.pnpm|(jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|standard-navigation|@react-navigation/.*|@shopify/flash-list))"
