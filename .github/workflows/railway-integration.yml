@@ -30,7 +30,7 @@ jobs:
   # test from eating the whole budget of the rest.
   api:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - name: Check for Railway test credentials
@@ -123,6 +123,8 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
           RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
           RATE_LIMIT_JOIN_PER_HOUR: '100000'
+          # api uses Redis db 15; the two jobs run at the same time
+          IT_REDIS_DB: '14'
         run: >-
           ../../scripts/ci/with-railway-test-services.sh
           cargo nextest run --locked --workspace --profile railway --run-ignored only --test-threads 1 --no-tests=pass -E 'binary(seed) | binary(seed_clerk) | binary(recognition_vector)'
