@@ -51,10 +51,12 @@ appId: com.datamonsterr.taphoamini
     visible: 'Báo cáo'
     timeout: 15000
 - tapOn: 'Báo cáo'
-- extendedWaitUntil:
-    visible: 'Sổ nợ, 15.000đ.*'
+# the card sits below the fold (the morning digest card now precedes it): scroll it into view
+- scrollUntilVisible:
+    element:
+      text: 'Sổ nợ, 15.000đ.*'
     timeout: 30000
-# the card is the last block above the floating bar: scroll it clear of the bar before tapping
+# clear the floating bar before tapping
 - scroll
 - takeScreenshot: debts-03-dashboard-card
 - tapOn: 'Sổ nợ, 15.000đ.*'
