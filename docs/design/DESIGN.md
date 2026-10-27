@@ -3,12 +3,15 @@
 Status: Draft v0.2 · Date: 2026-10-27 · Sources: [docs/PRD.md](../PRD.md),
 [assistant spec](../specs/assistant/assistant.md), [voice spec](../specs/voice/voice.md)
 
-The source of truth for the drawn boards is the design canvas
-https://claude.ai/artifact/2Jcc8NqdW7tt9jDB6RsnXh, built on the Tạp Hóa Mini design system
-(https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi). This folder holds a copy of the 13
-original boards (2026-10-23) plus four voice boards added by hand on 2026-10-27 (14-17); the
-canvas artifact refresh is epic V6. Screens 18 and up are implemented without a board; the
-app code under `apps/mobile/src/features/` is their reference.
+The source of truth for the drawn boards is the design canvas v0.2
+https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9, built on the Tạp Hóa Mini design system
+(https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi). The v0.1 canvas
+https://claude.ai/artifact/2Jcc8NqdW7tt9jDB6RsnXh stays as the 2026-10-23 record. This folder
+holds a copy of all 28 boards taken on 2026-10-27: the 13 original screens (five of them updated
+for the assistant, the three-way pay toggle, the dashboard cards and the voice setup rows), the
+four voice boards, nine boards for screens that were implemented without one, and a voice flow
+board. Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is
+their reference.
 
 ## 1. Principles
 
@@ -80,36 +83,38 @@ phones). The low-stock banner can sit above the bar.
 
 ### Row C — Assistant and voice (boards added 2026-10-27)
 
-| #   | Board / route                            | Purpose                                                              | Controls                                                                                                                                                                                                                                                                                                                                                                                        |
-| --- | ---------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 14  | `VoiceBubble.dc.html` · (Android system) | Voice bubble over the home screen or another app. Not an app screen. | 56 px accent microphone circle with a float shadow at the right edge · draggable, snaps to an edge · tap opens 15 · long-press hides it until the next app open · persistent low-priority notification "Nút nói đang bật" with Tắt. Enabled from 12 ("Hiện nút nói trên màn hình" → system Settings "Hiện trên ứng dụng khác"). No accessibility service.                                       |
-| 15  | `VoiceListen.dc.html` · `/voice`         | Listening (translucent modal over the previous screen)               | Close · 88 px microphone in `camera-ring` with a pulse ring · level bars · 30 s countdown · hint "Nói tên hàng và giá" · big stop button (tap-to-stop from the bubble; hold-to-talk inside the app). Then "Đang hiểu..." with the transcript greyed.                                                                                                                                            |
-| 16  | `VoiceSale.dc.html` · `/voice` (draft)   | Voice sale sheet                                                     | Transcript in quotes · lines like the cart with a status chip on the thumbnail: green check matched, amber "?" ambiguous (tap: three-candidate strip), grey tag unknown (manual line at the spoken price; tap: catalog search) · price pill red on mismatch · stepper · total · payment toggle tiền mặt / chuyển khoản / ghi nợ (customer row for credit) · microphone (add more) · green check |
-| 17  | `ChatVoice.dc.html` · `/assistant`       | Assistant chat (full-height sheet) with the microphone held          | Header Trợ lý · thread list toggle · new chat · close · streamed messages, tool status lines, cards (restock list, debt list, chart bars, receipt lines), proposed-action card with Xác nhận / Từ chối, thumbs up / down · composer: input, **hold-to-talk microphone** (server transcription, on-device offline; fills the input, never sends), send                                           |
+| #   | Board / route                                           | Purpose                                                              | Controls                                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | ------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | `VoiceBubble.dc.html` · (Android system)                | Voice bubble over the home screen or another app. Not an app screen. | 56 px accent microphone circle with a float shadow at the right edge · draggable, snaps to an edge · tap opens 15 · long-press hides it until the next app open · persistent low-priority notification "Nút nói đang bật" with Tắt. Enabled from 12 ("Hiện nút nói trên màn hình" → system Settings "Hiện trên ứng dụng khác"). No accessibility service.                                       |
+| 15  | `VoiceListen.dc.html` · `/voice`                        | Listening (translucent modal over the previous screen)               | Close · 88 px microphone in `camera-ring` with a pulse ring · level bars · 30 s countdown · hint "Nói tên hàng và giá" · big stop button (tap-to-stop from the bubble; hold-to-talk inside the app). Then "Đang hiểu..." with the transcript greyed.                                                                                                                                            |
+| 16  | `VoiceSale.dc.html` · `/voice` (draft)                  | Voice sale sheet                                                     | Transcript in quotes · lines like the cart with a status chip on the thumbnail: green check matched, amber "?" ambiguous (tap: three-candidate strip), grey tag unknown (manual line at the spoken price; tap: catalog search) · price pill red on mismatch · stepper · total · payment toggle tiền mặt / chuyển khoản / ghi nợ (customer row for credit) · microphone (add more) · green check |
+| 17  | `Assistant.dc.html`, `ChatVoice.dc.html` · `/assistant` | Assistant chat (full-height sheet) with the microphone held          | Header Trợ lý · thread list toggle · new chat · close · streamed messages, tool status lines, cards (restock list, debt list, chart bars, receipt lines), proposed-action card with Xác nhận / Từ chối, thumbs up / down · composer: input, **hold-to-talk microphone** (server transcription, on-device offline; fills the input, never sends), send                                           |
 
 Entry points to 15: the bubble (14), a Quick Settings tile "Bán hàng", the app shortcut,
 the iOS Control Center control, Action Button and Siri, long-press on the chat button, and the
-`voice_sale` next-step chip. Confirm from the bubble returns to the previous app.
+`voice_sale` next-step chip. Confirm from the bubble returns to the previous app. `FlowVoice.dc.html` draws the voice path of §5 as a board;
+`Assistant.dc.html` shows the chat in text mode (restock card, proposed action) and
+`ChatVoice.dc.html` the same sheet with the microphone held.
 
-### Row D — Stock, receipts, debts, digest (implemented, no board)
+### Row D — Stock, receipts, debts, digest (implemented; boards added 2026-10-27)
 
-| #   | Route                        | Purpose                  | Controls                                                                                                                      |
-| --- | ---------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| 18  | `/stock`                     | Stock list               | Back · segment Sản phẩm / Tồn kho · filters Tất cả / Sắp hết / Hết hàng / Còn hàng · rows to 09                               |
-| 19  | `/receipts`, `/receipt/[id]` | Import receipts          | History list · review: photo, lines with product chips, total, payment source, linked expense, Xác nhận nhập kho, Bỏ bản nháp |
-| 20  | `/debts`                     | Debt book                | Back · total and overdue · search · overdue chip · customer list                                                              |
-| 21  | `/customer/[id]`             | Customer                 | Balance · collect (repayment sheet) · adjust (Lead) · edit or archive · ledger                                                |
-| 22  | low-stock banner             | Alert over the shop tabs | message · Xem tồn kho · dismiss                                                                                               |
-| 23  | `/digest`                    | Morning digest           | Summary, revenue, sale count, profit, restock list, drafts (to 19), debts (to 20), Hỏi trợ lý (to 17)                         |
+| #   | Route                                            | Purpose                  | Controls                                                                                                                      |
+| --- | ------------------------------------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| 18  | `Stock.dc.html` · `/stock`                       | Stock list               | Back · segment Sản phẩm / Tồn kho · filters Tất cả / Sắp hết / Hết hàng / Còn hàng · rows to 09                               |
+| 19  | `Receipt.dc.html` · `/receipts`, `/receipt/[id]` | Import receipts          | History list · review: photo, lines with product chips, total, payment source, linked expense, Xác nhận nhập kho, Bỏ bản nháp |
+| 20  | `Debts.dc.html` · `/debts`                       | Debt book                | Back · total and overdue · search · overdue chip · customer list                                                              |
+| 21  | `Customer.dc.html` · `/customer/[id]`            | Customer                 | Balance · collect (repayment sheet) · adjust (Lead) · edit or archive · ledger                                                |
+| 22  | low-stock banner                                 | Alert over the shop tabs | message · Xem tồn kho · dismiss                                                                                               |
+| 23  | `Digest.dc.html` · `/digest`                     | Morning digest           | Summary, revenue, sale count, profit, restock list, drafts (to 19), debts (to 20), Hỏi trợ lý (to 17)                         |
 
-### Row E — Sign-in and onboarding (implemented, no board)
+### Row E — Sign-in and onboarding (implemented; boards added 2026-10-27)
 
-| #   | Route                          | Purpose             | Controls                                                                                            |
-| --- | ------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------- |
-| 24  | `/sign-in`, `/verify-code`     | Clerk sign-in       | Email · captcha · send code · Google · six-digit code · resend · change email · PIN sheet to switch |
-| 25  | `/add-person/*`                | Add a second person | Same as 24 with cancel                                                                              |
-| 26  | `/welcome`, `/create`, `/join` | Onboarding          | Create store (name, display name, bank) · join with invite token · sign out                         |
-| 27  | PIN lock (sheet, no route)     | Shared-phone lock   | PIN entry over the gate on cold start                                                               |
+| #   | Route                                              | Purpose             | Controls                                                                                            |
+| --- | -------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
+| 24  | `SignIn.dc.html` · `/sign-in`, `/verify-code`      | Clerk sign-in       | Email · captcha · send code · Google · six-digit code · resend · change email · PIN sheet to switch |
+| 25  | `/add-person/*`                                    | Add a second person | Same as 24 with cancel                                                                              |
+| 26  | `Welcome.dc.html` · `/welcome`, `/create`, `/join` | Onboarding          | Create store (name, display name, bank) · join with invite token · sign out                         |
+| 27  | PIN lock (sheet, no route)                         | Shared-phone lock   | PIN entry over the gate on cold start                                                               |
 
 ## 4. Camera interaction spec
 
@@ -188,11 +193,11 @@ lý" hand-off when the words were a question.
 
 ## 8. Not drawn yet
 
-- Boards for rows D and E (stock, receipts, debt book, customer, digest, sign-in,
-  onboarding, PIN lock); the code is the reference.
+- Boards for 22 (low-stock banner), 25 (add a person) and 27 (PIN lock); the code is the
+  reference.
 - Elder-mode variants, barcode indicator (S2), TTS (S7), void / refund (S10), CSV export (R5).
-- Voice: Account "Nút nói nhanh" section, the Android notification, the iOS Control Center
-  control and the Quick Settings tile (epic V6 adds them to the canvas).
+- Voice: the Android notification, the iOS Control Center control and the Quick Settings tile
+  (epic V6 adds them to the canvas).
 
 ## 9. Files
 
@@ -201,7 +206,7 @@ docs/design/
   DESIGN.md                this file
   canvas/
     canvas.json            board layout, titles, notes, design-system record
-    *.dc.html              one file per board (19)
+    *.dc.html              one file per board (28)
     ds/taphoa/             copy of the design system: tokens.json, tokens.css, components/bundle.css
 ```
 

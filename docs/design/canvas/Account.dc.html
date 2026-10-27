@@ -15,7 +15,7 @@ body{margin:0;padding:0;background:#ffffff}
 a{color:inherit;text-decoration:none}
 </style>
 </helmet>
-<div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; padding: 24px 16px 112px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 16px">
+<div style="position: relative; width: 390px; height: 1240px; box-sizing: border-box; padding: 24px 16px 112px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 16px">
   <div style="display: flex; align-items: center; gap: 16px">
     <div style="display: grid; place-items: center; width: 72px; height: 72px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 800 28px/1 var(--font-sans)">L</div>
     <div style="flex: 1; min-width: 0">
@@ -65,6 +65,39 @@ a{color:inherit;text-decoration:none}
     </div>
   </div>
 
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 8px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    <span class="label" style="flex: 1">Mã PIN khóa máy</span>
+    <button type="button" class="th-btn th-btn-soft" style="background: var(--surface)">Đổi</button>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 8px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M11 18h2"/></svg>
+    <span class="label" style="flex: 1">Người dùng trên máy này</span>
+    <span class="th-badge th-num" style="background: var(--surface)">2</span>
+    <a href="SignIn.dc.html" class="th-ib" aria-label="Thêm người trên máy này" style="background: var(--surface)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></a>
+  </div>
+
+  <h2 class="heading" style="margin: 8px 0 0">Nút nói nhanh</h2>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 12px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--accent)"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
+    <span style="flex: 1; min-width: 0"><span class="label" style="display: block">Hiện nút nói trên màn hình</span><span class="caption" style="display: block; color: var(--ink-muted)">Cần quyền "Hiện trên ứng dụng khác"</span></span>
+    <button type="button" role="switch" aria-checked="true" aria-label="Hiện nút nói trên màn hình" style="position: relative; width: 72px; height: 44px; padding: 0; border: 0; border-radius: 9999px; cursor: pointer; background: var(--accent)"><span style="position: absolute; top: 4px; left: 32px; width: 36px; height: 36px; border-radius: 9999px; background: #ffffff"></span></button>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 8px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 12h8M12 8v8"/></svg>
+    <span class="label" style="flex: 1">Ô cài đặt nhanh</span>
+    <button type="button" class="th-btn th-btn-soft" style="background: var(--surface)">Thêm</button>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 0 12px 0 16px; border-radius: 28px; background: var(--surface-soft)">
+    <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+    <span style="flex: 1; min-width: 0"><span class="label" style="display: block">Góp giọng nói để cải thiện</span><span class="caption" style="display: block; color: var(--ink-muted)">Giữ lại đoạn ghi âm cho bộ mẫu</span></span>
+    <button type="button" role="switch" aria-checked="false" aria-label="Góp giọng nói để cải thiện" style="position: relative; width: 72px; height: 44px; padding: 0; border: 0; border-radius: 9999px; cursor: pointer; background: var(--line-strong)"><span style="position: absolute; top: 4px; left: 4px; width: 36px; height: 36px; border-radius: 9999px; background: #ffffff"></span></button>
+  </div>
+
   <div class="th-navwrap" style="position: absolute; left: 16px; bottom: 16px; width: 358px">
     <a href="Main.dc.html" class="th-ib th-ib-lg th-ib-accent th-ib-float" aria-label="Mở camera"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
     <nav class="th-nav" aria-label="Chính">
@@ -72,10 +105,11 @@ a{color:inherit;text-decoration:none}
       <a href="Dashboard.dc.html" class="th-ib" aria-label="Báo cáo"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M8 17V11M13 17V7M18 17v-4"/></svg></a>
       <a href="Account.dc.html" class="th-ib" aria-current="page" aria-label="Tài khoản"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></a>
     </nav>
+    <a href="Assistant.dc.html" class="th-ib th-ib-accent th-ib-float" aria-label="Mở trợ lý"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"/><path d="M9 11h6M9 14h3"/></svg></a>
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1240}}'>
 class Component extends DCLogic {
   renderVals() {
     const st = this.state || {};

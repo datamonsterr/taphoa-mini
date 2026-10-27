@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Assistant chat</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); font-family: var(--font-sans); color: var(--ink)">
+  <div style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: var(--scrim)"></div>
+
+  <div style="position: absolute; left: 0; top: 56px; width: 390px; height: 788px; box-sizing: border-box; padding: 12px 16px 20px; border-radius: 36px 36px 0 0; background: var(--surface); box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; justify-content: center"><span style="display: block; width: 40px; height: 5px; border-radius: 9999px; background: var(--surface-pressed)"></span></div>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button type="button" class="th-ib" aria-label="Cuộc trò chuyện"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+      <span style="flex: 1; font-size: var(--text-heading); font-weight: 700">Trợ lý</span>
+      <button type="button" class="th-ib" aria-label="Cuộc trò chuyện mới"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <a href="Inventory.dc.html" class="th-ib" aria-label="Đóng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-top: 6px">
+      <div style="align-self: flex-end; max-width: 300px; padding: 12px 16px; border-radius: 22px 22px 6px 22px; background: var(--accent-soft); font-size: var(--text-body); line-height: 26px">Tuần này nên nhập gì?</div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--ink-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px"><path d="M20 6 9 17l-5-5"/></svg>Đã xem tồn kho và tốc độ bán 14 ngày</div>
+      <div style="align-self: flex-start; max-width: 330px; font-size: var(--text-body); line-height: 26px">Nên nhập <b>3 món</b> trước cuối tuần. Hảo Hảo sắp hết: còn 3 gói, bán 6 gói mỗi ngày.</div>
+
+      <div style="align-self: stretch; padding: 14px 16px; border-radius: 22px; background: var(--surface-soft); display: flex; flex-direction: column; gap: 10px">
+        <div style="font-size: var(--text-label); font-weight: 600">Danh sách nhập hàng</div>
+        <div style="display: flex; align-items: center; gap: 10px"><span class="th-photo" style="width: 44px; height: 44px; border-radius: 12px"><svg viewBox="0 0 40 40" aria-hidden="true" style="width: 28px; height: 28px"><rect x="0" y="0" width="40" height="40" rx="6" fill="#e2a94b"/><circle cx="20" cy="22" r="10" fill="#c62f2f"/></svg></span><span style="flex: 1; min-width: 0; font-size: 17px; line-height: 22px">Hảo Hảo tôm chua cay<br><span class="caption" style="color: var(--ink-muted)">Minh Phát · 3.500đ/gói</span></span><span class="th-badge th-num" style="background: var(--surface)">2 thùng</span></div>
+        <div style="display: flex; align-items: center; gap: 10px"><span class="th-photo" style="width: 44px; height: 44px; border-radius: 12px"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 16px; height: 28px"><rect x="15" y="2" width="10" height="8" rx="2" fill="#111114"/><path d="M14 10h12l4 10v44a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V20z" fill="#c62f2f"/></svg></span><span style="flex: 1; min-width: 0; font-size: 17px; line-height: 22px">Sting đỏ 330ml<br><span class="caption" style="color: var(--ink-muted)">Minh Phát · 7.800đ/chai</span></span><span class="th-badge th-num" style="background: var(--surface)">1 thùng</span></div>
+        <div style="display: flex; align-items: center; gap: 10px"><span class="th-photo" style="width: 44px; height: 44px; border-radius: 12px"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 16px; height: 28px"><rect x="15" y="2" width="10" height="7" rx="2" fill="#2f6fc6"/><path d="M13 9h14l3 9v46a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V18z" fill="#cfe0f5"/></svg></span><span style="flex: 1; min-width: 0; font-size: 17px; line-height: 22px">Aquafina 500ml<br><span class="caption" style="color: var(--ink-muted)">Đại lý Hòa · 3.200đ/chai</span></span><span class="th-badge th-num" style="background: var(--surface)">1 thùng</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: var(--text-caption); color: var(--ink-muted)"><span>Tạm tính</span><b class="th-num" style="color: var(--ink); font-size: 17px">1.120.000đ</b></div>
+      </div>
+
+      <div style="align-self: stretch; padding: 14px 16px; border-radius: 22px; background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent-soft); display: flex; flex-direction: column; gap: 10px">
+        <div style="font-size: var(--text-label); font-weight: 600">Lưu danh sách nhập hàng?</div>
+        <div class="caption" style="color: var(--ink-muted)">Trợ lý chỉ lưu khi bạn xác nhận.</div>
+        <div style="display: flex; gap: 8px">
+          <button type="button" class="th-btn th-btn-soft" style="flex: 1">Từ chối</button>
+          <button type="button" class="th-btn th-btn-ink" style="flex: 1"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Xác nhận</button>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; align-self: flex-start">
+        <button type="button" class="th-ib" aria-label="Câu trả lời hữu ích"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v12M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></button>
+        <button type="button" class="th-ib" aria-label="Câu trả lời chưa tốt"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 14V2M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg></button>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px">
+      <label style="flex: 1; display: flex; align-items: center; height: 56px; padding: 0 20px; border-radius: 9999px; background: var(--surface-soft)"><input type="text" placeholder="Hỏi trợ lý về cửa hàng…" aria-label="Hỏi trợ lý" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 17px/24px var(--font-sans); color: var(--ink); outline: none"></label>
+      <a href="ChatVoice.dc.html" class="th-ib th-ib-accent" aria-label="Giữ để nói"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg></a>
+      <button type="button" class="th-ib th-ib-ink" aria-label="Gửi" disabled style="opacity: .4"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

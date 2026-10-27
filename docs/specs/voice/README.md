@@ -20,12 +20,12 @@ names and prices are heard correctly. On-device recognition stays as the offline
 
 ## Documents
 
-| File                                             | Content                                                                         |
-| ------------------------------------------------ | ------------------------------------------------------------------------------- |
-| [voice.md](voice.md)                             | Use cases, architecture, parsing rules, API contract, UI, entry points, privacy |
-| [speech-options.md](speech-options.md)           | Vendor and model comparison with verified prices; the decision and fallbacks    |
-| [epics.md](epics.md)                             | Epic briefs V0-V6: scope, owned files, tasks, acceptance, out of scope          |
-| [../../design/DESIGN.md](../../design/DESIGN.md) | Screens 14-16 (voice bubble, voice sale sheet, chat listening state)            |
+| File                                                                                                   | Content                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| [voice.md](voice.md)                                                                                   | Use cases, architecture, parsing rules, API contract, UI, entry points, privacy |
+| [speech-options.md](speech-options.md)                                                                 | Vendor and model comparison with verified prices; the decision and fallbacks    |
+| [epics.md](epics.md)                                                                                   | Epic briefs V0-V6: scope, owned files, tasks, acceptance, out of scope          |
+| [DESIGN.md](../../design/DESIGN.md) · [canvas v0.2](https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9) | Screens 14-17 (voice bubble, listening, voice sale sheet, chat listening)       |
 
 ## Definition of done (whole program)
 

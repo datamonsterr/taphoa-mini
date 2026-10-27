@@ -163,10 +163,12 @@ change; "Touches" lists agreed integration points it may edit minimally.
 - **Owns:** `docs/design/canvas/VoiceBubble.dc.html`, `VoiceSale.dc.html`,
   `ChatVoice.dc.html`, `canvas.json`, DESIGN.md screens 14-16 and components, the Flow
   board update, the design canvas artifact (owner's claude.ai canvas) refresh.
-- **Tasks:** boards in the design system (tokens, `th-*` classes), states (listening,
-  understanding, draft with the three line statuses, credit), Account setup section, Android
-  home-screen frame with the bubble, interaction notes; update the Flow board with the voice
-  path; keep DESIGN.md compact.
+- **Done on 2026-10-27:** canvas v0.2 (https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9)
+  holds boards 14-17 (bubble, listening, voice sale draft, chat listening), the voice flow board
+  and the Account voice setup rows; `docs/design/canvas/` mirrors it.
+- **Tasks:** the understanding state, the credit customer row on the sheet, the Android
+  notification, the iOS Control Center control and the Quick Settings tile; keep the canvas and
+  DESIGN.md in sync as V1-V4 change the UI.
 - **Acceptance:** boards open from `canvas.json`; DESIGN.md §3 lists 14-16 with controls;
   reviewed by the owner.
 - **Out of scope:** app code.
