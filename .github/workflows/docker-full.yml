@@ -25,8 +25,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Namespace profile (faster CPU and disk; 4 vCPU, 8 GB); GitHub runners are free on this public
+  # repo, so only the heavy jobs leave ubuntu-latest.
   build:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7

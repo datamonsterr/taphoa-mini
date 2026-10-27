@@ -60,10 +60,13 @@ jobs:
 
   # Same prebuilt binary as ci.yml: built in rust:1-bookworm with a persistent cargo/target
   # cache, so maestro never runs a cold cargo build on the emulator runner.
+  # The heavy jobs run on Namespace profiles (faster CPU and disk, KVM without setup):
+  # backend-binary on 4 vCPU / 8 GB, the emulator jobs on 8 vCPU / 16 GB. GitHub runners are free
+  # on this public repo, so the light jobs stay on ubuntu-latest.
   backend-binary:
     needs: clerk-secrets
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -90,7 +93,7 @@ jobs:
   maestro:
     needs: [clerk-secrets, backend-binary]
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-xl
     timeout-minutes: 60
     env:
       MAESTRO_VERSION: 2.11.0
@@ -243,7 +246,7 @@ jobs:
   expo-go:
     needs: clerk-secrets
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-xl
     timeout-minutes: 45
     env:
       MAESTRO_VERSION: 2.11.0

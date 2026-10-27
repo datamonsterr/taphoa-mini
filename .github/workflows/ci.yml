@@ -121,10 +121,13 @@ jobs:
         run: scripts/ci/job-summary.sh "rust-clippy" "cargo clippy --all-targets -D warnings"
 
   # Builds every test binary once; unit and integration jobs reuse the archive.
+  # rust-build, rust-integration, backend-binary, mobile-test and web-e2e run on the Namespace
+  # profile (faster CPU and disk; 4 vCPU, 8 GB). GitHub runners are free on this public repo,
+  # so the light jobs stay on ubuntu-latest.
   rust-build:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -195,7 +198,7 @@ jobs:
   rust-integration:
     name: rust-integration (${{ matrix.partition }}/2)
     needs: rust-build
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -396,7 +399,7 @@ jobs:
   mobile-test:
     needs: changes
     if: needs.changes.outputs.js == 'true'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -541,7 +544,7 @@ jobs:
   backend-binary:
     needs: changes
     if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.js == 'true' || needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -693,7 +696,7 @@ jobs:
       (needs.changes.outputs.js == 'true' || needs.changes.outputs.rust == 'true') &&
       needs.clerk-secrets.outputs.configured == 'true' &&
       needs.backend-binary.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     timeout-minutes: 30
     env:
       E2E_STATE_DIR: ${{ github.workspace }}/.e2e-stack
