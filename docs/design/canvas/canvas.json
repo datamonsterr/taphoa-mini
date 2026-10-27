@@ -265,6 +265,24 @@
       "title": "07c Choose or create customer",
       "is_interactive": true,
       "radius": 44
+    },
+    "ScanDoc.dc.html": {
+      "x": 4230,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "01b Camera: receipt detected (OCR)",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "ReceiptEdit.dc.html": {
+      "x": 3760,
+      "y": 2884,
+      "w": 390,
+      "h": 844,
+      "title": "19b Receipt OCR: adjust lines",
+      "is_interactive": true,
+      "radius": 44
     }
   },
   "createdOnFiles": {
@@ -286,8 +304,8 @@
   "notes": {
     "rowA": {
       "kind": "title1",
-      "maxW": 4150,
-      "text": "Scan & sell — camera, cart, pay, credit customer",
+      "maxW": 4620,
+      "text": "Scan & sell — camera, cart, pay, credit customer, receipt OCR",
       "w": 240,
       "x": 0,
       "y": -300
@@ -302,7 +320,7 @@
     },
     "rowC": {
       "kind": "title1",
-      "maxW": 3680,
+      "maxW": 4150,
       "text": "Assistant, digest, receipts, debt book, sign-in (implemented)",
       "w": 240,
       "x": 0,
@@ -330,6 +348,7 @@
     "Match.dc.html",
     "Multi.dc.html",
     "Unknown.dc.html",
+    "ScanDoc.dc.html",
     "Enroll.dc.html",
     "Cart.dc.html",
     "Pay.dc.html",
@@ -346,6 +365,7 @@
     "ChatVoice.dc.html",
     "Digest.dc.html",
     "Receipt.dc.html",
+    "ReceiptEdit.dc.html",
     "Debts.dc.html",
     "Customer.dc.html",
     "SignIn.dc.html",

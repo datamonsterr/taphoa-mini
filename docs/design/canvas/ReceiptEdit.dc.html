@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Receipt OCR: adjust lines</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<!-- 19b · the OCR result as an editable list: product (tap to change), quantity (stepper), unit price (tap opens the keypad). -->
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans)">
+  <div style="height: 844px; box-sizing: border-box; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <a href="ScanDoc.dc.html" class="th-ib" aria-label="Chụp lại"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>
+      <div style="flex: 1; min-width: 0">
+        <h1 class="heading" style="margin: 0">Kiểm tra hóa đơn</h1>
+        <span class="caption" style="color: var(--ink-muted)">Minh Phát · 4 dòng đọc được · {{fixCount}} cần xem</span>
+      </div>
+      <a href="Assistant.dc.html" class="th-ib" aria-label="Sửa trong trợ lý"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"/><path d="M9 11h6M9 14h3"/></svg></a>
+    </div>
+
+    <button type="button" aria-label="Ảnh hóa đơn, chạm để phóng to" style="display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 16px; border: 0; border-radius: 22px; background: #2a2a2e; color: var(--camera-muted); font: 500 15px/20px var(--font-sans); cursor: pointer; text-align: left">
+      <span aria-hidden="true" style="display: block; width: 32px; height: 44px; border-radius: 3px; background: #f7f5ef"></span>
+      <span style="flex: 1">Ảnh hóa đơn · 12 dòng chữ</span>
+      <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5M11 8v6M8 11h6"/></svg>
+    </button>
+
+    <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="4">
+        <div style="{{l.rowStyle}}">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <button type="button" aria-label="{{l.nameAria}}" style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--ink); font: 600 17px/22px var(--font-sans); text-align: left; cursor: pointer">
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{l.name}}</span>
+              <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; color: var(--ink-muted); flex: none"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
+            <sc-if value="{{l.isOk}}" hint-placeholder-val="{{true}}"><span class="th-badge th-badge-success" style="height: 26px; font-size: 13px; flex: none"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M20 6 9 17l-5-5"/></svg>Khớp</span></sc-if>
+            <sc-if value="{{l.isPick}}" hint-placeholder-val="{{false}}"><span class="th-badge th-badge-warning" style="height: 26px; font-size: 13px; flex: none">Chọn sản phẩm</span></sc-if>
+            <sc-if value="{{l.isPrice}}" hint-placeholder-val="{{false}}"><span class="th-badge th-badge-warning" style="height: 26px; font-size: 13px; flex: none">Giá chưa rõ</span></sc-if>
+            <button type="button" onClick="{{l.remove}}" aria-label="{{l.removeAria}}" style="flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 9999px; background: transparent; color: var(--ink-muted); cursor: pointer"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
+          </div>
+          <div class="caption" style="color: var(--ink-muted); margin-top: 2px">Đọc được: “{{l.ocr}}”</div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px">
+            <div class="th-step" aria-label="Số lượng" style="background: var(--surface); height: 48px">
+              <button type="button" class="th-ib" onClick="{{l.dec}}" aria-label="Bớt một" style="width: 44px; height: 44px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+              <output class="th-num" style="min-width: 36px; text-align: center; font: 700 18px/24px var(--font-sans)">{{l.qty}}</output>
+              <button type="button" class="th-ib" onClick="{{l.inc}}" aria-label="Thêm một" style="width: 44px; height: 44px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            </div>
+            <span class="caption" style="color: var(--ink-muted)">×</span>
+            <button type="button" class="th-num" onClick="{{l.editPrice}}" aria-label="{{l.priceAria}}" style="{{l.priceStyle}}">{{l.priceText}}</button>
+            <b class="th-num" style="flex: 1; text-align: right; font: 800 18px/24px var(--font-sans)">{{l.totalText}}</b>
+          </div>
+        </div>
+      </sc-for>
+      <button type="button" class="th-btn th-btn-soft" style="align-self: flex-start"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Thêm dòng</button>
+    </div>
+
+    <sc-if value="{{notEditing}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px"><span class="label">Tổng tiền · {{count}} món</span><b class="th-num" style="font: 800 28px/32px var(--font-sans)">{{totalText}}</b></div>
+      <a href="Receipt.dc.html" class="th-btn th-btn-ink th-btn-block th-btn-xl"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Xong, xem lại</a>
+    </sc-if>
+
+    <sc-if value="{{editing}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 4px; border-radius: 28px; background: var(--surface-soft)">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 8px"><span class="caption" style="color: var(--ink-muted)">Giá nhập · {{editName}}</span><output aria-live="polite" class="th-num" style="font: 800 28px/32px var(--font-sans)">{{editText}}</output></div>
+        <div class="th-keypad" style="gap: 6px">
+          <sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+            <button type="button" class="th-key" onClick="{{k.press}}" aria-label="{{k.aria}}" style="min-height: 48px; background: var(--surface)">
+              <sc-if value="{{k.isBack}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="M18 9l-6 6M12 9l6 6"/></svg></sc-if>
+              <sc-if value="{{k.isDigit}}" hint-placeholder-val="{{true}}">{{k.label}}</sc-if>
+            </button>
+          </sc-for>
+        </div>
+        <button type="button" class="th-btn th-btn-ink th-btn-block" onClick="{{done}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Xong</button>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const fmt = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+    const defs = [
+      { id: 'haohao', name: 'Hảo Hảo tôm chua cay', ocr: 'HAO HAO TOM CHUA CAY x30 3.500', qty: 30, price: 3500, status: 'ok' },
+      { id: 'sting', name: 'Sting đỏ 330ml', ocr: 'STING DO 330ML x24 7.800', qty: 24, price: 7800, status: 'ok' },
+      { id: 'omachi', name: 'Mì Omachi (chưa có trong kho)', ocr: 'MI OMACHI x20 5.200', qty: 20, price: 5200, status: 'pick' },
+      { id: 'namngu', name: 'Nước mắm Nam Ngư 500ml', ocr: 'NM NAM NGU 500 x12 28.0OO', qty: 12, price: 28000, status: 'price' }
+    ];
+    const qty = st.qty || {};
+    const price = st.price || {};
+    const removed = st.removed || {};
+    const editing = st.editing || null;
+    const digits = st.digits == null ? '' : st.digits;
+    const setQty = (id, v) => this.setState({ qty: { ...qty, [id]: Math.max(1, Math.min(999, v)) } });
+    const lines = defs.filter((d) => !removed[d.id]).map((d) => {
+      const q = qty[d.id] == null ? d.qty : qty[d.id];
+      const p = price[d.id] == null ? d.price : price[d.id];
+      const isEdit = editing === d.id;
+      const look = isEdit
+        ? 'background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 3px var(--accent);'
+        : d.status === 'price' ? 'background: var(--warning-soft); color: var(--warning);' : 'background: var(--surface); color: var(--ink);';
+      return {
+        name: d.name, ocr: d.ocr, qty: q, priceText: fmt(p), totalText: fmt(q * p),
+        isOk: d.status === 'ok', isPick: d.status === 'pick', isPrice: d.status === 'price',
+        nameAria: d.name + ', chạm để đổi sản phẩm',
+        priceAria: 'Giá nhập ' + fmt(p) + ', chạm để sửa',
+        removeAria: 'Xóa dòng ' + d.name,
+        rowStyle: 'padding: 12px 12px 12px 16px; border-radius: 22px; ' + (d.status === 'pick' ? 'background: var(--warning-soft);' : 'background: var(--surface-soft);'),
+        priceStyle: 'display: inline-flex; align-items: center; height: 44px; padding: 0 14px; border: 0; border-radius: 9999px; cursor: pointer; font: 700 17px/22px var(--font-sans); ' + look,
+        dec: () => setQty(d.id, q - 1),
+        inc: () => setQty(d.id, q + 1),
+        editPrice: () => this.setState({ editing: d.id, digits: String(p) }),
+        remove: () => this.setState({ removed: { ...removed, [d.id]: true }, editing: editing === d.id ? null : editing })
+      };
+    });
+    const total = defs.filter((d) => !removed[d.id]).reduce((s, d) => s + (qty[d.id] == null ? d.qty : qty[d.id]) * (price[d.id] == null ? d.price : price[d.id]), 0);
+    const count = defs.filter((d) => !removed[d.id]).reduce((s, d) => s + (qty[d.id] == null ? d.qty : qty[d.id]), 0);
+    const fixCount = defs.filter((d) => !removed[d.id] && d.status !== 'ok').length;
+    const ed = defs.find((d) => d.id === editing);
+    const labels = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'back'];
+    const keys = labels.map((l) => {
+      const isBack = l === 'back';
+      return {
+        label: l, isBack, isDigit: !isBack, aria: isBack ? 'Xóa' : l,
+        press: () => {
+          if (!ed) return;
+          let next = isBack ? digits.slice(0, -1) : (digits === '0' ? '' : digits) + l;
+          if (next.length > 9) return;
+          next = next === '' ? '' : String(Number(next));
+          this.setState({ digits: next, price: { ...price, [ed.id]: next === '' ? 0 : Number(next) } });
+        }
+      };
+    });
+    return {
+      lines, keys, count, fixCount, totalText: fmt(total),
+      editing: !!ed, notEditing: !ed,
+      editName: ed ? ed.name : '', editText: fmt(digits === '' ? 0 : Number(digits)),
+      done: () => this.setState({ editing: null })
+    };
+  }
+}
+</script>
+</body>
+</html>
