@@ -86,3 +86,43 @@ it('rejects unsafe cutoff arguments before listing users', async () => {
   await expect(import('./sweep.js')).rejects.toThrow('must be positive');
   expect(listUsers).not.toHaveBeenCalled();
 });
+
+it('deletes only users whose email starts with --prefix', async () => {
+  process.argv.push('--prefix', 'e2e-maestro-1-2-a-', '--max-age-hours', '1');
+  listUsers.mockResolvedValue([
+    user('mine', 2, 'e2e-maestro-1-2-a-99+clerk_test@example.com'),
+    user('other-shard', 2, 'e2e-maestro-1-2-b-99+clerk_test@example.com'),
+    user('vitest', 2),
+  ]);
+  await import('./sweep.js');
+  expect(deleteUser.mock.calls).toEqual([['mine']]);
+});
+
+it('rejects a prefix that does not start with e2e- before listing users', async () => {
+  process.argv.push('--prefix', 'seed-');
+  await expect(import('./sweep.js')).rejects.toThrow('must start with e2e-');
+  expect(listUsers).not.toHaveBeenCalled();
+});
+
+it('rejects age 0 without --prefix before listing users', async () => {
+  process.argv.push('--max-age-hours', '0');
+  await expect(import('./sweep.js')).rejects.toThrow('0 only together');
+  expect(listUsers).not.toHaveBeenCalled();
+});
+
+it('with --prefix and age 0 deletes users of any age, including brand new ones', async () => {
+  process.argv.push('--prefix', 'e2e-maestro-', '--max-age-hours', '0');
+  listUsers.mockResolvedValue([
+    user('new', 0, 'e2e-maestro-1+clerk_test@example.com'),
+    user('old', 50, 'e2e-maestro-2+clerk_test@example.com'),
+    user('vitest', 0),
+  ]);
+  await import('./sweep.js');
+  expect(deleteUser.mock.calls).toEqual([['new'], ['old']]);
+});
+
+it('rejects unknown or incomplete arguments', async () => {
+  process.argv.push('--prefix');
+  await expect(import('./sweep.js')).rejects.toThrow('Usage');
+  expect(listUsers).not.toHaveBeenCalled();
+});

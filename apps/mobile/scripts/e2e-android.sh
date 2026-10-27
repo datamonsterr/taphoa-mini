@@ -2,6 +2,7 @@
 # Runs inside the emulator booted by reactivecircus/android-emulator-runner:
 # install the release APK, grant the camera, run the Maestro flows, then check the jank budget.
 # Usage: e2e-android.sh <apk> [flow...]
+# RUN_TAG (optional, [a-z0-9-]) is passed to the flows as env, so sign-in.yaml tags its Clerk users.
 # Each flow is a flow file or folder relative to apps/mobile; with none, the whole .maestro folder runs.
 set -euo pipefail
 
@@ -31,7 +32,9 @@ adb shell dumpsys gfxinfo "$app_id" reset >/dev/null || true
 # --debug-output keeps screenshots + logs for the artifact; flatten drops the per-run timestamp dirs.
 # Keep the exit code: the jank report must still be produced when a flow fails.
 maestro_status=0
-maestro test "${flows[@]}" \
+tag_args=()
+if [ -n "${RUN_TAG:-}" ]; then tag_args=(-e "RUN_TAG=$RUN_TAG"); fi
+maestro test "${tag_args[@]}" "${flows[@]}" \
   --format junit --output maestro-report.xml \
   --debug-output maestro-debug --flatten-debug-output || maestro_status=$?
 

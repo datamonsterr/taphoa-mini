@@ -73,6 +73,11 @@ async function request<T>(
     }
     if (!response.ok) {
       const code = await errorCode(response);
+      if (code === 'user_quota_exceeded') {
+        throw new Error(
+          `Clerk Backend API ${method} failed: HTTP ${response.status} (user_quota_exceeded): the Clerk instance hit its user cap (100 on development instances). Delete leaked test users with: pnpm --filter @taphoa/e2e clerk:sweep --max-age-hours 2`,
+        );
+      }
       // Only the error code, never the body: it can contain identity data or tokens.
       throw new Error(
         `Clerk Backend API ${method} failed: HTTP ${response.status}${code ? ` (${code})` : ''}`,
