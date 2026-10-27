@@ -850,8 +850,13 @@ jobs:
         # not a broken stack: it is reported (annotation, summary, artifact) and the nightly
         # workflow eval.yml enforces the bars. A refused or aborted run still fails the job.
         run: |
-          rc=0
-          pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval" || rc=$?
+          pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval" 2>&1 | tee "$RUNNER_TEMP/eval-smoke.log"
+          rc=${PIPESTATUS[0]}
+          # The shared free quota (1,000 requests a day) can be spent by other runs: not a failure.
+          if [ "$rc" -eq 1 ] && grep -q 'free quota too low' "$RUNNER_TEMP/eval-smoke.log"; then
+            echo "::warning title=Assistant eval::skipped, the shared OpenRouter free quota is used up for today"
+            exit 0
+          fi
           if [ "$rc" -eq 1 ] && grep -qs '^- Result: FAIL' "$RUNNER_TEMP"/eval/*.md; then
             echo "::warning title=Assistant eval::smoke run finished below the pass bars; see the job summary"
             exit 0
