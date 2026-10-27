@@ -111,10 +111,12 @@ pub async fn mark_read(
     }
 }
 
-/// Recent sales, member registrations or refreshed device registrations; `since` is a chrono duration.
+/// Stores with refreshed device registrations within `since`.
 pub async fn active_store_ids(pool: &PgPool, since: Duration) -> Result<Vec<Uuid>, sqlx::Error> {
-    sqlx::query_scalar("SELECT store_id FROM sales WHERE sold_at >= $1 UNION SELECT store_id FROM members WHERE created_at >= $1 UNION SELECT store_id FROM devices WHERE updated_at >= $1")
-        .bind(Utc::now()-since).fetch_all(pool).await
+    sqlx::query_scalar("SELECT DISTINCT store_id FROM devices WHERE updated_at >= $1")
+        .bind(Utc::now() - since)
+        .fetch_all(pool)
+        .await
 }
 
 #[derive(Deserialize)]

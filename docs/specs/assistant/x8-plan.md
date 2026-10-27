@@ -41,12 +41,14 @@ Epic brief: [epics.md](epics.md#x8--push-notifications-and-daily-digest) · Cont
   sets `read_at`. The `digest` next-step chip appears while today's digest exists and the caller has
   no read row; it navigates to `/digest`.
 - **Schedule:** a background task sleeps until the next 07:00 `Asia/Ho_Chi_Minh` (`DIGEST_SEND_AT`
-  overrides the time), generates digests for active stores (a sale, a device registration or a
-  member sign-in in the last 30 days), pushes to every registered device of the store, then checks
-  receipts 15 minutes later. On startup it catches up: if today's send time has passed and a store
-  has no pushed digest for today, it generates and pushes once (`assistant_digests.pushed_at`
-  prevents duplicates across restarts). `GET /v1/assistant/digest` without a stored digest for today
-  generates it on demand through the same code path, so a store never sees a 404 for today.
+  overrides the time), generates digests for active stores (stores with at least one registered
+  device updated in the last 30 days, avoiding spending the shared 1,000/day OpenRouter quota on
+  throwaway stores created by e2e suites where pushes cannot land), pushes to every registered device
+  of the store, then checks receipts 15 minutes later. On startup it catches up: if today's send time
+  has passed and a store has no pushed digest for today, it generates and pushes once
+  (`assistant_digests.pushed_at` prevents duplicates across restarts). `GET /v1/assistant/digest`
+  without a stored digest for today generates it on demand through the same code path, so a store
+  never sees a 404 for today.
 - **Devices:** `devices` keyed by token; `POST` upserts the caller's store and member onto the
   token (a shared phone follows the latest sign-in); `DELETE` is idempotent and scoped to the
   caller. Push tickets are stored in `push_tickets`; `DeviceNotRegistered` in a ticket or a
@@ -123,3 +125,5 @@ Filled in as work lands: commands run, Railway `test` evidence, PR link.
 - 2026-10-26 T3 (from `apps/backend`, `CARGO_TARGET_DIR=/media/storage/cache/x8-t3`, `CARGO_BUILD_JOBS=2`; integrations use the supplied local service URLs and `RUST_TEST_THREADS=1`): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (230 passed, 4 ignored); `cargo test -p taphoa-api --test digest_job --test push --test assistant_digest -- --ignored` PASS (digest_job 9, push 7, assistant_digest 7; 23 passed, 0 failed).
 
 - 2026-10-26 backend review fixes (from `apps/backend`, shared X8 Cargo cache and supplied local Postgres/Redis; regressions confirmed RED before fixes): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (231 passed, 4 ignored); `RUST_TEST_THREADS=1 cargo test -p taphoa-api --test devices --test push --test assistant_digest --test digest_job --test assistant_next_steps --test migrations -- --include-ignored` PASS (55 passed: devices 5, push 9, assistant_digest 10, digest_job 12, assistant_next_steps 6, migrations 13; 0 failed, 0 ignored).
+
+- 2026-10-27 active stores device-only filter (from `apps/backend`, `CARGO_TARGET_DIR=/media/storage/cache/x8-t3` and supplied local Postgres/Redis; regressions confirmed RED before fixes): `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test -p taphoa-api --lib` PASS (293 passed, 4 ignored); `DATABASE_URL=postgres://taphoa:taphoa@localhost:55432/taphoa REDIS_URL=redis://localhost:56379 RUST_TEST_THREADS=1 cargo test -p taphoa-api --test digest_job --test assistant_digest --test devices -- --include-ignored` PASS (27 passed: assistant_digest 10, devices 5, digest_job 12; 0 failed, 0 ignored).

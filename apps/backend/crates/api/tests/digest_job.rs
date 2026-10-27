@@ -107,9 +107,10 @@ async fn pushed_at(world: &World) -> Option<chrono::DateTime<Utc>> {
     )
     .bind(world.store_id)
     .bind(taphoa_api::time::business_date(Utc::now()))
-    .fetch_one(world.pool())
+    .fetch_optional(world.pool())
     .await
     .unwrap()
+    .flatten()
 }
 async fn cleanup(world: &World) {
     sqlx::query("DELETE FROM stores WHERE id=$1")
@@ -124,26 +125,13 @@ async fn cleanup(world: &World) {
 async fn registered_device_activates_store_and_pushes_only_once_per_day() {
     let _serial = SERIAL.lock().await;
     let (world, mock) = fixture().await;
-    age_members(&world).await;
-    let token = register(&world).await;
-    sqlx::query("UPDATE devices SET created_at=now()-interval '60 days',updated_at=now()-interval '60 days' WHERE token=$1")
-        .bind(&token).execute(world.pool()).await.unwrap();
     assert!(
         !digest::active_store_ids(world.pool(), Duration::days(30))
             .await
             .unwrap()
             .contains(&world.store_id)
     );
-    world
-        .checked(
-            "POST",
-            "/v1/devices",
-            "/v1/devices",
-            &world.lead,
-            json!({"token": token, "platform": "android", "app_version": "1.0", "language": "vi"}),
-            StatusCode::OK,
-        )
-        .await;
+    let token = register(&world).await;
     assert!(
         digest::active_store_ids(world.pool(), Duration::days(30))
             .await
@@ -198,16 +186,35 @@ async fn registered_device_activates_store_and_pushes_only_once_per_day() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn active_store_without_devices_still_gets_generated_and_claimed() {
+async fn store_with_only_sale_is_not_scheduled_and_on_demand_get_generates() {
     let _serial = SERIAL.lock().await;
     let (world, _) = fixture().await;
-    age_members(&world).await;
     let sale_id = Uuid::new_v4();
     sqlx::query("INSERT INTO sales(id,store_id,code,member_id,sold_at,business_date,payment_method,total,request_hash) VALUES($1,$2,$3,$4,now(),$5,'cash',0,'hash')")
         .bind(sale_id).bind(world.store_id).bind(sale_id.to_string()).bind(world.lead_id)
         .bind(taphoa_api::time::business_date(Utc::now())).execute(world.pool()).await.unwrap();
+    assert!(
+        !digest::active_store_ids(world.pool(), Duration::days(30))
+            .await
+            .unwrap()
+            .contains(&world.store_id)
+    );
     job::run_once(&world.state, Utc::now()).await.unwrap();
-    assert!(pushed_at(&world).await.is_some());
+    assert!(pushed_at(&world).await.is_none());
+    let res = world
+        .checked(
+            "GET",
+            "/v1/assistant/digest",
+            "/v1/assistant/digest",
+            &world.lead,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(
+        res["business_date"],
+        taphoa_api::time::business_date(Utc::now()).to_string()
+    );
     cleanup(&world).await;
 }
 

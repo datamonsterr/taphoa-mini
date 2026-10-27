@@ -347,6 +347,22 @@ async fn concurrent_generation_keeps_one_cached_row_and_first_read_timestamp() {
         digest::mark_read(w.pool(), w.store_id, today, w.lead_id).await,
         Some(read)
     );
+    assert!(
+        !digest::active_store_ids(w.pool(), chrono::Duration::days(30))
+            .await
+            .unwrap()
+            .contains(&w.store_id)
+    );
+    let token = format!("ExponentPushToken[{}]", uuid::Uuid::new_v4());
+    w.checked(
+        "POST",
+        "/v1/devices",
+        "/v1/devices",
+        &w.lead,
+        serde_json::json!({"token": token, "platform": "android", "app_version": "1.0", "language": "vi"}),
+        StatusCode::OK,
+    )
+    .await;
     let ids = digest::active_store_ids(w.pool(), chrono::Duration::days(30))
         .await
         .unwrap();
