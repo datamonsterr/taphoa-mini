@@ -15,6 +15,9 @@ updates:
       - dependency-name: expo-*
       - dependency-name: '@expo/*'
       - dependency-name: jest-expo
+      # Expo-pinned too; its 3.x bump removed the Jest mock path that
+      # apps/mobile/src/test/setup.tsx relies on.
+      - dependency-name: '@react-native-async-storage/*'
   - package-ecosystem: cargo
     directory: /apps/backend
     schedule:
