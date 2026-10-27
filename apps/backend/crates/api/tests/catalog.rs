@@ -470,6 +470,16 @@ async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
     )
     .await;
     assert_eq!(p["index_status"], "pending");
+    let enrolled: Value = sqlx::query_scalar(
+        "SELECT payload->'data' FROM outbox_events WHERE store_id=$1 AND type='product.enrolled'",
+    )
+    .bind(w.store_id)
+    .fetch_one(w.state.postgres.as_ref().unwrap())
+    .await
+    .unwrap();
+    assert_eq!(enrolled["source"], "quick_enroll");
+    assert_eq!(enrolled["reference_count"], 3);
+
     let rows: Vec<StoredReference> = sqlx::query_as("SELECT image_id,cutout_image_id,bbox,position FROM product_images WHERE product_id=$1 ORDER BY position")
         .bind(id).fetch_all(w.state.postgres.as_ref().unwrap()).await.unwrap();
     assert_eq!(rows.len(), 3);
@@ -1037,6 +1047,16 @@ async fn create_product_happy_authz_validation_idempotency_events() {
     );
     assert_eq!(p["images"][0]["position"], 0);
     assert_eq!(p["index_status"], "pending");
+    let enrolled: Value = sqlx::query_scalar(
+        "SELECT payload->'data' FROM outbox_events WHERE store_id=$1 AND type='product.enrolled'",
+    )
+    .bind(w.store_id)
+    .fetch_one(w.state.postgres.as_ref().unwrap())
+    .await
+    .unwrap();
+    assert_eq!(enrolled["source"], "enroll");
+    assert_eq!(enrolled["reference_count"], 1);
+
     // Index job + initial price history + events are committed together.
     assert_eq!(
         count(

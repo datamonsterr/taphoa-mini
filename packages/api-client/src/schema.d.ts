@@ -2444,7 +2444,7 @@ export interface components {
             /** @example evt_000000000000128 */
             id: string;
             /** @enum {string} */
-            type: "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "customer.created" | "customer.updated" | "debt.recorded" | "debt.repaid" | "debt.adjusted" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed" | "assistant.action.confirmed" | "assistant.action.rejected";
+            type: "store.created" | "product.enrolled" | "receipt.scanned" | "scan.completed" | "catalog.changed" | "price.changed" | "store.changed" | "member.changed" | "customer.created" | "customer.updated" | "debt.recorded" | "debt.repaid" | "debt.adjusted" | "sale.created" | "sale.voided" | "review.line_flagged" | "review.line_resolved" | "expense.created" | "alert.created" | "alert.resolved" | "day.closed" | "sale.payment_confirmed" | "product.indexed" | "stock.changed" | "stock.low" | "receipt.confirmed" | "assistant.action.confirmed" | "assistant.action.rejected";
             version: number;
             /** Format: uuid */
             store_id: string;

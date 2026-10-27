@@ -1,5 +1,7 @@
 import { createApiClient, type ApiClient } from '@taphoa/api-client';
 
+import { analyticsSessionId } from '@/lib/analyticsBridge';
+
 import { createAuthFetch } from './authFetch';
 import { currentStoreId } from './clerkBridge';
 
@@ -16,6 +18,7 @@ function createClient(): ApiClient {
   const baseUrl = apiBaseUrl();
   return createApiClient({
     baseUrl,
+    getSessionId: analyticsSessionId,
     getStoreId: currentStoreId,
     fetch: createAuthFetch({ baseUrl, fetch: transport }),
   });

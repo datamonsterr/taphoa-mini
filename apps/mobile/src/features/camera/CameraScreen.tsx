@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter, type Href } from 'expo-router';
@@ -114,12 +115,14 @@ function LivePreview({
   useEffect(() => () => onReadyChange(false), [onReadyChange]);
   const onCameraReady = useCallback(() => onReadyChange(true), [onReadyChange]);
   return (
-    <CameraView
-      ref={cameraRef}
-      facing="back"
-      onCameraReady={onCameraReady}
-      style={StyleSheet.absoluteFill}
-    />
+    <PostHogMaskView style={StyleSheet.absoluteFill}>
+      <CameraView
+        ref={cameraRef}
+        facing="back"
+        onCameraReady={onCameraReady}
+        style={StyleSheet.absoluteFill}
+      />
+    </PostHogMaskView>
   );
 }
 

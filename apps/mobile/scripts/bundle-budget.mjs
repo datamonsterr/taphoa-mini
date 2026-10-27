@@ -23,7 +23,7 @@ export const TARGETS = [
     name: 'web (js, gzip)',
     dir: 'dist-web/_expo/static/js/web',
     gzip: true,
-    budget: 1_225_000, // measured 1_065_165 after Clerk integration and the X4 assistant chat
+    budget: 1_290_000, // measured ~1_081_754 + Clerk/assistant delta; posthog-react-native on web
   },
 ];
 

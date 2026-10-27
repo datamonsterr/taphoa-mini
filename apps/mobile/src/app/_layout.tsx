@@ -8,6 +8,8 @@ import {
 } from '@expo-google-fonts/be-vietnam-pro';
 import { ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
+import { AnalyticsIdentity, AnalyticsSignedOut } from '@/lib/AnalyticsIdentity';
+import { AnalyticsProvider } from '@/lib/analyticsPostHog';
 import { AuthGate } from '@/features/auth/AuthGate';
 import { ConfigurationError } from '@/features/auth/ConfigurationError';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -54,74 +56,83 @@ export default function RootLayout() {
               publishableKey={publishableKey}
               tokenCache={tokenCache}
             >
-              <StatusBar style="dark" />
-              <AuthGate>
-                {({ signedIn, hasMembership }) => (
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Protected
-                      guard={hasMembership}
-                      redirectTo={signedIn ? '/welcome' : '/sign-in'}
-                    >
-                      <Stack.Screen name="index" />
-                      <Stack.Screen
-                        name="(shop)"
-                        options={{ animation: 'slide_from_bottom' }}
-                      />
-                      <Stack.Screen name="product/[id]" />
-                      <Stack.Screen name="stock" />
-                      <Stack.Screen name="receipt/[id]" />
-                      <Stack.Screen name="receipts" />
-                      <Stack.Screen name="debts" />
-                      <Stack.Screen name="customer/[id]" />
-                      <Stack.Screen name="pay" />
-                      <Stack.Screen
-                        name="cart"
-                        options={{
-                          presentation: 'transparentModal',
-                          animation: 'slide_from_bottom',
-                        }}
-                      />
-                      <Stack.Screen
-                        name="assistant"
-                        options={{
-                          presentation: 'transparentModal',
-                          animation: 'slide_from_bottom',
-                        }}
-                      />
-                      <Stack.Screen
-                        name="enroll"
-                        options={{
-                          presentation: 'transparentModal',
-                          animation: 'slide_from_bottom',
-                        }}
-                      />
-                      <Stack.Screen
-                        name="expense"
-                        options={{
-                          presentation: 'transparentModal',
-                          animation: 'slide_from_bottom',
-                        }}
-                      />
-                      <Stack.Screen
-                        name="close"
-                        options={{
-                          presentation: 'transparentModal',
-                          animation: 'slide_from_bottom',
-                        }}
-                      />
-                    </Stack.Protected>
-                    <Stack.Protected guard={!signedIn}>
-                      <Stack.Screen name="(auth)" />
-                    </Stack.Protected>
-                    <Stack.Protected
-                      guard={signedIn && !hasMembership}
-                      redirectTo={signedIn ? '/' : '/sign-in'}
-                    >
-                      <Stack.Screen name="(onboarding)" />
-                    </Stack.Protected>
-                  </Stack>
-                )}
-              </AuthGate>
+              <AnalyticsProvider>
+                <StatusBar style="dark" />
+                <AuthGate>
+                  {({ signedIn, hasMembership }) => (
+                    <>
+                      {hasMembership ? (
+                        <AnalyticsIdentity />
+                      ) : (
+                        <AnalyticsSignedOut />
+                      )}
+                      <Stack screenOptions={{ headerShown: false }}>
+                        <Stack.Protected
+                          guard={hasMembership}
+                          redirectTo={signedIn ? '/welcome' : '/sign-in'}
+                        >
+                          <Stack.Screen name="index" />
+                          <Stack.Screen
+                            name="(shop)"
+                            options={{ animation: 'slide_from_bottom' }}
+                          />
+                          <Stack.Screen name="product/[id]" />
+                          <Stack.Screen name="stock" />
+                          <Stack.Screen name="receipt/[id]" />
+                          <Stack.Screen name="receipts" />
+                          <Stack.Screen name="debts" />
+                          <Stack.Screen name="customer/[id]" />
+                          <Stack.Screen name="pay" />
+                          <Stack.Screen
+                            name="cart"
+                            options={{
+                              presentation: 'transparentModal',
+                              animation: 'slide_from_bottom',
+                            }}
+                          />
+                          <Stack.Screen
+                            name="assistant"
+                            options={{
+                              presentation: 'transparentModal',
+                              animation: 'slide_from_bottom',
+                            }}
+                          />
+                          <Stack.Screen
+                            name="enroll"
+                            options={{
+                              presentation: 'transparentModal',
+                              animation: 'slide_from_bottom',
+                            }}
+                          />
+                          <Stack.Screen
+                            name="expense"
+                            options={{
+                              presentation: 'transparentModal',
+                              animation: 'slide_from_bottom',
+                            }}
+                          />
+                          <Stack.Screen
+                            name="close"
+                            options={{
+                              presentation: 'transparentModal',
+                              animation: 'slide_from_bottom',
+                            }}
+                          />
+                        </Stack.Protected>
+                        <Stack.Protected guard={!signedIn}>
+                          <Stack.Screen name="(auth)" />
+                        </Stack.Protected>
+                        <Stack.Protected
+                          guard={signedIn && !hasMembership}
+                          redirectTo={signedIn ? '/' : '/sign-in'}
+                        >
+                          <Stack.Screen name="(onboarding)" />
+                        </Stack.Protected>
+                      </Stack>
+                    </>
+                  )}
+                </AuthGate>
+              </AnalyticsProvider>
             </ClerkProvider>
           )}
         </QueryClientProvider>

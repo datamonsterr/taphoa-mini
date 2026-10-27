@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Image } from 'expo-image';
 import { memo, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -31,12 +32,17 @@ export const Viewfinder = memo(function Viewfinder({
     >
       {behind}
       {photoUri ? (
-        <Image
-          testID="viewfinder-photo"
-          source={{ uri: photoUri }}
-          contentFit="cover"
+        <PostHogMaskView
+          testID="viewfinder-photo-mask"
           style={StyleSheet.absoluteFill}
-        />
+        >
+          <Image
+            testID="viewfinder-photo"
+            source={{ uri: photoUri }}
+            contentFit="cover"
+            style={StyleSheet.absoluteFill}
+          />
+        </PostHogMaskView>
       ) : null}
       {children}
       {corners.map((corner) => (

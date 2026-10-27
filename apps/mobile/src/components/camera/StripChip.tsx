@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Image } from 'expo-image';
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -34,12 +35,14 @@ export const StripChip = memo(function StripChip({
       style={[styles.chip, current ? styles.current : styles.alternative]}
     >
       {thumbnailUri ? (
-        <Image
-          testID="chip-thumb"
-          source={{ uri: thumbnailUri }}
-          contentFit="cover"
-          style={styles.thumb}
-        />
+        <PostHogMaskView pointerEvents="none" style={styles.thumb}>
+          <Image
+            testID="chip-thumb"
+            source={{ uri: thumbnailUri }}
+            contentFit="cover"
+            style={styles.thumb}
+          />
+        </PostHogMaskView>
       ) : (
         <View testID="chip-placeholder" style={styles.thumb} />
       )}

@@ -18,10 +18,10 @@ type AssistantStreamErrorCode =
   components['schemas']['AssistantStreamError']['code'];
 
 /**
- * Product event properties supplied by the app. The PostHog sink in X6 adds
- * common properties (member_id, role, environment, app_version, language) and
- * the store group. Props must never carry names, emails, phone numbers, bank
- * numbers, tokens, or OCR text.
+ * Product event properties supplied by the app. The provider registers common
+ * properties (member_id, role, environment, app_version, language) and the store
+ * group; the sink forwards event properties unchanged. Props must never carry
+ * names, emails, phone numbers, bank numbers, tokens, or OCR text.
  */
 export type AppEventProps = {
   $screen: { $screen_name: string };
