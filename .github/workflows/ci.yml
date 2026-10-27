@@ -272,8 +272,10 @@ jobs:
           path: apps/backend
       # The per-IP limit test needs the default limits and fresh Redis counters, so it runs
       # first; everything else runs with the raised limits from the job env.
+      # Bound test steps so the always() summary runs before the job timeout.
       - name: Integration tests - default rate limits
         if: matrix.partition == 1
+        timeout-minutes: 2
         working-directory: apps/backend
         run: >-
           env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR
@@ -284,6 +286,7 @@ jobs:
         if: matrix.partition == 1
         run: cp apps/backend/target/nextest/ci/junit.xml apps/backend/target/nextest/ci/junit-limits.xml
       - name: Integration tests - everything else (real Postgres+pgvector, Redis, RustFS)
+        timeout-minutes: 7
         working-directory: apps/backend
         run: >-
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
