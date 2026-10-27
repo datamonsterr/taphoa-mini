@@ -3,10 +3,11 @@ name: Android E2E
 # Free alternative to EAS Workflows Maestro jobs (those need a paid Expo plan).
 # Builds a release-like APK on the runner and drives it with Maestro on an emulator.
 # The app talks to the real backend (with SAM/DINO models) that scripts/e2e/stack.sh starts on
-# the runner; the emulator reaches the runner as 10.0.2.2. Cost: ~250 MB of models
-# on top of the APK build (the backend binary comes from the backend-binary job), and inference shares 4 cores with the
-# emulator. If that proves too slow or flaky, drop the pull_request trigger and keep
-# workflow_dispatch only.
+# the runner; the emulator reaches the runner as 10.0.2.2. Cost: the APK is built once (apk job),
+# then two emulator shards each download it, start their own backend stack (~250 MB of models, the
+# binary comes from the backend-binary job) and run half of the flows, so inference shares 4 cores
+# with the emulator on each shard. If that proves too slow or flaky, drop the pull_request trigger
+# and keep workflow_dispatch only.
 
 on:
   # Only changes that can affect the app or the backend it talks to; docs-only PRs skip it.
@@ -90,16 +91,14 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: scripts/ci/job-summary.sh "backend-binary" "release build in rust-bookworm container"
 
-  maestro:
-    needs: [clerk-secrets, backend-binary]
+  # The APK is built here, once, and every maestro shard downloads it. Gradle (plus the Kotlin
+  # daemon) never shares a machine with the emulator: together with a 4 GB emulator and the backend
+  # with its models they starved the whole VM and the emulator crashed.
+  apk:
+    needs: clerk-secrets
     if: needs.clerk-secrets.outputs.configured == 'true'
     runs-on: namespace-profile-linux-xl
-    timeout-minutes: 60
-    env:
-      MAESTRO_VERSION: 2.11.0
-      # Opt out of Maestro telemetry and the update/analyze banners in CI logs.
-      MAESTRO_CLI_NO_ANALYTICS: '1'
-      MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: 'true'
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -116,31 +115,6 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6
       - run: pnpm install --frozen-lockfile
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: backend-binary
-          path: ci-bin
-      - run: chmod +x ci-bin/taphoa-api
-      - uses: actions/cache@v6
-        id: models
-        with:
-          path: |
-            apps/backend/models
-            apps/backend/onnxruntime
-          key: models-${{ hashFiles('apps/backend/scripts/fetch-models.sh', 'apps/backend/scripts/fetch-onnxruntime.sh') }}
-      # Postgres, Redis, RustFS in compose plus the release backend on :8080 (all interfaces).
-      # S3 URLs are presigned for 10.0.2.2 so the emulator can download images.
-      - name: Start backend stack
-        env:
-          BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
-          E2E_PUBLIC_HOST: 10.0.2.2
-          # Request lines (method, path, status) so a failed save in a flow shows in the log.
-          RUST_LOG: info,tower_http=debug
-          # The backend verifies the app's Clerk session JWTs (issuer from the publishable key).
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-        run: scripts/e2e/stack.sh up
 
       # The runner has no committed android/ project (CNG): generate it from app.json.
       - name: Expo prebuild (android)
@@ -166,6 +140,82 @@ jobs:
           -PreactNativeArchitectures=x86_64
           -Pandroid.enableMinifyInReleaseBuilds=false
 
+      # APKs are already compressed, so skip zip compression.
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 1
+          compression-level: 0
+
+  # Two emulator shards. Baseline durations from the last green run (flows run in this order):
+  #   a: multi-session 312 s + onboarding 127 s + assistant 99 s + smoke 68 s = 606 s
+  #   b: quick-enroll 225 s + inventory 201 s + debts 173 s + checkout 149 s = 748 s
+  # Rebalance by moving a flow between the `flows` lists. Paths are relative to apps/mobile and must
+  # not contain spaces: the list is word-split by the shell in the emulator step.
+  maestro:
+    name: maestro (${{ matrix.shard }})
+    needs: [clerk-secrets, backend-binary, apk]
+    if: needs.clerk-secrets.outputs.configured == 'true'
+    runs-on: namespace-profile-linux-xl
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: a
+            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/smoke.yaml
+          - shard: b
+            flows: .maestro/quick-enroll.yaml .maestro/inventory.yaml .maestro/debts.yaml .maestro/checkout.yaml
+    env:
+      MAESTRO_VERSION: 2.11.0
+      # Opt out of Maestro telemetry and the update/analyze banners in CI logs.
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+      MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      # Only the jank budget script needs Node (no npm dependencies), so no pnpm install or cache.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Maestro runs on a JVM.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-binary
+          path: ci-bin
+      - run: chmod +x ci-bin/taphoa-api
+      # Lands where the old in-job Gradle build wrote it, so the emulator step path is unchanged.
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-apk
+          path: apps/mobile/android/app/build/outputs/apk/release
+      - uses: actions/cache@v6
+        id: models
+        with:
+          path: |
+            apps/backend/models
+            apps/backend/onnxruntime
+          key: models-${{ hashFiles('apps/backend/scripts/fetch-models.sh', 'apps/backend/scripts/fetch-onnxruntime.sh') }}
+      # Postgres, Redis, RustFS in compose plus the release backend on :8080 (all interfaces).
+      # S3 URLs are presigned for 10.0.2.2 so the emulator can download images.
+      - name: Start backend stack
+        env:
+          BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
+          E2E_PUBLIC_HOST: 10.0.2.2
+          # Request lines (method, path, status) so a failed save in a flow shows in the log.
+          RUST_LOG: info,tower_http=debug
+          # The backend verifies the app's Clerk session JWTs (issuer from the publishable key).
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: scripts/e2e/stack.sh up
+
       - name: Install Maestro CLI
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
@@ -179,6 +229,13 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+
+      # Read a future emulator crash against these numbers.
+      - name: Runner resources
+        run: |
+          nproc
+          free -m
+          df -h /
 
       - name: Run Maestro flows on emulator
         uses: reactivecircus/android-emulator-runner@v2.38.0
@@ -196,7 +253,7 @@ jobs:
           emulator-options: >-
             -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
             -camera-back virtualscene
-          script: apps/mobile/scripts/e2e-android.sh apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          script: apps/mobile/scripts/e2e-android.sh apps/mobile/android/app/build/outputs/apk/release/app-release.apk ${{ matrix.flows }}
 
       - name: Backend log
         if: always()
@@ -210,7 +267,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: maestro-report
+          name: maestro-report-${{ matrix.shard }}
           path: apps/mobile/maestro-report.xml
           if-no-files-found: warn
 
@@ -219,7 +276,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: maestro-debug
+          name: maestro-debug-${{ matrix.shard }}
           path: |
             apps/mobile/maestro-debug
             ~/.maestro/tests
@@ -230,7 +287,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: maestro-backend-log
+          name: maestro-backend-log-${{ matrix.shard }}
           path: .e2e-stack/backend.log
           include-hidden-files: true
           if-no-files-found: warn
@@ -240,7 +297,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: gfxinfo
+          name: gfxinfo-${{ matrix.shard }}
           path: apps/mobile/gfxinfo.txt
           if-no-files-found: warn
 
