@@ -35,11 +35,10 @@ appId: com.datamonsterr.taphoamini
       # a scripted exchange: anything else gets the fixed greeting
       - tapOn:
           id: 'assistant-input'
-      # No hideKeyboard: on Android it can press Back and leave the chat. The composer sits above
-      # the keyboard, so the send button stays tappable.
+      # Enter sends (the composer's onSubmitEditing). hideKeyboard is not used: on Android it can
+      # press Back and close the chat, and the keyboard covers the send button.
       - inputText: 'Xin chào'
-      - tapOn:
-          id: 'assistant-send'
+      - pressKey: Enter
       - extendedWaitUntil:
           visible: 'Xin chào! Mình là trợ lý của cửa hàng.'
           timeout: 60000
@@ -51,8 +50,7 @@ appId: com.datamonsterr.taphoamini
       - tapOn:
           id: 'assistant-input'
       - inputText: 'Điều chỉnh tồn kho'
-      - tapOn:
-          id: 'assistant-send'
+      - pressKey: Enter
       - extendedWaitUntil:
           visible:
             id: 'feedback-up'
