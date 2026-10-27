@@ -842,7 +842,17 @@ jobs:
         env:
           OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-        run: pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval"
+        # A run that finishes but misses a pass bar is the free models' and the assistant's score,
+        # not a broken stack: it is reported (annotation, summary, artifact) and the nightly
+        # workflow eval.yml enforces the bars. A refused or aborted run still fails the job.
+        run: |
+          rc=0
+          pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval" || rc=$?
+          if [ "$rc" -eq 1 ] && grep -qs '^- Result: FAIL' "$RUNNER_TEMP"/eval/*.md; then
+            echo "::warning title=Assistant eval::smoke run finished below the pass bars; see the job summary"
+            exit 0
+          fi
+          exit "$rc"
       - name: Results to the job summary
         if: always()
         run: scripts/ci/eval-ci.sh summary "$RUNNER_TEMP/eval"
