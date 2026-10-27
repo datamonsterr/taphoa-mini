@@ -86,18 +86,48 @@ a{color:inherit;text-decoration:none}
     </div>
 
     <div role="radiogroup" aria-label="Cách trả" style="display: flex; gap: 8px; justify-content: center">
-      <button type="button" class="th-chip" aria-pressed="true">Tiền mặt</button>
-      <button type="button" class="th-chip" aria-pressed="false">Chuyển khoản</button>
-      <button type="button" class="th-chip" aria-pressed="false">Ghi nợ</button>
+      <button type="button" class="th-chip" aria-pressed="{{cashOn}}" onClick="{{pickCash}}">Tiền mặt</button>
+      <button type="button" class="th-chip" aria-pressed="{{qrOn}}" onClick="{{pickQr}}">Chuyển khoản</button>
+      <button type="button" class="th-chip" aria-pressed="{{creditOn}}" onClick="{{pickCredit}}">Ghi nợ</button>
     </div>
+
+    <!-- 07b customer row; Đổi clears the matched customer in this canvas preview. -->
+    <sc-if value="{{isCredit}}" hint-placeholder-val="{{false}}">
+      <div style="padding: 12px; border-radius: 28px; background: var(--surface-soft)">
+        <sc-if value="{{hasCustomer}}" hint-placeholder-val="{{true}}">
+          <button type="button" onClick="{{changeCustomer}}" aria-label="Khách: Chị Lan, đang nợ 1.250.000đ. Đổi khách hàng" style="width: 100%; border: 0; text-align: left; cursor: pointer; font-family: var(--font-sans); color: var(--ink); display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 12px 0 6px; border-radius: 9999px; background: var(--surface)"><span style="display: grid; place-items: center; width: 48px; height: 48px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 800 20px/1 var(--font-sans)">L</span><span style="flex: 1; min-width: 0"><span class="label" style="display: block">Chị Lan</span><span class="caption th-num" style="display: block; color: var(--ink-muted)">Đang nợ 1.250.000đ · 0912 345 678</span></span><span class="caption" style="color: var(--accent); font-weight: 600">Đổi</span><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--accent); width: 20px; height: 20px"><path d="M9 6l6 6-6 6"/></svg></button>
+        </sc-if>
+        <sc-if value="{{needsCustomer}}" hint-placeholder-val="{{false}}">
+          <a href="CustomerPick.dc.html" aria-label="Chọn khách để ghi nợ" style="display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 12px 0 6px; border-radius: 9999px; background: var(--surface)"><span style="display: grid; place-items: center; width: 48px; height: 48px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></span><span class="label" style="flex: 1">Chọn khách</span><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--accent); width: 20px; height: 20px"><path d="M9 6l6 6-6 6"/></svg></a>
+        </sc-if>
+      </div>
+    </sc-if>
 
     <div class="th-total">
       <a href="VoiceListen.dc.html" class="th-ib th-ib-lg th-ib-accent" aria-label="Nói thêm"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg></a>
       <div class="th-total-sum" style="flex: 1; text-align: center"><b aria-live="polite">44.000đ</b></div>
-      <a href="Main.dc.html" class="th-btn th-btn-xl" aria-label="Đã bán, ghi vào sổ" style="padding: 0 26px; background: var(--success); color: var(--on-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></a>
+      <a href="{{confirmHref}}" class="th-btn th-btn-xl" aria-label="Đã bán, ghi vào sổ" aria-disabled="{{confirmDisabled}}" tabindex="{{confirmTabIndex}}" style="{{confirmStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></a>
     </div>
   </div>
 </div>
 </x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const m = (this.state && this.state.m) || 'cash';
+    const hasCustomer = !(this.state && this.state.customerCleared);
+    const blocked = m === 'credit' && !hasCustomer;
+    return {
+      isCredit: m === 'credit', hasCustomer, needsCustomer: !hasCustomer,
+      cashOn: m === 'cash' ? 'true' : 'false', qrOn: m === 'qr' ? 'true' : 'false', creditOn: m === 'credit' ? 'true' : 'false',
+      pickCash: () => this.setState({ m: 'cash' }), pickQr: () => this.setState({ m: 'qr' }), pickCredit: () => this.setState({ m: 'credit' }),
+      changeCustomer: () => this.setState({ customerCleared: true }),
+      confirmHref: blocked ? 'CustomerPick.dc.html' : m === 'qr' ? 'Pay.dc.html' : 'Main.dc.html',
+      confirmDisabled: blocked ? 'true' : 'false', confirmTabIndex: blocked ? '-1' : '0',
+      confirmStyle: 'padding: 0 26px; background: var(--success); color: var(--on-ink);' + (blocked ? ' opacity: .4; pointer-events: none;' : '')
+    };
+  }
+}
+</script>
 </body>
 </html>
