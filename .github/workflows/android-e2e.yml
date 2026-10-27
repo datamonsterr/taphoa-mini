@@ -171,8 +171,11 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
+      # Namespace runners expose a writable /dev/kvm and have no udev; the rule is only for
+      # GitHub-hosted runners, where /dev/kvm is root-only until udev reloads.
       - name: Enable KVM
         run: |
+          if [ -w /dev/kvm ]; then echo "/dev/kvm is writable; no udev rule needed"; exit 0; fi
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
@@ -299,8 +302,11 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
+      # Namespace runners expose a writable /dev/kvm and have no udev; the rule is only for
+      # GitHub-hosted runners, where /dev/kvm is root-only until udev reloads.
       - name: Enable KVM
         run: |
+          if [ -w /dev/kvm ]; then echo "/dev/kvm is writable; no udev rule needed"; exit 0; fi
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
