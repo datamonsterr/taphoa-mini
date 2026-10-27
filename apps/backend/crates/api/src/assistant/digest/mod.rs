@@ -132,7 +132,7 @@ pub async fn get(
 ) -> ApiResult<Json<Value>> {
     let Query(params) =
         params.map_err(|_| ApiError::validation_failed("invalid digest business_date"))?;
-    let today = crate::time::business_date(Utc::now());
+    let today = state.clock.today();
     let date = params.business_date.unwrap_or(today);
     let db = pool(&state)?;
     let digest = if date == today {
