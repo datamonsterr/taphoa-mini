@@ -67,6 +67,26 @@ Offline credit sales and repayments replay idempotently through the existing out
   Lead-only "Điều chỉnh".
 - **Day close:** shows cash repayments and credit sales as separate lines.
 
+## Customer profiles (amended 2026-10-27, design canvas boards 07b, 07c, 20)
+
+- **Where a profile is created.** At the counter: Pay sheet → `Ghi nợ` → the customer picker
+  (search, recent customers, `Khách mới` with name and optional phone) → `Tạo và ghi nợ`. Away
+  from a sale: the `+` circle in the Sổ nợ header opens the same picker in create mode. Details
+  (note, credit limit, archive) stay on the customer screen's edit sheet. The voice program
+  (`docs/specs/voice/`) reuses the picker when "ghi nợ <tên>" matches no customer.
+- **Pay toggle shows words.** The three segments read `Chuyển khoản`, `Tiền mặt`, `Ghi nợ`
+  (icon plus word) instead of icons only, so credit is a visible button. On credit the primary
+  button reads `Ghi nợ <amount>` instead of the green check.
+- **Phone contacts: picker, never import.** The create form has a contact-picker circle that
+  opens the system contact picker (`expo-contacts` `Contact.presentPicker()`, Expo SDK 58),
+  returns one contact and fills name and phone. No `READ_CONTACTS` permission, no contact list
+  import or sync: Google Play's Contacts Permissions policy (effective 2027-01-27) restricts
+  broad contact access and names the Android contact picker as the alternative, and most tạp
+  hóa customers are not in the phone's contacts anyway. iOS: the picker runs without the
+  Contacts permission; the `contactsPermission` plugin string is still set for the form.
+- **Duplicates.** Creating a customer whose normalized name or phone already exists shows the
+  existing profile first ("Dùng khách này?") before creating a second one.
+
 ## Assistant tools (last task, after X3's tool registry is on `main`)
 
 `get_debts`, `draft_debt_reminder`, `propose_repayment`, `propose_debt_adjustment` as defined in

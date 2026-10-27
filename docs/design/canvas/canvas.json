@@ -1,54 +1,362 @@
 {
   "v": 3,
-  "createdOnFiles": {"v": 1, "at": "2026-10-27T13:10:00Z"},
-  "title": "Tạp Hóa Mini App v0.2",
-  "launch": {"view": "canvas"},
-  "pages": [],
+  "attachments": {},
   "boards": {
-    "Main.dc.html": {"x": 0, "y": 0, "w": 390, "h": 844, "title": "01 Camera", "is_interactive": true, "radius": 44},
-    "Match.dc.html": {"x": 470, "y": 0, "w": 390, "h": 844, "title": "02 Match", "is_interactive": true, "radius": 44},
-    "Multi.dc.html": {"x": 940, "y": 0, "w": 390, "h": 844, "title": "03 Multi select", "is_interactive": true, "radius": 44},
-    "Unknown.dc.html": {"x": 1410, "y": 0, "w": 390, "h": 844, "title": "04 Low match", "is_interactive": true, "radius": 44},
-    "Enroll.dc.html": {"x": 1880, "y": 0, "w": 390, "h": 844, "title": "05 Enroll + price", "is_interactive": true, "radius": 44},
-    "Cart.dc.html": {"x": 2350, "y": 0, "w": 390, "h": 844, "title": "06 Cart", "is_interactive": true, "radius": 44},
-    "Pay.dc.html": {"x": 2820, "y": 0, "w": 390, "h": 844, "title": "07 Pay: VietQR · cash · credit", "is_interactive": true, "radius": 44},
-    "Inventory.dc.html": {"x": 0, "y": 1244, "w": 390, "h": 844, "title": "08 Inventory", "is_interactive": true, "radius": 44},
-    "Product.dc.html": {"x": 470, "y": 1244, "w": 390, "h": 844, "title": "09 Product", "is_interactive": true, "radius": 44},
-    "Dashboard.dc.html": {"x": 940, "y": 1244, "w": 390, "h": 1240, "title": "10 Dashboard", "is_interactive": true, "radius": 44},
-    "Expense.dc.html": {"x": 1410, "y": 1244, "w": 390, "h": 844, "title": "11 Expense", "is_interactive": true, "radius": 44},
-    "Account.dc.html": {"x": 1880, "y": 1244, "w": 390, "h": 1240, "title": "12 Account + voice setup", "is_interactive": true, "radius": 44},
-    "Close.dc.html": {"x": 2350, "y": 1244, "w": 390, "h": 844, "title": "13 Chốt sổ", "is_interactive": true, "radius": 44},
-    "Stock.dc.html": {"x": 2820, "y": 1244, "w": 390, "h": 844, "title": "18 Stock", "is_interactive": true, "radius": 44},
-    "Assistant.dc.html": {"x": 0, "y": 2884, "w": 390, "h": 844, "title": "17 Assistant chat", "is_interactive": true, "radius": 44},
-    "ChatVoice.dc.html": {"x": 470, "y": 2884, "w": 390, "h": 844, "title": "17b Assistant · listening", "is_interactive": true, "radius": 44},
-    "Digest.dc.html": {"x": 940, "y": 2884, "w": 390, "h": 844, "title": "23 Morning digest", "is_interactive": true, "radius": 44},
-    "Receipt.dc.html": {"x": 1410, "y": 2884, "w": 390, "h": 844, "title": "19 Import receipt", "is_interactive": true, "radius": 44},
-    "Debts.dc.html": {"x": 1880, "y": 2884, "w": 390, "h": 844, "title": "20 Debt book", "is_interactive": true, "radius": 44},
-    "Customer.dc.html": {"x": 2350, "y": 2884, "w": 390, "h": 844, "title": "21 Customer", "is_interactive": true, "radius": 44},
-    "SignIn.dc.html": {"x": 2820, "y": 2884, "w": 390, "h": 844, "title": "24 Sign in (Clerk)", "is_interactive": true, "radius": 44},
-    "Welcome.dc.html": {"x": 3290, "y": 2884, "w": 390, "h": 844, "title": "26 Welcome", "is_interactive": true, "radius": 44},
-    "VoiceBubble.dc.html": {"x": 0, "y": 4128, "w": 390, "h": 844, "title": "14 Voice bubble (Android)", "is_interactive": true, "radius": 44},
-    "VoiceListen.dc.html": {"x": 470, "y": 4128, "w": 390, "h": 844, "title": "15 Listening", "is_interactive": true, "radius": 44},
-    "VoiceSale.dc.html": {"x": 940, "y": 4128, "w": 390, "h": 844, "title": "16 Voice sale sheet", "is_interactive": true, "radius": 44},
-    "FlowVoice.dc.html": {"x": 1410, "y": 4128, "w": 1720, "h": 844, "title": "Voice flow"},
-    "Flow.dc.html": {"x": 0, "y": 5372, "w": 1720, "h": 980, "title": "Flow"},
-    "Components.dc.html": {"x": 1800, "y": 5372, "w": 1240, "h": 1240, "title": "Components"}
+    "Account.dc.html": {
+      "h": 1240,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "12 Account + voice setup",
+      "w": 390,
+      "x": 1880,
+      "y": 1244
+    },
+    "Assistant.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "17 Assistant chat",
+      "w": 390,
+      "x": 0,
+      "y": 2884
+    },
+    "Cart.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "06 Cart",
+      "w": 390,
+      "x": 2350,
+      "y": 0
+    },
+    "ChatVoice.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "17b Assistant · listening",
+      "w": 390,
+      "x": 470,
+      "y": 2884
+    },
+    "Close.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "13 Chốt sổ",
+      "w": 390,
+      "x": 2350,
+      "y": 1244
+    },
+    "Components.dc.html": {
+      "h": 1240,
+      "title": "Components",
+      "w": 1240,
+      "x": 1800,
+      "y": 5372
+    },
+    "Customer.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "21 Customer",
+      "w": 390,
+      "x": 2350,
+      "y": 2884
+    },
+    "Dashboard.dc.html": {
+      "h": 1240,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "10 Dashboard",
+      "w": 390,
+      "x": 940,
+      "y": 1244
+    },
+    "Debts.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "20 Debt book",
+      "w": 390,
+      "x": 1880,
+      "y": 2884
+    },
+    "Digest.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "23 Morning digest",
+      "w": 390,
+      "x": 940,
+      "y": 2884
+    },
+    "Enroll.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "05 Enroll + price",
+      "w": 390,
+      "x": 1880,
+      "y": 0
+    },
+    "Expense.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "11 Expense",
+      "w": 390,
+      "x": 1410,
+      "y": 1244
+    },
+    "Flow.dc.html": {
+      "h": 980,
+      "title": "Flow",
+      "w": 1720,
+      "x": 0,
+      "y": 5372
+    },
+    "FlowVoice.dc.html": {
+      "h": 844,
+      "title": "Voice flow",
+      "w": 1720,
+      "x": 1410,
+      "y": 4128
+    },
+    "Inventory.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "08 Inventory",
+      "w": 390,
+      "x": 0,
+      "y": 1244
+    },
+    "Main.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "01 Camera",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "Match.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "02 Match",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Multi.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "03 Multi select",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "Pay.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "07 Pay: VietQR · cash · credit",
+      "w": 390,
+      "x": 2820,
+      "y": 0
+    },
+    "Product.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "09 Product",
+      "w": 390,
+      "x": 470,
+      "y": 1244
+    },
+    "Receipt.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "19 Import receipt",
+      "w": 390,
+      "x": 1410,
+      "y": 2884
+    },
+    "SignIn.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "24 Sign in (Clerk)",
+      "w": 390,
+      "x": 2820,
+      "y": 2884
+    },
+    "Stock.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "18 Stock",
+      "w": 390,
+      "x": 2820,
+      "y": 1244
+    },
+    "Unknown.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "04 Low match",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    },
+    "VoiceBubble.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "14 Voice bubble (Android)",
+      "w": 390,
+      "x": 0,
+      "y": 4128
+    },
+    "VoiceListen.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "15 Listening",
+      "w": 390,
+      "x": 470,
+      "y": 4128
+    },
+    "VoiceSale.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "16 Voice sale sheet",
+      "w": 390,
+      "x": 940,
+      "y": 4128
+    },
+    "Welcome.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "26 Welcome",
+      "w": 390,
+      "x": 3290,
+      "y": 2884
+    },
+    "PayCredit.dc.html": {
+      "x": 3290,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "07b Pay: ghi nợ",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "CustomerPick.dc.html": {
+      "x": 3760,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "07c Choose or create customer",
+      "is_interactive": true,
+      "radius": 44
+    }
   },
-  "order": [
-    "Main.dc.html", "Match.dc.html", "Multi.dc.html", "Unknown.dc.html", "Enroll.dc.html", "Cart.dc.html", "Pay.dc.html",
-    "Inventory.dc.html", "Product.dc.html", "Dashboard.dc.html", "Expense.dc.html", "Account.dc.html", "Close.dc.html", "Stock.dc.html",
-    "Assistant.dc.html", "ChatVoice.dc.html", "Digest.dc.html", "Receipt.dc.html", "Debts.dc.html", "Customer.dc.html", "SignIn.dc.html", "Welcome.dc.html",
-    "VoiceBubble.dc.html", "VoiceListen.dc.html", "VoiceSale.dc.html", "FlowVoice.dc.html",
-    "Flow.dc.html", "Components.dc.html"
-  ],
-  "notes": {
-    "rowA": {"x": 0, "y": -300, "text": "Scan & sell — camera, cart, pay", "kind": "title1", "maxW": 3210},
-    "rowB": {"x": 0, "y": 944, "text": "Shop — inventory, product, dashboard, expense, account, close, stock", "kind": "title1", "maxW": 3210},
-    "rowC": {"x": 0, "y": 2584, "text": "Assistant, digest, receipts, debt book, sign-in (implemented)", "kind": "title1", "maxW": 3680},
-    "rowD": {"x": 0, "y": 3828, "text": "Voice — bubble, listen, sale, flow (program V0-V6, planned)", "kind": "title1", "maxW": 3130},
-    "rowE": {"x": 0, "y": 5072, "text": "Flow & every button", "kind": "title1", "maxW": 3040}
+  "createdOnFiles": {
+    "at": "2026-10-27T13:10:00Z",
+    "v": 1
   },
   "designSystems": [
-    {"title": "Tạp Hóa Mini", "namespace": "taphoa", "artifact": "https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi", "version": "1793088253-07d5", "copiedAt": "2026-10-27T13:10:00Z"}
-  ]
+    {
+      "artifact": "https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi",
+      "copiedAt": "2026-10-27T13:10:00Z",
+      "namespace": "taphoa",
+      "title": "Tạp Hóa Mini",
+      "version": "1793088253-07d5"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "rowA": {
+      "kind": "title1",
+      "maxW": 4150,
+      "text": "Scan & sell — camera, cart, pay, credit customer",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "rowB": {
+      "kind": "title1",
+      "maxW": 3210,
+      "text": "Shop — inventory, product, dashboard, expense, account, close, stock",
+      "w": 240,
+      "x": 0,
+      "y": 944
+    },
+    "rowC": {
+      "kind": "title1",
+      "maxW": 3680,
+      "text": "Assistant, digest, receipts, debt book, sign-in (implemented)",
+      "w": 240,
+      "x": 0,
+      "y": 2584
+    },
+    "rowD": {
+      "kind": "title1",
+      "maxW": 3130,
+      "text": "Voice — bubble, listen, sale, flow (program V0-V6, planned)",
+      "w": 240,
+      "x": 0,
+      "y": 3828
+    },
+    "rowE": {
+      "kind": "title1",
+      "maxW": 3040,
+      "text": "Flow & every button",
+      "w": 240,
+      "x": 0,
+      "y": 5072
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Match.dc.html",
+    "Multi.dc.html",
+    "Unknown.dc.html",
+    "Enroll.dc.html",
+    "Cart.dc.html",
+    "Pay.dc.html",
+    "PayCredit.dc.html",
+    "CustomerPick.dc.html",
+    "Inventory.dc.html",
+    "Product.dc.html",
+    "Dashboard.dc.html",
+    "Expense.dc.html",
+    "Account.dc.html",
+    "Close.dc.html",
+    "Stock.dc.html",
+    "Assistant.dc.html",
+    "ChatVoice.dc.html",
+    "Digest.dc.html",
+    "Receipt.dc.html",
+    "Debts.dc.html",
+    "Customer.dc.html",
+    "SignIn.dc.html",
+    "Welcome.dc.html",
+    "VoiceBubble.dc.html",
+    "VoiceListen.dc.html",
+    "VoiceSale.dc.html",
+    "FlowVoice.dc.html",
+    "Flow.dc.html",
+    "Components.dc.html"
+  ],
+  "pages": [],
+  "title": "Tạp Hóa Mini App v0.2"
 }

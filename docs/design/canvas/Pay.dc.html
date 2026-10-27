@@ -17,13 +17,14 @@ a{color:inherit;text-decoration:none}
 </helmet>
 <div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; padding: 16px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 16px">
 
-  <div style="display: flex; align-items: center; justify-content: space-between">
+  <div style="display: flex; align-items: center; gap: 12px">
     <a href="Cart.dc.html" class="th-ib" aria-label="Quay lại giỏ hàng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>
-    <div role="radiogroup" aria-label="Cách trả" style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--surface-soft)">
-      <button type="button" role="radio" aria-checked="{{qrOn}}" aria-label="Chuyển khoản" onClick="{{pickQr}}" style="{{qrStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></button>
-      <button type="button" role="radio" aria-checked="{{cashOn}}" aria-label="Tiền mặt" onClick="{{pickCash}}" style="{{cashStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg></button>
-      <button type="button" role="radio" aria-checked="{{creditOn}}" aria-label="Ghi nợ" onClick="{{pickCredit}}" style="{{creditStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h4"/></svg></button>
-    </div>
+    <h1 class="heading" style="margin: 0; flex: 1">Thanh toán</h1>
+  </div>
+  <div role="radiogroup" aria-label="Cách trả" style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--surface-soft)">
+    <button type="button" role="radio" aria-checked="{{qrOn}}" aria-label="Chuyển khoản" onClick="{{pickQr}}" style="{{qrStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>Chuyển khoản</button>
+    <button type="button" role="radio" aria-checked="{{cashOn}}" aria-label="Tiền mặt" onClick="{{pickCash}}" style="{{cashStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>Tiền mặt</button>
+    <button type="button" role="radio" aria-checked="{{creditOn}}" aria-label="Ghi nợ" onClick="{{pickCredit}}" style="{{creditStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h4"/></svg>Ghi nợ</button>
   </div>
 
   <div class="th-big-total" style="text-align: center">49.500đ</div>
@@ -58,12 +59,16 @@ a{color:inherit;text-decoration:none}
 
   <sc-if value="{{isCredit}}" hint-placeholder-val="{{false}}">
     <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 28px; background: var(--surface-soft)">
-      <a href="Customer.dc.html" aria-label="Khách: Chị Lan, đang nợ 1.250.000đ" style="display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 12px 0 6px; border-radius: 9999px; background: var(--surface)"><span style="display: grid; place-items: center; width: 48px; height: 48px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 800 20px/1 var(--font-sans)">L</span><span style="flex: 1; min-width: 0"><span class="label" style="display: block">Chị Lan</span><span class="caption th-num" style="display: block; color: var(--ink-muted)">Đang nợ 1.250.000đ</span></span><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M9 6l6 6-6 6"/></svg></a>
-      <div role="radiogroup" aria-label="Ghi nợ bao nhiêu" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
-        <button type="button" class="th-chip" role="radio" aria-checked="true" aria-pressed="true" style="justify-content: center; min-height: 64px; font-size: 20px">Cả đơn</button>
-        <button type="button" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" style="justify-content: center; min-height: 64px; font-size: 20px; background: var(--surface)">Một phần</button>
+      <a href="CustomerPick.dc.html" aria-label="Khách: Chị Lan, đang nợ 1.250.000đ. Đổi khách hàng" style="display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 12px 0 6px; border-radius: 9999px; background: var(--surface)"><span style="display: grid; place-items: center; width: 48px; height: 48px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 800 20px/1 var(--font-sans)">L</span><span style="flex: 1; min-width: 0"><span class="label" style="display: block">Chị Lan</span><span class="caption th-num" style="display: block; color: var(--ink-muted)">Đang nợ 1.250.000đ · 0912 345 678</span></span><span class="caption" style="color: var(--accent); font-weight: 600">Đổi</span><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--accent); width: 20px; height: 20px"><path d="M9 6l6 6-6 6"/></svg></a>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span class="label" style="flex: none">Trả trước</span>
+        <div role="radiogroup" aria-label="Trả trước" style="flex: 1; display: flex; gap: 6px; overflow-x: auto">
+          <button type="button" class="th-chip th-num" role="radio" aria-checked="true" aria-pressed="true" style="min-height: 48px">0đ</button>
+          <button type="button" class="th-chip th-num" role="radio" aria-checked="false" aria-pressed="false" style="min-height: 48px; background: var(--surface)">20.000</button>
+          <button type="button" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" style="min-height: 48px; background: var(--surface)">Khác</button>
+        </div>
       </div>
-      <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 0 4px; font: 500 15px/20px var(--font-sans); color: var(--ink-muted)">Nợ mới của khách <b class="th-num" style="font: 800 22px/28px var(--font-sans); color: var(--ink)">1.299.500đ</b></div>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 4px 0 0; font: 500 15px/20px var(--font-sans); color: var(--ink-muted)">Nợ mới của khách <b class="th-num" style="font: 800 22px/28px var(--font-sans); color: var(--ink)">1.299.500đ</b></div>
     </div>
   </sc-if>
 
@@ -86,7 +91,12 @@ a{color:inherit;text-decoration:none}
     </div>
   </div>
 
-  <a href="Main.dc.html" class="th-btn th-btn-block th-btn-xl" aria-label="Đã nhận tiền" style="margin-top: auto; background: var(--success); color: var(--on-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 32px; height: 32px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></a>
+  <sc-if value="{{isNotCredit}}" hint-placeholder-val="{{true}}">
+    <a href="Main.dc.html" class="th-btn th-btn-block th-btn-xl" aria-label="Đã nhận tiền" style="margin-top: auto; background: var(--success); color: var(--on-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 32px; height: 32px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></a>
+  </sc-if>
+  <sc-if value="{{isCredit}}" hint-placeholder-val="{{false}}">
+    <a href="Main.dc.html" class="th-btn th-btn-ink th-btn-block th-btn-xl" aria-label="Ghi nợ 49.500đ cho Chị Lan" style="margin-top: auto"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h4"/></svg>Ghi nợ <span class="th-num" style="margin-left: 6px">49.500đ</span></a>
+  </sc-if>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
@@ -96,7 +106,7 @@ class Component extends DCLogic {
     const got = (this.state && this.state.got) || 100000;
     const total = 49500;
     const fmt = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    const seg = (on) => 'display: grid; place-items: center; width: 56px; height: 48px; border: 0; border-radius: 9999px; cursor: pointer; ' + (on ? 'background: #111114; color: #ffffff;' : 'background: transparent; color: #111114;');
+    const seg = (on) => 'flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 48px; padding: 0 8px; border: 0; border-radius: 9999px; cursor: pointer; font: 600 14px/18px var(--font-sans); white-space: nowrap; ' + (on ? 'background: #111114; color: #ffffff;' : 'background: transparent; color: #111114;');
     const N = 25, cells = [];
     const finder = (r, c) => {
       const f = (r0, c0) => { const y = r - r0, x = c - c0; if (y < 0 || x < 0 || y > 6 || x > 6) return null; return (y === 0 || y === 6 || x === 0 || x === 6 || (y >= 2 && y <= 4 && x >= 2 && x <= 4)); };
@@ -115,7 +125,7 @@ class Component extends DCLogic {
       pick: () => this.setState({ got: v })
     }));
     return {
-      isQr: m === 'qr', isCash: m === 'cash', isCredit: m === 'credit',
+      isQr: m === 'qr', isCash: m === 'cash', isCredit: m === 'credit', isNotCredit: m !== 'credit',
       qrOn: m === 'qr' ? 'true' : 'false', cashOn: m === 'cash' ? 'true' : 'false', creditOn: m === 'credit' ? 'true' : 'false',
       qrStyle: seg(m === 'qr'), cashStyle: seg(m === 'cash'), creditStyle: seg(m === 'credit'),
       pickQr: () => this.setState({ m: 'qr' }), pickCash: () => this.setState({ m: 'cash' }), pickCredit: () => this.setState({ m: 'credit' }),
