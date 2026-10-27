@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Package } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { memo, useCallback, useState } from 'react';
@@ -56,7 +57,7 @@ export const PhotoCarousel = memo(function PhotoCarousel({
   );
   const renderItem = useCallback(
     ({ item }: { item: ProductImage }) => (
-      <View style={[styles.page, { width: pageWidth }]}>
+      <PostHogMaskView style={[styles.page, { width: pageWidth }]}>
         <Image
           source={{ uri: item.url }}
           contentFit="contain"
@@ -66,7 +67,7 @@ export const PhotoCarousel = memo(function PhotoCarousel({
           style={styles.image}
           testID="product-photo"
         />
-      </View>
+      </PostHogMaskView>
     ),
     [pageWidth],
   );

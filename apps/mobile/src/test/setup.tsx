@@ -226,6 +226,25 @@ jest.mock('expo-notifications', () => ({
   })),
 }));
 
+jest.mock('posthog-react-native', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const fake = require('./posthog');
+  return {
+    PostHogProvider: (props: { children: React.ReactNode }) => {
+      fake.providerProps(props);
+      return props.children;
+    },
+    usePostHog: () => fake.posthog,
+    useFeatureFlag: (key: string) => fake.featureFlags.get(key),
+    PostHogMaskView: (props: Record<string, unknown>) =>
+      React.createElement(View, { ...props, collapsable: false }),
+  };
+});
+jest.mock('expo-application', () => ({ nativeBuildVersion: '123' }));
+jest.mock('expo-localization', () => ({
+  getLocales: () => [{ languageTag: 'vi-VN', languageCode: 'vi' }],
+}));
 jest.mock('@clerk/expo', () => require('./clerk'));
 jest.mock('@clerk/expo/token-cache', () => ({ tokenCache: {} }));
 jest.mock('expo-web-browser', () => ({

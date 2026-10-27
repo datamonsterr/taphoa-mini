@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Image } from 'expo-image';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -47,7 +48,7 @@ export const ProductTile = memo(function ProductTile({
       onPress={onPress}
       style={styles.tile}
     >
-      <View style={styles.photo}>
+      <PostHogMaskView style={styles.photo}>
         {imageUri ? (
           <Image
             source={{ uri: imageUri }}
@@ -62,7 +63,7 @@ export const ProductTile = memo(function ProductTile({
         <View style={styles.badge}>
           <StockBadge quantity={stockQuantity} status={stockStatus} />
         </View>
-      </View>
+      </PostHogMaskView>
       <Text numberOfLines={1} style={styles.name}>
         {name}
       </Text>

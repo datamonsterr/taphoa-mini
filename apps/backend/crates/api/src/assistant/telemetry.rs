@@ -158,6 +158,8 @@ fn event(actor: &Actor, name: &str, properties: Value) -> CaptureEvent {
         .entry("environment")
         .or_insert_with(|| json!(environment()));
     CaptureEvent {
+        uuid: None,
+        timestamp: None,
         distinct_id: distinct_id(actor),
         event: name.into(),
         properties,

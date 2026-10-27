@@ -422,6 +422,16 @@ async fn confirm_creates_expense_purchase_stock_events_and_replays() {
     assert_eq!(w.events("stock.changed").await, 4);
     assert_eq!(w.events("expense.created").await, 1);
     assert_eq!(w.events("receipt.confirmed").await, 1);
+    let scanned: Value = sqlx::query_scalar(
+        "SELECT payload->'data' FROM outbox_events WHERE store_id=$1 AND type='receipt.scanned'",
+    )
+    .bind(w.store_id)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert!(scanned["line_count"].as_u64().is_some());
+    assert!(scanned["matched_lines"].as_u64().is_some());
+    assert!(scanned["latency_ms"].as_u64().is_some());
     assert!(w.events("alert.created").await > 0);
     let payload: Value = sqlx::query_scalar(
         "SELECT payload FROM outbox_events WHERE store_id=$1 AND type='receipt.confirmed'",

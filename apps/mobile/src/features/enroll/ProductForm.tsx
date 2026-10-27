@@ -1,3 +1,4 @@
+import { PostHogMaskView } from 'posthog-react-native';
 import { Image } from 'expo-image';
 import { Camera, Pencil, X } from 'lucide-react-native';
 import { memo, useState, type ReactNode } from 'react';
@@ -48,7 +49,7 @@ const Thumb = memo(function Thumb({
   primary: boolean;
 }) {
   return (
-    <View style={[styles.photo, primary && styles.photoPrimary]}>
+    <PostHogMaskView style={[styles.photo, primary && styles.photoPrimary]}>
       <Image
         source={{ uri }}
         cachePolicy="memory-disk"
@@ -56,7 +57,7 @@ const Thumb = memo(function Thumb({
         style={StyleSheet.absoluteFill}
         accessibilityIgnoresInvertColors
       />
-    </View>
+    </PostHogMaskView>
   );
 });
 

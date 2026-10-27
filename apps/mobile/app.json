@@ -47,6 +47,7 @@
       ],
       "expo-asset",
       "expo-secure-store",
+      "expo-localization",
       [
         "expo-speech-recognition",
         {

@@ -129,8 +129,11 @@ events; PostHog insights compute product and API metrics from events and logs.
 ## Product events (PostHog)
 
 Names are `object_verb` in snake case. `distinct_id` is the Clerk user id; every event carries
-the `store` group (store UUID) and properties `member_id`, `role`, `environment`, `app_version`,
-`language`. Person properties set by the app on identify: `email`, `name`, `role`.
+the `store` group (store UUID) and properties `member_id`, `role`, `environment`, `app_version`.
+The backend uses its service version as `app_version`; `language` is app-only. Store-level
+events use `store:<store UUID>` with `$process_person_profile=false` and omit `member_id` and
+`role`. Outbox captures use UUID v5 (OID namespace, decimal outbox id bytes) as `uuid` for
+deduplication across relay retries, and `occurred_at` as the event timestamp. Person properties set by the app on identify: `email`, `name`, `role`.
 
 | Event                                             | Sent by | Properties                                                            |
 | ------------------------------------------------- | ------- | --------------------------------------------------------------------- |
@@ -147,7 +150,7 @@ the `store` group (store UUID) and properties `member_id`, `role`, `environment`
 | `receipt_confirmed`                               | backend | `line_count`, `via` (chat, form)                                      |
 | `stock_adjusted`                                  | backend | `reason`, `via` (manual, assistant)                                   |
 | `expense_added`                                   | backend | `category`, `via`                                                     |
-| `price_changed`                                   | backend | `via`                                                                 |
+| `price_changed`                                   | backend | `via` (manual, assistant)                                             |
 | `day_closed`                                      | backend | `difference_bucket` (zero, small, large)                              |
 | `customer_created`                                | backend | none                                                                  |
 | `debt_recorded` / `debt_repaid` / `debt_adjusted` | backend | `amount_bucket`, `method`                                             |

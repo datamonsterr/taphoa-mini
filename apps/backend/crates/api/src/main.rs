@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 use taphoa_api::{
     AppState,
+    analytics::{PostHogAnalytics, PostHogConfig},
     assistant::{
         config::{AssistantConfig, ModelProvider},
         digest::job::{self as digest_job, DigestJobConfig},
@@ -24,7 +25,11 @@ async fn main() -> anyhow::Result<()> {
     // Install ring before anything builds a TLS client (telemetry, sqlx, S3, reqwest).
     let _ = rustls::crypto::ring::default_provider().install_default();
     let telemetry = taphoa_api::telemetry::init(taphoa_api::telemetry::TelemetryConfig::from_env());
-    let result = serve().await;
+    let analytics = PostHogConfig::from_env().map(|config| Arc::new(PostHogAnalytics::new(config)));
+    let result = serve(analytics.clone()).await;
+    if let Some(analytics) = analytics {
+        analytics.shutdown().await;
+    }
     if let Err(error) = &result {
         // Startup and serve failures must reach the exported logs before the flush.
         taphoa_api::error::log_fatal(error);
@@ -34,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
-async fn serve() -> anyhow::Result<()> {
+async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
     let assistant_config = AssistantConfig::from_env()?;
     let digest_config = DigestJobConfig::from_env()?;
     let config = Config::from_env()?;
@@ -48,6 +53,10 @@ async fn serve() -> anyhow::Result<()> {
     state.push = Some(Arc::new(taphoa_api::push::ExpoPush::new(
         taphoa_api::push::PushConfig::from_env()?,
     )?));
+    if let Some(analytics) = analytics {
+        state.analytics = analytics;
+        tracing::info!("posthog analytics enabled");
+    }
     state.point_segmenter = point_segmenter;
     if let Some(ocr) = config.ocr()? {
         state.text_detector = Some(ocr.detector());

@@ -25,11 +25,26 @@ export interface ApiClientOptions {
   baseUrl: string;
   /** Returns the bearer access token, or null when signed out. */
   getToken?: () => string | null | Promise<string | null>;
+  /** Current PostHog replay session, if analytics is enabled. */
+  getSessionId?: () => string | null | undefined;
   /** Returns the selected store id, or null/undefined when no store is selected. */
   getStoreId?: () =>
     string | null | undefined | Promise<string | null | undefined>;
   /** Injected for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
+}
+
+/** W3C ids must be lowercase hex and contain at least one nonzero byte. */
+function randomId(bytes: number): string {
+  const values = new Uint8Array(bytes);
+  if (globalThis.crypto?.getRandomValues)
+    globalThis.crypto.getRandomValues(values);
+  else
+    for (let i = 0; i < bytes; i++) values[i] = Math.floor(Math.random() * 256);
+  if (values.every((value) => value === 0)) values[bytes - 1] = 1;
+  return Array.from(values, (value) =>
+    value.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 /** Fails on first read; avoids a ReadableStream constructor, absent in React Native. */
@@ -41,6 +56,20 @@ export function createApiClient(options: ApiClientOptions) {
   const client = createClient<paths>({
     baseUrl: options.baseUrl.replace(/\/+$/, ''),
     ...(options.fetch ? { fetch: options.fetch } : {}),
+  });
+
+  client.use({
+    onRequest({ request }) {
+      const sessionId = options.getSessionId?.();
+      if (sessionId) request.headers.set('X-POSTHOG-SESSION-ID', sessionId);
+      if (!request.headers.has('traceparent')) {
+        request.headers.set(
+          'traceparent',
+          `00-${randomId(16)}-${randomId(8)}-01`,
+        );
+      }
+      return request;
+    },
   });
 
   if (options.getToken) {

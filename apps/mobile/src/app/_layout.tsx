@@ -8,6 +8,8 @@ import {
 } from '@expo-google-fonts/be-vietnam-pro';
 import { ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
+import { AnalyticsIdentity, AnalyticsSignedOut } from '@/lib/AnalyticsIdentity';
+import { AnalyticsProvider } from '@/lib/analyticsPostHog';
 import { AuthGate } from '@/features/auth/AuthGate';
 import { ConfigurationError } from '@/features/auth/ConfigurationError';
 import {
@@ -139,16 +141,25 @@ export default function RootLayout() {
               publishableKey={publishableKey}
               tokenCache={tokenCache}
             >
-              <StatusBar style="dark" />
-              <AuthGate>
-                {({ signedIn, hasMembership }) => (
-                  <NavigationTree
-                    ready={ready}
-                    signedIn={signedIn}
-                    hasMembership={hasMembership}
-                  />
-                )}
-              </AuthGate>
+              <AnalyticsProvider>
+                <StatusBar style="dark" />
+                <AuthGate>
+                  {({ signedIn, hasMembership }) => (
+                    <>
+                      {hasMembership ? (
+                        <AnalyticsIdentity />
+                      ) : (
+                        <AnalyticsSignedOut />
+                      )}
+                      <NavigationTree
+                        ready={ready}
+                        signedIn={signedIn}
+                        hasMembership={hasMembership}
+                      />
+                    </>
+                  )}
+                </AuthGate>
+              </AnalyticsProvider>
             </ClerkProvider>
           )}
         </QueryClientProvider>
