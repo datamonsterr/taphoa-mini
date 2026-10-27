@@ -145,6 +145,51 @@ class RunE2e(unittest.TestCase):
         self.assertIn("key_set=yes", recorded)
         self.assertNotIn("sk_test_unit_secret", out.stdout + out.stderr)
 
+    def _run_soft_split(self, soft_fails, strict=False):
+        """Run with a pnpm stub that fails the soft run (the one without --exclude) on demand."""
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp, "suite")
+            suite.mkdir()
+            suite.joinpath("package.json").write_text(json.dumps({"scripts": {"test:e2e": "x"}}))
+            bin_dir = pathlib.Path(tmp, "bin")
+            bin_dir.mkdir()
+            calls = pathlib.Path(tmp, "pnpm-calls")
+            stub = bin_dir / "pnpm"
+            fail = "1" if soft_fails else "0"
+            stub.write_text(
+                "#!/usr/bin/env bash\n"
+                f'echo "$@" >> {calls}\n'
+                f'case " $* " in *" --exclude "*) exit 0;; *) exit {fail};; esac\n'
+            )
+            stub.chmod(0o755)
+            out = run(
+                ["bash", str(HERE / "run-e2e.sh")],
+                env={
+                    "BACKEND_URL": self.url,
+                    "E2E_DIR": str(suite),
+                    "CLERK_SECRET_KEY": "sk_test_unit_secret",
+                    "LATENCY_SAMPLES": "3",
+                    "E2E_SOFT_STRICT": "1" if strict else "",
+                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                },
+            )
+            return out, calls.read_text().splitlines()
+
+    def test_soft_specs_run_apart_and_a_failure_only_warns(self):
+        out, calls = self._run_soft_split(soft_fails=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("--exclude tests/latency.test.ts", calls[0])
+        self.assertIn("--exclude tests/assistant-live.test.ts", calls[0])
+        self.assertNotIn("--exclude", calls[1])
+        self.assertIn("tests/recognition-latency.test.ts", calls[1])
+        self.assertIn("::warning title=Deploy e2e::", out.stdout)
+
+    def test_soft_failure_blocks_with_e2e_soft_strict(self):
+        out, _ = self._run_soft_split(soft_fails=True, strict=True)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertNotIn("::warning title=Deploy e2e::", out.stdout)
+
     def test_latency_budget_fails(self):
         out = run(
             ["python3", "-I", str(HERE / "latency_check.py"), self.url, "/healthz", "5", "0"],
