@@ -645,14 +645,13 @@ fn devices_migration_uses_reserved_epic_version() {
 async fn devices_schema_constraints_indexes_and_store_cascade() {
     let pool = pool().await.expect("DATABASE_URL required");
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name,recovery_code_hash) VALUES ('devices','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('devices') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id,display_name,role) VALUES ($1,'lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)
@@ -724,14 +723,13 @@ fn assistant_digests_migration_uses_reserved_epic_version() {
 async fn assistant_digest_schema_checks_and_cascades() {
     let Some(pool) = pool().await else { return };
     let mut tx = pool.begin().await.unwrap();
-    let store: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO stores(name,recovery_code_hash) VALUES('digest','x') RETURNING id",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES('digest') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     let member: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO members(store_id,display_name,role) VALUES($1,'Lead','lead') RETURNING id",
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
     )
     .bind(store)
     .fetch_one(&mut *tx)

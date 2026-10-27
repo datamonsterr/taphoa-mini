@@ -424,9 +424,10 @@ async fn no_active_members_maps_generation_error_to_not_found() {
         .unwrap();
     // Exercise the handler after authentication, as if membership changed in between.
     let actor = Actor {
+        clerk_user_id: "user_test".into(),
         store_id: w.store_id,
         member_id: w.seller_id,
-        session_id: uuid::Uuid::nil(),
+        clerk_session_id: "sess_test".into(),
         role: Role::Seller,
         can_enroll: false,
     };

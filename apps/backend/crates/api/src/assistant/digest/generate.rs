@@ -41,14 +41,20 @@ async fn generate_inner(
     if let Some(digest) = stored(db, store_id, business_date).await? {
         return Ok(digest);
     }
-    let member_id = sqlx::query_scalar("SELECT id FROM members WHERE store_id=$1 AND active ORDER BY (role='lead') DESC,created_at,id LIMIT 1")
-        .bind(store_id).fetch_optional(db).await?.ok_or(NoActiveMember)?;
+    let (member_id, clerk_user_id): (Uuid, String) = sqlx::query_as(
+        "SELECT id, clerk_user_id FROM members WHERE store_id=$1 AND active ORDER BY (role='lead') DESC,created_at,id LIMIT 1",
+    )
+    .bind(store_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or(NoActiveMember)?;
     let ctx = ToolContext {
         state: state.clone(),
         actor: Actor {
+            clerk_user_id,
             store_id,
             member_id,
-            session_id: Uuid::nil(),
+            clerk_session_id: "sess_digest".into(),
             role: Role::Lead,
             can_enroll: true,
         },
