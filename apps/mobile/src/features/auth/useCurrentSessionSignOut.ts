@@ -1,6 +1,7 @@
 import { useAuth, useClerk, useSessionList } from '@clerk/expo';
 import { useState } from 'react';
 
+import { unregisterPush } from '@/lib/notifications/push';
 import { useDeviceLock } from '@/stores/deviceLock';
 
 import { signedInSessions } from './deviceSessions';
@@ -29,6 +30,11 @@ export function useCurrentSessionSignOut() {
       const othersRemain = signedInSessions(sessions).some(
         ({ id }) => id !== sessionId,
       );
+      try {
+        await unregisterPush();
+      } catch {
+        // Best-effort: ignore push unregister errors before session clear
+      }
       try {
         await signOut({ sessionId });
         if (othersRemain) useDeviceLock.getState().lock();

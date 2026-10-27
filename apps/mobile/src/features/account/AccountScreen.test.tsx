@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
+import * as pushNotifications from '@/lib/notifications/push';
 import { clerkMock } from '@/test/clerk';
 import * as storeApi from '@/lib/api/store';
 import { useSettingsStore } from '@/stores/settings';
@@ -420,4 +421,27 @@ test('failed Clerk sign-out keeps the screen and allows retry', async () => {
   ).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
   expect(clerkMock.signOut).toHaveBeenCalledTimes(2);
+});
+
+test('sign-out calls unregisterPush before Clerk signOut', async () => {
+  const unregisterSpy = jest
+    .spyOn(pushNotifications, 'unregisterPush')
+    .mockResolvedValueOnce();
+  await open();
+  await act(async () => {
+    fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+  });
+  expect(unregisterSpy).toHaveBeenCalledTimes(1);
+  expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
+});
+
+test('sign-out proceeds even if unregisterPush fails', async () => {
+  jest
+    .spyOn(pushNotifications, 'unregisterPush')
+    .mockRejectedValueOnce(new Error('push unregister network error'));
+  await open();
+  await act(async () => {
+    fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
+  });
+  expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
 });

@@ -19,6 +19,7 @@ import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 import { AlertsSection } from './AlertsSection';
 import { BarChart } from './BarChart';
 import { DebtCard } from './DebtCard';
+import { DigestCard } from '@/features/digest/DigestCard';
 import { StatTiles } from './StatTiles';
 import { dashboardStrings } from './strings';
 import { useDashboardData } from './useDashboardData';
@@ -124,6 +125,7 @@ export function DashboardScreen() {
 
       <AlertsSection />
 
+      <DigestCard />
       <DebtCard />
 
       {canEnroll ? (

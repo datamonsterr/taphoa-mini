@@ -48,6 +48,8 @@ const TABLES: &[&str] = &[
     "assistant_messages",
     "assistant_actions",
     "assistant_feedback",
+    "devices",
+    "push_tickets",
 ];
 
 #[tokio::test]
@@ -625,4 +627,183 @@ async fn assistant_checks_defaults_and_cascades() {
     .await
     .unwrap();
     assert_eq!(left, 0);
+}
+
+#[test]
+fn devices_migration_uses_reserved_epic_version() {
+    let migrations = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+    assert!(migrations.join("1001_devices.sql").is_file());
+    assert!(
+        taphoa_api::MIGRATOR
+            .iter()
+            .any(|migration| migration.version == 1001)
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn devices_schema_constraints_indexes_and_store_cascade() {
+    let pool = pool().await.expect("DATABASE_URL required");
+    let mut tx = pool.begin().await.unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES ('devices') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES ('fixture_' || gen_random_uuid()::text,$1,'lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let token = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO devices(token,store_id,member_id,platform,app_version,language) VALUES ($1,$2,$3,'android','1','vi')")
+        .bind(&token).bind(store).bind(member).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO push_tickets(store_id,token,business_date,status) VALUES ($1,$2,CURRENT_DATE,'pending_receipt')")
+        .bind(store).bind(&token).execute(&mut *tx).await.unwrap();
+    for statement in [
+        "UPDATE devices SET platform='web' WHERE token=$1",
+        "UPDATE devices SET language='fr' WHERE token=$1",
+        "UPDATE devices SET app_version='' WHERE token=$1",
+        "UPDATE push_tickets SET status='bad' WHERE token=$1",
+    ] {
+        sqlx::query("SAVEPOINT invalid_device")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let error = sqlx::query(statement)
+            .bind(&token)
+            .execute(&mut *tx)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid_device")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    for (table, columns) in [
+        ("devices", "(store_id, member_id)"),
+        ("push_tickets", "(status, created_at)"),
+        ("push_tickets", "(store_id, business_date)"),
+    ] {
+        let definitions: Vec<String> =
+            sqlx::query_scalar("SELECT indexdef FROM pg_indexes WHERE tablename=$1")
+                .bind(table)
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap();
+        assert!(definitions.iter().any(|s| s.contains(columns)));
+    }
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let left: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM devices WHERE store_id=$1) + (SELECT count(*) FROM push_tickets WHERE store_id=$1)")
+        .bind(store).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(left, 0);
+}
+
+#[test]
+fn assistant_digests_migration_uses_reserved_epic_version() {
+    assert!(
+        taphoa_api::MIGRATOR
+            .iter()
+            .any(|m| m.version == 1002 && m.description == "assistant digests")
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn assistant_digest_schema_checks_and_cascades() {
+    let Some(pool) = pool().await else { return };
+    let mut tx = pool.begin().await.unwrap();
+    let store: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO stores(name) VALUES('digest') RETURNING id")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let member: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO members(clerk_user_id,store_id,display_name,role) VALUES('fixture_' || gen_random_uuid()::text,$1,'Lead','lead') RETURNING id",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO assistant_digests(store_id,business_date,source,summary_vi,payload) VALUES($1,current_date,'template','Hôm qua chưa có đơn nào.','{}')").bind(store).execute(&mut *tx).await.unwrap();
+    let defaults: (bool, bool) = sqlx::query_as("SELECT generated_at IS NOT NULL, pushed_at IS NULL FROM assistant_digests WHERE store_id=$1").bind(store).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(defaults, (true, true));
+    sqlx::query("INSERT INTO assistant_digest_reads(store_id,business_date,member_id) VALUES($1,current_date,$2)").bind(store).bind(member).execute(&mut *tx).await.unwrap();
+    let read: bool = sqlx::query_scalar(
+        "SELECT read_at IS NOT NULL FROM assistant_digest_reads WHERE store_id=$1",
+    )
+    .bind(store)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert!(read);
+    for (statement, code) in [
+        (
+            "UPDATE assistant_digests SET source='invalid' WHERE store_id=$1",
+            "23514",
+        ),
+        (
+            "INSERT INTO assistant_digests(store_id,business_date,source,summary_vi,payload) VALUES($1,current_date,'template','x','{}')",
+            "23505",
+        ),
+        (
+            "INSERT INTO assistant_digest_reads(store_id,business_date,member_id) VALUES($1,current_date-1,$2)",
+            "23503",
+        ),
+        (
+            "INSERT INTO assistant_digest_reads(store_id,business_date,member_id) VALUES($1,current_date,$2)",
+            "23505",
+        ),
+    ] {
+        sqlx::query("SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let mut query = sqlx::query(statement).bind(store);
+        if statement.contains("$2") {
+            query = query.bind(member);
+        }
+        let error = query.execute(&mut *tx).await.unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some(code)
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT invalid")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM members WHERE id=$1")
+        .bind(member)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM assistant_digest_reads WHERE store_id=$1")
+            .bind(store)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+    sqlx::query("DELETE FROM stores WHERE id=$1")
+        .bind(store)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM assistant_digests WHERE store_id=$1")
+        .bind(store)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
 }

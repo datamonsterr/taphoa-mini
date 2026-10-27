@@ -9,6 +9,7 @@ import {
   getDebtSummary,
   type ListCustomersParams,
 } from './debts';
+import { getDigest } from './digest';
 import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 
@@ -268,6 +269,21 @@ export const useDayClose = (date: string) =>
         throw error;
       }
     },
+  });
+
+export const useDigest = (businessDate?: string) =>
+  useQuery({
+    queryKey: keys.digest(businessDate),
+    queryFn: async () => {
+      try {
+        return await getDigest(businessDate);
+      } catch (error) {
+        if (isApiError(error) && error.status === 404) return null;
+        throw error;
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 
 /** Cursor lists expose flattened items, like useProducts. */

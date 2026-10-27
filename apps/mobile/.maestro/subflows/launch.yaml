@@ -1,7 +1,7 @@
 appId: com.datamonsterr.taphoamini
 ---
 # Shared cold start: fresh state (no Clerk session, so the app opens on the sign-in screen),
-# camera permission pre-granted.
+# camera and notification permissions pre-granted (the Android 13 push prompt would cover the app).
 # On the CI emulator, Android sometimes kills the freshly started process while it is still
 # removing the previous task ("Destroy timeout of remove-task ... Killing <new pid>"), which
 # leaves a dead splash screen. Stop the app first and retry the launch when that happens.
@@ -13,6 +13,7 @@ appId: com.datamonsterr.taphoamini
           clearState: true
           permissions:
             camera: allow
+            notifications: allow
       # Fallback when the OS still shows the runtime permission dialog.
       - runFlow:
           when:

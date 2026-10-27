@@ -87,6 +87,7 @@ export default defineRailway((ctx) => {
       // Set by the deploy workflow to the deployed git SHA.
       SERVICE_VERSION: preserve(),
       OPENROUTER_API_KEY: preserve(),
+      EXPO_ACCESS_TOKEN: preserve(),
       DECISIONS_MODEL: 'inception/mercury-decide:free',
       // Railway always uses real models; never deploy the scripted provider.
       ASSISTANT_MODEL_PROVIDER: 'openrouter',
@@ -94,6 +95,8 @@ export default defineRailway((ctx) => {
       ASSISTANT_MODELS: preserve(),
       // Per-environment store message cap.
       ASSISTANT_DAILY_MESSAGES_PER_STORE: preserve(),
+      DIGEST_MODEL_MAX_PER_DAY: preserve(),
+      DIGEST_SEND_AT: preserve(),
       // Enable with 1 on test only; never on production.
       ASSISTANT_ALLOW_EVAL_HEADERS: preserve(),
       // Keep reasoning latency low for interactive replies.

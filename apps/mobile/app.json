@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.datamonsterr.taphoamini"
+      "package": "com.datamonsterr.taphoamini",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -52,6 +53,14 @@
         {
           "microphonePermission": "Tạp Hóa Mini cần dùng micro để bạn nói chuyện với trợ lý.",
           "speechRecognitionPermission": "Tạp Hóa Mini cần nhận dạng giọng nói để chuyển lời bạn nói thành chữ cho trợ lý."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#5a43e8",
+          "defaultChannel": "digest"
         }
       ]
     ],

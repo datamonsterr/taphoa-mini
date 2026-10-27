@@ -256,6 +256,21 @@ a consumed or expired invite is not made valid again. A
 failure rolls back that store completely, and a rerun can finish the other store.
 Use a fresh disposable database to regenerate a new 30-day window.
 
+### Daily digest and push notifications
+
+The scheduler generates one digest per active store and business date at `DIGEST_SEND_AT`
+(`Asia/Ho_Chi_Minh`), pushes it through the Expo Push Service to every registered device
+(`POST /v1/devices`) and reconciles push receipts about 15 minutes later. A store without a
+stored digest for today gets one on demand from `GET /v1/assistant/digest`.
+
+| Variable                   | Default                           | Purpose                                                                  |
+| -------------------------- | --------------------------------- | ------------------------------------------------------------------------ |
+| `DIGEST_ENABLED`           | `1`                               | `0` or `false` keeps the scheduler off (local runs).                     |
+| `DIGEST_SEND_AT`           | `07:00`                           | Local send time, `HH:MM`; a restart after it catches up once.            |
+| `DIGEST_MODEL_MAX_PER_DAY` | `200`                             | Model-written digests per business date; beyond it the template is used. |
+| `EXPO_PUSH_URL`            | `https://exp.host/--/api/v2/push` | Expo Push API base; tests point it at a mock.                            |
+| `EXPO_ACCESS_TOKEN`        | unset                             | Bearer token when Expo enhanced push security is on.                     |
+
 ### Receipt OCR and confirmation
 
 `POST /v1/receipts` reads a stored image into a draft; `GET /v1/receipts`

@@ -82,3 +82,8 @@ export type CreateDebtAdjustmentRequest =
   Schemas['CreateDebtAdjustmentRequest'];
 
 export type DebtSummary = Schemas['DebtSummary'];
+
+export type Digest = Schemas['Digest'];
+export type AssistantRestockItem = Schemas['AssistantRestockItem'];
+export type RegisterDevice = Schemas['RegisterDevice'];
+export type Device = Schemas['Device'];

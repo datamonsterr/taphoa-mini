@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { ShopTabBar } from '@/features/inventory/ShopTabBar';
 import { LowStockBanner } from '@/features/stock-alerts/LowStockBanner';
 import { useLowStockWatcher } from '@/features/stock-alerts/useLowStockWatcher';
+import { usePushRegistration } from '@/lib/notifications';
 import { colors } from '@/theme';
 
 export const unstable_settings = { anchor: 'inventory' };
@@ -14,6 +15,7 @@ export const unstable_settings = { anchor: 'inventory' };
  */
 export default function ShopLayout() {
   useLowStockWatcher();
+  usePushRegistration();
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <LowStockBanner />

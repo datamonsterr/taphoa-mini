@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "755634075277",
+    "project_id": "taphoa-mini",
+    "storage_bucket": "taphoa-mini.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:755634075277:android:3dc40b8763bd935f4354c4",
+        "android_client_info": {
+          "package_name": "com.datamonsterr.taphoamini"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDvH5N7N-5ZBaYkYGuClG4Ef85IKB6kDg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

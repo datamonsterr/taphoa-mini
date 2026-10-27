@@ -31,6 +31,8 @@ BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e test:e2e
 
 # Select one suite while retaining global setup and cleanup:
 BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts tests/auth.test.ts
+BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts tests/devices.test.ts
+BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts tests/digest.test.ts
 ```
 
 `BACKEND_URL` defaults to `http://localhost:8080` in the live config; set it to the

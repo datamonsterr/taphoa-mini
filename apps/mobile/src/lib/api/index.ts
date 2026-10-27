@@ -22,3 +22,5 @@ export * from './receipts';
 export * from './events';
 
 export * from './debts';
+export * from './digest';
+export * from './devices';

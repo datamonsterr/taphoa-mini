@@ -1,15 +1,31 @@
 {
-  "cli": { "version": ">= 16.0.0" },
+  "cli": {
+    "version": ">= 16.0.0"
+  },
   "build": {
-    "development": { "developmentClient": true, "distribution": "internal" },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {},
     "e2e": {
       "withoutCredentials": true,
-      "android": { "buildType": "apk", "image": "latest" }
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      }
+    },
+    "test": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-test-70c2.up.railway.app"
+      }
     }
   }
 }

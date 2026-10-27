@@ -1,5 +1,6 @@
 //! SQL-only next-step chips. Each rule file registers one function in `rules()`.
 mod day_close;
+mod digest;
 mod draft_receipts;
 mod margin_alert;
 mod overdue_debts;
@@ -31,6 +32,7 @@ pub type Rule = for<'a> fn(&'a PgPool, &'a Actor, &'a RuleInput) -> RuleFuture<'
 
 pub fn rules() -> Vec<Rule> {
     vec![
+        digest::run,
         restock::run,
         draft_receipts::run,
         day_close::run,
