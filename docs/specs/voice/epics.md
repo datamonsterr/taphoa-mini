@@ -12,6 +12,7 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V0 · Voice contract and shared interfaces
 
+- **Status:** done on 2026-10-29, PR #103.
 - **Branch:** `epic/v0-voice-contract` · **Depends:** none · **Wave:** 1 (merge first)
 - **Goal:** land the API contract, schemas, telemetry rows and mock handlers so V1, V2 and V5
   run in parallel.
@@ -35,6 +36,10 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V1 · Voice backend
 
+- **Status:** done on 2026-10-29, PR #111. Default `VOICE_MODELS` is
+  `google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite` (golden-set result in
+  `packages/eval/results/voice-model-choice.md`); a server-side speech gate answers silence
+  with `no_speech` before any model call.
 - **Branch:** `epic/v1-voice-backend` · **Depends:** V0 · **Wave:** 2 · **Migrations:** `11xx`
 - **Spec:** voice.md "Architecture", "Speech model request", "Catalog match", ADR 0008.
 - **Owns:** new `apps/backend/crates/api/src/voice/**` (handlers, service, parse rules, catalog
