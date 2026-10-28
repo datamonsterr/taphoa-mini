@@ -133,6 +133,10 @@ test('LLM verification keeps empty distinct from data, scopes every query except
     if (name.includes('free quota')) {
       assert.match(query.query, /AND 1 = 1/);
       assert.doesNotMatch(query.query, /properties.environment/);
+    } else if (name.includes('Online judge')) {
+      // $ai_evaluation events carry no environment; the judge's sampling filter scopes them.
+      assert.doesNotMatch(query.query, /properties.environment/);
+      assert.match(query.query, /INTERVAL 30 DAY/);
     } else if (query.kind === 'HogQLQuery') {
       assert.match(query.query, /properties.environment = 'test'/);
       assert.match(query.query, /INTERVAL 30 DAY/);
