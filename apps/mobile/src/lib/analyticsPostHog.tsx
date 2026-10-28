@@ -1,5 +1,5 @@
 import * as Application from 'expo-application';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { usePathname, useSegments } from 'expo-router';
 import {
   PostHogProvider,
@@ -81,7 +81,9 @@ export function AnalyticsProvider({ children }: PropsWithChildren) {
       options={{
         host:
           process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
-        enableSessionReplay: true,
+        // The JS analytics SDK works in Expo Go; its native replay plugin does not.
+        enableSessionReplay:
+          Constants.executionEnvironment !== ExecutionEnvironment.StoreClient,
         sessionReplayConfig: {
           maskAllTextInputs: true,
           maskAllImages: true,
