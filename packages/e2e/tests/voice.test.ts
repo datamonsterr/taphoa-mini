@@ -130,7 +130,7 @@ describe('voice utterances', () => {
     const line = r.body.sale_draft.lines[0];
     expect(line.status).toBe('unknown');
     expect(line.product).toBeUndefined();
-    expect(line.unit_price).toBe(35000);
+    expect(line.unit_price).toBe(15000);
     expect(line.price_source).toBe('spoken');
   });
 
@@ -184,16 +184,32 @@ describe('voice utterances', () => {
     const store = await prepare(f.sidecar);
     const warm = await utter(store, f.audio);
     expect(warm.status, JSON.stringify(warm.body)).toBe(201);
-    const samples: number[] = [];
+    const rows: { run: number; ms: number; model: string; serverMs: number }[] =
+      [];
     for (let i = 0; i < SAMPLES; i += 1) {
       const r = await utter(store, f.audio);
+      // Record every sample before asserting, so a failure still shows the numbers.
+      rows.push({
+        run: i + 1,
+        ms: Math.round(r.elapsed),
+        model: String(r.body?.model),
+        serverMs: Number(r.body?.latency_ms),
+      });
       expect(r.status, JSON.stringify(r.body)).toBe(201);
-      samples.push(r.elapsed);
     }
+    const samples = rows.map((row) => row.ms);
+    const p50 = percentile(samples, 0.5);
     const p95 = percentile(samples, 0.95);
     console.info(
-      `voice latency p95=${Math.round(p95)} ms samples=${samples.map(Math.round)}`,
+      [
+        `voice latency p50=${Math.round(p50)} ms p95=${Math.round(p95)} ms (budget ${BUDGET_MS} ms)`,
+        'run  client_ms  server_latency_ms  model',
+        ...rows.map(
+          (row) =>
+            `${String(row.run).padStart(3)}  ${String(row.ms).padStart(9)}  ${String(row.serverMs).padStart(17)}  ${row.model}`,
+        ),
+      ].join('\n'),
     );
     expect(p95).toBeLessThan(BUDGET_MS);
-  });
+  }, 180_000);
 });

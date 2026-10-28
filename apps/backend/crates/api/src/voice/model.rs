@@ -141,6 +141,7 @@ Chép lại đúng lời nói vào transcript. \
 Tách từng mặt hàng thành một dòng: spoken là đoạn người nói, query là tên hàng ngắn gọn để tìm trong danh mục (không gồm số lượng, đơn vị, giá), \
 quantity là số lượng (không nói số thì là 1), unit là đơn vị đã nói, price_spoken là đúng lời nói về giá và unit_price là giá một đơn vị bằng đồng. \
 Giá nói tắt theo nghìn: \"hai mươi\" là 20000, \"hai lăm\" là 25000, \"mười rưỡi\" là 10500, \"trăm rưỡi\" là 150000, \"hai trăm\" là 200000. \
+Số đứng ngay sau tên hàng mà là một phần của tên (mã như ST25, 330ml, 500g) không phải giá, trừ khi theo sau là nghìn, k hoặc \"giá\". \
 Không bịa mặt hàng không được nói; không nói giá thì để unit_price và price_spoken là null. \
 intent là sale khi đang bán hàng, chat khi là câu hỏi hoặc yêu cầu (ví dụ \"hôm nay bán được bao nhiêu\"), none khi không nghe thấy gì có ích. \
 payment_method là cash, transfer (chuyển khoản) hoặc credit (ghi nợ, cho nợ); customer_name là tên khách khi ghi nợ. \
