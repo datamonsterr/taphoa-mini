@@ -426,6 +426,39 @@ async fn forecast(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErr
     } else {
         0.0
     });
+    let friday_sunday: f64 = daily
+        .iter()
+        .filter(|(date, _)| {
+            use chrono::Datelike;
+            date.parse::<chrono::NaiveDate>()
+                .is_ok_and(|d| d.weekday().number_from_monday() >= 5)
+        })
+        .map(|(_, value)| value)
+        .sum();
+    out.data["friday_sunday_expected_units"] = json!(friday_sunday);
+    // Dates/holiday factors are identical for every product. Send that calendar
+    // once, with aligned daily quantities, so a current forecast survives the
+    // tool-context budget alongside stock and restock data.
+    let calendar: Vec<Value> = out.data["items"]
+        .as_array()
+        .unwrap()
+        .first()
+        .and_then(|item| item["days"].as_array())
+        .into_iter()
+        .flatten()
+        .map(|day| json!({"date":day["date"],"uplift":day["uplift"],"holiday":day["holiday"]}))
+        .collect();
+    out.data["calendar"] = json!(calendar);
+    for item in out.data["items"].as_array_mut().unwrap() {
+        let days = item.as_object_mut().unwrap().remove("days").unwrap();
+        item["daily_units"] = json!(
+            days.as_array()
+                .unwrap()
+                .iter()
+                .map(|day| day["expected_units"].clone())
+                .collect::<Vec<_>>()
+        );
+    }
     out.data["history_from"] = json!(shift(ctx.today, -55)?);
     out.data["history_to"] = json!(ctx.today);
     out.data["heuristic"] = json!(true);

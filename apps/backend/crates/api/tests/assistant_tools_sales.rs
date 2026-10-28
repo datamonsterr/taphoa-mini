@@ -333,25 +333,48 @@ async fn forecast_constant_series_applies_named_holiday_uplift_and_cost_history_
         forecast.data["total_expected_units"].as_f64(),
         item["expected_units"].as_f64()
     );
-    let weekend = item["days"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|d| matches!(d["date"].as_str(), Some("2026-02-14" | "2026-02-15")))
-        .map(|d| d["expected_units"].as_f64().unwrap())
-        .sum::<f64>();
-    assert_eq!(forecast.data["weekend_expected_units"], weekend);
+    let dates = forecast.data["calendar"].as_array().unwrap();
+    let units = item["daily_units"].as_array().unwrap();
+    let subtotal = |first_weekday| {
+        dates
+            .iter()
+            .zip(units)
+            .filter(|(d, _)| {
+                use chrono::Datelike;
+                d["date"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<chrono::NaiveDate>()
+                    .unwrap()
+                    .weekday()
+                    .number_from_monday()
+                    >= first_weekday
+            })
+            .map(|(_, n)| n.as_f64().unwrap())
+            .sum::<f64>()
+    };
+    assert_eq!(forecast.data["weekend_expected_units"], subtotal(6));
+    assert_eq!(forecast.data["friday_sunday_expected_units"], subtotal(5));
     assert_eq!(item["trend"], 1.0);
-    assert_eq!(item["days"][0]["date"], "2026-02-11");
-    assert_eq!(item["days"][0]["expected_units"], 4.0);
-    assert_eq!(item["days"][0]["uplift"], 2.0);
-    assert_eq!(item["days"][0]["holiday"], "Tết Nguyên Đán");
-    assert_eq!(item["days"][6]["expected_units"], 1.0);
+    assert_eq!(dates[0]["date"], "2026-02-11");
+    assert_eq!(units[0], 4.0);
+    assert_eq!(dates[0]["uplift"], 2.0);
+    assert_eq!(dates[0]["holiday"], "Tết Nguyên Đán");
+    assert_eq!(units[6], 1.0);
+    assert!(item.get("days").is_none());
     let prices = f
         .run("get_supplier_prices", json!({"product_query":"hao hao"}))
         .await;
     assert_eq!(prices.rows, 2);
     assert_eq!(prices.data["returned_supplier_count"], 2);
+    assert_eq!(
+        prices.data["latest_by_supplier"][0]["premium_over_latest_cheapest_dong"],
+        1000
+    );
+    assert_eq!(
+        prices.data["latest_by_supplier"][0]["premium_over_latest_cheapest_pct"],
+        20.0
+    );
     assert_eq!(prices.data["returned_purchases_by_supplier"]["Kho B"], 1);
     assert_eq!(prices.data["items"][0]["premium_over_cheapest_dong"], 1000);
     assert_eq!(prices.data["cheapest_lookback_days"], 90);
@@ -536,7 +559,7 @@ async fn forecast_trend_is_clamped_and_zero_sale_weekdays_stay_in_denominator() 
         )
         .await;
     assert_eq!(out.data["items"][0]["trend"], 2.0);
-    assert_eq!(out.data["items"][0]["days"][0]["expected_units"], 14.0);
+    assert_eq!(out.data["items"][0]["daily_units"][0], 14.0);
     sqlx::query("DELETE FROM sale_lines l USING sales s WHERE s.id=l.sale_id AND s.store_id=l.store_id AND l.store_id=$1 AND l.product_id=$2 AND s.business_date BETWEEN '2026-01-28' AND '2026-02-10'")
         .bind(f.world.store_id).bind(f.active).execute(f.world.pool()).await.unwrap();
     let out = f
@@ -546,7 +569,7 @@ async fn forecast_trend_is_clamped_and_zero_sale_weekdays_stay_in_denominator() 
         )
         .await;
     assert_eq!(out.data["items"][0]["trend"], 0.5);
-    assert_eq!(out.data["items"][0]["days"][0]["expected_units"], 1.5);
+    assert_eq!(out.data["items"][0]["daily_units"][0], 1.5);
 }
 
 #[tokio::test]

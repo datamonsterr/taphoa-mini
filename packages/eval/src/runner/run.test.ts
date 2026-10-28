@@ -556,16 +556,41 @@ describe('judging', () => {
     expect(run.judgeModels).toEqual(['judge/x']);
   });
 
-  it('sends only the rubric and the answer to the judge', async () => {
+  it('sends the user history, fixture date, role and resolved SQL facts to the judge', async () => {
     await start(perfectScript(cases, oracle));
     const judge = vi.fn<JudgeFn>(async () => ({
       score: 5,
       reason: 'ok',
       model: 'judge/x',
     }));
-    await runEval(opts({ judge, ids: ['U1-01'] }));
+    const toolEvidence = vi.fn(async () => [
+      { items: [{ name: 'Actual tool item', stock_quantity: 7 }] },
+    ]);
+    await runEval(
+      opts({
+        judge,
+        ids: ['U1-01'],
+        oracle: {
+          value: (query) => oracle.value(query),
+          resolveRef: (ref) => oracle.resolveRef(ref),
+          toolEvidence,
+        },
+      }),
+    );
     const input = judge.mock.calls[0]![0];
-    expect(Object.keys(input).sort()).toEqual(['answer', 'rubric_vi']);
+    expect(input.messages).toEqual(
+      cases.find((c) => c.id === 'U1-01')!.messages,
+    );
+    expect(input.fixture_context).toMatchObject({
+      business_date: '2026-10-20',
+      role: 'lead',
+      language: 'vi',
+    });
+    expect(input.fixture_context?.facts).toBeDefined();
+    expect(input.fixture_context?.tool_results).toEqual([
+      { items: [{ name: 'Actual tool item', stock_quantity: 7 }] },
+    ]);
+    expect(toolEvidence).toHaveBeenCalledTimes(1);
     expect(input.rubric_vi).toBe(
       cases.find((c) => c.id === 'U1-01')!.rubric_vi,
     );

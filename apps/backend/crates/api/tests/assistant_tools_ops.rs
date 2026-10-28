@@ -332,6 +332,9 @@ async fn receipt_card_enrollment_and_store_isolation() {
     assert!(original.contains("PRIVATE-OCR-CODE"));
     assert_eq!(output.data["review_line_count"], 0);
     assert_eq!(output.data["lines"][0]["cost_dong"], 20000);
+    assert_eq!(output.data["line_count"], 1);
+    assert_eq!(output.data["lines"][0]["line_number"], 1);
+    assert_eq!(output.data["lines"][0]["unit_cost_dong"], 5000.0);
     assert_eq!(output.data["lines"][0]["product_name"], "Mì Hảo Hảo");
     assert!(output.data["supplier_text"].is_null());
     let card = output.card.unwrap();
@@ -386,9 +389,17 @@ async fn catalog_setup_thresholds_and_anomalies() {
     assert_eq!(thresholds.data["items"][0]["uses_store_default"], true);
     assert!(thresholds.data["items"][0]["product_threshold"].is_null());
     assert_eq!(thresholds.data["missing_threshold_count"], 1);
+    // A configured store default must not hide missing per-product thresholds.
+    sqlx::query("UPDATE stores SET low_stock_threshold=7 WHERE id=$1")
+        .bind(f.ctx.actor.store_id)
+        .execute(f.db())
+        .await
+        .unwrap();
     let checklist = f.run("get_setup_checklist", json!({})).await;
     assert_eq!(checklist.rows, 6);
     assert_eq!(checklist.data["member_count"], 1);
+    assert_eq!(checklist.data["members"][0]["can_enroll"], true);
+    assert_eq!(checklist.data["members"][0]["role"], "lead");
     assert_eq!(checklist.data["threshold_missing_count"], 1);
     assert_eq!(checklist.data["pending_invite_count"], 0);
     assert!(
@@ -542,7 +553,7 @@ async fn recognition_health_uses_checkout_corrections_and_unknowns() {
         .unwrap();
     assert_eq!(output.data["from"], "2026-10-01");
     assert_eq!(output.data["to"], "2026-10-25");
-    assert_eq!(output.data["lookback_days"], 24);
+    assert_eq!(output.data["lookback_days"], 25);
     assert_eq!(item["confused_with"][0]["name"], "Món nhầm");
     assert_eq!(item["confused_with"][0]["count"], 1);
     assert_eq!(item["corrected"], 1);

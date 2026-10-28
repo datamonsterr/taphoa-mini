@@ -282,7 +282,29 @@ export async function runEval(opts: RunEvalOptions): Promise<RunSummary> {
       } else {
         try {
           const verdict = await opts.judge(
-            { rubric_vi: c.rubric_vi, answer: turn.answer },
+            {
+              rubric_vi: c.rubric_vi,
+              answer: turn.answer,
+              messages: c.messages,
+              fixture_context: {
+                business_date: opts.today ?? DEFAULT_TODAY,
+                timezone: 'Asia/Ho_Chi_Minh',
+                role: c.role,
+                language: c.language ?? 'vi',
+                context: c.context ?? null,
+                tools_used: turn.tools,
+                tool_results:
+                  turn.thread_id && opts.oracle.toolEvidence
+                    ? await opts.oracle.toolEvidence(turn.thread_id)
+                    : null,
+                actions_proposed: turn.actions,
+                facts: c.expect_facts.map((fact, i) => ({
+                  oracle: fact.oracle,
+                  args: fact.args ?? {},
+                  value: resolved.get(c.id)!.facts[i],
+                })),
+              },
+            },
             turn.model,
           );
           if (verdict) {

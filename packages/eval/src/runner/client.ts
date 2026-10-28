@@ -212,6 +212,7 @@ export async function runTurns(
       };
     }
     threadId = res.data.id;
+    result.thread_id = threadId;
     return null;
   });
   if (result.error) return result;

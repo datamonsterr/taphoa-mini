@@ -196,9 +196,7 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
             let month_context = before.ends_with("tháng ") || before.ends_with("month ");
             if (sep == '/'
                 && ((1..=31).contains(&first) && (1..=12).contains(&second)
-                    || month_context
-                        && (1..=12).contains(&first)
-                        && (2000..=2100).contains(&second)))
+                    || (1..=12).contains(&first) && (2000..=2100).contains(&second)))
                 || sep == '-'
                     && month_context
                     && (1..=12).contains(&first)
@@ -607,6 +605,14 @@ mod tests {
             ));
         }
         assert!(blocked(json!({"expected_units":20}), "21 quả."));
+        assert!(!blocked(
+            json!({"total_dong":90000}),
+            "Tiền nước (9/2026): 90.000 ₫."
+        ));
+        assert!(blocked(
+            json!({"total_dong":90000}),
+            "Tiền nước (9/2026): 91.000 ₫."
+        ));
     }
     #[test]
     fn live_draft_replay() {

@@ -28,7 +28,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "7";
+pub const PROMPT_VERSION: &str = "8";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -900,7 +900,7 @@ async fn run_turn_inner(
                 // The model needs the rejected draft and the mismatches to repair it.
                 // Neither becomes evidence: only user input and tools enter the guard.
                 messages.push(ChatMessage::assistant(Some(answer), vec![]));
-                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, không phải dữ liệu. {}", if record.tools.iter().any(|t| t.ok) {
+                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, chưa gửi cho người dùng, không phải dữ liệu. Viết lại toàn bộ câu trả lời cuối để trả lời câu hỏi ban đầu; không nói câu trên đã đúng hay giải thích việc sửa bản nháp. {}", if record.tools.iter().any(|t| t.ok) {
                     "Có số liệu chưa khớp. Dùng lại kết quả công cụ trong lượt này, viết đúng số và đơn vị; chỉ gọi thêm công cụ nếu thiếu dữ liệu. Không lặp lại công cụ đã có dữ liệu."
                 } else {
                     "Hãy gọi công cụ để lấy số liệu trước khi trả lời."

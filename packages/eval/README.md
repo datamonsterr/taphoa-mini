@@ -67,6 +67,19 @@ Usage costs in results come from each completed turn's OpenRouter accounting, in
 all tool-loop generations. Missing accounting is omitted; key usage delta also captures
 failed/cancelled requests and judge charges.
 
+The judge receives the unchanged rubric, user-message history, final answer and fixture
+context (business date, role, requested language, SQL assertions, proposed actions and the
+actual tool messages persisted for the final turn). Tool evidence is read from the eval
+database, scoped to its store and the newly created thread. Missing live evidence makes
+the case unjudged rather than silently grading with incomplete context. `calibrate` uses
+the same serializer; the original hand-labelled items have no user history or tool data,
+so their context contains only the pinned business date and timezone. Judge-input changes
+require a fresh passing calibration, without changing labels, rubrics or bars.
+
+English language detection excludes exact known entity names from resolved SQL facts,
+so answers can preserve Vietnamese product names while the surrounding prose must still
+pass the existing English heuristic. Unknown quoted text is not excluded.
+
 The backend must run with `ASSISTANT_ALLOW_EVAL_HEADERS=1`. The runner sends
 `X-Taphoa-Eval-Run` and `X-Taphoa-Today` on every request, and `X-Taphoa-Eval-Model` when
 `--model` is set.

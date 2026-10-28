@@ -392,7 +392,7 @@ async fn recognition(
     out.data["minimum_reference_count"] = json!(3);
     out.data["from"] = json!(from);
     out.data["to"] = json!(to);
-    out.data["lookback_days"] = json!((to - from).num_days());
+    out.data["lookback_days"] = json!((to - from).num_days() + 1);
     Ok(out)
 }
 async fn members(
@@ -515,7 +515,7 @@ async fn setup(ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         json!({"key":"vietqr","done":flags.0,"hint_vi":"Mở Tài khoản → Tài khoản ngân hàng VietQR để cài tài khoản nhận tiền."}),
         json!({"key":"seller","done":flags.1,"hint_vi":"Mở Tài khoản → Mời bằng mã QR để mời người bán."}),
         json!({"key":"can_enroll_reviewed","done":false,"hint_vi":"Chưa xác minh việc kiểm tra quyền thêm sản phẩm của người bán; cần chủ cửa hàng kiểm tra thủ công."}),
-        json!({"key":"thresholds","done":flags.2,"hint_vi":"Tùy chỉnh Ngưỡng sắp hết hàng ở Tài khoản hoặc ngưỡng riêng trong chi tiết sản phẩm."}),
+        json!({"key":"thresholds","done":flags.2 && flags.6==0,"hint_vi":"Tùy chỉnh Ngưỡng sắp hết hàng ở Tài khoản hoặc ngưỡng riêng trong chi tiết sản phẩm."}),
         json!({"key":"first_day_close","done":flags.3,"hint_vi":"Mở Báo cáo → Chốt sổ và nhập tiền đếm được."}),
         json!({"key":"ten_products","done":flags.4,"hint_vi":"Thêm ít nhất 10 sản phẩm vào kho bằng camera hoặc màn Thêm sản phẩm."}),
     ];
@@ -523,6 +523,9 @@ async fn setup(ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
     out.data["member_count"] = json!(flags.5);
     out.data["threshold_missing_count"] = json!(flags.6);
     out.data["pending_invite_count"] = json!(flags.7);
+    let members: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('display_name',display_name,'role',role,'can_enroll',role='lead' OR can_enroll) FROM members WHERE store_id=$1 AND active ORDER BY role,display_name,id")
+        .bind(ctx.actor.store_id).fetch_all(pool(&ctx.state)?).await?;
+    out.data["members"] = json!(members);
     Ok(out)
 }
 #[derive(Deserialize)]
@@ -535,7 +538,8 @@ async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError
     let mut data:Value=sqlx::query_scalar("SELECT jsonb_build_object('receipt_id',id,'status',status,'total_dong',total,'supplier',supplier,'ocr_text',ocr_text) FROM receipts WHERE store_id=$1 AND id=$2")
         .bind(ctx.actor.store_id).bind(id).fetch_optional(pool(&ctx.state)?).await?.ok_or_else(||ToolError::NotFound("receipt".into()))?;
     let rows:Vec<Value>=sqlx::query_scalar(r#"
-        SELECT jsonb_build_object('line_id',l.id,'name',l.product_name,'quantity',l.quantity,'cost_dong',l.cost,
+        SELECT jsonb_build_object('line_id',l.id,'line_number',l.position+1,'name',l.product_name,'quantity',l.quantity,'cost_dong',l.cost,
+            'unit_cost_dong',CASE WHEN l.quantity>0 THEN l.cost::numeric/l.quantity ELSE NULL END,
             'product_id',p.id,'product_name',p.name,'confidence',l.match_confidence,'candidates',l.candidates)
         FROM receipt_lines l LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id
         WHERE l.store_id=$1 AND l.receipt_id=$2 ORDER BY l.position,l.id LIMIT 51
@@ -559,6 +563,7 @@ async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError
             .count()
     );
     data["lines"] = out.data["items"].clone();
+    data["line_count"] = json!(out.rows);
     data["truncated"] = json!(out.truncated);
     data["supplier_text"] = Value::Null;
     data["note_vi"] = json!(if data["supplier"].is_null() {
@@ -574,6 +579,8 @@ async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError
             let mut line = line.clone();
             line["cost"] = line["cost_dong"].take();
             line.as_object_mut().unwrap().remove("candidates");
+            line.as_object_mut().unwrap().remove("line_number");
+            line.as_object_mut().unwrap().remove("unit_cost_dong");
             line.as_object_mut()
                 .expect("line object")
                 .remove("cost_dong");
