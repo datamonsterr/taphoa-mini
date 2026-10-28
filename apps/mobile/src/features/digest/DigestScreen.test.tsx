@@ -85,7 +85,8 @@ test('renders all sections and captures digest_opened with card entry by default
 
   // Title and date
   expect(await screen.findByText('Tóm tắt sáng nay')).toBeOnTheScreen();
-  expect(screen.getByText('26/10')).toBeOnTheScreen();
+  // The date comes from the digest response, which can land after the static title.
+  expect(await screen.findByText('26/10')).toBeOnTheScreen();
 
   // Summary
   expect(screen.getByText(fullDigest.summary_vi)).toBeOnTheScreen();
