@@ -1,0 +1,105 @@
+{
+  "currency": "USD",
+  "initial_key_usage_usd": 0.394561591,
+  "hard_key_limit_usd": 6.5,
+  "note": "Key accounting snapshots may lag response costs. Limits were not raised in the resumed run. The initial snapshot predates the owner cap; current key limit is $6.50. Delta includes all task model and judge work on this key.",
+  "checkpoints": [
+    {
+      "source": "i58-spend-start.json",
+      "limit": 1,
+      "usage": 0.394561591,
+      "limit_remaining": 0.605438409
+    },
+    {
+      "source": "i58-spend-targeted.json",
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.465883045,
+      "task_spend_usd": 0.071321454,
+      "key_remaining_usd": 6.034116955
+    },
+    {
+      "source": "i58-spend-full.json",
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.645210035,
+      "task_spend_usd": 0.250648444,
+      "key_remaining_usd": 5.854789965
+    },
+    {
+      "source": "i58-resume-final-spend.json",
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.946385433,
+      "task_spend_usd": 0.551823842,
+      "key_remaining_usd": 5.553614567
+    },
+    {
+      "source": "targeted",
+      "log_line": 1,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.715560571,
+      "task_spend_usd": 0.32099898,
+      "key_remaining_usd": 5.784439429
+    },
+    {
+      "source": "targeted",
+      "log_line": 28,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.715560571,
+      "task_spend_usd": 0.32099898,
+      "key_remaining_usd": 5.784439429
+    },
+    {
+      "source": "calibration",
+      "log_line": 1,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.715560571,
+      "task_spend_usd": 0.32099898,
+      "key_remaining_usd": 5.784439429
+    },
+    {
+      "source": "calibration",
+      "log_line": 6,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.715560571,
+      "task_spend_usd": 0.32099898,
+      "key_remaining_usd": 5.784439429
+    },
+    {
+      "source": "smoke",
+      "log_line": 1,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.715560571,
+      "task_spend_usd": 0.32099898,
+      "key_remaining_usd": 5.784439429
+    },
+    {
+      "source": "smoke",
+      "log_line": 54,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.729582635,
+      "task_spend_usd": 0.335021044,
+      "key_remaining_usd": 5.770417365
+    },
+    {
+      "source": "final-full",
+      "log_line": 1,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.729582635,
+      "task_spend_usd": 0.335021044,
+      "key_remaining_usd": 5.770417365
+    },
+    {
+      "source": "final-full",
+      "log_line": 223,
+      "key_limit_usd": 6.5,
+      "key_usage_usd": 0.946385433,
+      "task_spend_usd": 0.551823842,
+      "key_remaining_usd": 5.553614567
+    }
+  ],
+  "final": {
+    "key_limit_usd": 6.5,
+    "key_usage_usd": 0.952111087,
+    "task_spend_usd": 0.557549496,
+    "key_remaining_usd": 5.5478889129999995
+  }
+}

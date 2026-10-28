@@ -1,0 +1,34 @@
+{
+  "run_id": "eval-20261028T2024-a18e",
+  "source": "SSE turn usage, plus a partial local capture of backend PostHog generation events; no remote PostHog writes",
+  "generation_capture_coverage": "Partial: listener from the previous account had exited and was restored during the final run",
+  "generations": 219,
+  "paid_generations": 219,
+  "model_counts": {
+    "z-ai/glm-5.3-flash": 219
+  },
+  "paid_missing_cost_fields": 0,
+  "paid_component_sum_mismatches": 0,
+  "input_usd": 0.085868392,
+  "output_usd": 0.007147700000000003,
+  "total_usd": 0.09301609199999991,
+  "judge_usage_total_usd": 0.04626399999999999,
+  "text_price_bounds": {
+    "input_min": 1.2e-8,
+    "input_max": 2.25e-7,
+    "output_min": 2.44e-8,
+    "output_max": 7.5e-7,
+    "relative_tolerance": 0.1,
+    "absolute_tolerance_usd": 1e-8
+  },
+  "price_bound_mismatches": 0,
+  "turn_usage": {
+    "completed_turns": 142,
+    "turns_with_cost": 142,
+    "turns_with_all_components": 142,
+    "component_sum_mismatches": 0,
+    "input_usd": 0.13243945599999993,
+    "output_usd": 0.0124331,
+    "total_usd": 0.14487255600000004
+  }
+}
