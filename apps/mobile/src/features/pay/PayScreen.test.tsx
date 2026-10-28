@@ -554,9 +554,15 @@ describe('PayScreen spoken total', () => {
     await fireEvent.press(screen.getByRole('radio', { name: 'Tiền mặt' }));
     expect(Speech.speak).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByText('100.000'));
-    expect(Speech.speak).toHaveBeenLastCalledWith(
-      'Tiền thối bảy mươi lăm nghìn năm trăm đồng',
-      { language: 'vi-VN' },
+    // spoken only once the amount settles, not on every keypad press
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    await waitFor(
+      () =>
+        expect(Speech.speak).toHaveBeenLastCalledWith(
+          'Tiền thối bảy mươi lăm nghìn năm trăm đồng',
+          { language: 'vi-VN' },
+        ),
+      { timeout: 2000 },
     );
   });
 });

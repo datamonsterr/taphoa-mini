@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { vndToWords } from '@/lib/vndWords';
 
 const LANGUAGE = 'vi-VN';
+/** The change is read only once the cash given stops changing (keypad typing). */
+export const CHANGE_SPEAK_DELAY_MS = 800;
 
 export const totalPhrase = (total: number) => `Tổng cộng ${vndToWords(total)}`;
 export const changePhrase = (change: number) =>
@@ -30,7 +32,12 @@ export function useSpokenTotal(opts: {
     if (enabled && total > 0) say(totalPhrase(total));
   }, [enabled, total]);
   useEffect(() => {
-    if (enabled && change > 0) say(changePhrase(change));
+    if (!enabled || change <= 0) return;
+    const timer = setTimeout(
+      () => say(changePhrase(change)),
+      CHANGE_SPEAK_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
   }, [enabled, change]);
   useEffect(
     () => () => {
