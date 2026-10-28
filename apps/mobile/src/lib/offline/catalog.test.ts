@@ -204,6 +204,27 @@ describe('local stock and search', () => {
     expect(getCatalog(qc).products['a']!.stock_quantity).toBe(0);
   });
 
+  it('takes a unit line off in base units', () => {
+    const qc = createTestQueryClient();
+    const a = product('a', {
+      stock_quantity: 30,
+      units: [
+        { id: 'u1', name: 'Thùng', price: 100_000, quantity_in_base: 24 },
+      ],
+    });
+    qc.setQueryData<CatalogSnapshot>(keys.catalog(), {
+      cursor: 'c',
+      products: { a },
+    });
+    decrementLocalStock(qc, {
+      lines: [
+        { product_id: 'a', unit_id: 'u1', quantity: 1 },
+        { product_id: 'a', quantity: 2 },
+      ],
+    } as never);
+    expect(getCatalog(qc).products['a']!.stock_quantity).toBe(4);
+  });
+
   it('answers a search from the snapshot, ignoring diacritics and archived items', () => {
     const qc = createTestQueryClient();
     qc.setQueryData<CatalogSnapshot>(keys.catalog(), {

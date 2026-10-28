@@ -1,12 +1,29 @@
-import type { QueryClient } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 
-import type { CreateSaleRequest } from '@/lib/api/types';
+import type { CreateSaleRequest, Page, Product } from '@/lib/api/types';
 
 import { getCatalog, mapCachedProducts } from './catalog';
 import { keys } from '@/lib/api/keys';
 import type { CatalogSnapshot } from './catalog';
 
 type SaleLines = Pick<CreateSaleRequest, 'lines'>;
+
+/** Every product the device can see: the snapshot first, then the cached lists and details. */
+function knownProducts(qc: QueryClient): Map<string, Product> {
+  const out = new Map<string, Product>();
+  for (const [, data] of qc.getQueriesData<
+    Product | InfiniteData<Page<Product>>
+  >({ queryKey: keys.products.all() })) {
+    if (!data) continue;
+    if ('pages' in data)
+      for (const page of data.pages)
+        for (const item of page.items) out.set(item.id, item);
+    else out.set(data.id, data);
+  }
+  for (const [id, item] of Object.entries(getCatalog(qc).products))
+    out.set(id, item);
+  return out;
+}
 
 /**
  * Optimistic stock: takes the sold quantities off the cached products (lists, details and the
@@ -19,11 +36,17 @@ export function decrementLocalStock(
   /** Only these products (after a sync replaced them); all when omitted. */
   only?: ReadonlySet<string>,
 ) {
+  const known = knownProducts(qc);
   const sold = new Map<string, number>();
   for (const line of sale.lines) {
     const id = line.product_id;
     if (!id || (only && !only.has(id))) continue;
-    sold.set(id, (sold.get(id) ?? 0) + line.quantity);
+    // A unit line (a pack, a crate) counts quantity_in_base base units each.
+    const factor = line.unit_id
+      ? (known.get(id)?.units.find((u) => u.id === line.unit_id)
+          ?.quantity_in_base ?? 1)
+      : 1;
+    sold.set(id, (sold.get(id) ?? 0) + line.quantity * factor);
   }
   const take = <T extends { id: string; stock_quantity: number | null }>(
     product: T,
