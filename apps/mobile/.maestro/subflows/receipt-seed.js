@@ -2,6 +2,7 @@
 // MAESTRO_CLERK_SECRET_KEY comes from the shell, never a YAML interpolation or log.
 // CLI cwd is apps/mobile (scripts/e2e-android.sh); the emulator uses 10.0.2.2,
 // while this HTTP client and the fixture upload use the host's localhost/filesystem.
+// Maestro resolves multipart filePath against this script's folder, not the CLI cwd.
 var base =
   typeof MAESTRO_API_URL === 'string' && MAESTRO_API_URL
     ? MAESTRO_API_URL
@@ -82,7 +83,7 @@ try {
           purpose: 'enrollment',
           image: {
             filePath:
-              '../backend/crates/recognition/tests/fixtures/receipts/receipt-1.jpg',
+              '../../../backend/crates/recognition/tests/fixtures/receipts/receipt-1.jpg',
             mediaType: 'image/jpeg',
           },
         },
