@@ -100,7 +100,7 @@ function excerpt(result: CaseResult | undefined): string {
 
 function quotaText(quota: Quota | null): string {
   return quota
-    ? `${quota.used} used / ${quota.limit} limit, ${quota.remaining} remaining`
+    ? `${quota.used} used / ${quota.limit} limit, ${quota.remaining} remaining${quota.unit ? ' USD' : ''}`
     : 'n/a';
 }
 
@@ -128,6 +128,17 @@ export function renderResults(run: RunReport): string {
     '',
   ];
 
+  const costs = run.results
+    .flatMap((r) => r.turn.turn_costs_usd ?? [])
+    .sort((a, b) => a - b);
+  if (costs.length)
+    lines.push(
+      `- Usage-accounted turns: ${costs.length}`,
+      `- Cost per turn mean USD: ${(costs.reduce((a, b) => a + b, 0) / costs.length).toFixed(8)}`,
+      `- Cost per turn p95 USD: ${costs[Math.ceil(costs.length * 0.95) - 1]!.toFixed(8)}`,
+      `- Assistant usage total USD: ${costs.reduce((a, b) => a + b, 0).toFixed(8)}`,
+      '',
+    );
   if (run.aborted) {
     lines.push(
       `> ABORTED by ${run.aborted.code} on ${run.aborted.case_id}: ${cell(run.aborted.message)}`,

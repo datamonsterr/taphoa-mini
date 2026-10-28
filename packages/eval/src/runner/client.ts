@@ -250,6 +250,10 @@ export async function runTurns(
             break;
           case 'message.completed':
             model = event.data.model;
+            if (event.data.usage.cost)
+              (result.turn_costs_usd ??= []).push(
+                event.data.usage.cost.total_usd,
+              );
             break;
           case 'error':
             failure = { code: event.data.code, message: event.data.message_vi };

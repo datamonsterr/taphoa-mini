@@ -59,49 +59,43 @@ PostHog documents these alternatives (USD per **individual token**, not per mill
    PostHog uses those values directly. Precomputed costs take precedence over
    custom token prices, which take precedence over automatic matching.
 
-The code emits zero token prices for these deployed models:
+The assistant default is now `z-ai/glm-5.3-flash`, with
+`nvidia/nemotron-3.5-lightning:free` as a last resort. Paid IDs are accepted in
+`ASSISTANT_MODELS`; malformed/empty IDs fail startup validation. The separate eval
+judge is `google/gemini-2.5-flash` (90% calibration agreement, MAE 0.5); it never
+judges its own answers. The online PostHog judge below is independently configured.
 
-| Model                                    | Input USD/token | Output USD/token |
-| ---------------------------------------- | --------------- | ---------------- |
-| `nvidia/nemotron-3-ultra-550b-a55b:free` | 0               | 0                |
-| `poolside/laguna-s-2.1:free`             | 0               | 0                |
-| `nvidia/nemotron-3.5-lightning:free`     | 0               | 0                |
-| `google/gemma-4-31b-it:free`             | 0               | 0                |
-| `nvidia/nemotron-3-super-120b-a12b:free` | 0               | 0                |
+Every pricing run fetches the public [OpenRouter model catalog](https://openrouter.ai/api/v1/models)
+and paid models' [provider endpoints](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model).
+Prices are USD per token. Paid models must exist in the catalog and have endpoints;
+no paid rate is hardcoded. Verification includes historical free models, whose
+explicit `:free` policy requires zero cost even after retirement from the catalog.
+Known optional cache, context-tier, reasoning and modality charges are validated;
+unknown nonzero components fail closed. The cost check covers text generations.
 
-The last model is the older fallback in `apps/backend/.env.example`, root
-`.env.example`, and `apps/backend/crates/api/src/assistant/config.rs`. The current
-backend rejects paid models (`:free` is required). No paid fallback is configured;
-paid model strings in unit tests are rejection fixtures.
+The backend consumes the **final SSE usage chunk**. Current [OpenRouter usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting)
+is automatic; `usage.include` and `stream_options.include_usage` are deprecated.
+`usage.cost` is the actual account charge. The backend emits it as
+`$ai_total_cost_usd`, and emits `$ai_input_cost_usd` / `$ai_output_cost_usd` from
+`cost_details.upstream_inference_prompt_cost` /
+`upstream_inference_completions_cost` when their sum reconciles with that charge.
+Unreported costs remain missing, never zero-filled for paid models. `:free`
+generations still emit explicit zero costs. The optional SSE `usage.cost` also
+lets the harness report actual cost per completed turn across all model calls.
 
-Every pricing run fetches the public, unauthenticated
-[OpenRouter model catalog](https://openrouter.ai/api/v1/models).
-All four deployed models currently advertise `prompt: "0", completion: "0"`.
-The legacy fallback is absent; it retains zero pricing by explicit `:free` policy.
-Nonzero catalog prices for a `:free` model fail validation. Paid models supplied
-through `ASSISTANT_MODELS` must exist in the live catalog; no hardcoded paid price
-is used. Nonzero extra billing components fail closed pending formula review.
-An override replaces the default pricing verification model list; the judge's
-versioned scope remains the five model IDs in `evaluations.mjs`.
+`pricing-verify.mjs` checks each model over 30 days of `environment=test`,
+`$ai_provider=openrouter`, `$ai_generation` events. It requires token counts and
+all three cost fields. Free costs must be exactly zero. Paid input/output costs
+must lie within the live catalog/provider price bounds, including cache and
+context tiers, with **10% relative + USD 1e-8 absolute** tolerance. The total must
+match the reported components to USD 1e-8. Endpoint price bounds matter because
+latency routing can choose a provider above the catalog's cheapest advertised
+rate. Missing events/accounting and invalid sums fail verification. This bounded
+comparison does not prove the exact selected provider price; actual accounting
+is authoritative and stored precomputed costs do not prove PostHog calculated them.
 
-**Backend change needed for explicit custom token pricing (not implemented here):**
-in `apps/backend/crates/api/src/assistant/telemetry.rs`, where `turn_finished`
-constructs each generation, add both zero token-price properties for free models.
-It already sends zero input/output/total costs for free models, satisfying
-PostHog's documented precomputed-cost route. To demonstrate custom calculation
-rather than passthrough, omit precomputed costs on new generations and send the
-two token prices with the existing model/provider/token fields. If paid models
-are later allowed, use reviewed OpenRouter rates (and cache/request/search
-components where applicable), or actual provider-reported costs; do not send
-zero paid costs. Event pricing does not retroactively reprice old events.
-
-`pricing-verify.mjs` uses `POST /api/projects/<id>/query/` with `HogQLQuery`
-(`costQuery` is exported). It checks each model separately over 30 days of
-`environment=test`, `$ai_provider=openrouter`, `$ai_generation` events: missing
-tokens, missing cost components, mismatches in input/output/total costs, and
-PostHog's `$ai_cost_model_source`. Zero pricing requires exactly zero costs;
-paid formulas allow USD `1e-12` rounding error. Stored zeros alone cannot prove
-that newly configured custom token pricing was used.
+No PostHog pricing writes or historical repricing occur. No online judge/provider
+changes are applied as part of the local eval task.
 
 ## Online judge and supported APIs
 

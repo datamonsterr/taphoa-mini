@@ -1,10 +1,10 @@
-//! `ASSISTANT_*` variables. Every default is safe for local runs: free models only, no eval
+//! `ASSISTANT_*` variables. Paid models are permitted; defaults have no eval
 //! headers, no PostHog survey.
 use anyhow::{Context, bail, ensure};
 use std::time::Duration;
 
-/// Ordered free tool-capable fallbacks; gated models can fall through on HTTP 403/404.
-pub const DEFAULT_MODELS: &str = "nvidia/nemotron-3-ultra-550b-a55b:free,poolside/laguna-s-2.1:free,nvidia/nemotron-3.5-lightning:free,google/gemma-4-31b-it:free";
+/// Ordered tool-capable fallbacks; measured selection is recorded in eval results.
+pub const DEFAULT_MODELS: &str = "z-ai/glm-5.3-flash,nvidia/nemotron-3.5-lightning:free";
 /// `reasoning.effort` values OpenRouter documents (checked 2026-10-25).
 const REASONING_EFFORTS: [&str; 7] = ["max", "xhigh", "high", "medium", "low", "minimal", "none"];
 
@@ -26,7 +26,7 @@ impl ModelProvider {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssistantConfig {
-    /// Ordered `:free` OpenRouter fallbacks, or `["scripted"]` for local/e2e rules.
+    /// Ordered OpenRouter fallbacks, or `["scripted"]` for local/e2e rules.
     pub models: Vec<String>,
     pub daily_messages_per_store: u32,
     pub digest_model_max_per_day: u32,
@@ -128,12 +128,22 @@ fn parse_models(value: &str) -> anyhow::Result<Vec<String>> {
     ensure!(!models.is_empty(), "ASSISTANT_MODELS lists no model");
     for id in &models {
         ensure!(
-            id.strip_suffix(":free")
-                .is_some_and(|name| !name.is_empty()),
-            "ASSISTANT_MODELS accepts only :free models, got {id}"
+            valid_model_id(id),
+            "ASSISTANT_MODELS requires OpenRouter model identifiers, got {id}"
         );
     }
     Ok(models)
+}
+
+/// Syntactic validation only: model availability and pricing belong to OpenRouter.
+pub(super) fn valid_model_id(id: &str) -> bool {
+    id.len() <= 200
+        && id
+            .split_once('/')
+            .is_some_and(|(author, model)| !author.is_empty() && !model.is_empty())
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"/._:~-".contains(&c))
 }
 
 #[cfg(test)]
@@ -154,12 +164,7 @@ mod tests {
         assert_eq!(parsed, AssistantConfig::default());
         assert_eq!(
             parsed.models,
-            [
-                "nvidia/nemotron-3-ultra-550b-a55b:free",
-                "poolside/laguna-s-2.1:free",
-                "nvidia/nemotron-3.5-lightning:free",
-                "google/gemma-4-31b-it:free"
-            ]
+            ["z-ai/glm-5.3-flash", "nvidia/nemotron-3.5-lightning:free"]
         );
         assert_eq!(parsed.daily_messages_per_store, 60);
         assert!(!parsed.allow_eval_headers);
@@ -210,19 +215,15 @@ mod tests {
     }
 
     #[test]
-    fn only_free_models_are_accepted() {
-        for bad in [
-            "openai/gpt-5",
-            "a/b:free,openai/gpt-5",
-            "a/b:free:extended",
-            ":free",
-            "a/b:FREE",
-            ",",
-        ] {
-            let error = config(&[("ASSISTANT_MODELS", bad)])
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("ASSISTANT_MODELS"), "{bad}: {error}");
+    fn paid_and_free_models_are_accepted_but_invalid_ids_are_rejected() {
+        assert_eq!(
+            config(&[("ASSISTANT_MODELS", "openai/gpt-4.1-mini,a/b:free")])
+                .unwrap()
+                .models,
+            ["openai/gpt-4.1-mini", "a/b:free"]
+        );
+        for bad in [",", ":free", "a/", "/b", "a/b c", "a/b\nsecret", "a/b?x=1"] {
+            assert!(config(&[("ASSISTANT_MODELS", bad)]).is_err(), "{bad}");
         }
     }
 

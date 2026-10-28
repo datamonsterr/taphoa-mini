@@ -41,6 +41,8 @@ export type TurnResult = {
   actions: ProposedAction[]; // action.proposed across all turns
   model: string | null; // message.completed.model of the last turn
   latency_ms: number; // per-turn durations: max over turns
+  /** Actual cost per completed turn, including every generation in its tool loop. */
+  turn_costs_usd?: number[];
   error: { code: string; message: string } | null;
 };
 export type ScorerName =

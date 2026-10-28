@@ -127,8 +127,8 @@ proposed ──Confirm──▶ executing ──▶ done (result: entity ids)
   formatted as `1.234.000 ₫`).
 - Loop: at most 6 model calls per user message; tool calls in one model turn run in parallel;
   each tool has a 5 s timeout.
-- Models: `ASSISTANT_MODELS` is an ordered comma-separated list of free tool-capable OpenRouter
-  models; the next model is used on 429, 5xx, timeout or invalid tool-call JSON (use OpenRouter
+- Models: `ASSISTANT_MODELS` is an ordered comma-separated list of tool-capable OpenRouter
+  models (paid IDs allowed; finite per-environment key budgets); the next model is used on 429, 5xx, timeout or invalid tool-call JSON (use OpenRouter
   model fallback routing when its current docs support it). The golden set picks the order.
 - Quota: `ASSISTANT_DAILY_MESSAGES_PER_STORE` (default 60) in Redis per store and business date.
   When the store cap or the OpenRouter daily quota is hit, the reply is a friendly Vietnamese

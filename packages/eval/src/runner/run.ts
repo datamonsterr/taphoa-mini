@@ -77,8 +77,13 @@ export type RunEvalOptions = {
   sink: EventSink;
   /** Where the results file goes. */
   outDir: string;
-  /** The OpenRouter free quota guard; `null` skips it (stub runs). */
-  quota: { apiKey: string; fetch?: typeof fetch; skipCheck?: boolean } | null;
+  /** The OpenRouter USD/free request budget guard; `null` skips it (stub runs). */
+  quota: {
+    apiKey: string;
+    fetch?: typeof fetch;
+    skipCheck?: boolean;
+    paid?: boolean;
+  } | null;
   /** Sent as `X-Taphoa-Eval-Model` (the model under test). */
   model?: string;
   /** Business date for the run. Default 2026-10-20. */
@@ -175,7 +180,7 @@ const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * One eval run: pick the cases, check the free quota, play each case against
+ * One eval run: pick the cases, check the USD/free request budget, play each case against
  * the backend, resolve the oracle values, judge, score, send the PostHog
  * events and write the results file.
  */
@@ -221,11 +226,12 @@ export async function runEval(opts: RunEvalOptions): Promise<RunSummary> {
 
   let quotaBefore: Quota | null = null;
   if (opts.quota) {
-    const { apiKey, fetch: quotaFetch, skipCheck } = opts.quota;
+    const { apiKey, fetch: quotaFetch, skipCheck, paid } = opts.quota;
     quotaBefore = skipCheck
-      ? await fetchQuota({ apiKey, fetch: quotaFetch })
+      ? await fetchQuota({ apiKey, fetch: quotaFetch, paid })
       : await checkQuota({
           apiKey,
+          paid,
           fetch: quotaFetch,
           estimate: estimateRequests(live, opts.judge !== null),
         });
@@ -335,6 +341,7 @@ export async function runEval(opts: RunEvalOptions): Promise<RunSummary> {
     try {
       quotaAfter = await fetchQuota({
         apiKey: opts.quota.apiKey,
+        paid: opts.quota.paid,
         fetch: opts.quota.fetch,
       });
     } catch (e) {

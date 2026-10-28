@@ -4,7 +4,12 @@ export const KEY_URL = 'https://openrouter.ai/api/v1/key';
 /** Requests kept in reserve above a run's estimate. */
 export const QUOTA_RESERVE = 100;
 
-export type Quota = { remaining: number; limit: number; used: number };
+export type Quota = {
+  remaining: number;
+  limit: number;
+  used: number;
+  unit?: 'USD';
+};
 
 /** The free-model daily quota is too low for this run. */
 export class QuotaError extends Error {
@@ -28,6 +33,9 @@ export class QuotaError extends Error {
 
 type KeyBody = {
   data?: {
+    limit?: number | null;
+    limit_remaining?: number | null;
+    usage?: number;
     free_model_daily_requests?: Partial<Record<keyof Quota, unknown>>;
   };
 };
@@ -35,6 +43,7 @@ type KeyBody = {
 /** Read the counters of `GET /api/v1/key`; throws on any failure. */
 export async function fetchQuota(opts: {
   apiKey: string;
+  paid?: boolean;
   fetch?: typeof fetch;
 }): Promise<Quota> {
   const fetchFn = opts.fetch ?? globalThis.fetch;
@@ -55,6 +64,24 @@ export async function fetchQuota(opts: {
   } catch {
     throw new Error('OpenRouter quota check failed: the reply is not JSON');
   }
+  if (opts.paid) {
+    const { limit, limit_remaining, usage } = body.data ?? {};
+    if (
+      ![limit, limit_remaining, usage].every(
+        (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0,
+      )
+    ) {
+      throw new Error(
+        'OpenRouter credit check needs a finite key limit and limit_remaining',
+      );
+    }
+    return {
+      remaining: limit_remaining!,
+      limit: limit!,
+      used: usage!,
+      unit: 'USD',
+    };
+  }
   const counters = body.data?.free_model_daily_requests;
   const { remaining, limit, used } = counters ?? {};
   if (
@@ -70,15 +97,25 @@ export async function fetchQuota(opts: {
 }
 
 /**
- * Refuse to start a run the free quota cannot carry: throws `QuotaError`
+ * Refuse a run without its estimated USD budget (paid) or free request quota: throws `QuotaError`
  * when fewer than `estimate + 100` requests remain.
  */
 export async function checkQuota(opts: {
   apiKey: string;
+  paid?: boolean;
   estimate: number;
   fetch?: typeof fetch;
 }): Promise<Quota> {
   const quota = await fetchQuota(opts);
+  if (opts.paid) {
+    // Conservative allowance for small-model tool calls, plus a ten-cent reserve.
+    const needed = opts.estimate * 0.002 + 0.1;
+    if (quota.remaining < needed)
+      throw new Error(
+        `OpenRouter credits too low: $${quota.remaining.toFixed(4)} remain; estimated budget $${needed.toFixed(4)}`,
+      );
+    return quota;
+  }
   if (quota.remaining < opts.estimate + QUOTA_RESERVE) {
     throw new QuotaError(quota, opts.estimate);
   }

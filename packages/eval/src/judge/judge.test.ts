@@ -194,12 +194,9 @@ describe('judgeAnswer', () => {
 });
 
 describe('judgeModelsFromEnv', () => {
-  it('defaults to the two free judges', () => {
+  it('defaults to the calibrated paid judge', () => {
     expect(judgeModelsFromEnv({})).toEqual(DEFAULT_JUDGE_MODELS);
-    expect(DEFAULT_JUDGE_MODELS).toEqual([
-      'nvidia/nemotron-3.5-lightning:free',
-      'nvidia/nemotron-3.5-super-vl:free',
-    ]);
+    expect(DEFAULT_JUDGE_MODELS).toEqual(['google/gemini-2.5-flash']);
   });
 
   it('parses a comma-separated EVAL_JUDGE_MODELS', () => {

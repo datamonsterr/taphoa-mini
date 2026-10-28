@@ -6,7 +6,7 @@ Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · Epic: X7
 
 Measure whether the assistant picks the right tools, states correct numbers, respects
 permissions and resists prompt injection, in Vietnamese, on a fixed store; and pick the default
-free model from data.
+model from data (paid models authorized by the owner in issue #58).
 
 ## Eval store
 
@@ -72,7 +72,7 @@ data in the answer.
 | `language`           | answer is Vietnamese (or English when asked) (0 or 1)                                             |
 | `latency_ms`         | turn duration                                                                                     |
 
-Judge: a free OpenRouter model different from the model under test, temperature 0, rubric and
+Judge: a calibrated OpenRouter model different from the model under test, temperature 0, rubric and
 answer only (no tool data), with a calibration check on 10 hand-labelled answers in the repo.
 
 ## Pass bars (default model)
@@ -100,9 +100,10 @@ answer only (no tool data), with a calibration check on 10 hand-labelled answers
 - `pnpm --filter @taphoa/eval run compare -- --models a,b,c` runs the smoke set per candidate and
   writes `packages/eval/results/model-choice.md`; the winner becomes the first entry of
   `ASSISTANT_MODELS`.
-- Budget: a full run is about 700 OpenRouter requests of the shared 1,000 per day. The harness
-  checks the remaining free quota (`GET https://openrouter.ai/api/v1/key`) first and refuses to
-  start below the run's estimate plus 100.
+- Budget: paid runs check remaining key credit (`GET https://openrouter.ai/api/v1/key`)
+  against an estimate ($0.002 per request plus $0.10 reserve); finite key limits bound spend.
+  Free-model overrides retain the daily free-request quota guard (estimate plus 100).
+  Issue #58 uses owner-selected `z-ai/glm-5.3-flash`, with a $6.50 key limit for the task.
 - Results: each run sends `eval_run_completed` (model, run id, pass-bar table) and writes
   `packages/eval/results/<date>-<model>.md`; the JSONL files are the source of truth for cases.
   PostHog keeps LLM events 30 days on the free tier, so the results files are the long-term

@@ -274,13 +274,22 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
         };
         if let Ok(mut value) = normalized.parse::<f64>() {
             value *= factor;
+            let sign_context = before.trim_end();
+            let sign_context = ["khoảng", "xấp xỉ", "gần", "hơn", "tới"]
+                .iter()
+                .find_map(|word| sign_context.strip_suffix(word))
+                .unwrap_or(sign_context)
+                .trim_end();
             let signed = before.ends_with('-')
                 || before.ends_with('−')
                 || before.ends_with('‑')
                 || before.ends_with("âm ")
                 || before.ends_with("thiếu ")
                 || before.ends_with("hụt ")
-                || before.ends_with("giảm ");
+                || before.ends_with("giảm ")
+                || ["âm", "thiếu", "hụt", "giảm"]
+                    .iter()
+                    .any(|word| sign_context.ends_with(word));
             if signed {
                 value = -value;
             }
@@ -727,6 +736,20 @@ mod tests {
         assert!(blocked(json!({"quantity":12.5}), "12,5%"));
         assert!(blocked(json!({"rate":0.125}), "25%"));
     }
+    #[test]
+    fn rounded_decreases_with_qualifiers_preserve_the_negative_sign() {
+        let data = json!({"change_pct":{"revenue":-16.41025641025641}});
+        for text in ["Giảm khoảng **16,4%**", "giảm xấp xỉ 16,41%"] {
+            assert!(!blocked(data.clone(), text), "{text}");
+        }
+        assert!(blocked(data.clone(), "Tăng khoảng 16,4%"));
+        assert!(blocked(data.clone(), "Giảm khoảng 16,5%"));
+        assert!(blocked(
+            json!({"change_pct":16.41025641025641}),
+            "Giảm khoảng 16,4%"
+        ));
+    }
+
     #[test]
     fn rounding_is_limited_to_displayed_precision() {
         assert!(!blocked(

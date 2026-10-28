@@ -208,6 +208,7 @@ async fn text_streams_usage_and_persists_in_thread_detail() {
         vec![Step::chunks(["Xin ", "chào"]).with_usage(Usage {
             input_tokens: 7,
             output_tokens: 3,
+            ..Usage::default()
         })],
         config(),
     )
@@ -261,10 +262,12 @@ async fn parallel_tools_are_data_only_and_usage_is_summed() {
             Step::tools([("a", json!({})), ("b", json!({}))]).with_usage(Usage {
                 input_tokens: 10,
                 output_tokens: 4,
+                ..Usage::default()
             }),
             Step::text("Xong").with_usage(Usage {
                 input_tokens: 20,
                 output_tokens: 2,
+                ..Usage::default()
             }),
         ],
         config(),
@@ -646,6 +649,7 @@ async fn exhausted_timeouts_bad_json_and_partial_text_failure_are_terminal() {
             usage: Usage {
                 input_tokens: 2,
                 output_tokens: 1,
+                ..Usage::default()
             },
         };
         let (w, m, _) = setup(vec![bad, Step::text("Xong")], config()).await;

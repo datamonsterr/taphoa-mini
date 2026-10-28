@@ -276,6 +276,12 @@ async fn restock_margin_dead_stock_and_permissions_are_exact() {
     assert_eq!(margin.data["items"][0]["margin_pct"], 4.0);
     assert_eq!(margin.data["items"][0]["suggested_price_dong"], 11000);
     let dead = f.run("get_dead_stock", json!({})).await;
+    assert_eq!(dead.data["lookback_days"], 30);
+    assert_eq!(dead.data["to"], today().to_string());
+    assert_eq!(
+        dead.data["from"],
+        (today() - Duration::days(29)).to_string()
+    );
     assert_eq!(dead.rows, 1);
     assert_eq!(dead.data["items"][0]["product_id"], f.dead.to_string());
     assert_eq!(dead.data["items"][0]["tied_up_dong"], 67200);

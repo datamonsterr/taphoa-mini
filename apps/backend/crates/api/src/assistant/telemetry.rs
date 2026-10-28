@@ -221,9 +221,7 @@ pub(crate) fn turn_finished(state: &AppState, record: &TurnRecord) {
                 "$ai_stop_reason":attempt.finish_reason, "$ai_tools":attempt.request.tools.iter().map(|t|mask_text(&t.name)).collect::<Vec<_>>(),
                 "$ai_stream":true, "fallback_index":attempt.fallback_index
             });
-            if attempt.request.model.ends_with(":free") {
-                for key in ["$ai_input_cost_usd","$ai_output_cost_usd","$ai_total_cost_usd"] { properties[key]=json!(0); }
-            }
+            generation_costs(&mut properties, &attempt.request.model, attempt.usage.cost);
             events.push(turn_event(&record,"$ai_generation",properties));
         }
         for tool in &record.tools {
@@ -237,6 +235,27 @@ pub(crate) fn turn_finished(state: &AppState, record: &TurnRecord) {
         for event in events { if state.analytics.capture_event(event).await.is_err() { tracing::warn!("assistant analytics capture failed"); } }
     }.with_current_subscriber());
 }
+fn generation_costs(properties: &mut Value, model: &str, cost: Option<super::model::UsageCost>) {
+    if model.ends_with(":free") {
+        for key in [
+            "$ai_input_cost_usd",
+            "$ai_output_cost_usd",
+            "$ai_total_cost_usd",
+        ] {
+            properties[key] = json!(0);
+        }
+    } else if let Some(cost) = cost {
+        properties["$ai_total_cost_usd"] = json!(cost.total_usd);
+        if let Some(input) = cost.input_usd {
+            properties["$ai_input_cost_usd"] = json!(input);
+        }
+        if let Some(output) = cost.output_usd {
+            properties["$ai_output_cost_usd"] = json!(output);
+        }
+        properties["cost_source"] = json!("openrouter_usage");
+    }
+}
+
 pub(crate) fn quota_hit(
     state: &AppState,
     actor: &Actor,
@@ -402,6 +421,31 @@ fn mask_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn generation_costs_preserve_paid_accounting_and_explicit_free_zero() {
+        let cost = super::super::model::UsageCost {
+            input_usd: Some(0.01),
+            output_usd: Some(0.02),
+            total_usd: 0.03,
+        };
+        let mut properties = json!({});
+        generation_costs(&mut properties, "x/paid", Some(cost));
+        assert_eq!(properties["$ai_input_cost_usd"], 0.01);
+        assert_eq!(properties["$ai_output_cost_usd"], 0.02);
+        assert_eq!(properties["$ai_total_cost_usd"], 0.03);
+        let mut missing = json!({});
+        generation_costs(&mut missing, "x/paid", None);
+        assert!(missing.get("$ai_total_cost_usd").is_none());
+        generation_costs(&mut properties, "x/model:free", Some(cost));
+        for key in [
+            "$ai_input_cost_usd",
+            "$ai_output_cost_usd",
+            "$ai_total_cost_usd",
+        ] {
+            assert_eq!(properties[key], 0);
+        }
+    }
+
     #[test]
     fn masks_phones_and_banks_recursively_preserving_money_uuids_and_long_runs() {
         let input = json!({"nested":["0912345678",{"bank":"123456789012345","short":"12345678","money":"1.234.000","long":"1234567890123456","uuid":"12345678-1234-1234-1234-123456789012"}]});

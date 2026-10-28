@@ -28,7 +28,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "4";
+pub const PROMPT_VERSION: &str = "5";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -744,14 +744,7 @@ async fn run_turn_inner(
                 attempt.usage = response.usage;
                 attempt.time_to_first_token = response.time_to_first_token.or(first_token);
                 attempt.finish_reason = Some(response.finish_reason.clone());
-                record.usage.input_tokens = record
-                    .usage
-                    .input_tokens
-                    .saturating_add(response.usage.input_tokens);
-                record.usage.output_tokens = record
-                    .usage
-                    .output_tokens
-                    .saturating_add(response.usage.output_tokens);
+                record.usage.accumulate(response.usage);
             }
             let result = result.and_then(|response| {
                 if response

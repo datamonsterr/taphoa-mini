@@ -89,10 +89,36 @@ pub struct ChatRequest {
     pub tool_choice: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    /// Actual account charge and upstream components from OpenRouter's final usage chunk.
+    /// Missing accounting stays unknown, never a fabricated zero for paid requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<UsageCost>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UsageCost {
+    pub input_usd: Option<f64>,
+    pub output_usd: Option<f64>,
+    pub total_usd: f64,
+}
+impl Usage {
+    pub fn accumulate(&mut self, next: Self) {
+        self.cost = if self.input_tokens == 0 && self.output_tokens == 0 && self.cost.is_none() {
+            next.cost
+        } else {
+            self.cost.zip(next.cost).map(|(a, b)| UsageCost {
+                input_usd: a.input_usd.zip(b.input_usd).map(|(a, b)| a + b),
+                output_usd: a.output_usd.zip(b.output_usd).map(|(a, b)| a + b),
+                total_usd: a.total_usd + b.total_usd,
+            })
+        };
+        self.input_tokens = self.input_tokens.saturating_add(next.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(next.output_tokens);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -173,6 +199,31 @@ pub trait ChatModel: Send + Sync {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn aggregates_paid_generations_without_turning_unknown_costs_into_zero() {
+        let one = Usage {
+            input_tokens: 20,
+            output_tokens: 8,
+            cost: Some(UsageCost {
+                input_usd: Some(0.000002),
+                output_usd: Some(0.000004),
+                total_usd: 0.000006,
+            }),
+        };
+        let mut sum = Usage::default();
+        sum.accumulate(one);
+        sum.accumulate(one);
+        assert_eq!(sum.input_tokens, 40);
+        assert_eq!(sum.cost.unwrap().total_usd, 0.000012);
+        sum.accumulate(Usage {
+            input_tokens: 1,
+            ..Usage::default()
+        });
+        assert!(sum.cost.is_none());
+        sum.accumulate(one);
+        assert!(sum.cost.is_none());
+    }
 
     #[test]
     fn retryable_follows_the_fallback_rule() {

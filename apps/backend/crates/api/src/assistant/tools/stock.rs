@@ -245,7 +245,11 @@ async fn dead(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> 
             item.as_object_mut().unwrap().remove("tied_up_dong");
         }
     }
-    Ok(items_output(items, 50, "sản phẩm tồn lâu"))
+    let mut out = items_output(items, 50, "sản phẩm tồn lâu");
+    out.data["lookback_days"] = json!(days);
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(ctx.today);
+    Ok(out)
 }
 async fn suppliers(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> {
     let sql = concat!(
