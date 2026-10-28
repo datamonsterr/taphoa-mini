@@ -11,6 +11,7 @@ import {
   isApiError,
   useAddProductImage,
   useCreateProduct,
+  usePatchProduct,
   useUploadImage,
   type Candidate,
 } from '@/lib/api';
@@ -21,6 +22,8 @@ import { useCartStore } from '@/stores/cart';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { ProductForm, type ProductValues } from './ProductForm';
+
+import { barcodeConflict } from './barcodeConflict';
 
 import { cropPhoto } from './cropPhoto';
 import { toLocalPhoto } from './localPhoto';
@@ -101,6 +104,7 @@ export function EnrollScreen() {
     name: nameParam,
     price: priceParam,
     cropUrl,
+    barcode: barcodeParam,
   } = useLocalSearchParams<{
     photoUri?: string;
     scanId?: string;
@@ -110,11 +114,13 @@ export function EnrollScreen() {
     name?: string;
     price?: string;
     cropUrl?: string;
+    barcode?: string;
   }>();
   const cropRect = parseCrop(crop);
   const upload = useUploadImage();
   const createProduct = useCreateProduct();
   const addImage = useAddProductImage();
+  const patchProduct = usePatchProduct();
   const addToCart = useCartStore((s) => s.add);
 
   // The photo list stays empty until the crop (or the downloaded manual-line crop) is ready, so
@@ -151,10 +157,12 @@ export function EnrollScreen() {
   }, [photoUri, crop, cropUrl]);
   const values = useRef<ProductValues>({
     name: nameParam ?? '',
+    barcode: barcodeParam ?? '',
     price: Number(priceParam) || 0,
   });
   const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [barcodeError, setBarcodeError] = useState('');
   const [failed, setFailed] = useState(false);
   // The server found a look-alike: the person decides to merge the photos or to create anyway.
   const [duplicate, setDuplicate] = useState<Candidate | null>(null);
@@ -171,9 +179,10 @@ export function EnrollScreen() {
 
   const save = useCallback(
     async (mode: 'check' | 'force' | 'merge' = 'check') => {
-      const { name, price } = values.current;
+      const { name, price, barcode } = values.current;
       setSaving(true);
       setFailed(false);
+      setBarcodeError('');
       try {
         const imageIds: string[] = [];
         for (const [index, uri] of photos.entries()) {
@@ -193,6 +202,11 @@ export function EnrollScreen() {
           imageIds.push(id);
         }
         if (mode === 'merge' && duplicate) {
+          if (barcode)
+            await patchProduct.mutateAsync({
+              id: duplicate.product_id,
+              patch: { barcode },
+            });
           for (const imageId of imageIds) {
             await addImage.mutateAsync({
               id: duplicate.product_id,
@@ -209,6 +223,7 @@ export function EnrollScreen() {
           const product = await createProduct.mutateAsync({
             id: productId,
             price,
+            ...(barcode ? { barcode } : {}),
             image_ids: imageIds,
             force_new: mode === 'force',
             ...(manualLineId ? { from_manual_line_id: manualLineId } : {}),
@@ -229,6 +244,11 @@ export function EnrollScreen() {
         );
         router.back();
       } catch (error) {
+        const conflict = await barcodeConflict(error, barcode ?? '');
+        if (conflict) {
+          setBarcodeError(conflict);
+          return;
+        }
         const candidate = duplicateOf(error);
         if (candidate) {
           setDuplicate(candidate);
@@ -245,6 +265,7 @@ export function EnrollScreen() {
       upload,
       createProduct,
       addImage,
+      patchProduct,
       duplicate,
       productId,
       manualLineId,
@@ -281,6 +302,9 @@ export function EnrollScreen() {
       disabled={preparing}
       initialName={nameParam}
       initialPrice={priceParam}
+      initialBarcode={barcodeParam}
+      barcodeError={barcodeError}
+      onBarcodeChange={() => setBarcodeError('')}
       onClose={close}
       footer={
         <View style={styles.footer}>

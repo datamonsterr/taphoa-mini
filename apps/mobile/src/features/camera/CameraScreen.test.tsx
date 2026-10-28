@@ -15,6 +15,7 @@ import {
 import { useAssistantEnabled } from '@/features/assistant/flags';
 import { setAnalyticsSink } from '@/lib/analytics';
 import * as images from '@/lib/api/images';
+import * as productsApi from '@/lib/api/products';
 import * as receiptsApi from '@/lib/api/receipts';
 import { ApiError } from '@/lib/api/errors';
 import { mapBox } from '@/lib/bbox';
@@ -1450,5 +1451,95 @@ describe('live receipt detection (01b)', () => {
       mockState.listeners.forEach((listener) => listener(false));
     });
     expect(useDocumentProbe).toHaveBeenLastCalledWith(expect.anything(), false);
+  });
+});
+
+// Barcode reads use the exact product endpoint and the same +/feedback as image matches.
+describe('barcode camera results', () => {
+  const code = '4006381333931';
+  const scanBarcode = async (data = code) => {
+    await fireEvent(screen.getByTestId('camera-view'), 'barcodeScanned', {
+      data,
+      type: 'ean13',
+    });
+  };
+  async function seedCode() {
+    const db = getMockDb();
+    const product = db.products[0]!.product;
+    await productsApi.patchProduct(product.id, { barcode: code });
+    return product;
+  }
+  it('shows known name/price, confirms with +, keeps barcode sale source and feedback', async () => {
+    const product = await seedCode();
+    await renderWithProviders(<CameraScreen />);
+    await scanBarcode();
+    expect(await screen.findByTestId('barcode-indicator')).toHaveTextContent(
+      new RegExp(product.name!),
+    );
+    expect(useCartStore.getState().lines).toHaveLength(0);
+    expect(jest.mocked(useDocumentProbe).mock.calls.at(-1)?.[1]).toBe(false);
+    await fireEvent.press(screen.getByRole('button', { name: 'Thêm vào giỏ' }));
+    expect(useCartStore.getState().lines[0]).toMatchObject({
+      productId: product.id,
+      source: 'barcode',
+      qty: 1,
+    });
+    expect(mockFeedbackProps.mock.calls.at(-1)?.[0].trigger).toBe(1);
+    expect(mockTakePicture).not.toHaveBeenCalled();
+  });
+  it('unknown code opens full enrollment prefilled in both checkout and quick-enroll modes', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await scanBarcode();
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/enroll',
+        params: { barcode: code },
+      }),
+    );
+    expect(screen.getByTestId('barcode-indicator')).toHaveTextContent(
+      `Mã vạch · ${code}`,
+    );
+    expect(mockTakePicture).not.toHaveBeenCalled();
+  });
+  it('scans in quick-enroll mode without invoking capture or receipt creation', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(screen.getByLabelText('Thêm vào kho với giá'));
+    await scanBarcode();
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/enroll',
+        params: { barcode: code },
+      }),
+    );
+    expect(mockTakePicture).not.toHaveBeenCalled();
+    expect(useQuickEnrollStore.getState().shots).toHaveLength(0);
+  });
+  it('pauses reads behind a barcode result and resumes the prior document after retake', async () => {
+    await seedCode();
+    const probe = {
+      document: {
+        detected: true,
+        score: 0.9,
+        text_lines: 12,
+        line_boxes: [[0.1, 0.1, 0.5, 0.04]],
+      },
+      imageSize: IMAGE,
+      previewMirrored: false,
+    } as NonNullable<ReturnType<typeof useDocumentProbe>>;
+    jest
+      .mocked(useDocumentProbe)
+      .mockImplementation((_ref, enabled) => (enabled ? probe : null));
+    const receipt = jest.spyOn(receiptsApi, 'createReceipt');
+    await renderWithProviders(<CameraScreen />);
+    expect(screen.getByText('Hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
+    await scanBarcode();
+    await screen.findByTestId('barcode-indicator');
+    expect(screen.queryByText('Hóa đơn · 12 dòng chữ')).toBeNull();
+    await scanBarcode('8931234567890');
+    expect(mockPush).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('Chụp lại'));
+    expect(jest.mocked(useDocumentProbe).mock.calls.at(-1)?.[1]).toBe(true);
+    expect(screen.getByText('Hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
+    expect(receipt).not.toHaveBeenCalled();
   });
 });

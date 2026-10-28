@@ -18,6 +18,8 @@ import { useT } from '@/lib/i18n';
 import { useIsLead } from '@/features/auth/useMembership';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
+import { barcodeConflict } from '@/features/enroll/barcodeConflict';
+
 import { AdjustStockSheet } from './AdjustStockSheet';
 import { EditPriceSheet } from './EditPriceSheet';
 import { StockMovements } from './StockMovements';
@@ -90,28 +92,51 @@ export function ProductScreen() {
   const isLead = useIsLead();
   const [adjusting, setAdjusting] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [barcodeError, setBarcodeError] = useState('');
+  const [editBarcode, setEditBarcode] = useState('');
+  const [editPrice, setEditPrice] = useState(0);
   const [saveFailed, setSaveFailed] = useState(false);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
     else router.replace('/inventory');
   }, []);
-  const openEdit = useCallback(() => setEditing(true), []);
+  const openEdit = () => {
+    setBarcodeError('');
+    setEditBarcode(product?.barcode ?? '');
+    setEditPrice(product?.price ?? 0);
+    setEditing(true);
+  };
   const closeEdit = useCallback(() => setEditing(false), []);
   const retry = useCallback(() => void refetch(), [refetch]);
 
-  const save = useCallback(
-    (price: number) => {
-      setEditing(false);
-      if (!product || price === product.price) return;
-      setSaveFailed(false);
-      patch.mutate(
-        { id: product.id, patch: { price } },
-        { onError: () => setSaveFailed(true) },
-      );
-    },
-    [product, patch],
-  );
+  const save = (price: number, barcode = product?.barcode ?? '') => {
+    setEditing(false);
+    if (!product) return;
+    const changedBarcode = barcode !== (product.barcode ?? '');
+    if (price === product.price && !changedBarcode) return;
+    setEditBarcode(barcode);
+    setEditPrice(price);
+    setSaveFailed(false);
+    patch.mutate(
+      {
+        id: product.id,
+        patch: {
+          ...(price !== product.price ? { price } : {}),
+          ...(changedBarcode ? { barcode: barcode || null } : {}),
+        },
+      },
+      {
+        onError: async (error) => {
+          const conflict = await barcodeConflict(error, barcode);
+          if (conflict) {
+            setBarcodeError(conflict);
+            setEditing(true);
+          } else setSaveFailed(true);
+        },
+      },
+    );
+  };
 
   const notFound = isApiError(error) && error.status === 404;
   let body;
@@ -140,6 +165,9 @@ export function ProductScreen() {
             />
           ) : null}
         </View>
+        {product.barcode ? (
+          <Text style={styles.description}>Mã vạch · {product.barcode}</Text>
+        ) : null}
         <ProductStock
           product={product}
           isLead={isLead}
@@ -207,7 +235,11 @@ export function ProductScreen() {
       ) : null}
       {editing && product ? (
         <EditPriceSheet
-          price={product.price}
+          price={editPrice}
+          barcode={editBarcode}
+          barcodeError={barcodeError}
+          onBarcodeChange={() => setBarcodeError('')}
+          saving={patch.isPending}
           onSave={save}
           onClose={closeEdit}
         />
