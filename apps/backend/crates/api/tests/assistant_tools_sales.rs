@@ -253,6 +253,12 @@ async fn top_search_and_expenses_use_base_units_and_include_manual_lines() {
     assert_eq!(products.data["items"][0]["price_dong"], 10000);
     let expenses = f.run("list_expenses", json!({"category":"dien"})).await;
     assert_eq!(expenses.data["totals_by_category_dong"]["dien"], 12000);
+    assert_eq!(expenses.data["utilities_total_dong"], 12000);
+    sqlx::query("INSERT INTO expenses(id,store_id,member_id,spent_at,business_date,amount,category,paid_with,request_hash) VALUES($1,$2,$3,'2026-02-10T12:00:00+07','2026-02-10',9000,'nuoc','cash_box','x')")
+        .bind(Uuid::new_v4()).bind(f.world.store_id).bind(f.world.lead_id).execute(f.world.pool()).await.unwrap();
+    let electricity = f.run("list_expenses", json!({"category":"dien"})).await;
+    assert_eq!(electricity.data["totals_by_category_dong"]["dien"], 12000);
+    assert_eq!(electricity.data["utilities_total_dong"], 21000);
     assert_eq!(expenses.data["items"][0]["date"], "2026-02-10");
 }
 
@@ -323,6 +329,18 @@ async fn forecast_constant_series_applies_named_holiday_uplift_and_cost_history_
         .await;
     assert_eq!(forecast.rows, 1);
     let item = &forecast.data["items"][0];
+    assert_eq!(
+        forecast.data["total_expected_units"].as_f64(),
+        item["expected_units"].as_f64()
+    );
+    let weekend = item["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| matches!(d["date"].as_str(), Some("2026-02-14" | "2026-02-15")))
+        .map(|d| d["expected_units"].as_f64().unwrap())
+        .sum::<f64>();
+    assert_eq!(forecast.data["weekend_expected_units"], weekend);
     assert_eq!(item["trend"], 1.0);
     assert_eq!(item["days"][0]["date"], "2026-02-11");
     assert_eq!(item["days"][0]["expected_units"], 4.0);
@@ -333,6 +351,9 @@ async fn forecast_constant_series_applies_named_holiday_uplift_and_cost_history_
         .run("get_supplier_prices", json!({"product_query":"hao hao"}))
         .await;
     assert_eq!(prices.rows, 2);
+    assert_eq!(prices.data["returned_supplier_count"], 2);
+    assert_eq!(prices.data["returned_purchases_by_supplier"]["Kho B"], 1);
+    assert_eq!(prices.data["items"][0]["premium_over_cheapest_dong"], 1000);
     assert_eq!(prices.data["cheapest_lookback_days"], 90);
     assert_eq!(prices.data["items"][0]["unit_cost_dong"], 6000);
     assert_eq!(prices.data["cheapest"][0]["unit_cost_dong"], 5000);
@@ -591,4 +612,50 @@ async fn margin_report_rounds_like_app_and_excludes_zero_price_zero_cost() {
         .unwrap();
     assert_eq!(fractional["margin_pct"], 5.56);
     assert_eq!(fractional["suggested_price_dong"], 9500);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres and Redis"]
+async fn cost_without_purchase_history_and_category_forecast_are_available() {
+    let f = Fixture::new().await;
+    sqlx::query("DELETE FROM purchase_lines WHERE store_id=$1 AND product_id=$2")
+        .bind(f.world.store_id)
+        .bind(f.dead)
+        .execute(f.world.pool())
+        .await
+        .unwrap();
+    let dead = f.run("get_dead_stock", json!({})).await;
+    assert_eq!(dead.data["items"][0]["tied_up_dong"], 67200);
+    let margins = f.run("get_margin_report", json!({})).await;
+    assert_eq!(margins.data["items"][0]["margin_pct"], 4.0);
+    let named = f
+        .run("get_margin_report", json!({"product_query":"hao hao"}))
+        .await;
+    assert_eq!(named.rows, 1);
+    assert_eq!(named.data["items"][0]["margin_pct"], 40.0);
+    assert_eq!(named.data["warning_threshold_pct"], 10.0);
+    let category = Uuid::new_v4();
+    sqlx::query("INSERT INTO categories(id,store_id,name) VALUES($1,$2,'Mì ăn liền')")
+        .bind(category)
+        .bind(f.world.store_id)
+        .execute(f.world.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE products SET category_id=$2 WHERE id=$1")
+        .bind(f.active)
+        .bind(category)
+        .execute(f.world.pool())
+        .await
+        .unwrap();
+    let forecast = f
+        .run(
+            "forecast_demand",
+            json!({"days":7,"product_query":"mi an lien"}),
+        )
+        .await;
+    assert_eq!(forecast.rows, 1);
+    assert_eq!(
+        forecast.data["items"][0]["product_id"],
+        f.active.to_string()
+    );
 }

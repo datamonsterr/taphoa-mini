@@ -237,7 +237,7 @@ async fn dead(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> 
             WHERE s.store_id=$1 AND s.status='completed' AND s.business_date <= $2 GROUP BY l.product_id
         ) SELECT to_jsonb(r) FROM (
             SELECT p.id product_id,COALESCE(p.name,'Chưa đặt tên') name,p.stock_quantity,v.last_sale_date,
-                (p.stock_quantity::numeric*c.unit_cost_dong)::bigint tied_up_dong
+                (p.stock_quantity::numeric*COALESCE(c.unit_cost_dong,p.cost_price))::bigint tied_up_dong
             FROM products p LEFT JOIN last_sales v ON v.product_id=p.id LEFT JOIN latest c ON c.product_id=p.id
             WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity>0 AND (v.last_sale_date IS NULL OR v.last_sale_date<$3)
             ORDER BY v.last_sale_date NULLS FIRST,p.id LIMIT 51
@@ -255,6 +255,16 @@ async fn dead(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> 
         }
     }
     let mut out = items_output(items, 50, "sản phẩm tồn lâu");
+    if auth::can(&ctx.actor, Action::ChangePrice) {
+        let costs: Option<Vec<i64>> = out.data["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["tied_up_dong"].as_i64())
+            .collect();
+        out.data["total_tied_up_dong"] =
+            json!(costs.and_then(|v| v.into_iter().try_fold(0_i64, i64::checked_add)));
+    }
     out.data["lookback_days"] = json!(days);
     out.data["from"] = json!(from);
     out.data["to"] = json!(ctx.today);
@@ -289,6 +299,22 @@ async fn suppliers(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolEr
         "dòng giá nhập",
     );
     let (cheapest, more) = capped(result["cheapest"].as_array().unwrap().clone(), 50);
+    let mut suppliers = BTreeMap::<String, usize>::new();
+    for item in out.data["items"].as_array_mut().unwrap() {
+        *suppliers
+            .entry(item["supplier"].as_str().unwrap().to_owned())
+            .or_default() += 1;
+        if let Some(low) = cheapest
+            .iter()
+            .find(|c| c["product_id"] == item["product_id"])
+        {
+            item["premium_over_cheapest_dong"] = json!(
+                item["unit_cost_dong"].as_i64().unwrap() - low["unit_cost_dong"].as_i64().unwrap()
+            );
+        }
+    }
+    out.data["returned_supplier_count"] = json!(suppliers.len());
+    out.data["returned_purchases_by_supplier"] = json!(suppliers);
     out.data["cheapest"] = json!(cheapest);
     out.data["cheapest_lookback_days"] = json!(90);
     out.data["supplier_names_missing"] = result["supplier_names_missing"].clone();

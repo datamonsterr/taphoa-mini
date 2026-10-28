@@ -52,7 +52,7 @@ Vietnamese description for the model, a JSON Schema for arguments, the required
 | `search_products`              | read    | `query`, `limit`                                             | none                                             |
 | `get_stock_levels`             | read    | `filter` (low, negative, untracked, all)                     | none                                             |
 | `get_restock_plan`             | read    | `horizon_days` (default 7)                                   | none; cost fields need `ChangePrice`             |
-| `get_margin_report`            | read    | `min_margin_pct` (default 10)                                | `ChangePrice`                                    |
+| `get_margin_report`            | read    | `min_margin_pct` (default 10), `product_query?`              | `ChangePrice`                                    |
 | `get_dead_stock`               | read    | `days` (default 30)                                          | none                                             |
 | `explain_day_close`            | read    | `business_date`                                              | `DayClose`                                       |
 | `list_review_queue`            | read    | `limit`                                                      | `ReviewQueue`                                    |
@@ -242,3 +242,10 @@ Analytics: `next_step_shown` (per chip, once per screen visit) and `next_step_ta
   receipt screen for the same receipt.
 - **i18n:** every string in `vi` and `en` dictionaries; Vietnamese default.
 - **Accessibility:** buttons at least 48 dp, labels for screen readers, text scales.
+
+Named margin queries return the matching products even above the warning threshold; list
+queries keep the threshold filter. Margin and dead-stock tools use the latest purchase
+cost, falling back to the stored current cost when no purchase history exists. Unknown
+costs remain null, and seller cost redaction still applies. Forecast name queries also
+match category names. Aggregate fields describe the returned products, including when
+the result is truncated.

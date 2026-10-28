@@ -28,7 +28,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "6";
+pub const PROMPT_VERSION: &str = "7";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -352,6 +352,13 @@ fn render_prompt(
     out.push_str(rest);
     if let Some(yesterday) = today.pred_opt() {
         out.push_str(&format!("\nHôm qua (yesterday): {yesterday}."));
+    }
+    for days in [30, 60] {
+        if let Some(from) = today.checked_sub_days(chrono::Days::new(days - 1)) {
+            out.push_str(&format!(
+                "\n{days} ngày gần nhất / last {days} days (inclusive): {from}..{today}."
+            ));
+        }
     }
     for key in ["receipt_id", "image_id"] {
         if let Some(id) = context.and_then(|c| c[key].as_str()) {

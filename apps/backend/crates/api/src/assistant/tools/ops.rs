@@ -112,7 +112,7 @@ impl Tool for Op {
     fn description_vi(&self) -> &'static str {
         match self {
             Self::DayClose => {
-                "Dùng khi cần giải thích chênh lệch chốt sổ: tiền đầu ngày, bán tiền mặt, hủy và chi từ két."
+                "Xem tiền bán thu bằng tiền mặt và khoản chi khỏi két theo ngày, hoặc giải thích chênh lệch chốt sổ: tiền đầu ngày, hoàn tiền, tiền kỳ vọng và thực đếm. Dùng kể cả khi chỉ hỏi tiền mặt vào/ra, không hỏi lệch quỹ."
             }
             Self::Review => {
                 "Dùng khi cần xem các dòng bán thủ công hoặc sai giá đang chờ chủ cửa hàng kiểm tra."
@@ -124,10 +124,10 @@ impl Tool for Op {
                 "Báo cáo camera bán hàng: món không nhận ra, bỏ sót, nhận nhầm, số lần nhận diện/sửa và số ảnh mẫu. Dùng get_recognition_health cho chất lượng nhận diện; search_help chỉ hướng dẫn thao tác. Không rõ kỳ thì xem 60 ngày gần đây."
             }
             Self::Members => {
-                "Báo cáo hoạt động nhân viên: ai hủy đơn nhiều nhất, hủy mấy đơn, số đơn bán và dòng gõ tay theo từng người trong khoảng ngày. Dùng get_member_activity khi so sánh hủy đơn; get_sales_summary không thay thế công cụ này."
+                "Báo cáo hoạt động nhân viên: ai hủy đơn nhiều nhất, hủy mấy đơn, số đơn bán và dòng gõ tay theo từng người trong khoảng ngày. Dùng cả khi chỉ hỏi một người bán bao nhiêu đơn hoặc gõ tay bao nhiêu dòng; get_sales_summary không thay thế công cụ này."
             }
             Self::Anomalies => {
-                "Dùng khi cần kiểm tra tỷ lệ hủy bất thường, tồn âm, giá đổi trên 30% hoặc bán vào giờ ít gặp."
+                "Xem số đơn bị hủy trong kỳ, tỷ lệ hủy bất thường, tồn âm, giá đổi trên 30% hoặc bán vào giờ ít gặp."
             }
             Self::Thresholds => {
                 "Dùng khi cần gợi ý ngưỡng sắp hết từ tốc độ bán 28 ngày và khoảng cách nhập hàng; chưa thay đổi ngưỡng."
@@ -287,7 +287,10 @@ async fn review(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError>
     let rows = sqlx::query_scalar(
         r#"
         SELECT jsonb_build_object('line_id',l.id,'name',coalesce(l.manual_label,p.name,''),
-            'unit_price_dong',l.unit_price,'quantity',l.quantity,'sale_date',s.business_date,
+            'unit_price_dong',l.unit_price,'current_price_dong',p.price,
+            'unit_price_difference_dong',l.unit_price-p.price,
+            'line_price_difference_dong',l.quantity::bigint*(l.unit_price-p.price),
+            'quantity',l.quantity,'sale_date',s.business_date,
             'sale_id',s.id,'member_id',m.id,'member_display_name',m.display_name,'source',l.source)
         FROM sale_lines l JOIN sales s ON s.id=l.sale_id AND s.store_id=l.store_id
         JOIN members m ON m.id=s.member_id AND m.store_id=s.store_id
@@ -374,7 +377,13 @@ async fn recognition(
             'corrected',coalesce(c.corrected,0),'missed',coalesce(c.missed,0),
             'missed_pct',CASE WHEN c.detections>0 THEN c.missed*100.0/c.detections ELSE 0 END,
             'corrected_pct',CASE WHEN c.detections>0 THEN c.corrected*100.0/c.detections ELSE 0 END,
-            'reference_count',coalesce(ph.reference_count,0))
+            'reference_count',coalesce(ph.reference_count,0),
+            'confused_with',coalesce((SELECT jsonb_agg(pair ORDER BY pair.count DESC,pair.product_id) FROM (
+                SELECT q.id product_id,q.name,count(*) count FROM linked l
+                JOIN products q ON q.id=l.suggested_product_id AND q.store_id=$1
+                WHERE l.product_id=p.id AND l.suggested_product_id<>l.product_id
+                GROUP BY q.id,q.name
+            ) pair),'[]'::jsonb))
         FROM products p LEFT JOIN counts c ON c.product_id=p.id LEFT JOIN photos ph ON ph.product_id=p.id
         WHERE p.store_id=$1 AND NOT p.archived AND (coalesce(c.corrected,0)>0 OR coalesce(c.missed,0)>0 OR coalesce(ph.reference_count,0)<3)
         ORDER BY coalesce(c.corrected,0)+coalesce(c.missed,0) DESC,p.id LIMIT 51
@@ -407,7 +416,11 @@ async fn members(
         FROM members m LEFT JOIN activity a ON a.member_id=m.id LEFT JOIN manual x ON x.member_id=m.id
         WHERE m.store_id=$1 ORDER BY coalesce(a.revenue,0) DESC,m.id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(from).bind(to).fetch_all(pool(&ctx.state)?).await?;
-    Ok(items(rows, 50, "Hoạt động thành viên"))
+    let mut out = items(rows, 50, "Hoạt động thành viên");
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
+    out.data["period_days"] = json!((to - from).num_days() + 1);
+    Ok(out)
 }
 async fn anomalies(
     ctx: &ToolContext,
@@ -439,7 +452,11 @@ async fn anomalies(
                 AND h.old_value IS NOT NULL AND ((h.old_value>0 AND abs(h.new_value::numeric-h.old_value)*100>h.old_value::numeric*30)
                     OR (h.old_value=0 AND h.new_value>0))
             UNION ALL SELECT 'unusual_hour',s.id::text,jsonb_build_object('kind','unusual_hour','sale_id',s.id,
-                'sale_date',s.business_date,'hour',extract(hour FROM s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh'))
+                'sale_date',s.business_date,'hour',extract(hour FROM s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+                'sold_time',to_char(s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh','HH24:MI'),
+                'member_display_name',(SELECT m.display_name FROM members m WHERE m.id=s.member_id AND m.store_id=s.store_id),
+                'products',coalesce((SELECT jsonb_agg(jsonb_build_object('name',coalesce(p.name,l.manual_label),'quantity',l.quantity))
+                    FROM sale_lines l LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id WHERE l.sale_id=s.id AND l.store_id=s.store_id),'[]'::jsonb))
             FROM sales s LEFT JOIN hours h ON h.h=extract(hour FROM s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh')
             WHERE s.store_id=$1 AND s.business_date BETWEEN $2 AND $3 AND s.status='completed'
                 AND (SELECT sum(n) FROM hours)>0 AND coalesce(h.n,0)::numeric/(SELECT sum(n) FROM hours)<0.02
@@ -515,11 +532,11 @@ struct ReceiptArgs {
 }
 async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError> {
     let id = parse::<ReceiptArgs>(args)?.receipt_id;
-    let mut data:Value=sqlx::query_scalar("SELECT jsonb_build_object('receipt_id',id,'status',status,'total_dong',total,'ocr_text',ocr_text) FROM receipts WHERE store_id=$1 AND id=$2")
+    let mut data:Value=sqlx::query_scalar("SELECT jsonb_build_object('receipt_id',id,'status',status,'total_dong',total,'supplier',supplier,'ocr_text',ocr_text) FROM receipts WHERE store_id=$1 AND id=$2")
         .bind(ctx.actor.store_id).bind(id).fetch_optional(pool(&ctx.state)?).await?.ok_or_else(||ToolError::NotFound("receipt".into()))?;
     let rows:Vec<Value>=sqlx::query_scalar(r#"
         SELECT jsonb_build_object('line_id',l.id,'name',l.product_name,'quantity',l.quantity,'cost_dong',l.cost,
-            'product_id',p.id,'product_name',p.name,'confidence',l.match_confidence)
+            'product_id',p.id,'product_name',p.name,'confidence',l.match_confidence,'candidates',l.candidates)
         FROM receipt_lines l LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id
         WHERE l.store_id=$1 AND l.receipt_id=$2 ORDER BY l.position,l.id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(id).fetch_all(pool(&ctx.state)?).await?;
@@ -532,10 +549,23 @@ async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError
         .remove("ocr_text")
         .is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()));
     data["has_ocr_text"] = json!(has_ocr);
+    let lines = out.data["items"].as_array().unwrap();
+    data["review_line_count"] = json!(
+        lines
+            .iter()
+            .filter(
+                |l| l["product_id"].is_null() || l["confidence"].as_f64().is_some_and(|c| c < 0.8)
+            )
+            .count()
+    );
     data["lines"] = out.data["items"].clone();
     data["truncated"] = json!(out.truncated);
     data["supplier_text"] = Value::Null;
-    data["note_vi"] = json!("Chưa xác định được nhà cung cấp; nội dung hóa đơn cần được kiểm tra.");
+    data["note_vi"] = json!(if data["supplier"].is_null() {
+        "Chưa xác định được nhà cung cấp; nội dung hóa đơn cần được kiểm tra."
+    } else {
+        "Tên nhà cung cấp đã lưu trong trường supplier; nội dung hóa đơn cần được kiểm tra."
+    });
     let card_lines: Vec<Value> = data["lines"]
         .as_array()
         .expect("line array")
@@ -543,6 +573,7 @@ async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError
         .map(|line| {
             let mut line = line.clone();
             line["cost"] = line["cost_dong"].take();
+            line.as_object_mut().unwrap().remove("candidates");
             line.as_object_mut()
                 .expect("line object")
                 .remove("cost_dong");

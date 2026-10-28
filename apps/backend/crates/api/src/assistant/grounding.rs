@@ -133,6 +133,43 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
             .rev()
             .collect();
         let mut end = i + run(i);
+        // Calendar ranges such as 21–27/10 are not stock quantities. Keep ordinary
+        // bare counts and negative values subject to evidence matching.
+        if matches!(chars.get(end), Some('-' | '–' | '—'))
+            && chars.get(end + 1).is_some_and(char::is_ascii_digit)
+        {
+            let day_end = end + 1 + run(end + 1);
+            let first: u32 = chars[i..end]
+                .iter()
+                .collect::<String>()
+                .parse()
+                .unwrap_or(0);
+            let last: u32 = chars[end + 1..day_end]
+                .iter()
+                .collect::<String>()
+                .parse()
+                .unwrap_or(0);
+            if chars.get(day_end) == Some(&'/')
+                && chars.get(day_end + 1).is_some_and(char::is_ascii_digit)
+                && (1..=31).contains(&first)
+                && (1..=31).contains(&last)
+            {
+                let month_end = day_end + 1 + run(day_end + 1);
+                let month: u32 = chars[day_end + 1..month_end]
+                    .iter()
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(0);
+                if (1..=12).contains(&month) {
+                    i = if chars.get(month_end) == Some(&'/') {
+                        month_end + 1 + run(month_end + 1)
+                    } else {
+                        month_end
+                    };
+                    continue;
+                }
+            }
+        }
         // ISO dates, full Vietnamese dates and short day/month dates. A bare year following
         // "năm" is also a date, not a store total. Dates are validated by the tools separately.
         if matches!(chars.get(end), Some('/' | '-'))
@@ -287,7 +324,7 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
                 || before.ends_with("thiếu ")
                 || before.ends_with("hụt ")
                 || before.ends_with("giảm ")
-                || ["âm", "thiếu", "hụt", "giảm"]
+                || ["âm", "thiếu", "hụt", "giảm", "lỗ"]
                     .iter()
                     .any(|word| sign_context.ends_with(word));
             if signed {
@@ -343,11 +380,15 @@ impl Evidence {
                 self.percents.push(n / 100.0);
             } else if key.contains("pct") || key.contains("percent") {
                 self.percents.push(n);
-            } else if key.ends_with("rate") || key == "confidence" {
+            } else if key.ends_with("rate") || matches!(key, "confidence" | "probability") {
                 self.percents.push(n * 100.0);
                 self.numbers.push(n);
             } else {
                 self.numbers.push(n);
+                // These cash-equation operands are subtracted when displayed as a ledger.
+                if matches!(key, "cash_refunds_dong" | "cash_expenses_dong") {
+                    self.numbers.push(-n);
+                }
             }
             return;
         }
@@ -379,6 +420,15 @@ impl Evidence {
                             self.numbers.push(a - b);
                         }
                     }
+                }
+                // The displayed manual-line frequency is a ratio of counts on the same
+                // member row, never counts drawn from different members or periods.
+                if let (Some(lines), Some(sales)) = (
+                    map.get("manual_lines").and_then(numeric),
+                    map.get("sale_count").and_then(numeric),
+                ) && sales > 0.0
+                {
+                    self.percents.push(lines * 100.0 / sales);
                 }
                 // Known pairs with the same unit; no arbitrary arithmetic closure across fields.
                 for (a, b) in [
@@ -518,6 +568,45 @@ mod tests {
     fn blocked(data: Value, answer: &str) -> bool {
         let raw = data.to_string();
         has_ungrounded_number("", std::iter::once(raw.as_str()), answer)
+    }
+    #[test]
+    fn cash_equation_deductions_allow_negative_operands_only() {
+        let data =
+            json!({"cash_refunds_dong":60000,"cash_expenses_dong":80000,"cash_sales_dong":1409000});
+        assert!(!blocked(
+            data.clone(),
+            "Hoàn tiền −60.000 ₫, chi từ két −80.000 ₫."
+        ));
+        assert!(blocked(data.clone(), "Bán tiền mặt −1.409.000 ₫."));
+        assert!(blocked(data, "Hoàn tiền −90.000 ₫."));
+    }
+    #[test]
+    fn loss_word_preserves_the_negative_percentage() {
+        assert!(!blocked(json!({"margin_pct":-3.13}), "Lỗ 3,1%."));
+        assert!(blocked(json!({"margin_pct":-3.13}), "Lãi 3,1%."));
+    }
+    #[test]
+    fn manual_line_ratio_uses_only_its_own_sales_count() {
+        let data = json!({"items":[{"manual_lines":20,"sale_count":841}]});
+        assert!(!blocked(data.clone(), "20 dòng trên 841 đơn, khoảng 2,4%."));
+        assert!(blocked(data, "20 dòng trên 841 đơn, khoảng 3%."));
+        assert!(blocked(json!({"manual_lines":20,"sale_count":0}), "20%."));
+    }
+    #[test]
+    fn matcher_probabilities_are_percentages() {
+        let data = json!({"candidates":[{"probability":0.38}]});
+        assert!(!blocked(data.clone(), "Độ khớp 38%."));
+        assert!(blocked(data, "Độ khớp 39%."));
+    }
+    #[test]
+    fn calendar_ranges_are_not_stock_claims() {
+        for range in ["21–27/10", "21-27/10", "21—27/10/2026"] {
+            assert!(!blocked(
+                json!({"expected_units":20}),
+                &format!("Dự báo {range}: 20 quả.")
+            ));
+        }
+        assert!(blocked(json!({"expected_units":20}), "21 quả."));
     }
     #[test]
     fn live_draft_replay() {
