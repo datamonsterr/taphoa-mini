@@ -8,7 +8,7 @@ https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9, built on the Tạp Hóa Mini 
 (https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi). The v0.1 canvas
 https://claude.ai/artifact/2Jcc8NqdW7tt9jDB6RsnXh stays as the 2026-10-23 record. This folder
 holds 33 boards: the 32 copied on 2026-10-27 plus `VoiceSystem.dc.html`. Local V6 additions
-(understanding state, credit customer row and system surfaces) await canvas publication.
+(understanding state, credit customer row and system surfaces) are published as canvas version 31.
 Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is their
 reference.
 

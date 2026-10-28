@@ -167,12 +167,12 @@ change; "Touches" lists agreed integration points it may edit minimally.
 - **Done on 2026-10-27:** canvas v0.2 (https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9)
   holds boards 14-17 (bubble, listening, voice sale draft, chat listening), the voice flow board
   and the Account voice setup rows; `docs/design/canvas/` mirrors it.
-- **Remaining boards done on 2026-10-27 (local; canvas publication pending):**
+- **Remaining boards done on 2026-10-28 (published as canvas version 31):**
   - [x] Understanding state: large grey transcript, progress line and cancel on `VoiceListen.dc.html`.
   - [x] Credit customer row: matched name or “Chọn khách”, using the 07b row on `VoiceSale.dc.html`.
   - [x] Android persistent notification with “Tắt”, Quick Settings tile and iOS Control Center
         control on `VoiceSystem.dc.html`; registered in `canvas.json`, documented in DESIGN.md.
-- **Follow-up:** controller publishes the canvas artifact; keep it and DESIGN.md in sync as
+- **Follow-up:** keep the canvas and DESIGN.md in sync as
   V1-V4 change the UI.
 - **Acceptance:** boards open from `canvas.json`; DESIGN.md §3 lists 14-17 with controls;
   reviewed by the owner.
