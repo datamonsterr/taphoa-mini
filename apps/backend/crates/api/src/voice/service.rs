@@ -72,8 +72,8 @@ struct ChainOk {
 async fn attempt<T>(
     model: &dyn VoiceModel,
     slug: &str,
-    kind: &'static str,
-    index: usize,
+    // (call kind, fallback index, utterance deadline)
+    site: (&'static str, usize, Instant),
     calls: &mut Vec<CallRecord>,
     run: impl std::future::Future<Output = Result<T, ModelError>>,
     describe: impl Fn(
@@ -85,9 +85,14 @@ async fn attempt<T>(
         Option<u16>,
     ),
 ) -> Result<T, ModelError> {
+    let (kind, index, deadline) = site;
     let span = telemetry::model_call_span(slug, kind, index, model.server_address());
     let started = Instant::now();
-    let result = run.instrument(span.clone()).await;
+    let result = match tokio::time::timeout_at(deadline.into(), run.instrument(span.clone())).await
+    {
+        Ok(result) => result,
+        Err(_) => Err(ModelError::Timeout),
+    };
     let latency = started.elapsed();
     let mut record = CallRecord {
         kind,
@@ -144,16 +149,20 @@ async fn run_chain(
     calls: &mut Vec<CallRecord>,
 ) -> Option<ChainOk> {
     let cfg = &voice.config;
+    let deadline = req.started + cfg.total_timeout;
+    let expired = || Instant::now() >= deadline;
     let models: Vec<String> = req
         .model_override
         .clone()
         .map_or_else(|| cfg.models.clone(), |m| vec![m]);
     for (index, slug) in models.iter().enumerate() {
+        if expired() {
+            return None;
+        }
         let result = attempt(
             model,
             slug,
-            "audio",
-            index,
+            ("audio", index, deadline),
             calls,
             model.parse_audio(slug, &req.clip, hint, req.language),
             describe_parsed,
@@ -172,11 +181,13 @@ async fn run_chain(
         }
     }
     let stt_index = models.len();
+    if expired() {
+        return None;
+    }
     let transcript = attempt(
         model,
         &cfg.stt_model,
-        "stt",
-        stt_index,
+        ("stt", stt_index, deadline),
         calls,
         model.transcribe(&cfg.stt_model, &req.clip, req.language),
         |t| (Some(t.model.clone()), t.usage, None, Some(200)),
@@ -221,11 +232,13 @@ async fn run_chain(
         return Some(transcript_only(transcript.model));
     }
     for (offset, slug) in models.iter().enumerate() {
+        if expired() {
+            return None;
+        }
         let result = attempt(
             model,
             slug,
-            "text",
-            stt_index + 1 + offset,
+            ("text", stt_index + 1 + offset, deadline),
             calls,
             model.parse_text(slug, &text, hint, req.language),
             describe_parsed,
@@ -283,6 +296,23 @@ async fn run(
     {
         return Err(quota::exceeded());
     }
+    // The unit is spent from here on; a server fault (503, failed write) gives it back.
+    let result = process(state, actor, req, span, model, pool).await;
+    if result.as_ref().is_err_and(|e| e.status.is_server_error()) {
+        quota::refund(state, actor.store_id).await;
+    }
+    result
+}
+
+async fn process(
+    state: &AppState,
+    actor: &Actor,
+    req: &Request,
+    span: &tracing::Span,
+    model: std::sync::Arc<dyn VoiceModel>,
+    pool: &sqlx::PgPool,
+) -> ApiResult<(StatusCode, Value)> {
+    let voice = &state.voice;
     let hint = voice
         .hints
         .get(pool, actor.store_id, voice.config.hint_ttl)

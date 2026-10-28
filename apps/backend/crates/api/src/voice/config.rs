@@ -24,7 +24,13 @@ pub struct VoiceConfig {
     pub daily_utterances_per_store: u32,
     pub max_seconds: u32,
     pub max_bytes: usize,
+    /// Timeout of one model call.
     pub model_timeout: Duration,
+    /// Deadline for the whole utterance, measured from the start of the request; the chain
+    /// stops and the answer is 503 `voice_unavailable` once it passes.
+    pub total_timeout: Duration,
+    /// Honor `X-Taphoa-Eval-Model` (test environments only, never production).
+    pub allow_eval_headers: bool,
     pub hint_ttl: Duration,
     /// Route only to zero-data-retention endpoints (some models have none).
     pub require_zdr: bool,
@@ -38,7 +44,9 @@ impl Default for VoiceConfig {
             daily_utterances_per_store: 300,
             max_seconds: 30,
             max_bytes: 1_048_576,
-            model_timeout: Duration::from_secs(10),
+            model_timeout: Duration::from_secs(6),
+            total_timeout: Duration::from_secs(8),
+            allow_eval_headers: false,
             hint_ttl: Duration::from_secs(300),
             require_zdr: false,
             provider: VoiceProvider::OpenRouter,
@@ -104,8 +112,13 @@ impl VoiceConfig {
         if let Some(n) = positive("VOICE_MODEL_TIMEOUT_MS")? {
             config.model_timeout = Duration::from_millis(n);
         }
-        config.require_zdr =
-            get("VOICE_REQUIRE_ZDR").is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        if let Some(n) = positive("VOICE_TOTAL_TIMEOUT_MS")? {
+            config.total_timeout = Duration::from_millis(n);
+        }
+        let flag =
+            |name: &str| get(name).is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        config.require_zdr = flag("VOICE_REQUIRE_ZDR");
+        config.allow_eval_headers = flag("VOICE_ALLOW_EVAL_HEADERS");
         if let Some(value) = get("VOICE_MODEL_PROVIDER") {
             config.provider = match value.to_ascii_lowercase().as_str() {
                 "openrouter" => VoiceProvider::OpenRouter,
@@ -114,6 +127,12 @@ impl VoiceConfig {
             };
         }
         if config.provider == VoiceProvider::Scripted {
+            // Fail closed: the scripted model answers from the clip itself, so it needs an
+            // explicit opt-in; an unset environment name is not proof of a safe environment.
+            ensure!(
+                flag("VOICE_ALLOW_SCRIPTED"),
+                "VOICE_MODEL_PROVIDER=scripted requires VOICE_ALLOW_SCRIPTED=1"
+            );
             ensure!(
                 !get("RAILWAY_ENVIRONMENT_NAME")
                     .is_some_and(|v| v.eq_ignore_ascii_case("production")),
@@ -146,6 +165,9 @@ mod tests {
         assert_eq!(c.models.len(), 2);
         assert_eq!(c.daily_utterances_per_store, 300);
         assert_eq!((c.max_seconds, c.max_bytes), (30, 1_048_576));
+        assert_eq!(c.model_timeout, Duration::from_secs(6));
+        assert_eq!(c.total_timeout, Duration::from_secs(8));
+        assert!(!c.allow_eval_headers, "eval headers are off by default");
     }
     #[test]
     fn overrides_and_paid_slugs() {
@@ -156,6 +178,8 @@ mod tests {
             ("VOICE_MAX_SECONDS", "10"),
             ("VOICE_MAX_BYTES", "2048"),
             ("VOICE_REQUIRE_ZDR", "true"),
+            ("VOICE_ALLOW_EVAL_HEADERS", "1"),
+            ("VOICE_TOTAL_TIMEOUT_MS", "2500"),
         ]))
         .unwrap();
         assert_eq!(c.models, ["a/b", "c/d"]);
@@ -169,6 +193,8 @@ mod tests {
             ),
             (5, 10, 2048, true)
         );
+        assert!(c.allow_eval_headers);
+        assert_eq!(c.total_timeout, Duration::from_millis(2500));
     }
     #[test]
     fn rejects_bad_values() {
@@ -187,11 +213,18 @@ mod tests {
     }
     #[test]
     fn scripted_forbidden_in_production() {
-        let ok = VoiceConfig::from_lookup(lookup(&[("VOICE_MODEL_PROVIDER", "scripted")])).unwrap();
+        // Without the explicit opt-in the scripted provider is refused anywhere.
+        assert!(VoiceConfig::from_lookup(lookup(&[("VOICE_MODEL_PROVIDER", "scripted")])).is_err());
+        let ok = VoiceConfig::from_lookup(lookup(&[
+            ("VOICE_MODEL_PROVIDER", "scripted"),
+            ("VOICE_ALLOW_SCRIPTED", "1"),
+        ]))
+        .unwrap();
         assert_eq!(ok.provider, VoiceProvider::Scripted);
         assert!(
             VoiceConfig::from_lookup(lookup(&[
                 ("VOICE_MODEL_PROVIDER", "scripted"),
+                ("VOICE_ALLOW_SCRIPTED", "1"),
                 ("RAILWAY_ENVIRONMENT_NAME", "production")
             ]))
             .is_err()

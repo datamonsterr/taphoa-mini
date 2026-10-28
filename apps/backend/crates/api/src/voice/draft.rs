@@ -44,10 +44,12 @@ async fn summary(state: &AppState, product: &ProductInfo) -> Value {
     value
 }
 
-fn payment_method(parse: &VoiceParse) -> &'static str {
+/// Payment method of the draft. Credit needs `RecordDebt`; without it the draft is cash and
+/// carries no customer, and `POST /v1/sales` still enforces permissions when the seller confirms.
+pub fn payment_method(parse: &VoiceParse, can_record_debt: bool) -> &'static str {
     match parse.payment_method.as_deref().map(str::trim) {
         Some("transfer") => "transfer",
-        Some("credit") => "credit",
+        Some("credit") if can_record_debt => "credit",
         _ => "cash",
     }
 }
@@ -216,12 +218,14 @@ pub async fn build(
         stored_lines.push(stored);
     }
 
-    let method = payment_method(parse);
+    let method = payment_method(
+        parse,
+        crate::auth::permissions::can(actor, Action::RecordDebt),
+    );
     let mut draft = json!({"lines": api_lines, "payment_method": method, "total": total.max(0)});
     let mut stored =
         json!({"lines": stored_lines, "payment_method": method, "total": total.max(0)});
     if method == "credit" {
-        actor.require(Action::RecordDebt)?;
         let customer = customer_match(state, actor, parse.customer_name.as_deref()).await?;
         draft["customer"] = customer.clone();
         stored["customer"] = customer;
@@ -267,4 +271,25 @@ async fn customer_match(state: &AppState, actor: &Actor, spoken: Option<&str>) -
         }
         CustomerBand::None => json!({"status": "none", "spoken_name": spoken_name}),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::voice::model::VoiceParse;
+
+    fn parse(method: &str) -> VoiceParse {
+        VoiceParse {
+            payment_method: Some(method.into()),
+            ..VoiceParse::default()
+        }
+    }
+    #[test]
+    fn credit_without_record_debt_is_downgraded_to_cash() {
+        assert_eq!(payment_method(&parse("credit"), true), "credit");
+        assert_eq!(payment_method(&parse("credit"), false), "cash");
+        assert_eq!(payment_method(&parse("transfer"), false), "transfer");
+        assert_eq!(payment_method(&parse("bogus"), true), "cash");
+        assert_eq!(payment_method(&VoiceParse::default(), true), "cash");
+    }
 }

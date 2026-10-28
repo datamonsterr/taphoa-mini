@@ -190,6 +190,10 @@ pub async fn alias_lookup(
     Ok(rows.into_iter().collect())
 }
 
+/// Word-similarity floor of the `<%` prefilter. Below it a name cannot reach the ambiguous
+/// band (0.50) after blending, and above it the GIN trigram index applies.
+const PREFILTER_THRESHOLD: &str = "0.4";
+
 /// Best eight trigram hits per query, scored and banded. `queries[i]` gives `result[i]`.
 pub async fn search_products(
     pool: &PgPool,
@@ -200,6 +204,11 @@ pub async fn search_products(
         return Ok(vec![]);
     }
     let folded: Vec<String> = queries.iter().map(|q| fold(q)).collect();
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)")
+        .bind(PREFILTER_THRESHOLD)
+        .execute(&mut *tx)
+        .await?;
     let rows: Vec<(i64, Uuid, String, f32, f32)> = sqlx::query_as(
         "SELECT (input.ord - 1)::bigint, c.id, c.name, c.sim, c.word
          FROM unnest($2::text[]) WITH ORDINALITY AS input(q, ord)
@@ -210,6 +219,7 @@ pub async fn search_products(
                        word_similarity(input.q, immutable_unaccent(lower(p.name))) AS word
                 FROM products p
                 WHERE p.store_id=$1 AND NOT p.archived AND p.name IS NOT NULL
+                  AND input.q <% immutable_unaccent(lower(p.name))
             ) t
             ORDER BY greatest(t.sim, t.word) DESC, t.id
             LIMIT 8
@@ -217,8 +227,9 @@ pub async fn search_products(
     )
     .bind(store)
     .bind(&folded)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     let mut per_query: Vec<Vec<Scored>> = vec![vec![]; queries.len()];
     for (index, id, name, sim, word) in rows {
         let Some(slot) = usize::try_from(index)
@@ -269,18 +280,25 @@ pub async fn match_customer(
     if query.is_empty() {
         return Ok(CustomerBand::None);
     }
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)")
+        .bind(PREFILTER_THRESHOLD)
+        .execute(&mut *tx)
+        .await?;
     let rows: Vec<(Uuid, String, f32, f32)> = sqlx::query_as(
         "SELECT t.id, t.name, t.sim, t.word FROM (
             SELECT c.id, c.name,
                    similarity(immutable_unaccent(lower(c.name)), $2) AS sim,
                    word_similarity($2, immutable_unaccent(lower(c.name))) AS word
             FROM customers c WHERE c.store_id=$1 AND c.archived_at IS NULL
+              AND $2 <% immutable_unaccent(lower(c.name))
          ) t ORDER BY greatest(t.sim, t.word) DESC, t.id LIMIT 8",
     )
     .bind(store)
     .bind(&query)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     let scored = rows
         .into_iter()
         .map(|(id, name, sim, word)| Scored {

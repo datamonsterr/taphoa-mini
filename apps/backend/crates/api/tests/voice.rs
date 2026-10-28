@@ -607,7 +607,7 @@ async fn retention_deletes_old_rows_except_donated() {
 
 #[tokio::test]
 #[ignore = "requires Postgres"]
-async fn eval_model_header_pins_the_chain_only_when_eval_headers_are_on() {
+async fn eval_model_header_needs_the_flag_and_a_configured_slug() {
     let parse = || {
         sale(
             "hai chai",
@@ -616,27 +616,284 @@ async fn eval_model_header_pins_the_chain_only_when_eval_headers_are_on() {
             None,
         )
     };
-    for (allow, expected) in [(true, "pinned/model"), (false, "g/one")] {
-        let (mut w, model) = setup(vec![Step::parse(parse())], |_| {}).await;
-        let mut assistant = (*w.state.assistant.config).clone();
-        assistant.allow_eval_headers = allow;
-        w.state.assistant.config = std::sync::Arc::new(assistant);
-        w.app = taphoa_api::router(w.state.clone());
+    // (flag, header slug, slug the chain should use)
+    for (allow, header, expected) in [
+        (true, "g/two", "g/two"),
+        (true, "w/stt", "w/stt"),
+        (true, "attacker/model", "g/one"),
+        (false, "g/two", "g/one"),
+    ] {
+        let (w, model) = setup(vec![Step::parse(parse())], |c| c.allow_eval_headers = allow).await;
         let r = upload_with(
             &w,
             &w.seller,
             Some(&clip()),
             &[("mode", "sale")],
-            &[("x-taphoa-eval-model", "pinned/model")],
+            &[("x-taphoa-eval-model", header)],
         )
         .await;
-        assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
-        assert_eq!(r.body["model"], expected);
+        assert_eq!(r.status, StatusCode::CREATED, "{header}: {}", r.body);
+        assert_eq!(r.body["model"], expected, "{header} allow={allow}");
         match &model.calls()[0] {
             Call::Audio { model, .. } => assert_eq!(model, expected),
             other => panic!("{other:?}"),
         }
     }
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn server_faults_refund_the_quota_unit_but_no_speech_and_chat_keep_it() {
+    let silent = || VoiceParse {
+        intent: Intent::None,
+        ..VoiceParse::default()
+    };
+    let chat = || VoiceParse {
+        transcript: "bán được bao nhiêu".into(),
+        intent: Intent::Chat,
+        ..VoiceParse::default()
+    };
+    // Cap 1: a 503 gives the unit back, so the retry is served; the 422 then spends it.
+    let (w, _) = setup(
+        vec![
+            Step::unavailable(),
+            Step::unavailable(),
+            Step::unavailable(),
+            Step::unavailable(),
+            Step::parse(silent()),
+        ],
+        |c| {
+            c.daily_utterances_per_store = 1;
+            c.models = vec!["g/one".into()];
+        },
+    )
+    .await;
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("voice_unavailable"))
+    );
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        r.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "retry reached the model, not a 429: {}",
+        r.body
+    );
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("no_speech"))
+    );
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::TOO_MANY_REQUESTS, Some("voice_quota")),
+        "no_speech keeps its unit"
+    );
+
+    let (w, _) = setup(vec![Step::parse(chat())], |c| {
+        c.daily_utterances_per_store = 1
+    })
+    .await;
+    assert_eq!(
+        upload(&w, &clip(), "sale").await.status,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        upload(&w, &clip(), "sale").await.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "chat keeps its unit"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn clips_of_unknown_duration_are_bounded_by_a_size_estimate() {
+    let ok_parse = sale(
+        "hai chai",
+        vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+        "cash",
+        None,
+    );
+    let (w, model) = setup(vec![Step::parse(ok_parse)], |_| {}).await;
+    // ftyp only: no moov, so no readable duration. 30 s at 48 kbps is 180,000 bytes (+16 KB).
+    let mut unreadable = b"\0\0\0\x14ftypM4A \0\0\0\0M4A ".to_vec();
+    let small = {
+        let mut v = unreadable.clone();
+        v.extend(vec![0u8; 100_000]);
+        v
+    };
+    unreadable.extend(vec![0u8; 400_000]);
+    let r = upload(&w, &unreadable, "sale").await;
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("audio_too_long"))
+    );
+    assert!(model.calls().is_empty());
+    let r = upload(&w, &small, "sale").await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn the_utterance_deadline_stops_the_chain_with_503() {
+    let (w, model) = setup(
+        vec![
+            Step::Delay(
+                std::time::Duration::from_secs(5),
+                Box::new(Step::unavailable()),
+            ),
+            Step::unavailable(),
+            Step::unavailable(),
+            Step::unavailable(),
+        ],
+        |c| c.total_timeout = std::time::Duration::from_millis(300),
+    )
+    .await;
+    let started = std::time::Instant::now();
+    let r = upload(&w, &clip(), "sale").await;
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("voice_unavailable"))
+    );
+    assert_eq!(model.calls().len(), 1, "no call starts after the deadline");
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn outcome_sale_id_must_belong_to_the_store() {
+    let parse = || {
+        sale(
+            "hai chai",
+            vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+            "cash",
+            None,
+        )
+    };
+    let (w, _) = setup(vec![Step::parse(parse())], |_| {}).await;
+    let r = upload(&w, &clip(), "sale").await;
+    let id = r.body["id"].as_str().unwrap().to_owned();
+    // A sale of another store.
+    let other = World::new().await;
+    let p = other.product("X", 1000, None).await;
+    let foreign = Uuid::now_v7();
+    other
+        .checked(
+            "POST",
+            "/v1/sales",
+            "/v1/sales",
+            &other.seller,
+            common::world::sale_body(foreign, &now_iso(), "cash", &[(p, 1, 1000)]),
+            StatusCode::CREATED,
+        )
+        .await;
+    let reply = w
+        .call(
+            "POST",
+            &format!("{PATH}/{id}/outcome"),
+            &w.seller,
+            json!({"outcome":"confirmed","sale_id":foreign}),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.body);
+    assert_eq!(reply.body["code"], "validation_failed");
+    let stored: Option<Uuid> =
+        sqlx::query_scalar("SELECT sale_id FROM voice_utterances WHERE id=$1")
+            .bind(id.parse::<Uuid>().unwrap())
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(stored, None);
+    // A sale of this store is stored.
+    let mine = Uuid::now_v7();
+    let p = w.product("Y", 1000, None).await;
+    w.checked(
+        "POST",
+        "/v1/sales",
+        "/v1/sales",
+        &w.seller,
+        common::world::sale_body(mine, &now_iso(), "cash", &[(p, 1, 1000)]),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(
+        outcome(&w, &id, json!({"outcome":"confirmed","sale_id":mine})).await,
+        StatusCode::NO_CONTENT
+    );
+    let stored: Option<Uuid> =
+        sqlx::query_scalar("SELECT sale_id FROM voice_utterances WHERE id=$1")
+            .bind(id.parse::<Uuid>().unwrap())
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(stored, Some(mine));
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn accepting_a_preselected_ambiguous_line_teaches_only_when_confirmed() {
+    let ambiguous = || {
+        sale(
+            "ba chai nước mắm",
+            vec![line(
+                "ba chai nước mắm",
+                "nước mắm",
+                Some(3.0),
+                None,
+                None,
+                None,
+            )],
+            "cash",
+            None,
+        )
+    };
+    let (w, _) = setup(
+        vec![Step::parse(ambiguous()), Step::parse(ambiguous())],
+        |_| {},
+    )
+    .await;
+    w.product("Nước mắm Nam Ngư", 32000, None).await;
+    w.product("Nước mắm Chinsu", 30000, None).await;
+    let first = upload(&w, &clip(), "sale").await;
+    let id = first.body["id"].as_str().unwrap();
+    let preselected = first.body["sale_draft"]["lines"][0]["product"]["id"].clone();
+    assert_eq!(
+        outcome(&w, id, json!({"outcome":"edited"})).await,
+        StatusCode::NO_CONTENT
+    );
+    let aliases = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM voice_aliases WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_one(w.pool())
+            .await
+            .unwrap()
+    };
+    assert_eq!(aliases().await, 0, "edited without a pick teaches nothing");
+    // A second utterance, confirmed as drafted, teaches the preselected product.
+    let second = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        second.body["sale_draft"]["lines"][0]["product"]["id"],
+        preselected
+    );
+    let id = second.body["id"].as_str().unwrap();
+    assert_eq!(
+        outcome(&w, id, json!({"outcome":"confirmed"})).await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(aliases().await, 1);
+    let product: Uuid =
+        sqlx::query_scalar("SELECT product_id FROM voice_aliases WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(json!(product), preselected);
 }
 
 #[tokio::test]

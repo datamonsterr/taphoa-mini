@@ -37,5 +37,10 @@ CREATE TABLE voice_aliases (
 );
 
 ALTER TABLE sale_lines DROP CONSTRAINT IF EXISTS sale_lines_source_check;
+-- NOT VALID takes only a brief lock; existing rows already satisfy the wider list.
 ALTER TABLE sale_lines ADD CONSTRAINT sale_lines_source_check
-    CHECK (source IN ('camera', 'multi_photo', 'barcode', 'grid', 'manual', 'voice'));
+    CHECK (source IN ('camera', 'multi_photo', 'barcode', 'grid', 'manual', 'voice')) NOT VALID;
+ALTER TABLE sale_lines VALIDATE CONSTRAINT sale_lines_source_check;
+
+-- Credit customer match (`<%` prefilter) uses the same unaccent trigram index as products.
+CREATE INDEX customers_name_trgm ON customers USING gin (immutable_unaccent(lower(name)) gin_trgm_ops);

@@ -43,6 +43,12 @@ pub fn duration_seconds(bytes: &[u8], format: Format) -> Option<f64> {
     (seconds.is_finite() && seconds >= 0.0).then_some(seconds)
 }
 
+/// Worst-case size check for clips whose duration cannot be read: assume at least 48 kbps, so
+/// `max_seconds` of audio never exceeds `max_seconds * 6000` bytes, plus 16 KB of container.
+pub fn exceeds_size_estimate(len: usize, max_seconds: u32) -> bool {
+    len as u64 > u64::from(max_seconds) * 48_000 / 8 + 16 * 1024
+}
+
 fn be32(b: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
 }
@@ -194,6 +200,14 @@ mod tests {
         assert!((w - 2.0).abs() < 0.01);
         let o = duration_seconds(&fixtures::ogg(7.0), Format::Ogg).unwrap();
         assert!((o - 7.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn size_estimate_bounds_clips_of_unknown_duration() {
+        // 30 s at 48 kbps is 180,000 bytes; 16 KB of slack on top.
+        assert!(!exceeds_size_estimate(196_384, 30));
+        assert!(exceeds_size_estimate(196_385, 30));
+        assert!(!exceeds_size_estimate(0, 30));
     }
 
     #[test]

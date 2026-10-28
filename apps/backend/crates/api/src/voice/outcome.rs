@@ -83,6 +83,21 @@ pub async fn record(
         return Err(ApiError::validation_failed("invalid corrections"));
     }
     let mut tx = pool(state)?.begin().await.map_err(db)?;
+    if let Some(sale_id) = body.sale_id {
+        // Only a sale of this store can be linked; another store's id would leak existence.
+        let known: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sales WHERE id=$1 AND store_id=$2)")
+                .bind(sale_id)
+                .bind(actor.store_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        if !known {
+            return Err(ApiError::validation_failed(
+                "sale_id is not a sale of this store",
+            ));
+        }
+    }
     let row: Option<(Option<Value>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
         "SELECT draft, learned_at FROM voice_utterances WHERE id=$1 AND store_id=$2 AND member=$3 FOR UPDATE",
     )
@@ -108,7 +123,7 @@ pub async fn record(
         && learned_at.is_none()
         && let Some(draft) = draft
     {
-        learn(&mut tx, actor.store_id, &draft, &corrections).await?;
+        learn(&mut tx, actor.store_id, &draft, &corrections, body.outcome).await?;
         sqlx::query("UPDATE voice_utterances SET learned_at=now() WHERE id=$1")
             .bind(id)
             .execute(&mut *tx)
@@ -142,9 +157,14 @@ pub enum Learning {
 }
 
 /// Pure decision for one draft line (see voice.md "Catalog match"): the seller choosing among
-/// ambiguous candidates, or accepting the preselected one, teaches the phrase at once; any
-/// other correction counts once toward two.
-pub fn learning_for(line: &Value, correction: Option<&Correction>) -> Option<Learning> {
+/// ambiguous candidates teaches the phrase at once, and so does a `confirmed` outcome that
+/// accepted the preselected candidate; any other correction counts once toward two. A
+/// correction naming the product the draft already had changes nothing.
+pub fn learning_for(
+    line: &Value,
+    correction: Option<&Correction>,
+    outcome: Outcome,
+) -> Option<Learning> {
     if correction.is_some_and(|c| c.removed == Some(true)) {
         return None;
     }
@@ -157,13 +177,18 @@ pub fn learning_for(line: &Value, correction: Option<&Correction>) -> Option<Lea
                 .collect()
         })
         .unwrap_or_default();
-    let preselected: Option<Uuid> = line["product"]["id"].as_str().and_then(|s| s.parse().ok());
-    match correction.and_then(|c| c.chosen_product_id) {
+    let current: Option<Uuid> = line["product"]["id"].as_str().and_then(|s| s.parse().ok());
+    let chosen = correction
+        .and_then(|c| c.chosen_product_id)
+        .filter(|c| Some(*c) != current);
+    match chosen {
         Some(chosen) if status == "ambiguous" && candidates.contains(&chosen) => {
             Some(Learning::Immediate(chosen))
         }
         Some(chosen) => Some(Learning::Counted(chosen)),
-        None if status == "ambiguous" => preselected.map(Learning::Immediate),
+        None if status == "ambiguous" && outcome == Outcome::Confirmed => {
+            current.map(Learning::Immediate)
+        }
         None => None,
     }
 }
@@ -173,6 +198,7 @@ async fn learn(
     store: Uuid,
     draft: &Value,
     corrections: &[Correction],
+    outcome: Outcome,
 ) -> ApiResult<()> {
     let Some(lines) = draft["lines"].as_array() else {
         return Ok(());
@@ -183,7 +209,7 @@ async fn learn(
         };
         let line_id: Option<Uuid> = line["id"].as_str().and_then(|s| s.parse().ok());
         let correction = corrections.iter().find(|c| Some(c.line_id) == line_id);
-        let Some(learning) = learning_for(line, correction) else {
+        let Some(learning) = learning_for(line, correction, outcome) else {
             continue;
         };
         let (product, immediate) = match learning {
@@ -230,19 +256,37 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_pick_learns_at_once() {
+    fn ambiguous_pick_learns_at_once_and_acceptance_needs_confirmed() {
         let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
         let line_id = Uuid::new_v4();
         let line = json!({"id": line_id, "status": "ambiguous", "product": {"id": a}, "candidates": [{"id": a}, {"id": b}]});
+        let pick = correction(line_id, Some(b), false);
+        for outcome in [Outcome::Confirmed, Outcome::Edited] {
+            assert_eq!(
+                learning_for(&line, Some(&pick), outcome),
+                Some(Learning::Immediate(b))
+            );
+        }
+        // Accepting the preselected candidate teaches only when the sale was confirmed as drafted.
         assert_eq!(
-            learning_for(&line, Some(&correction(line_id, Some(b), false))),
-            Some(Learning::Immediate(b))
+            learning_for(&line, None, Outcome::Confirmed),
+            Some(Learning::Immediate(a))
         );
-        // Accepting the preselected candidate also teaches.
-        assert_eq!(learning_for(&line, None), Some(Learning::Immediate(a)));
+        assert_eq!(learning_for(&line, None, Outcome::Edited), None);
+        // "Choosing" the preselected product is not a correction.
+        let same = correction(line_id, Some(a), false);
+        assert_eq!(
+            learning_for(&line, Some(&same), Outcome::Confirmed),
+            Some(Learning::Immediate(a))
+        );
+        assert_eq!(learning_for(&line, Some(&same), Outcome::Edited), None);
         // A removed line teaches nothing.
         assert_eq!(
-            learning_for(&line, Some(&correction(line_id, None, true))),
+            learning_for(
+                &line,
+                Some(&correction(line_id, None, true)),
+                Outcome::Confirmed
+            ),
             None
         );
     }
@@ -253,19 +297,39 @@ mod tests {
         let line_id = Uuid::new_v4();
         let matched = json!({"id": line_id, "status": "matched", "product": {"id": a}});
         assert_eq!(
-            learning_for(&matched, Some(&correction(line_id, Some(other), false))),
+            learning_for(
+                &matched,
+                Some(&correction(line_id, Some(other), false)),
+                Outcome::Edited
+            ),
             Some(Learning::Counted(other))
         );
-        assert_eq!(learning_for(&matched, None), None);
+        assert_eq!(
+            learning_for(
+                &matched,
+                Some(&correction(line_id, Some(a), false)),
+                Outcome::Edited
+            ),
+            None
+        );
+        assert_eq!(learning_for(&matched, None, Outcome::Confirmed), None);
         let unknown = json!({"id": line_id, "status": "unknown"});
         assert_eq!(
-            learning_for(&unknown, Some(&correction(line_id, Some(other), false))),
+            learning_for(
+                &unknown,
+                Some(&correction(line_id, Some(other), false)),
+                Outcome::Edited
+            ),
             Some(Learning::Counted(other))
         );
         // A choice outside the ambiguous candidates is an ordinary correction.
         let ambiguous = json!({"id": line_id, "status": "ambiguous", "product": {"id": a}, "candidates": [{"id": a}]});
         assert_eq!(
-            learning_for(&ambiguous, Some(&correction(line_id, Some(other), false))),
+            learning_for(
+                &ambiguous,
+                Some(&correction(line_id, Some(other), false)),
+                Outcome::Edited
+            ),
             Some(Learning::Counted(other))
         );
     }

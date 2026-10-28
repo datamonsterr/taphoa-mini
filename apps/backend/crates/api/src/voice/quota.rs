@@ -1,6 +1,10 @@
 //! Daily utterance cap per store: `voice:quota:{store}:{business date}` in Redis (process-local
 //! map without Redis), the same counter the assistant uses.
-use crate::{ApiError, AppState, assistant::quota::incr, time::STORE_TZ};
+use crate::{
+    ApiError, AppState,
+    assistant::quota::{decr, incr},
+    time::STORE_TZ,
+};
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
@@ -33,12 +37,22 @@ pub async fn take(state: &AppState, store: Uuid, cap: u32) -> Result<QuotaOutcom
         .await
         .map_err(|error| {
             tracing::error!(%error, "voice quota counter failed");
-            ApiError::unavailable()
+            // The contract names 503 `voice_unavailable` for a server-side failure of voice.
+            super::service::unavailable()
         })?;
     Ok(match u32::try_from(used) {
         Ok(used) if used <= cap => QuotaOutcome::Allowed { used },
         _ => QuotaOutcome::Exceeded,
     })
+}
+
+/// Return the unit taken by [`take`] after a server fault (503 or a failed write). `no_speech`
+/// and chat intents keep their unit: the model call was made and paid for.
+pub async fn refund(state: &AppState, store: Uuid) {
+    let now = Utc::now();
+    if let Err(error) = decr(state, &key(store, now)).await {
+        tracing::warn!(%error, "voice quota refund failed");
+    }
 }
 
 pub fn exceeded() -> ApiError {

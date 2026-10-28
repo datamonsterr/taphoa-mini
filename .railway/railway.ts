@@ -115,6 +115,11 @@ export default defineRailway((ctx) => {
       // Per-environment store utterance cap (default 300); lower it on test to exercise voice_quota.
       VOICE_DAILY_UTTERANCES_PER_STORE: preserve(),
       VOICE_REQUIRE_ZDR: preserve(),
+      // Per-call and whole-utterance timeouts in ms (defaults 6000 and 8000).
+      VOICE_MODEL_TIMEOUT_MS: preserve(),
+      VOICE_TOTAL_TIMEOUT_MS: preserve(),
+      // Enable with 1 on test only (pins the model for evals); never on production.
+      VOICE_ALLOW_EVAL_HEADERS: preserve(),
       // Bucket credentials are not referencable from IaC; set once with
       // `railway bucket credentials` + `railway variable set` (docs/deploy.md).
       AWS_ENDPOINT_URL: preserve(),

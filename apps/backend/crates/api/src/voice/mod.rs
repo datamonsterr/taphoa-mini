@@ -168,7 +168,12 @@ async fn create_utterance(
     })?;
     let audio_seconds = audio::duration_seconds(&bytes, format);
     let limit = f64::from(state.voice.config.max_seconds) + DURATION_SLACK_SECONDS;
-    if audio_seconds.is_some_and(|s| s > limit) {
+    let too_long = match audio_seconds {
+        Some(seconds) => seconds > limit,
+        // Unreadable metadata: fall back to a worst-case size estimate.
+        None => audio::exceeds_size_estimate(bytes.len(), state.voice.config.max_seconds),
+    };
+    if too_long {
         return Err(ApiError::bad_request(
             "audio_too_long",
             "audio is longer than the allowed duration",
@@ -201,15 +206,14 @@ async fn post_outcome(
     outcome::record(&state, &actor, id, body).await
 }
 
-/// V5 eval runs pin the model with `X-Taphoa-Eval-Model`; ignored unless the assistant's
-/// eval-header gate (`ASSISTANT_ALLOW_EVAL_HEADERS`) is on and the value looks like a slug.
+/// V5 eval runs pin the model with `X-Taphoa-Eval-Model`. Ignored unless
+/// `VOICE_ALLOW_EVAL_HEADERS` is on, and then only for a slug already configured in
+/// `VOICE_MODELS` or `VOICE_STT_MODEL`, so the header cannot route traffic to an arbitrary model.
 fn eval_model(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
-    if !state.assistant.config.allow_eval_headers {
+    let config = &state.voice.config;
+    if !config.allow_eval_headers {
         return None;
     }
     let slug = headers.get("x-taphoa-eval-model")?.to_str().ok()?.trim();
-    (slug.len() <= 100
-        && slug.contains('/')
-        && !slug.chars().any(|c| c.is_whitespace() || c.is_control()))
-    .then(|| slug.to_owned())
+    (config.models.iter().any(|m| m == slug) || config.stt_model == slug).then(|| slug.to_owned())
 }

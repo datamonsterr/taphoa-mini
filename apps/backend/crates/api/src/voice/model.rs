@@ -130,6 +130,11 @@ pub trait VoiceModel: Send + Sync {
     ) -> Result<Parsed, ModelError>;
 }
 
+/// Output cap; a 50-line draft with prices needs well above 1,200 tokens.
+pub const MAX_TOKENS: u32 = 4000;
+/// Upstream bodies larger than this are refused (a chat answer here is a few KB).
+pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
+
 pub const SYSTEM_PROMPT: &str = "Bạn giúp chủ tiệm tạp hóa ở Việt Nam ghi một đơn bán hàng bằng giọng nói. \
 Chỉ trả về JSON đúng schema VoiceParse, không thêm chữ nào khác. \
 Chép lại đúng lời nói vào transcript. \
@@ -206,7 +211,7 @@ pub fn audio_request_body(
         "model": model,
         "stream": false,
         "temperature": 0,
-        "max_tokens": 1200,
+        "max_tokens": MAX_TOKENS,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": [
@@ -231,7 +236,7 @@ pub fn text_request_body(
         "model": model,
         "stream": false,
         "temperature": 0,
-        "max_tokens": 1200,
+        "max_tokens": MAX_TOKENS,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": [
@@ -244,11 +249,23 @@ pub fn text_request_body(
     })
 }
 
-pub fn stt_request_body(model: &str, clip: &AudioClip, language: Language) -> Value {
+/// STT takes the same data policy as chat (`provider` is documented on the endpoint), but not
+/// `require_parameters`, which only applies to chat parameters.
+pub fn stt_request_body(
+    model: &str,
+    clip: &AudioClip,
+    language: Language,
+    require_zdr: bool,
+) -> Value {
+    let mut provider = json!({"data_collection": "deny"});
+    if require_zdr {
+        provider["zdr"] = json!(true);
+    }
     json!({
         "model": model,
         "language": language.as_str(),
         "input_audio": {"data": STANDARD.encode(&clip.bytes), "format": clip.format},
+        "provider": provider,
     })
 }
 
@@ -416,7 +433,7 @@ impl OpenRouterVoice {
             }
         })?;
         let status = response.status().as_u16();
-        let bytes = response.bytes().await.map_err(|e| {
+        let transport = |e: reqwest::Error| {
             if e.is_timeout() {
                 ModelError::Timeout
             } else {
@@ -425,7 +442,25 @@ impl OpenRouterVoice {
                     message: "model transport failed".into(),
                 }
             }
-        })?;
+        };
+        let too_large = || ModelError::Other {
+            status: Some(status),
+            message: "model response too large".into(),
+        };
+        if response
+            .content_length()
+            .is_some_and(|n| n > MAX_RESPONSE_BYTES as u64)
+        {
+            return Err(too_large());
+        }
+        let mut response = response;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(transport)? {
+            if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+                return Err(too_large());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
         let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         tracing::debug!(
             status,
@@ -460,7 +495,7 @@ impl VoiceModel for OpenRouterVoice {
         clip: &AudioClip,
         language: Language,
     ) -> Result<Transcribed, ModelError> {
-        let body = stt_request_body(model, clip, language);
+        let body = stt_request_body(model, clip, language, self.require_zdr);
         let (status, value) = self.post(&self.stt_url, &body).await?;
         parse_stt_response(model, status, &value)
     }
@@ -563,11 +598,30 @@ mod tests {
 
     #[test]
     fn stt_body_is_json_with_raw_base64() {
-        let body = stt_request_body("openai/whisper-large-v3-turbo", &clip(), Language::En);
+        let body = stt_request_body(
+            "openai/whisper-large-v3-turbo",
+            &clip(),
+            Language::En,
+            false,
+        );
         assert_eq!(body["model"], "openai/whisper-large-v3-turbo");
         assert_eq!(body["language"], "en");
         assert_eq!(body["input_audio"]["format"], "m4a");
         assert_eq!(body["input_audio"]["data"], STANDARD.encode([1u8, 2, 3, 4]));
+        assert_eq!(body["provider"]["data_collection"], "deny");
+        assert!(body["provider"].get("zdr").is_none());
+        let zdr = stt_request_body("m/x", &clip(), Language::Vi, true);
+        assert_eq!(zdr["provider"]["zdr"], true);
+    }
+
+    #[test]
+    fn output_cap_is_4000_tokens() {
+        let body = audio_request_body("m/x", &clip(), "{}", Language::Vi, false);
+        assert_eq!(body["max_tokens"], 4000);
+        assert_eq!(
+            text_request_body("m/x", "t", "{}", Language::Vi, false)["max_tokens"],
+            4000
+        );
     }
 
     #[test]
@@ -655,5 +709,40 @@ mod tests {
             "https://openrouter.ai/api/v1/chat/completions"
         );
         assert_eq!(client.server_address(), "openrouter.ai");
+    }
+
+    #[tokio::test]
+    async fn oversized_upstream_bodies_are_refused() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let _ = socket.read(&mut buffer).await;
+            let filler = "x".repeat(MAX_RESPONSE_BYTES + 10);
+            let body = format!("{{\"pad\":\"{filler}\"}}");
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(head.as_bytes()).await;
+            let _ = socket.write_all(body.as_bytes()).await;
+        });
+        let config = OpenRouterConfig {
+            api_key: "k".into(),
+            url: format!("http://127.0.0.1:{port}/api/v1/chat/completions"),
+            first_token_timeout: Duration::from_secs(1),
+            timeout: Duration::from_secs(5),
+        };
+        let client = OpenRouterVoice::new(config, Duration::from_secs(5), false).unwrap();
+        let error = client
+            .parse_audio("m/x", &clip(), "{}", Language::Vi)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&error, ModelError::Other { message, .. } if message.contains("too large")),
+            "{error:?}"
+        );
     }
 }
