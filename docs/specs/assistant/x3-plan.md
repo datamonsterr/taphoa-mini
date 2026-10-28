@@ -1,6 +1,6 @@
 # X3 plan: assistant backend
 
-Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X3" · Spec:
+Status: Done · Merge: [#39](https://github.com/datamonsterr/taphoa-mini/pull/39) · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X3" · Spec:
 [assistant.md](assistant.md), ADR [0005](../../adr/0005-assistant-in-backend.md), ADR
 [0007](../../adr/0007-posthog-only-observability.md), [telemetry-contract.md](telemetry-contract.md)
 "Assistant spans" and "Assistant LLM analytics events".
