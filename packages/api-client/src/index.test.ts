@@ -110,7 +110,7 @@ describe('api client', () => {
   });
 
   describe('voice helpers', () => {
-    const ctx = { entry: 'longpress', screen: 'camera' };
+    const ctx = { entry: 'longpress' as const, screen: 'camera' };
     const utterance = {
       id: '0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b',
       mode: 'sale',
