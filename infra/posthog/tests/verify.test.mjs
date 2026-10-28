@@ -65,7 +65,12 @@ test('verifier fails on one empty insight, reports rows, and continues on API er
       return { results: [{ count: 3 }] };
     },
   };
-  const result = await verify({ client, environment: 'test', days: 7 });
+  const result = await verify({
+    only: 'dashboards',
+    client,
+    environment: 'test',
+    days: 7,
+  });
   assert.equal(calls.length, 35);
   assert.equal(result.ok, false);
   assert.equal(result.insights[0].rows, 0);
@@ -101,7 +106,11 @@ test('a zero-percent formula still verifies when its denominator has input event
       return { results: [{ data: [2], count: 2 }] };
     },
   };
-  const result = await verify({ client, environment: 'test' });
+  const result = await verify({
+    only: 'dashboards',
+    client,
+    environment: 'test',
+  });
   assert.equal(result.ok, true);
   assert.ok(queryCount > 35);
 });
@@ -124,6 +133,7 @@ test('allow-empty marks matching empty insights as ok without hiding errors', as
     },
   };
   const result = await verify({
+    only: 'dashboards',
     client,
     environment: 'test',
     days: 7,
