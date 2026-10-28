@@ -1,41 +1,58 @@
 {
-  "run_id": "eval-20261028T2113-1bbd",
-  "source": "SSE turn usage reconciled with local backend PostHog generation-event capture; runner used --no-posthog",
-  "generation_capture_coverage": "All 142 completed turns captured; 302 generation costs reconcile with SSE turn costs.",
-  "generations": 302,
-  "paid_generations": 302,
+  "run_id": "eval-20261028T2154-c1e8",
+  "source": "SSE completed-turn costs reconciled with local backend generation events; runner --no-posthog",
+  "generations": 294,
+  "paid_generations": 294,
   "model_counts": {
-    "z-ai/glm-5.3-flash": 302
+    "z-ai/glm-5.3-flash": 294
   },
   "paid_missing_cost_fields": 0,
   "paid_component_sum_mismatches": 0,
-  "input_usd": 0.12751267600000007,
-  "output_usd": 0.007178349999999999,
-  "total_usd": 0.134691026,
-  "judge_usage_total_usd": 0.045737400000000004,
-  "text_price_bounds": {
-    "input_min": 1.2e-8,
-    "input_max": 2.25e-7,
-    "output_min": 2.44e-8,
-    "output_max": 7.5e-7,
-    "relative_tolerance": 0.1,
-    "absolute_tolerance_usd": 1e-8
-  },
-  "price_bound_mismatches": 0,
+  "input_usd": 0.1329979240000001,
+  "output_usd": 0.008185150000000007,
+  "total_usd": 0.14118307400000013,
+  "judge_usage_total_usd": 0.11473020000000006,
   "turn_usage": {
     "completed_turns": 142,
     "turns_with_cost": 142,
     "turns_with_all_components": 142,
     "component_sum_mismatches": 0,
-    "input_usd": 0.12751267600000002,
-    "output_usd": 0.00717835,
-    "total_usd": 0.13469102599999996
+    "input_usd": 0.13299792400000002,
+    "output_usd": 0.008185150000000006,
+    "total_usd": 0.14118307400000008
   },
   "capture_reconciliation": {
     "captured_turns": 142,
     "completed_turns": 142,
-    "generation_minus_turn_cost_usd": 2.7755575615628914e-17,
-    "omitted_tool_messages": 4,
-    "max_input_tool_chars": 21578
+    "generation_minus_turn_cost_usd": 5.551115123125783e-17,
+    "omitted_tool_messages": 0,
+    "max_input_tool_chars": 18286
+  },
+  "key_budget": {
+    "key_limit_usd": 6.5,
+    "key_usage_usd": 1.674439329,
+    "key_remaining_usd": 4.825560671,
+    "hard_stop_usd": 6,
+    "headroom_to_stop_usd": 4.325560671,
+    "continuation_start_usage_usd": 1.279192111,
+    "continuation_spend_usd": 0.39524721799999996,
+    "full_run_start_usage_usd": 1.417762355,
+    "full_run_key_delta_usd": 0.2566769739999999
+  },
+  "judge_http_replay": {
+    "status": 200,
+    "verdict": "{\n  \"score\": 5,\n  \"reason\": \"C\u00e2u tr\u1ea3 l\u1eddi li\u1ec7t k\u00ea \u0111\u1ea7y \u0111\u1ee7 c\u00e1c s\u1ea3n ph\u1ea9m t\u1ed3n kho kh\u00f4ng b\u00e1n \u0111\u01b0\u1ee3c trong 30 ng\u00e0y qua, k\u00e8m t\u1ed3n kho v\u00e0 s\u1ed1 ti\u1ec1n v\u1ed1n b\u1ecb k\u1eb9t, \u0111\u00fang theo ti\u00eau ch\u00ed. Th\u00f4ng tin v\u1ec1 l\u1ea7n b\u00e1n cu\u1ed1i c\u0169ng \u0111\u01b0\u1ee3c cung c\u1ea5p ch\u00ednh x\u00e1c.\"\n}",
+    "cost": 0.0007637,
+    "error_code": null,
+    "case_id": "U4-01",
+    "included_in_full_run_scores": false
+  },
+  "pricing_validation": "Live catalog/provider price bounds were not re-queried in this continuation; actual reported costs and component reconciliation are verified.",
+  "judge_requests": 134,
+  "cost_accounted_judge_requests": 133,
+  "settled_key_delta_reconciliation": {
+    "assistant_plus_judge_plus_http_replay_usd": 0.25667697400000017,
+    "observed_key_delta_usd": 0.2566769739999999,
+    "difference_usd": -2.7755575615628914e-16
   }
 }
