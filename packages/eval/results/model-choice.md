@@ -114,7 +114,7 @@ All Cargo commands, including commit hooks, use
 | Check                                                                     | Result                                                      |
 | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `cargo test -p taphoa-api`                                                | 406 passed; 6 lib tests ignored; DB suites separately below |
-| loop + telemetry + sales-tool tests, `--include-ignored --test-threads=1` | 44 passed (29 + 4 + 11), dedicated local test DB            |
+| loop + telemetry + sales-tool tests, `--include-ignored --test-threads=1` | 45 passed (30 + 4 + 11), dedicated local test DB            |
 | `cargo clippy -p taphoa-api --all-targets -- -D warnings`                 | pass                                                        |
 | `cargo fmt --all --check`                                                 | pass                                                        |
 | `pnpm --filter @taphoa/eval test`                                         | 668 passed                                                  |
@@ -129,7 +129,13 @@ All Cargo commands, including commit hooks, use
 Node is 26.12.0 (repository engine requests Node 24); no Node 24 run is claimed.
 The narrow guard additions were observed failing before implementation, then passed.
 Paid accounting, missing fields, zero-cost free policy, quota independence and
-price tolerances have unit coverage. Nightly/CI retains the free guard for free
+price tolerances have unit coverage. A final accounting-only fix initializes the
+turn from its first response, then keeps cost unknown if any response omits usage,
+even when it also omits token counts. Its unit regression failed before the fix;
+the database-backed loop regression covers complete and missing accounting.
+The paid full run above was not repeated after this fix: all 142 recorded turns
+had complete cost components, and model selection, prompts and sampling were
+unchanged. Nightly/CI retains the free guard for free
 overrides and uses remaining USD credits for the paid primary.
 
 ## Exact controller values

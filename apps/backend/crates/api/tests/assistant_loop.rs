@@ -203,6 +203,47 @@ fn terminal(frames: &[Value]) -> &Value {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn paid_turn_costs_sum_calls_but_stay_unknown_after_missing_usage() {
+    let accounted = Usage {
+        input_tokens: 10,
+        output_tokens: 5,
+        cost: Some(taphoa_api::assistant::model::UsageCost {
+            input_usd: Some(0.125),
+            output_usd: Some(0.25),
+            total_usd: 0.375,
+        }),
+    };
+    for missing_first in [false, true] {
+        let (w, _, _) = setup(
+            vec![
+                Step::tools([("a", json!({}))]).with_usage(if missing_first {
+                    Usage::default()
+                } else {
+                    accounted
+                }),
+                Step::text("Xong").with_usage(accounted),
+            ],
+            config(),
+        )
+        .await;
+        let id = thread(&w, false).await;
+        let f = turn(&w, &id, false, false).await;
+        let usage = &terminal(&f)["usage"];
+        if missing_first {
+            assert!(usage.get("cost").is_none());
+            assert_eq!(usage["input_tokens"], 10);
+        } else {
+            assert_eq!(
+                usage["cost"],
+                json!({"input_usd":0.25,"output_usd":0.5,"total_usd":0.75})
+            );
+            assert_eq!(usage["input_tokens"], 20);
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn text_streams_usage_and_persists_in_thread_detail() {
     let (w, model, _) = setup(
         vec![Step::chunks(["Xin ", "chào"]).with_usage(Usage {

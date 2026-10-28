@@ -29,6 +29,10 @@
     "component_sum_mismatches": 0,
     "input_usd": 0.13243945599999993,
     "output_usd": 0.0124331,
-    "total_usd": 0.14487255600000004
+    "total_usd": 0.14487255600000004,
+    "model_counts": {
+      "z-ai/glm-5.3-flash": 141,
+      "policy": 1
+    }
   }
 }

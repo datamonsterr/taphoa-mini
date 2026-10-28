@@ -106,16 +106,13 @@ pub struct UsageCost {
     pub total_usd: f64,
 }
 impl Usage {
+    /// Add a later response to the first response's usage; unknown accounting stays unknown.
     pub fn accumulate(&mut self, next: Self) {
-        self.cost = if self.input_tokens == 0 && self.output_tokens == 0 && self.cost.is_none() {
-            next.cost
-        } else {
-            self.cost.zip(next.cost).map(|(a, b)| UsageCost {
-                input_usd: a.input_usd.zip(b.input_usd).map(|(a, b)| a + b),
-                output_usd: a.output_usd.zip(b.output_usd).map(|(a, b)| a + b),
-                total_usd: a.total_usd + b.total_usd,
-            })
-        };
+        self.cost = self.cost.zip(next.cost).map(|(a, b)| UsageCost {
+            input_usd: a.input_usd.zip(b.input_usd).map(|(a, b)| a + b),
+            output_usd: a.output_usd.zip(b.output_usd).map(|(a, b)| a + b),
+            total_usd: a.total_usd + b.total_usd,
+        });
         self.input_tokens = self.input_tokens.saturating_add(next.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(next.output_tokens);
     }
@@ -211,8 +208,7 @@ mod tests {
                 total_usd: 0.000006,
             }),
         };
-        let mut sum = Usage::default();
-        sum.accumulate(one);
+        let mut sum = one;
         sum.accumulate(one);
         assert_eq!(sum.input_tokens, 40);
         assert_eq!(sum.cost.unwrap().total_usd, 0.000012);
@@ -223,6 +219,13 @@ mod tests {
         assert!(sum.cost.is_none());
         sum.accumulate(one);
         assert!(sum.cost.is_none());
+        let mut missing_first = Usage::default();
+        missing_first.accumulate(Usage::default());
+        missing_first.accumulate(one);
+        assert!(
+            missing_first.cost.is_none(),
+            "missing token counts still mean unknown cost"
+        );
     }
 
     #[test]
@@ -341,9 +344,7 @@ mod tests {
                 total_usd: 0.375,
             }),
         };
-        let mut turn = Usage::default();
-        turn.accumulate(call);
-        assert_eq!(turn, call);
+        let mut turn = call;
         turn.accumulate(call);
         assert_eq!((turn.input_tokens, turn.output_tokens), (20, 10));
         assert_eq!(

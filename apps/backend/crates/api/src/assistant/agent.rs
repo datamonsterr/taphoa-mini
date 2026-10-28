@@ -698,6 +698,7 @@ async fn run_turn_inner(
     }
     let max_calls = config.max_model_calls.min(6);
     let mut first_model_index = 0;
+    let mut received_response = false;
     while record.attempts.len() < max_calls {
         let mut answer = None;
         let mut all_timeouts = true;
@@ -768,7 +769,12 @@ async fn run_turn_inner(
                 attempt.usage = response.usage;
                 attempt.time_to_first_token = response.time_to_first_token.or(first_token);
                 attempt.finish_reason = Some(response.finish_reason.clone());
-                record.usage.accumulate(response.usage);
+                if received_response {
+                    record.usage.accumulate(response.usage);
+                } else {
+                    record.usage = response.usage;
+                    received_response = true;
+                }
             }
             let result = result.and_then(|response| {
                 if response
