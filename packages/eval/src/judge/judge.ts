@@ -1,7 +1,7 @@
 export const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const DEFAULT_JUDGE_MODELS: readonly string[] = [
-  'google/gemma-4-31b-it:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3.5-lightning:free',
+  'nvidia/nemotron-3.5-super-vl:free',
 ];
 
 export type JudgeInput = { rubric_vi: string; answer: string };
