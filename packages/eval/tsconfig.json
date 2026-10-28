@@ -11,5 +11,10 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["src", "vitest.config.ts", "vitest.integration.config.ts"]
+  "include": [
+    "src",
+    "scripts/voice-synth.ts",
+    "vitest.config.ts",
+    "vitest.integration.config.ts"
+  ]
 }

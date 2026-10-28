@@ -50,7 +50,7 @@ export function assertEvalHeaders(runId: string, today: string): void {
 }
 
 /** A fetch that adds auth and eval headers, fresh from the provider, to every request. */
-function withHeaders(
+export function withHeaders(
   base: typeof fetch,
   headersFor: () => Promise<Record<string, string>>,
 ): typeof fetch {

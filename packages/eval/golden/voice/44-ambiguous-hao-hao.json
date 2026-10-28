@@ -1,0 +1,18 @@
+{
+  "id": "44-ambiguous-hao-hao",
+  "source": "synthetic",
+  "transcript": "ba gói mì hảo hảo",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "mì hảo hảo",
+      "product": null,
+      "status": "ambiguous",
+      "quantity": 3,
+      "unit_price": null
+    }
+  ],
+  "tags": ["ambiguous"]
+}

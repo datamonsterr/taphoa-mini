@@ -1,0 +1,207 @@
+{
+  "runId": "voice-2026-10-29-d7b46f",
+  "date": "2026-10-29",
+  "model": "google/gemini-2.5-flash-lite",
+  "set": "partial",
+  "backendHost": "127.0.0.1:18081",
+  "gitSha": "7ee8d7ca264a",
+  "aggregate": {
+    "cases": 2,
+    "errors": 0,
+    "wer": 0.375,
+    "wer_nodiac": 0.375,
+    "line_accuracy": 0.6666666666666666,
+    "price_accuracy": 0.6666666666666666,
+    "quantity_accuracy": 1,
+    "intent_accuracy": 1,
+    "payment_accuracy": 1,
+    "customer_accuracy": null,
+    "exact_rate": 0.5,
+    "extra_lines": 0,
+    "latency_p50_ms": 3795,
+    "latency_p95_ms": 5101,
+    "server_latency_p50_ms": 3779,
+    "server_latency_p95_ms": 3866,
+    "cost_per_utterance_usd": null,
+    "cost_n": 0,
+    "pass": false
+  },
+  "results": [
+    {
+      "case_id": "49-noise-two-line",
+      "intent": "sale",
+      "tags": ["noise", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "49-noise-two-line",
+        "tags": ["noise", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 3,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 3,
+          "words": 7
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 5101,
+        "cost_usd": null,
+        "transcript": "hai lon Coca-Cola 00:01 với một lon Pepsi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3866,
+        "utterance_id": "01a183c5-4c75-733a-a459-3870a0c11bba",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183c5-5b8f-762c-86ef-6fb4f5c13751",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000c",
+                "name": "Coca-Cola lon 320ml",
+                "price": 11000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000002",
+                    "name": "lốc",
+                    "price": 64000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000003",
+                    "name": "thùng",
+                    "price": 256000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon Coca-Cola",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            },
+            {
+              "id": "01a183c5-5b8f-762c-86ef-6fb59d27f9d0",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000d",
+                "name": "Pepsi lon 320ml",
+                "price": 10500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000004",
+                    "name": "lốc",
+                    "price": 61000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000005",
+                    "name": "thùng",
+                    "price": 244500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một lon Pepsi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 32500
+        }
+      }
+    },
+    {
+      "case_id": "50-noise-price",
+      "intent": "sale",
+      "tags": ["noise", "price-shorthand"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "50-noise-price",
+        "tags": ["noise", "price-shorthand"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 3,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 3,
+          "words": 9
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 1,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3795,
+        "cost_usd": null,
+        "transcript": "một hộp sữa bột Dielac Alpha Go",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3779,
+        "utterance_id": "01a183c5-5bac-7041-abfa-71f69df43c54",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183c5-6a6d-7711-a5c5-c6f6d65b8a4c",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "hộp",
+                "id": "e7a10e7a-0000-4000-8000-05000000002c",
+                "name": "Sữa bột Dielac Alpha Gold 2 400g",
+                "price": 165000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một hộp sữa bột Dielac Alpha Go",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 165000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 165000
+        }
+      }
+    }
+  ],
+  "notRun": [],
+  "aborted": null
+}

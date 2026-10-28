@@ -1,0 +1,23 @@
+{
+  "id": "14-multi-milk-eggs",
+  "source": "synthetic",
+  "transcript": "sáu hộp sữa vinamilk có đường và mười hai quả trứng gà",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "sữa vinamilk có đường",
+      "product": "Sữa Vinamilk có đường 180ml",
+      "quantity": 6,
+      "unit_price": null
+    },
+    {
+      "spoken": "trứng gà",
+      "product": "Trứng gà ta",
+      "quantity": 12,
+      "unit_price": null
+    }
+  ],
+  "tags": ["multi-line"]
+}

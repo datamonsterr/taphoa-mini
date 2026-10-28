@@ -1,0 +1,24 @@
+{
+  "id": "43-unknown-mixed",
+  "source": "synthetic",
+  "transcript": "hai lon coca và một chai nước hoa hồng cocoon bốn chục",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "coca",
+      "product": "Coca-Cola lon 320ml",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "nước hoa hồng cocoon",
+      "product": null,
+      "status": "unknown",
+      "quantity": 1,
+      "unit_price": 40000
+    }
+  ],
+  "tags": ["smoke", "unknown", "multi-line", "price-shorthand"]
+}

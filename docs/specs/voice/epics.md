@@ -140,6 +140,9 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V5 · Voice golden set and evaluation
 
+- **Status:** done on 2026-10-29, PR #122. 52 synthetic Vietnamese clips (two TTS voices, noise
+  and silence cases) plus 10 e2e fixtures; final default-chain run: line 98.5 %, price 98.5 %,
+  p95 3.0 s local, $0.0013 per utterance. Owner-recorded clips join with `"source": "recorded"`.
 - **Branch:** `epic/v5-voice-golden-set` · **Depends:** V0 (final run needs V1) · **Wave:** 2
 - **Spec:** [assistant golden-set.md](../assistant/golden-set.md) for the harness and PostHog
   scoring; this program adds audio cases.

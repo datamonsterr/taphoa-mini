@@ -14,7 +14,9 @@
     "full": "node src/cli.ts full",
     "compare": "node src/cli.ts compare",
     "calibrate": "node src/cli.ts calibrate",
-    "identities": "node src/cli.ts identities"
+    "identities": "node src/cli.ts identities",
+    "voice": "node src/voice/run.ts",
+    "voice:synth": "node scripts/voice-synth.ts"
   },
   "dependencies": {
     "@taphoa/api-client": "workspace:*",
