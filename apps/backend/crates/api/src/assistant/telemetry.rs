@@ -28,7 +28,7 @@ pub(crate) fn event_context(actor: &Actor) -> EventContext {
         role: actor.role,
     }
 }
-fn environment() -> &'static str {
+pub(crate) fn environment() -> &'static str {
     static ENVIRONMENT: OnceLock<String> = OnceLock::new();
     ENVIRONMENT.get_or_init(|| crate::telemetry::TelemetryConfig::from_env().environment)
 }
@@ -150,7 +150,7 @@ pub(crate) fn capture(state: &AppState, events: Vec<CaptureEvent>) {
         .with_current_subscriber(),
     );
 }
-fn event(actor: &Actor, name: &str, properties: Value) -> CaptureEvent {
+pub(crate) fn event(actor: &Actor, name: &str, properties: Value) -> CaptureEvent {
     let mut properties = properties.as_object().cloned().unwrap_or_default();
     properties.insert("member_id".into(), json!(actor.member_id));
     properties.insert("role".into(), json!(actor.role));
@@ -287,7 +287,7 @@ pub(crate) fn feedback(
     capture(state, events);
 }
 // Provider messages may echo credentials, request bodies or URLs. Export only safe local wording.
-pub(super) fn error_info(error: &ModelError) -> (&'static str, &'static str) {
+pub(crate) fn error_info(error: &ModelError) -> (&'static str, &'static str) {
     match error {
         ModelError::RateLimited { .. } => ("rate_limited", "model rate limited"),
         ModelError::DailyQuota { .. } => ("daily_quota", "free model daily quota exhausted"),

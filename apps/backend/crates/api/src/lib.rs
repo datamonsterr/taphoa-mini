@@ -28,6 +28,7 @@ pub mod sync;
 pub mod telemetry;
 pub mod time;
 pub mod vector;
+pub mod voice;
 
 use axum::{
     Json, Router,
@@ -90,6 +91,7 @@ pub struct AppState {
     pub image_repository: Option<Arc<dyn images::ImageRepository>>,
     pub image_url_ttl: Duration,
     pub assistant: assistant::AssistantState,
+    pub voice: voice::VoiceState,
     // Serialize inference and reject excess work before copying/decompressing images.
     pub inference_slots: Arc<Semaphore>,
     /// Best-effort preview detection must never consume scan/enrollment admission.
@@ -127,6 +129,7 @@ impl Default for AppState {
             image_repository: None,
             image_url_ttl: Duration::from_secs(900),
             assistant: assistant::AssistantState::default(),
+            voice: voice::VoiceState::default(),
             inference_slots: Arc::new(Semaphore::new(1)),
             probe_slots: Arc::new(Semaphore::new(1)),
         }
@@ -253,6 +256,7 @@ pub fn router(state: AppState) -> Router {
         .merge(reports::router())
         .merge(sync::router())
         .merge(assistant::router())
+        .merge(voice::router(&state.voice.config))
         .layer(cors())
         .layer(axum::middleware::from_fn(telemetry::http_span))
         .with_state(state)

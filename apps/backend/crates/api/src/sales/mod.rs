@@ -107,7 +107,7 @@ impl SaleInput {
                 || line.unit_price < 0
                 || !matches!(
                     line.source.as_str(),
-                    "camera" | "multi_photo" | "barcode" | "grid" | "manual"
+                    "camera" | "multi_photo" | "barcode" | "grid" | "manual" | "voice"
                 )
                 || (line.product_id.is_none()
                     && (line.source != "manual" || line.unit_id.is_some()))
@@ -344,7 +344,7 @@ async fn create(
             .execute(&mut *tx)
             .await?;
     }
-    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"manual_lines":input.lines.iter().filter(|line| line.product_id.is_none()).count(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
+    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"manual_lines":input.lines.iter().filter(|line| line.product_id.is_none()).count(),"voice_lines":input.lines.iter().filter(|line| line.source == "voice").count(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
     if let Some(customer) = input.customer_id() {
         // The customer row is already locked; the sale and its debt entry commit together.
         crate::debts::record_entry(
