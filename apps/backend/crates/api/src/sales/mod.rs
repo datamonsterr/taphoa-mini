@@ -481,7 +481,7 @@ async fn void(
     let id = parse_id(&id)?;
     let mut tx = pool(&state)?.begin().await?;
     let (member,date,status,total,credit_amount,customer): (Uuid,NaiveDate,String,i64,i64,Option<Uuid>) = sqlx::query_as("SELECT member_id,business_date,status,total,credit_amount,customer_id FROM sales WHERE store_id=$1 AND id=$2 FOR UPDATE").bind(actor.store_id).bind(id).fetch_optional(&mut *tx).await?.ok_or_else(ApiError::not_found)?;
-    if !money::can_void(&actor, member, date, business_date(Utc::now())) {
+    if !money::can_void(&actor, member, date, state.clock.today()) {
         return Err(ApiError::forbidden());
     }
     if status != "voided" {
@@ -510,13 +510,13 @@ async fn void(
             )
             .await?;
         }
-        let voided_at = input.voided_at.unwrap_or_else(Utc::now);
+        let voided_at = input.voided_at.unwrap_or_else(|| state.clock.now());
         sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(voided_at).execute(&mut *tx).await?;
         event(
             &mut tx,
             &actor,
             "sale.voided",
-            json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total,"same_day":date == business_date(Utc::now())}),
+            json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total,"same_day":date == state.clock.today()}),
         )
         .await?;
         if let Some(customer) = customer.filter(|_| credit_amount > 0) {

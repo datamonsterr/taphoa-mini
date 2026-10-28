@@ -772,14 +772,14 @@ máy này", which opens sign-in without signing anyone out.
 
 ## 11. Quality attributes
 
-| Requirement (PRD §6)         | How the architecture meets it                                                     | How we measure                             |
-| ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------ |
-| Photo to editable cart ≤ 3 s | Phone downscale; single round trip; ONNX on CPU; swappable segmenter; region move | `scans.timings`, `/v1/reports/recognition` |
-| Offline grid, manual, VietQR | SQLite replica, outbox, local VietQR                                              | Maestro flow in airplane mode              |
-| Never charge unconfirmed     | API returns candidates only; sale lines come from the phone                       | Code review rule; API has no "auto-sale"   |
-| No data loss after last sync | Server is system of record; Postgres volume + Railway backups; idempotent replay  | Restore drill onto a new phone             |
-| Accuracy metric              | `detection_id` + `suggested_product_id` on lines                                  | Confirmed-vs-corrected rate                |
-| Cost per scan                | Timings per stage; one CPU instance                                               | Railway usage ÷ scans per day              |
+| Requirement (PRD §6)         | How the architecture meets it                                                     | How we measure                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Photo to editable cart ≤ 3 s | Phone downscale; single round trip; ONNX on CPU; swappable segmenter; region move | `scans.timings`, `/v1/reports/recognition`                                                                               |
+| Offline grid, manual, VietQR | SQLite replica, outbox, local VietQR                                              | Maestro flow in airplane mode                                                                                            |
+| Never charge unconfirmed     | API returns candidates only; sale lines come from the phone                       | Code review rule; API has no "auto-sale"                                                                                 |
+| No data loss after last sync | Server is system of record; Postgres volume + Railway backups; idempotent replay  | Restore drill onto a new phone                                                                                           |
+| Accuracy metric              | `detection_id` + `suggested_product_id` on lines                                  | Confirmed-vs-corrected rate                                                                                              |
+| Cost per scan                | Timings per stage; one CPU instance                                               | Railway `test`: $0.000048 CPU per scan, about $0.05 per 1,000; [measurement](specs/recognition-latency.md#cost-per-scan) |
 
 ## 12. Open decisions
 

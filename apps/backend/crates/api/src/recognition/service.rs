@@ -535,6 +535,11 @@ pub(crate) struct ScanDraft {
 }
 
 /// Returns `(scan id, created_at, catalog_version)`.
+/// Always executes three persistence INSERTs (images, scans, detections), even
+/// for an empty scan. Event/outbox statements and BEGIN/COMMIT are unchanged.
+/// The count follows from the three unconditional queries outside row loops;
+/// SQLx has no per-function query counter, so we do not add production metering
+/// or require pg_stat_statements in the integration-test database.
 pub(crate) async fn persist_scan(
     pool: &PgPool,
     actor: &Actor,
@@ -550,24 +555,26 @@ pub(crate) async fn persist_scan(
         timings_ms,
     } = draft;
     let mut tx = pool.begin().await?;
-    let mut crop_ids = Vec::with_capacity(detections.len());
-    for detection in detections {
-        // Detached thumbnail row: the bucket object was written before this
-        // transaction and is cleaned up when the transaction aborts.
-        let crop_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose, uploaded_by) \
-             VALUES ($1, $2, $3, 'image/jpeg', $4, 'crop', $5)",
-        )
-        .bind(crop_id)
-        .bind(actor.store_id)
-        .bind(&detection.crop_key)
-        .bind(detection.thumbnail_bytes as i64)
-        .bind(actor.member_id)
-        .execute(&mut *tx)
-        .await?;
-        crop_ids.push(crop_id);
-    }
+    // Detached thumbnail rows: bucket objects were written before this
+    // transaction and are cleaned up by the handler when it aborts.
+    let crop_ids: Vec<Uuid> = detections.iter().map(|_| Uuid::new_v4()).collect();
+    let crop_keys: Vec<&str> = detections.iter().map(|d| d.crop_key.as_str()).collect();
+    let byte_sizes: Vec<i64> = detections
+        .iter()
+        .map(|d| d.thumbnail_bytes as i64)
+        .collect();
+    sqlx::query(
+        "INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose, uploaded_by) \
+         SELECT id, $2, object_key, 'image/jpeg', byte_size, 'crop', $5 \
+         FROM UNNEST($1::uuid[], $3::text[], $4::bigint[]) AS crops(id, object_key, byte_size)",
+    )
+    .bind(&crop_ids)
+    .bind(actor.store_id)
+    .bind(&crop_keys)
+    .bind(&byte_sizes)
+    .bind(actor.member_id)
+    .execute(&mut *tx)
+    .await?;
     let (scan_id, created_at, catalog_version): (Uuid, DateTime<Utc>, i64) = sqlx::query_as(
         "INSERT INTO scans (store_id, image_id, member_id, mode, purpose, segmenter, embedder, catalog_version, timings) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, \
@@ -599,42 +606,62 @@ async fn write_detections(
     detections: &[PersistDetection],
     crop_ids: &[Uuid],
 ) -> Result<(), sqlx::Error> {
-    for (position, (detection, crop_id)) in detections.iter().zip(crop_ids).enumerate() {
-        // Column is `vector(384)`; other adapters still scan without persistence.
-        let embedding =
-            (detection.embedding.len() == 384).then(|| embedding_literal(&detection.embedding));
-        sqlx::query(
-            "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::vector, $10, $11)",
-        )
-        .bind(detection.id)
-        .bind(actor.store_id)
-        .bind(scan_id)
-        .bind(position as i16)
-        .bind(detection.bbox.to_vec())
-        .bind(detection.score)
-        .bind(detection.area.min(i32::MAX as u32) as i32)
-        .bind(crop_id)
-        .bind(embedding)
-        .bind(detection.class.to_string())
-        .bind(serde_json::to_value(&detection.candidates).unwrap_or_else(|_| json!([])))
-        .execute(&mut *tx)
-        .await?;
+    let mut ids = Vec::with_capacity(detections.len());
+    let mut positions = Vec::with_capacity(detections.len());
+    // SQLx 0.9 supports one-dimensional arrays, not Vec<Vec<f32>>. Bind
+    // bbox coordinates separately and reconstruct each real[4] in the SELECT.
+    let mut xs = Vec::with_capacity(detections.len());
+    let mut ys = Vec::with_capacity(detections.len());
+    let mut widths = Vec::with_capacity(detections.len());
+    let mut heights = Vec::with_capacity(detections.len());
+    let mut scores = Vec::with_capacity(detections.len());
+    let mut areas = Vec::with_capacity(detections.len());
+    let mut embeddings = Vec::with_capacity(detections.len());
+    let mut classes = Vec::with_capacity(detections.len());
+    let mut candidates = Vec::with_capacity(detections.len());
+    for (position, detection) in detections.iter().enumerate() {
+        ids.push(detection.id);
+        positions.push(position as i16);
+        xs.push(detection.bbox[0]);
+        ys.push(detection.bbox[1]);
+        widths.push(detection.bbox[2]);
+        heights.push(detection.bbox[3]);
+        scores.push(detection.score);
+        areas.push(detection.area.min(i32::MAX as u32) as i32);
+        // pgvector 0.4.2 implements PgHasArrayType for Vector; SQLx 0.9
+        // also supports Option<T> array elements, so native vector[] preserves
+        // NULL for non-384 adapters without a text serialization/cast fallback.
+        embeddings.push(
+            (detection.embedding.len() == 384)
+                .then(|| pgvector::Vector::from(detection.embedding.clone())),
+        );
+        classes.push(detection.class.to_string());
+        candidates.push(serde_json::to_value(&detection.candidates).unwrap_or_else(|_| json!([])));
     }
+    sqlx::query(
+        "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates) \
+         SELECT id, $2, $3, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates \
+         FROM UNNEST($1::uuid[], $4::smallint[], $5::real[], $6::real[], $7::real[], $8::real[], \
+                     $9::real[], $10::integer[], $11::uuid[], $12::vector[], $13::text[], $14::jsonb[]) \
+         AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates)",
+    )
+    .bind(&ids)
+    .bind(actor.store_id)
+    .bind(scan_id)
+    .bind(&positions)
+    .bind(&xs)
+    .bind(&ys)
+    .bind(&widths)
+    .bind(&heights)
+    .bind(&scores)
+    .bind(&areas)
+    .bind(crop_ids)
+    .bind(&embeddings)
+    .bind(&classes)
+    .bind(&candidates)
+    .execute(&mut *tx)
+    .await?;
     Ok(())
-}
-
-fn embedding_literal(embedding: &[f32]) -> String {
-    let mut text = String::with_capacity(embedding.len() * 12 + 2);
-    text.push('[');
-    for (index, value) in embedding.iter().enumerate() {
-        if index > 0 {
-            text.push(',');
-        }
-        text.push_str(&value.to_string());
-    }
-    text.push(']');
-    text
 }
 
 /// One scan row of the actor's store, or `None` to keep ownership invisible.

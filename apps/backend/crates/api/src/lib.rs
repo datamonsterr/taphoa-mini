@@ -63,6 +63,7 @@ pub static MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
 
 #[derive(Clone)]
 pub struct AppState {
+    pub clock: time::Clock,
     pub clerk: auth::ClerkVerifier,
     pub profile: auth::profile::ProfileClient,
     pub analytics: Arc<dyn analytics::Analytics>,
@@ -91,10 +92,13 @@ pub struct AppState {
     pub assistant: assistant::AssistantState,
     // Serialize inference and reject excess work before copying/decompressing images.
     pub inference_slots: Arc<Semaphore>,
+    /// Best-effort preview detection must never consume scan/enrollment admission.
+    pub probe_slots: Arc<Semaphore>,
 }
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            clock: time::Clock::default(),
             clerk: auth::ClerkVerifier::from_jwks(
                 "https://unconfigured.invalid",
                 vec![],
@@ -124,6 +128,7 @@ impl Default for AppState {
             image_url_ttl: Duration::from_secs(900),
             assistant: assistant::AssistantState::default(),
             inference_slots: Arc::new(Semaphore::new(1)),
+            probe_slots: Arc::new(Semaphore::new(1)),
         }
     }
 }
@@ -155,6 +160,8 @@ impl AppState {
         state.profile = auth::profile::ProfileClient::new(settings, client);
         state.rate_limits = config.rate_limits;
         state.client_ip = config.client_ip;
+        state.probe_slots = Arc::new(Semaphore::new(config.document_probe_concurrency));
+        state.clock = config.clock;
         state.config = Some(Arc::new(config.clone()));
         Ok(state)
     }

@@ -337,22 +337,44 @@ test('a refetch that lands during a turn does not replace it', async () => {
 test('a send while the thread is loading is refused and never skips hydration', async () => {
   const id = await newThread();
   await sendThroughClient(id, 'Cũ');
-  const hook = await setup(id);
-  expect(hook.result.current.loading).toBe(true);
-  let accepted: boolean | undefined;
-  await act(async () => {
-    accepted = hook.result.current.send('Quá sớm', { input: 'text' });
+  const inner = createMockFetch();
+  let releaseThread!: () => void;
+  const threadReady = new Promise<void>((resolve) => {
+    releaseThread = resolve;
   });
-  expect(accepted).toBe(false);
-  await waitFor(() => expect(hook.result.current.loading).toBe(false));
-  expect(hook.result.current.messages).toHaveLength(2);
-  expect(hook.result.current.messages[0]).toMatchObject({ content: 'Cũ' });
-  await act(async () => {
-    accepted = hook.result.current.send('Đúng lúc', { input: 'text' });
+  setApiTransport(async (input, init) => {
+    const req = input as Request;
+    if (req.method === 'GET' && req.url.endsWith(`/threads/${id}`)) {
+      await threadReady;
+    }
+    return inner(input, init);
   });
-  expect(accepted).toBe(true);
-  await waitFor(() => expect(hook.result.current.streaming).toBe(false));
-  expect(hook.result.current.messages).toHaveLength(4);
+  // Async renderHook flushes effects: the zero-latency query can otherwise finish
+  // before it returns. Hold the response until the early send has been checked.
+  try {
+    const hook = await setup(id);
+    expect(hook.result.current.loading).toBe(true);
+    let accepted: boolean | undefined;
+    await act(async () => {
+      accepted = hook.result.current.send('Quá sớm', { input: 'text' });
+    });
+    expect(accepted).toBe(false);
+    expect(hook.result.current.loading).toBe(true);
+    expect(hook.result.current.messages).toHaveLength(0);
+    await act(async () => releaseThread());
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.messages).toHaveLength(2);
+    expect(hook.result.current.messages[0]).toMatchObject({ content: 'Cũ' });
+    await act(async () => {
+      accepted = hook.result.current.send('Đúng lúc', { input: 'text' });
+    });
+    expect(accepted).toBe(true);
+    await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+    expect(hook.result.current.messages).toHaveLength(4);
+  } finally {
+    releaseThread();
+    setApiTransport(inner);
+  }
 });
 
 test('a second send while a turn runs is refused', async () => {

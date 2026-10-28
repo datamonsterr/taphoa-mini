@@ -1,6 +1,6 @@
 # X5 · Debt book: task graph
 
-Status: In progress · Date: 2026-10-25 · Epic: X5 · Spec: [debt-book.md](debt-book.md) ·
+Status: Done · Merge: [#32](https://github.com/datamonsterr/taphoa-mini/pull/32) and [#42](https://github.com/datamonsterr/taphoa-mini/pull/42) (T6) · Date: 2026-10-25 · Epic: X5 · Spec: [debt-book.md](debt-book.md) ·
 Branch: `epic/x5-debt-book`
 
 The controller session plans, briefs, reviews and merges. Workers edit source through

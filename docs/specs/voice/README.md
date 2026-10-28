@@ -1,6 +1,6 @@
 # Voice quick-sale and voice chat: program spec
 
-Status: Proposed · Date: 2026-10-27 · ADR: [0008](../../adr/0008-voice-audio-native-model.md) ·
+Status: Accepted · Date: 2026-10-27 · ADR: [0008](../../adr/0008-voice-audio-native-model.md) ·
 Tracker: GitHub issue #69 (epics #70-#76) · Builds on the
 [assistant program](../assistant/README.md)
 
@@ -43,7 +43,7 @@ names and prices are heard correctly. On-device recognition stays as the offline
 
 The DoD report lives at `docs/specs/voice/dod-report.md` (written by the last epic).
 
-## Settled decisions (confirm with the owner before wave 1, then do not reopen)
+## Settled decisions (confirmed by the owner on 2026-10-27; do not reopen)
 
 - **Speech architecture (ADR 0008).** One audio-native model call through OpenRouter chat
   completions with `input_audio` and a JSON schema: `google/gemini-2.5-flash-lite` first,

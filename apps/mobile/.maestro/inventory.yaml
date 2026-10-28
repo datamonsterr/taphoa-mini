@@ -32,7 +32,9 @@ appId: com.datamonsterr.taphoamini
 - extendedWaitUntil:
     visible: 'Kẹo dừa, 15.000đ'
     timeout: 20000
-- hideKeyboard
+# Enter blurs this single-line field without sending Android Back to the sheet.
+- pressKey: Enter
+- assertVisible: 'Kẹo dừa, 15.000đ'
 - tapOn: 'Kẹo dừa, 15.000đ'
 - extendedWaitUntil:
     visible: 'Sửa giá'

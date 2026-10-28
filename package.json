@@ -7,7 +7,7 @@
     "pnpm": "11.5.0"
   },
   "scripts": {
-    "lint": "turbo run lint",
+    "lint": "bash scripts/ci/lint-maestro.sh && turbo run lint",
     "format": "prettier --write . && pnpm --filter @taphoa/backend format",
     "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",

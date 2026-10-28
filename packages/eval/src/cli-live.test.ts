@@ -124,7 +124,7 @@ describe('live smoke through main()', () => {
     // the judge is a free model other than the one under test
     const judgeBody = seen.find((s) => s.url.endsWith('/chat/completions'))!
       .body as { model: string };
-    expect(judgeBody.model).toBe('google/gemma-4-31b-it:free');
+    expect(judgeBody.model).toBe('nvidia/nemotron-3.5-lightning:free');
 
     // the assistant was reached with bearer tokens from the environment
     const first = stub.calls[0]!;

@@ -1,6 +1,6 @@
 # Stock and import receipts: scan a supplier receipt into stock and expenses
 
-Status: Proposed · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
+Status: Done · Merge: [#27](https://github.com/datamonsterr/taphoa-mini/pull/27), [#109](https://github.com/datamonsterr/taphoa-mini/pull/109) (live receipt detection, editable lines) · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
 recognition (PRD E2, E4 promoted from P2)
 
 ## Goal
@@ -68,7 +68,10 @@ run out, using a configurable threshold.
   This detector-only endpoint returns `DocumentSignal` with normalized boxes per grouped
   text line for the preview overlay. It runs no SAM or embeddings and persists no scan,
   image row or object. The image limit is 512 KB; the member limit is 40 requests/minute.
-  An instance without a text detector returns 503 `ocr_unavailable`.
+  Probes use a separate pool (`DOCUMENT_PROBE_CONCURRENCY`, default 1), never scan or
+  enrollment slots. When this pool is full, the best-effort response is 200 with
+  `{detected:false, score:0, text_lines:0, line_boxes:[]}`. An instance without a text
+  detector returns 503 `ocr_unavailable`; rate limiting still returns 429.
 - **Parse: rules first, decision model second.** `receipt::parse` turns OCR lines into
   candidates with regexes for Vietnamese money (`204.000`, `204,000`, `204000đ`) and
   quantities (`x24`, `SL 24`, `24 thùng`). Common layouts: `name qty unit_price amount`,
@@ -90,7 +93,7 @@ run out, using a configurable threshold.
 - **Mock data schema now.** Line schema is exactly `{product_name, quantity, cost}` plus
   match fields. Units (`product_units`) are out of scope: quantities are in the product's
   base unit. Fixture receipts (rendered PNGs with Vietnamese text + expected JSON) live in
-  `apps/backend/crates/api/tests/fixtures/receipts/`; `taphoa-seed` adds two confirmed
+  `apps/backend/crates/recognition/tests/fixtures/receipts/`; `taphoa-seed` adds two confirmed
   receipts and starting stock for seeded products.
 - **Synchronous receipt parse.** `POST /v1/receipts` returns the parsed draft in the same
   request (≤ 6 s budget). Receipts are rare, so no job queue.

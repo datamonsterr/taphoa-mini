@@ -2,6 +2,7 @@
 use super::{
     Language,
     eval::{self, EvalContext},
+    grounding,
     model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage},
     quota::{self, QuotaOutcome},
     stream::{self, Sender, StreamEvent},
@@ -22,15 +23,12 @@ use chrono::{DateTime, Datelike, NaiveDate, Utc, Weekday};
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{
-    collections::HashSet,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "2";
+pub const PROMPT_VERSION: &str = "4";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -182,7 +180,7 @@ pub(crate) async fn send_message(
     let eval = eval::from_headers(&headers, &state.assistant.config);
     let today = eval
         .as_ref()
-        .map_or_else(|| crate::time::business_date(Utc::now()), |e| e.today);
+        .map_or_else(|| state.clock.today(), |e| e.today);
     let store_name: String = sqlx::query_scalar("SELECT name FROM stores WHERE id=$1")
         .bind(actor.store_id)
         .fetch_one(db)
@@ -352,6 +350,9 @@ fn render_prompt(
         rest = &rest[index + key.len()..];
     }
     out.push_str(rest);
+    if let Some(yesterday) = today.pred_opt() {
+        out.push_str(&format!("\nHôm qua (yesterday): {yesterday}."));
+    }
     for key in ["receipt_id", "image_id"] {
         if let Some(id) = context.and_then(|c| c[key].as_str()) {
             let label = if key == "image_id" {
@@ -434,154 +435,27 @@ fn mark_previous_turn(mut message: ChatMessage) -> ChatMessage {
     }
     message
 }
-const UNITS: [&str; 11] = [
-    "₫",
-    "đ",
-    "đồng",
-    "vnd",
-    "đơn",
-    "sản phẩm",
-    "cái",
-    "chai",
-    "gói",
-    "lon",
-    "hộp",
-];
-const MULTIPLIERS: [(&str, f64); 5] = [
-    ("triệu", 1e6),
-    ("nghìn", 1e3),
-    ("ngàn", 1e3),
-    ("tr", 1e6),
-    ("k", 1e3),
-];
-fn ends_word(after: &str) -> bool {
-    !after.chars().next().is_some_and(char::is_alphanumeric)
-}
-/// Numbers in a text, normalized to whole units: "150.000 ₫", "150000", "150k" and "150 nghìn" all
-/// give 150000; dots and commas group thousands, `k`/`nghìn` scale by 1e3 and `tr`/`triệu` by 1e6.
-/// Dates such as 26/10/2026 are skipped. With `store_only`, only figures that read as store data
-/// count: two or more digits, a scaled number, or a number followed by a money or count unit.
-fn numbers(text: &str, store_only: bool) -> Vec<i64> {
-    let chars: Vec<char> = text.to_lowercase().chars().collect();
-    let run = |from: usize| {
-        chars[from..]
-            .iter()
-            .take_while(|c| c.is_ascii_digit())
-            .count()
-    };
-    let mut found = vec![];
-    let mut i = 0;
-    while i < chars.len() {
-        if !chars[i].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        // Skip a date: digits, separator, digits, separator, digits.
-        let mut end = i + run(i);
-        let mut parts = 1;
-        let mut probe = end;
-        while parts < 3
-            && matches!(chars.get(probe), Some('/' | '-'))
-            && chars.get(probe + 1).is_some_and(char::is_ascii_digit)
-        {
-            probe += 1 + run(probe + 1);
-            parts += 1;
-        }
-        if parts == 3 {
-            i = probe;
-            continue;
-        }
-        let mut groups = vec![chars[i..end].iter().collect::<String>()];
-        while matches!(chars.get(end), Some('.' | ','))
-            && chars.get(end + 1).is_some_and(char::is_ascii_digit)
-        {
-            let n = run(end + 1);
-            groups.push(chars[end + 1..end + 1 + n].iter().collect());
-            end += 1 + n;
-        }
-        let thousands =
-            groups.len() > 1 && groups[0].len() <= 3 && groups[1..].iter().all(|g| g.len() == 3);
-        let mut value: f64 = if groups.len() == 1 || thousands {
-            groups.concat().parse().unwrap_or(0.0)
-        } else if groups.len() == 2 {
-            format!("{}.{}", groups[0], groups[1])
-                .parse()
-                .unwrap_or(0.0)
-        } else {
-            groups.concat().parse().unwrap_or(0.0)
-        };
-        let mut after = end;
-        while chars.get(after) == Some(&' ') {
-            after += 1;
-        }
-        let rest: String = chars[after..].iter().take(10).collect();
-        let scale = MULTIPLIERS
-            .iter()
-            .find(|(word, _)| rest.strip_prefix(word).is_some_and(ends_word));
-        let has_unit = UNITS
-            .iter()
-            .any(|unit| rest.strip_prefix(unit).is_some_and(ends_word));
-        let scaled = scale.is_some();
-        if let Some((_, factor)) = scale {
-            value *= factor;
-        }
-        if !store_only || value >= 10.0 || scaled || has_unit {
-            found.push(value.round() as i64);
-        }
-        i = end.max(i + 1);
-    }
-    found
-}
-/// Store figures a reply states.
-fn store_numbers(text: &str) -> Vec<i64> {
-    numbers(text, true)
-}
+#[cfg(test)]
+use super::grounding::numbers;
 #[cfg(test)]
 fn contains_store_numbers(text: &str) -> bool {
-    !store_numbers(text).is_empty()
+    !numbers(text, true).is_empty()
 }
-fn collect_json_numbers(value: &Value, out: &mut HashSet<i64>) {
-    match value {
-        Value::Number(n) => {
-            if let Some(f) = n.as_f64() {
-                out.insert(f.round() as i64);
-            }
-        }
-        Value::String(s) => out.extend(numbers(s, false)),
-        Value::Array(items) => items.iter().for_each(|v| collect_json_numbers(v, out)),
-        Value::Object(map) => map.values().for_each(|v| collect_json_numbers(v, out)),
-        _ => {}
-    }
+/// Only current-turn tool results and user figures back a reply; model-generated read
+/// arguments are requests, not evidence.
+fn unmatched_numbers(record: &TurnRecord, answer: &str) -> Vec<f64> {
+    grounding::unmatched_numbers(
+        &record.input,
+        record
+            .transcript
+            .iter()
+            .filter(|m| m.role == ChatRole::Tool)
+            .filter_map(|m| m.content.as_deref()),
+        answer,
+    )
 }
-fn collect_text_numbers(raw: &str, out: &mut HashSet<i64>) {
-    match serde_json::from_str::<Value>(raw) {
-        Ok(value) => collect_json_numbers(&value, out),
-        Err(_) => out.extend(numbers(raw, false)),
-    }
-}
-/// Every number the turn can legitimately cite: tool results and arguments, plus the user's message.
-fn grounded_numbers(record: &TurnRecord) -> HashSet<i64> {
-    let mut out: HashSet<i64> = numbers(&record.input, false).into_iter().collect();
-    for message in &record.transcript {
-        if message.role == ChatRole::Tool
-            && let Some(content) = &message.content
-        {
-            collect_text_numbers(content, &mut out);
-        }
-        for call in &message.tool_calls {
-            collect_text_numbers(&call.arguments, &mut out);
-        }
-    }
-    out
-}
-/// Whether the reply states a store figure that no tool result, proposal or user message backs.
 fn has_ungrounded_number(record: &TurnRecord, answer: &str) -> bool {
-    let figures = store_numbers(answer);
-    if figures.is_empty() {
-        return false;
-    }
-    let grounded = grounded_numbers(record);
-    figures.iter().any(|n| !grounded.contains(n))
+    !unmatched_numbers(record, answer).is_empty()
 }
 fn ungrounded_text(language: Language) -> &'static str {
     if language == Language::Vi {
@@ -921,7 +795,7 @@ async fn run_turn_inner(
                         text(&mut record, tx, ungrounded_text(ctx.language).into());
                         return record;
                     }
-                    if !held.is_empty() {
+                    if !buffering && !held.is_empty() {
                         text(&mut record, tx, std::mem::take(&mut held));
                     }
                     if matches!(error, ModelError::DailyQuota { .. }) {
@@ -973,7 +847,11 @@ async fn run_turn_inner(
             } else {
                 held
             };
-            if has_ungrounded_number(&record, &answer) {
+            let unmatched = unmatched_numbers(&record, &answer);
+            if !unmatched.is_empty() {
+                if record.eval.is_some() {
+                    tracing::warn!(unmatched_numbers = ?unmatched, "assistant eval grounding mismatch");
+                }
                 tracing::warn!(
                     model = %response.model,
                     reason = if record.grounding_retry {
@@ -983,15 +861,20 @@ async fn run_turn_inner(
                     },
                     "assistant grounding guard fired"
                 );
-                if record.grounding_retry {
+                if record.grounding_retry || record.attempts.len() >= max_calls {
                     text(&mut record, tx, ungrounded_text(ctx.language).into());
                     return record;
                 }
                 // Drop the answer and ask once more; tool_choice stays auto.
                 record.grounding_retry = true;
-                messages.push(ChatMessage::system(
-                    "Hãy gọi công cụ để lấy số liệu trước khi trả lời.",
-                ));
+                // The model needs the rejected draft and the mismatches to repair it.
+                // Neither becomes evidence: only user input and tools enter the guard.
+                messages.push(ChatMessage::assistant(Some(answer), vec![]));
+                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, không phải dữ liệu. {}", if record.tools.iter().any(|t| t.ok) {
+                    "Có số liệu chưa khớp. Dùng lại kết quả công cụ trong lượt này, viết đúng số và đơn vị; chỉ gọi thêm công cụ nếu thiếu dữ liệu. Không lặp lại công cụ đã có dữ liệu."
+                } else {
+                    "Hãy gọi công cụ để lấy số liệu trước khi trả lời."
+                })));
                 continue;
             }
             if !answer.is_empty() {
@@ -1002,8 +885,10 @@ async fn run_turn_inner(
                 return record;
             }
         } else if !held.is_empty() {
-            // A preamble before tool calls is shown as before.
-            text(&mut record, tx, held);
+            // A tool-call preamble is also model text; do not leak invented figures.
+            if !has_ungrounded_number(&record, &held) {
+                text(&mut record, tx, held);
+            }
         }
         let message =
             ChatMessage::assistant(Some(response.content.clone()), response.tool_calls.clone());
@@ -1264,6 +1149,47 @@ mod tests {
                 assert!(prompt.contains(text), "{text}: {prompt}");
             }
         }
+    }
+    #[test]
+    fn routing_guidance_and_relative_dates_are_explicit() {
+        for language in [Language::Vi, Language::En] {
+            let prompt = render_prompt(
+                "Cửa hàng",
+                Role::Lead,
+                NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(),
+                language,
+                None,
+            );
+            for tool in [
+                "get_recognition_health",
+                "get_member_activity",
+                "get_sales_summary",
+                "get_restock_plan",
+            ] {
+                assert!(prompt.contains(tool), "{tool}");
+            }
+            assert!(prompt.contains("yesterday): 2026-10-19"));
+            assert!(prompt.contains(if language == Language::Vi {
+                "Không trả lời nội dung ngoài phạm vi"
+            } else {
+                "Do not answer the unrelated question"
+            }));
+        }
+    }
+    #[test]
+    fn invented_read_arguments_do_not_validate_the_reply() {
+        let r = record_with(
+            "Doanh thu?",
+            vec![ChatMessage::assistant(
+                None,
+                vec![ToolCall {
+                    id: "c1".into(),
+                    name: "get_sales_summary".into(),
+                    arguments: r#"{"revenue_dong":99999}"#.into(),
+                }],
+            )],
+        );
+        assert!(has_ungrounded_number(&r, "99.999 ₫"));
     }
     #[test]
     fn numbers_normalize_money_formats() {

@@ -1,6 +1,6 @@
 # ADR 0008: Voice sales use one audio-native model call, no AccessibilityService
 
-Status: Proposed · Date: 2026-10-27 · Program: [voice](../specs/voice/README.md) · Amends the
+Status: Accepted (owner confirmed 2026-10-27) · Date: 2026-10-27 · Program: [voice](../specs/voice/README.md) · Amends the
 "Voice" decision of the [assistant program](../specs/assistant/README.md)
 
 ## Context

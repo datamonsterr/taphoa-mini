@@ -208,3 +208,27 @@ test('a negative balance is shown as money the store holds', async () => {
   ).toBeOnTheScreen();
   expect(screen.getByLabelText('Tổng nợ 0đ')).toBeOnTheScreen();
 });
+
+test('the add circle creates a profile without a sale and opens its customer screen', async () => {
+  await renderWithProviders(<DebtBookScreen />);
+  await fireEvent.press(screen.getByLabelText('Thêm khách hàng'));
+  expect(screen.getByRole('header', { name: 'Khách mới' })).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText('Tên khách hàng'), 'Cô Hoa');
+  await fireEvent.changeText(
+    screen.getByLabelText('Số điện thoại (không bắt buộc)'),
+    '0912345678',
+  );
+  await fireEvent.press(screen.getByLabelText('Tạo khách hàng'));
+  await waitFor(() =>
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/customer/[id]',
+      params: { id: expect.any(String) },
+    }),
+  );
+  const customer = (await debtsApi.listCustomers({ query: 'Hoa' })).items![0]!;
+  expect(router.push).toHaveBeenLastCalledWith({
+    pathname: '/customer/[id]',
+    params: { id: customer.id },
+  });
+  expect(screen.queryByLabelText('Tên khách hàng')).toBeNull();
+});

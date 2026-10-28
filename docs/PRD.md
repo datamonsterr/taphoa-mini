@@ -211,16 +211,16 @@ Priority: **P0** = MVP must, **P1** = MVP should, **P2** = later.
 
 ## 6. Non-functional requirements
 
-| Area        | Requirement                                                                                                                                                         |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Usability   | Vietnamese UI; minimum 18sp body text, 32sp+ for prices and totals; tap targets ≥56dp; max 3 taps from home to payment QR; no jargon.                               |
-| Offline     | Recognition runs on the server and needs internet. Without internet, grid mode, manual price, catalog, and VietQR generation still work; sales sync when online.    |
-| Performance | Counter photo to editable cart ≤3 s end to end on 4G/Wi-Fi; app cold start ≤3 s.                                                                                    |
-| Accuracy    | Recognition never adds to cart without seller confirmation. Track confirmed-vs-corrected rate as the accuracy metric.                                               |
-| Data safety | Local database + cloud backup; restore onto a new phone; no data loss if phone is lost after last sync.                                                             |
-| Privacy     | Store data belongs to the store; no selling or sharing; photos are of products, not customers. Comply with Decree 13/2023/ND-CP on personal data for user accounts. |
-| Cost        | Server GPU cost per scan must be measured in phase 1 and fit the phase 3 pricing model.                                                                             |
-| Platform    | Phase 1–2: Android build for the family store. Phase 3: Google Play and App Store.                                                                                  |
+| Area        | Requirement                                                                                                                                                                                                                                         |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Usability   | Vietnamese UI; minimum 18sp body text, 32sp+ for prices and totals; tap targets ≥56dp; max 3 taps from home to payment QR; no jargon.                                                                                                               |
+| Offline     | Recognition runs on the server and needs internet. Without internet, grid mode, manual price, catalog, and VietQR generation still work; sales sync when online.                                                                                    |
+| Performance | Counter photo to editable cart ≤3 s end to end on 4G/Wi-Fi; app cold start ≤3 s.                                                                                                                                                                    |
+| Accuracy    | Recognition never adds to cart without seller confirmation. Track confirmed-vs-corrected rate as the accuracy metric.                                                                                                                               |
+| Data safety | Local database + cloud backup; restore onto a new phone; no data loss if phone is lost after last sync.                                                                                                                                             |
+| Privacy     | Store data belongs to the store; no selling or sharing; photos are of products, not customers. Comply with Decree 13/2023/ND-CP on personal data for user accounts.                                                                                 |
+| Cost        | Server GPU cost per scan must be measured in phase 1 and fit the phase 3 pricing model. CPU measurement: $0.000048 per scan (about $0.05 per 1,000 scans); see [recognition latency and cost evidence](specs/recognition-latency.md#cost-per-scan). |
+| Platform    | Phase 1–2: Android build for the family store. Phase 3: Google Play and App Store.                                                                                                                                                                  |
 
 ## 7. Key user flows
 

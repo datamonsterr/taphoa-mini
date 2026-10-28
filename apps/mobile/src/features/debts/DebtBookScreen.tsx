@@ -1,6 +1,6 @@
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Plus } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { colors, radius, size, space, typography } from '@/theme';
 
+import { CustomerPicker } from './CustomerPicker';
 import { useInputStyle } from './DebtInput';
 import { OverdueBadge } from './OverdueBadge';
 import { debtStrings } from './strings';
@@ -22,6 +23,7 @@ const balanceColor = (balance: number) =>
 export function DebtBookScreen() {
   const t = useT(debtStrings);
   const insets = useSafeAreaInsets();
+  const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState('');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,6 +65,12 @@ export function DebtBookScreen() {
         <Text accessibilityRole="header" style={styles.title}>
           {t('book.title')}
         </Text>
+        <CircleButton
+          icon={Plus}
+          variant="ink"
+          accessibilityLabel={t('book.add')}
+          onPress={() => setCreating(true)}
+        />
       </View>
 
       <View style={styles.summary}>
@@ -218,6 +226,20 @@ export function DebtBookScreen() {
           );
         }}
       />
+      {creating ? (
+        <CustomerPicker
+          mode="create"
+          onClose={() => setCreating(false)}
+          onSelect={(customer) => {
+            setCreating(false);
+            open(customer);
+          }}
+          onCreate={(customer) => {
+            setCreating(false);
+            open(customer);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -230,7 +252,7 @@ const styles = StyleSheet.create({
     gap: space[3],
     paddingHorizontal: space[4],
   },
-  title: { ...typography.title, color: colors.ink },
+  title: { ...typography.title, color: colors.ink, flex: 1 },
   summary: {
     flexDirection: 'row',
     flexWrap: 'wrap',

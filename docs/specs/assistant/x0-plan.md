@@ -1,6 +1,6 @@
 # X0 plan: assistant contract and shared interfaces
 
-Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X0" · Contract source:
+Status: Done · Merge: [#30](https://github.com/datamonsterr/taphoa-mini/pull/30) · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X0" · Contract source:
 [assistant.md](assistant.md) "API contract", [telemetry-contract.md](telemetry-contract.md)
 "Product events".
 

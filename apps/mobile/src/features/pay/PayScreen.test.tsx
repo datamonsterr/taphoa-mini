@@ -1,3 +1,4 @@
+import { seedCustomer } from '@/test/debts';
 import { createCustomer } from '@/lib/api/debts';
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
@@ -69,6 +70,9 @@ async function findNewSale() {
 describe('PayScreen transfer', () => {
   it('shows the total and the VietQR for the store bank account', async () => {
     await renderWithProviders(<PayScreen />);
+    expect(
+      screen.getByRole('header', { name: 'Thanh toán' }),
+    ).toBeOnTheScreen();
     expect(screen.getByText('24.500đ')).toBeOnTheScreen();
     expect(await screen.findByLabelText('Mã VietQR 24.500đ')).toBeOnTheScreen();
     const value = screen.getByTestId('qr-value').props.children as string;
@@ -385,6 +389,7 @@ describe('PayScreen credit', () => {
     const c = await createCustomer({
       id: newUuid(),
       name: 'Chị Lan',
+      phone: '0901234567',
       ...(limit === undefined ? {} : { credit_limit: limit }),
     });
     await renderWithProviders(<PayScreen />);
@@ -394,7 +399,16 @@ describe('PayScreen credit', () => {
   }
   it('sends full credit and preserves success behaviour', async () => {
     const c = await chooseCustomer();
-    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    expect(screen.getByText('Ghi nợ 24.500đ')).toBeOnTheScreen();
+    expect(screen.getAllByTestId('icon-BookOpen')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Ghi nợ 24.500đ' })).toHaveStyle({
+      backgroundColor: '#111114',
+    });
+    expect(screen.getByText('0901234567')).toBeOnTheScreen();
+    expect(screen.getByText('Đang nợ 0đ')).toBeOnTheScreen();
+    expect(screen.getByText('Đổi')).toBeOnTheScreen();
+    expect(screen.getByText('Nợ mới của khách 24.500đ')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: /^Ghi nợ / }));
     await screen.findByLabelText('Đã nhận tiền xong');
     expect(await findNewSale()).toMatchObject({
       payment_method: 'credit',
@@ -405,8 +419,13 @@ describe('PayScreen credit', () => {
   });
   it('sends partial cash with paid-now amount', async () => {
     await chooseCustomer();
+    await fireEvent.press(screen.getByLabelText('Khác'));
     await fireEvent.changeText(screen.getByLabelText('Trả trước'), '10000');
-    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await fireEvent.press(screen.getByLabelText('Xong'));
+    expect(
+      screen.getByRole('button', { name: 'Ghi nợ 14.500đ' }),
+    ).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: /^Ghi nợ / }));
     await screen.findByLabelText('Đã nhận tiền xong');
     expect(await findNewSale()).toMatchObject({
       payment_method: 'cash',
@@ -418,19 +437,54 @@ describe('PayScreen credit', () => {
   it('warns over the limit and keeps confirm enabled', async () => {
     await chooseCustomer(1000);
     expect(screen.getByText('Vượt hạn mức ghi nợ')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Đã nhận tiền')).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Ghi nợ / })).toBeEnabled();
   });
   it('blocks paid-now above total and treats exact payment as normal cash', async () => {
     await chooseCustomer();
+    await fireEvent.press(screen.getByLabelText('Khác'));
     await fireEvent.changeText(screen.getByLabelText('Trả trước'), '24501');
-    expect(screen.getByLabelText('Đã nhận tiền')).toBeDisabled();
+    expect(screen.getByLabelText('Xong')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Ghi nợ / })).toBeDisabled();
     await fireEvent.changeText(screen.getByLabelText('Trả trước'), '24500');
-    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await fireEvent.press(screen.getByLabelText('Xong'));
+    await fireEvent.press(screen.getByRole('button', { name: /^Ghi nợ / }));
     await screen.findByLabelText('Đã nhận tiền xong');
     expect(await findNewSale()).toMatchObject({
       payment_method: 'cash',
       credit_amount: 0,
       cash_received: 24500,
     });
+  });
+
+  it('quick prepayment chips update the projected debt and custom keypad amount', async () => {
+    await chooseCustomer();
+    await fireEvent.press(screen.getByRole('radio', { name: '20.000đ' }));
+    expect(screen.getByText('Nợ mới của khách 4.500đ')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Ghi nợ 4.500đ' })).toBeEnabled();
+    await fireEvent.press(screen.getByRole('radio', { name: '0đ' }));
+    await fireEvent.press(screen.getByLabelText('Khác'));
+    for (const key of ['1', '0', '000'])
+      await fireEvent.press(screen.getByRole('button', { name: key }));
+    await fireEvent.press(screen.getByLabelText('Xong'));
+    expect(
+      screen.getByRole('button', { name: 'Ghi nợ 14.500đ' }),
+    ).toBeEnabled();
+  });
+
+  it('adds the sale to the existing balance and lets the seller change customers', async () => {
+    await seedCustomer({ name: 'Chị Lan', phone: '0901234567', owes: 100000 });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByRole('radio', { name: 'Ghi nợ' }));
+    await fireEvent.press(await screen.findByLabelText('Chị Lan, 100.000đ'));
+    expect(screen.getByText('Đang nợ 100.000đ')).toBeOnTheScreen();
+    expect(screen.getByText('Nợ mới của khách 124.500đ')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('radio', { name: '20.000đ' }));
+    expect(screen.getByText('Nợ mới của khách 104.500đ')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Đổi khách hàng$/ }),
+    );
+    expect(
+      screen.getByRole('header', { name: 'Chọn khách ghi nợ' }),
+    ).toBeOnTheScreen();
   });
 });

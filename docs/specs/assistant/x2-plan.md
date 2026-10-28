@@ -1,6 +1,6 @@
 # X2 plan: observability platform and backend OpenTelemetry
 
-Status: In progress · Date: 2026-10-25 · Epic: [X2](epics.md) · Contract:
+Status: Done · Merge: [#33](https://github.com/datamonsterr/taphoa-mini/pull/33) · Date: 2026-10-25 · Epic: [X2](epics.md) · Contract:
 [telemetry-contract.md](telemetry-contract.md) · ADR [0007](../../adr/0007-posthog-only-observability.md)
 (supersedes 0006)
 

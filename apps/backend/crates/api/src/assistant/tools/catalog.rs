@@ -104,6 +104,9 @@ impl Tool for CatalogIssues {
             ), issues AS (
                 SELECT p.*,array_remove(ARRAY[
                     CASE WHEN (p.normalized_name<>'' AND EXISTS(SELECT 1 FROM catalog q WHERE q.id<>p.id AND q.normalized_name=p.normalized_name))
+                        OR EXISTS(SELECT 1 FROM catalog q WHERE q.id<>p.id AND p.category_id IS NOT NULL
+                        AND q.category_id=p.category_id AND q.price=p.price
+                        AND similarity(immutable_unaccent(lower(q.name)),immutable_unaccent(lower(p.name)))>=0.85)
                         OR EXISTS(SELECT 1 FROM barcodes a JOIN barcodes b ON a.barcode=b.barcode AND a.product_id<>b.product_id WHERE a.product_id=p.id)
                         THEN 'possible_duplicate' END,
                     CASE WHEN p.category_id IS NULL THEN 'missing_category' END,
@@ -115,6 +118,21 @@ impl Tool for CatalogIssues {
             WHERE cardinality(issues)>0 ORDER BY id LIMIT 51
         "#).bind(ctx.actor.store_id).fetch_all(pool(&ctx.state)?).await?;
         let mut out = super::ops::items(rows, 50, "Sản phẩm cần kiểm tra danh mục");
+        out.data["minimum_reference_count"] = json!(3);
+        let items = out.data["items"].as_array().expect("catalog items");
+        let mut counts = std::collections::BTreeMap::<String, usize>::new();
+        for item in items {
+            for issue in item["issues"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                *counts.entry(issue.into()).or_default() += 1;
+            }
+        }
+        out.data["returned_product_count"] = json!(items.len());
+        out.data["issue_counts"] = json!(counts);
         out.data["note_vi"] = json!(
             "Giá luôn có trong dữ liệu; giá bằng 0 được đánh dấu cần kiểm tra, không khẳng định là sai."
         );
