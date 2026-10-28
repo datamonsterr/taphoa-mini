@@ -1868,9 +1868,9 @@ export interface components {
             image_url?: string | null;
         };
         VoiceUtteranceContext: {
-            /** @example sell_fab */
-            entry: string;
-            /** @example sell */
+            /** @enum {string} */
+            entry: "bubble" | "tile" | "shortcut" | "control" | "action_button" | "siri" | "longpress" | "chip" | "chat";
+            /** @example camera */
             screen: string;
             /** Format: uuid */
             thread_id?: string | null;

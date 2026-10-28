@@ -10,7 +10,7 @@ import {
 
 const api = () =>
   createApiClient({ baseUrl: 'http://mock.local', fetch: createMockFetch() });
-const context = { entry: 'sell_fab', screen: 'sell' };
+const context = { entry: 'longpress' as const, screen: 'camera' };
 
 function utter(
   name: string,

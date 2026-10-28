@@ -3123,8 +3123,21 @@ components:
       type: object
       required: [entry, screen]
       properties:
-        entry: { type: string, example: sell_fab }
-        screen: { type: string, example: sell }
+        entry:
+          type: string
+          enum:
+            [
+              bubble,
+              tile,
+              shortcut,
+              control,
+              action_button,
+              siri,
+              longpress,
+              chip,
+              chat,
+            ]
+        screen: { type: string, example: camera }
         thread_id: { type: [string, 'null'], format: uuid }
     CustomerMatch:
       type: object
