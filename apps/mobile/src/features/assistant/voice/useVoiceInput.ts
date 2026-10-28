@@ -204,6 +204,7 @@ export function useVoiceInput({
       duration_ms: Math.max(0, Date.now() - startedAt.current),
       language: locale.current,
       ok,
+      engine: 'device',
     });
     reset();
     if (ok) callbacks.current.onFinal(text);

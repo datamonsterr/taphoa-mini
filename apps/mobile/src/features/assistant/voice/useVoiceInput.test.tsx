@@ -230,7 +230,12 @@ test('other engine errors set error, deliver nothing and report ok false', async
   expect(captured).toEqual([
     {
       event: 'voice_input_used',
-      props: { duration_ms: expect.any(Number), language: 'vi-VN', ok: false },
+      props: {
+        duration_ms: expect.any(Number),
+        language: 'vi-VN',
+        ok: false,
+        engine: 'device',
+      },
     },
   ]);
 });
@@ -279,7 +284,12 @@ test('captures voice_input_used once per hold with duration and language', async
   expect(captured).toEqual([
     {
       event: 'voice_input_used',
-      props: { duration_ms: 2500, language: 'en-US', ok: true },
+      props: {
+        duration_ms: 2500,
+        language: 'en-US',
+        ok: true,
+        engine: 'device',
+      },
     },
   ]);
 });

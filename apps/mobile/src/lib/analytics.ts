@@ -10,9 +10,21 @@ export type NextStepKind =
   | 'review_queue'
   | 'digest'
   | 'setup'
-  | 'margin_alert';
+  | 'margin_alert'
+  | 'voice_sale';
 
 export type SignInMethod = 'email_code' | 'google';
+
+/** Where a voice sale started. */
+export type VoiceEntry =
+  | 'bubble'
+  | 'tile'
+  | 'shortcut'
+  | 'control'
+  | 'action_button'
+  | 'siri'
+  | 'longpress'
+  | 'chip';
 
 type AssistantStreamErrorCode =
   components['schemas']['AssistantStreamError']['code'];
@@ -45,7 +57,20 @@ export type AppEventProps = {
     duration_ms: number;
     language: 'vi-VN' | 'en-US';
     ok: boolean;
+    engine: 'device' | 'server';
   };
+  voice_setup_completed: {
+    platform: 'android' | 'ios';
+    kind: 'bubble' | 'tile' | 'control' | 'action_button' | 'siri';
+  };
+  voice_sale_started: { entry: VoiceEntry };
+  voice_sale_confirmed: {
+    edited: boolean;
+    line_count: number;
+    payment_method: 'cash' | 'transfer' | 'credit';
+    total: number;
+  };
+  voice_sale_abandoned: { stage: 'listening' | 'draft' | 'pay' };
 };
 
 export type AppEventName = keyof AppEventProps;

@@ -14,8 +14,8 @@ export type CartLine = {
   /** Top-1 candidate shown for the detection; differs from `productId` after a correction. */
   suggestedProductId?: string;
   scanId?: string;
-  /** How the line entered the cart (S1 `camera`, S8 `multi_photo`); sent as the sale line `source`. */
-  source?: 'camera' | 'multi_photo' | 'barcode';
+  /** How the line entered the cart (S1 `camera`, S8 `multi_photo`, `barcode`, `voice`); sent as the sale line `source`. */
+  source?: 'camera' | 'multi_photo' | 'barcode' | 'voice';
 };
 
 export type NewCartLine = Omit<CartLine, 'qty' | 'manual'> & {
@@ -29,6 +29,8 @@ type CartState = {
   decrement: (productId: string) => void;
   remove: (productId: string) => void;
   clear: () => void;
+  /** Merges lines at their own quantity and price (a voice draft handed to the pay screen). */
+  addMany: (lines: (NewCartLine & { qty: number })[]) => void;
 };
 
 export const useCartStore = create<CartState>()((set) => ({
@@ -73,6 +75,17 @@ export const useCartStore = create<CartState>()((set) => ({
   remove: (productId) =>
     set((s) => ({ lines: s.lines.filter((l) => l.productId !== productId) })),
   clear: () => set({ lines: [] }),
+  addMany: (added) =>
+    set((s) => {
+      const lines = [...s.lines];
+      for (const line of added) {
+        const index = lines.findIndex((l) => l.productId === line.productId);
+        const current = lines[index];
+        if (current) lines[index] = { ...current, qty: current.qty + line.qty };
+        else lines.push({ ...line, manual: line.manual ?? false });
+      }
+      return { lines };
+    }),
 }));
 
 export const selectLines = (s: CartState) => s.lines;
