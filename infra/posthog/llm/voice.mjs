@@ -4,13 +4,14 @@ import { chart, dashboard, number, where } from './helpers.mjs';
 // (apps/backend/crates/api/src/voice/telemetry.rs); `$ai_session_id` is the utterance id.
 const voiceGeneration =
   "event = '$ai_generation' AND properties.voice_call IS NOT NULL";
-const cost = `coalesce(${number('$ai_total_cost_usd')}, ${number('$ai_input_cost_usd')} + ${number('$ai_output_cost_usd')})`;
+// AI metrics read the posthog.ai_events columns, like the assistant dashboards.
+const cost = 'coalesce(total_cost_usd, input_cost_usd + output_cost_usd)';
 const drafted = `${where} AND event = 'voice_sale_drafted'`;
 const result = dashboard('Voice', [
   [
     'Cost per utterance avg / p95',
     chart(
-      `SELECT day, avg(utterance_cost) AS avg_cost_usd, quantile(0.95)(utterance_cost) AS p95_cost_usd FROM (SELECT toStartOfDay(min(timestamp)) AS day, properties.$ai_session_id AS utterance, sum(${cost}) AS utterance_cost FROM events WHERE ${where} AND ${voiceGeneration} AND notEmpty(toString(properties.$ai_session_id)) GROUP BY utterance HAVING countIf(${cost} IS NOT NULL) > 0) GROUP BY day ORDER BY day`,
+      `SELECT day, avg(utterance_cost) AS avg_cost_usd, quantile(0.95)(utterance_cost) AS p95_cost_usd FROM (SELECT toStartOfDay(min(timestamp)) AS day, properties.$ai_session_id AS utterance, sum(${cost}) AS utterance_cost FROM posthog.ai_events WHERE ${where} AND ${voiceGeneration} AND notEmpty(toString(properties.$ai_session_id)) GROUP BY utterance HAVING countIf(${cost} IS NOT NULL) > 0) GROUP BY day ORDER BY day`,
       'ActionsLineGraph',
       'day',
       ['avg_cost_usd', 'p95_cost_usd'],
@@ -22,7 +23,7 @@ const result = dashboard('Voice', [
   [
     'Voice spend per day',
     chart(
-      `SELECT toStartOfDay(timestamp) AS day, sum(${cost}) AS cost_usd, uniq(properties.$ai_session_id) AS utterances FROM events WHERE ${where} AND ${voiceGeneration} GROUP BY day ORDER BY day`,
+      `SELECT toStartOfDay(timestamp) AS day, sum(${cost}) AS cost_usd, uniq(properties.$ai_session_id) AS utterances FROM posthog.ai_events WHERE ${where} AND ${voiceGeneration} GROUP BY day ORDER BY day`,
       'ActionsBar',
       'day',
       ['cost_usd'],
@@ -79,12 +80,12 @@ const result = dashboard('Voice', [
   [
     'Calls and cost by model',
     chart(
-      `SELECT properties.$ai_model AS model, count() AS calls, countIf(${number('fallback_index')} > 0) AS fallback_calls, sum(${cost}) AS cost_usd FROM events WHERE ${where} AND ${voiceGeneration} GROUP BY model ORDER BY calls DESC`,
+      `SELECT model, count() AS calls, countIf(${number('fallback_index')} > 0) AS fallback_calls, sum(${cost}) AS cost_usd FROM posthog.ai_events WHERE ${where} AND ${voiceGeneration} GROUP BY model ORDER BY calls DESC`,
       'ActionsBar',
       'model',
       ['calls', 'fallback_calls'],
     ),
-    'Voice model calls by `$ai_model`, with calls served by a fallback (fallback_index > 0) and total cost.',
+    'Voice model calls by model, with calls served by a fallback (fallback_index > 0) and total cost.',
   ],
 ]);
 export default result;

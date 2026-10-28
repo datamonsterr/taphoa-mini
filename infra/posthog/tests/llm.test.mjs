@@ -40,6 +40,23 @@ test('LLM scope covers every requested chart and three shared trace filters', ()
   assert.match(queries, /decision = 'rejected'/);
   assert.match(queries, /countIf\(event = '\$ai_trace'\) > 0/);
   assert.match(queries, /permission_leak/);
+  for (const d of llmDashboards.filter((d) =>
+    ['Assistant health', 'Cost and tokens', 'Tools and actions'].includes(
+      d.name,
+    ),
+  ))
+    for (const i of d.insights.filter(
+      (i) => i.query.source.kind === 'HogQLQuery',
+    ))
+      assert.match(
+        i.query.source.query,
+        /properties.voice_call IS NULL/,
+        i.name,
+      );
+  assert.doesNotMatch(
+    definitions.map((i) => JSON.stringify(i.query)).join('\n'),
+    /\$ai_trace_id IS NOT NULL/,
+  );
   const voice = llmDashboards.find((d) => d.name === 'Voice').insights;
   const voiceQueries = voice.map((i) => JSON.stringify(i.query)).join('\n');
   for (const name of [
@@ -54,7 +71,7 @@ test('LLM scope covers every requested chart and three shared trace filters', ()
   assert.match(voiceQueries, /\$ai_session_id/);
   assert.match(voiceQueries, /quantile\(0.95\)/);
   assert.match(voiceQueries, /stt_fallback/);
-  assert.match(voiceQueries, /\$ai_model/);
+  assert.match(voiceQueries, /FROM posthog\.ai_events/);
   assert.match(voiceQueries, /"breakdown":"stage"/);
   assert.match(voiceQueries, /"breakdown":"engine"/);
   assert.equal(

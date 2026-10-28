@@ -151,7 +151,7 @@ test('non-synthetic verification composes with both store filters on every manag
         },
       },
     });
-    assert.equal(result.insights.length, 59);
+    assert.equal(result.insights.length, 67);
     assert.ok(result.insights.every((row) => !row.error));
     for (const { query, name } of calls) {
       const global = /1,000\/day|Online judge/.test(name ?? '');

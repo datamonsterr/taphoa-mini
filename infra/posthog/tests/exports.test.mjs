@@ -37,15 +37,15 @@ test('exports every product and LLM dashboard, polls, validates PNG and records 
     now: () => new Date('2026-10-29T01:00:00Z'),
     save: async (file, bytes) => files.set(file, bytes),
   });
-  assert.equal(calls.length, 11);
+  assert.equal(calls.length, 12);
   assert.ok(
     calls.every(
       (call) =>
         call.path === 'exports/' && call.body.export_format === 'image/png',
     ),
   );
-  assert.equal(files.size, 12);
-  assert.equal(result.dashboards.length, 11);
+  assert.equal(files.size, 13);
+  assert.equal(result.dashboards.length, 12);
   assert.match(result.scope, /all environments/);
   assert.ok(
     [...files.keys()].every((file) =>
