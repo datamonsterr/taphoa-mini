@@ -9,15 +9,16 @@ name: Eval
 #   gh workflow run eval.yml -f set=smoke
 #   gh workflow run eval.yml -f set=full -f model=<model id>
 #   gh workflow run eval.yml -f compare_models=<model>,<model>
+#   gh workflow run eval.yml -f voice=smoke          # voice golden set (epic V5), instead of the assistant
 #
 # Results land in packages/eval/results/. The run uploads them as an artifact and commits them
 # to the branch eval/results, which has one open pull request into main. This workflow never
 # pushes to main (a push to main deploys production). A pull request opened with GITHUB_TOKEN
 # does not start CI by itself: close and reopen it once to run the checks.
 
-# The run title names the set so the guard can find earlier full runs; compare runs get their
-# own title so they never count as a full run.
-run-name: eval ${{ inputs.compare_models && 'compare' || inputs.set || 'full' }}
+# The run title names the set so the guard can find earlier full runs; compare and voice runs
+# get their own title so they never count as a full run.
+run-name: eval ${{ (inputs.voice || 'none') != 'none' && format('voice {0}', inputs.voice) || inputs.compare_models && 'compare' || inputs.set || 'full' }}
 
 on:
   schedule:
@@ -41,6 +42,11 @@ on:
         description: Run a full run although one already ran today (UTC)
         type: boolean
         default: false
+      voice:
+        description: Run the voice golden set (epic V5) instead of the assistant eval; manual only, needs the V1 voice backend
+        type: choice
+        options: [none, smoke, full]
+        default: none
 
 permissions:
   contents: read
@@ -89,7 +95,8 @@ jobs:
 
   run:
     needs: guard
-    if: needs.guard.outputs.run == 'true'
+    # A voice dispatch runs the voice job below instead.
+    if: needs.guard.outputs.run == 'true' && (inputs.voice || 'none') == 'none'
     runs-on: ubuntu-latest
     # A full run is about 650 free-tier requests at concurrency 1.
     timeout-minutes: 120
@@ -192,6 +199,80 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           RUN_SET: ${{ inputs.compare_models && 'compare' || inputs.set || 'full' }}
         run: scripts/ci/job-summary.sh "eval $RUN_SET" "live stack in Actions (compose postgres + redis, local backend)"
+
+  # Voice golden set (epic V5): the clips of packages/eval/golden/voice posted to
+  # /v1/voice/utterances on the same local stack. Manual only (`-f voice=smoke|full`); the
+  # schedule and pull requests never start it. It needs the V1 voice backend in this ref and
+  # spends OpenRouter credit (cents per full run) but none of the free assistant quota, so it
+  # does not use the guard. Results are uploaded as an artifact; commit the ones worth keeping.
+  voice:
+    if: github.event_name == 'workflow_dispatch' && (inputs.voice || 'none') != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - uses: actions/cache@v6
+        with:
+          path: .ci-cache
+          key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Build the backend and seed binaries
+        run: scripts/ci/build-backend-binary.sh
+      - name: Start the eval stack
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: scripts/ci/eval-ci.sh up
+      - name: Check eval identities
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm --filter @taphoa/eval run identities
+      # BACKEND_URL comes from the stack step; ClerkAuth mints the tokens from CLERK_SECRET_KEY.
+      # --model is sent as X-Taphoa-Eval-Model once the voice backend honours it (see run.ts).
+      - name: Run the voice evaluation
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          VOICE_SUBSET: ${{ inputs.voice }}
+          RUN_MODEL: ${{ inputs.model }}
+        run: |
+          args=(--subset "$VOICE_SUBSET" --out "$GITHUB_WORKSPACE/packages/eval/results")
+          if [ -n "$RUN_MODEL" ]; then args+=(--model "$RUN_MODEL"); fi
+          pnpm --filter @taphoa/eval run voice -- "${args[@]}"
+      - name: Results to the job summary
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/voice-results"
+          cp packages/eval/results/voice-*.md packages/eval/results/voice-*.json "$RUNNER_TEMP/voice-results/" 2>/dev/null || true
+          scripts/ci/eval-ci.sh summary "$RUNNER_TEMP/voice-results"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: voice-eval-results
+          path: ${{ runner.temp }}/voice-results
+          if-no-files-found: ignore
+          retention-days: 30
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: voice-eval-stack-logs
+          path: ${{ runner.temp }}/taphoa-eval-stack/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop the eval stack
+        if: always()
+        run: scripts/ci/eval-ci.sh down
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: scripts/ci/job-summary.sh "eval voice ${{ inputs.voice }}" "live stack in Actions (compose postgres + redis, local backend)"
 
   # Commits the results to eval/results and keeps one pull request into main open. Runs after a
   # failed run too: a missed pass bar is a result worth keeping.

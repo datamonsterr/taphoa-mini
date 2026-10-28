@@ -353,6 +353,7 @@ function parseArgs(args: string[]) {
   const values = new Map<string, string>();
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
+    if (a === '--') continue; // pnpm forwards the separator
     const eq = a.indexOf('=');
     const name = eq < 0 ? a : a.slice(0, eq);
     if (BOOLEANS.includes(name) && eq < 0) booleans.add(name);

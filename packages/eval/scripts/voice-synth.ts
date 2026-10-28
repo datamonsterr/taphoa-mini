@@ -40,6 +40,7 @@ const SILENCE_SECONDS = 3;
 const NOISE_AMPLITUDE = 0.03;
 
 type Sidecar = {
+  /** Defaults to the file name without `.json`. */
   id: string;
   transcript: string;
   segments?: string[];
@@ -231,7 +232,11 @@ export async function main(argv: string[]): Promise<number> {
   const sidecars = readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .sort()
-    .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as Sidecar)
+    .map((f) => {
+      const raw = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Sidecar;
+      // The e2e sidecars have no id: the file name is the clip name.
+      return { ...raw, id: raw.id ?? f.slice(0, -'.json'.length) };
+    })
     .filter((c) => !only || only.includes(c.id));
   const todo = sidecars
     .map((c, index) => ({ c, index }))
