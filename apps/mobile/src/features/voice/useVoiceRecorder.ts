@@ -85,6 +85,8 @@ export function useVoiceRecorder({
 
   const live = useRef(false);
   const token = useRef(0);
+  /** Bumped by cancel and unmount: a clip that finishes after either is dropped. */
+  const dropped = useRef(0);
   const startedAt = useRef(0);
   const heard = useRef(false);
   const lastLoud = useRef(0);
@@ -108,6 +110,7 @@ export function useVoiceRecorder({
       if (!live.current) return null;
       live.current = false;
       clearTimers();
+      const mine = dropped.current;
       const durationMs = Date.now() - startedAt.current;
       let clip: VoiceClip | null = null;
       if (fixture) {
@@ -123,7 +126,12 @@ export function useVoiceRecorder({
         }
       }
       setStatus('idle');
-      if (!deliver || !clip || (!clip.fixture && durationMs < MIN_CLIP_MS))
+      if (
+        !deliver ||
+        mine !== dropped.current ||
+        !clip ||
+        (!clip.fixture && durationMs < MIN_CLIP_MS)
+      )
         return null;
       latest.current?.(clip);
       return clip;
@@ -189,6 +197,7 @@ export function useVoiceRecorder({
 
   const cancel = useCallback(async () => {
     token.current++;
+    dropped.current++;
     if (live.current) await finish(false);
     else setStatus('idle');
   }, [finish]);
@@ -213,6 +222,7 @@ export function useVoiceRecorder({
   useEffect(
     () => () => {
       token.current++;
+      dropped.current++;
       clearTimeout(timers.current.cap);
       clearInterval(timers.current.tick);
       if (live.current) {
