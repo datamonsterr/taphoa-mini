@@ -228,7 +228,7 @@ docs/design/
   DESIGN.md                this file
   canvas/
     canvas.json            board layout, titles, notes, design-system record
-    *.dc.html              one file per board (33)
+    *.dc.html              one file per board (37)
     ds/taphoa/             copy of the design system: tokens.json, tokens.css, components/bundle.css
 ```
 
