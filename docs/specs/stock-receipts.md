@@ -1,6 +1,6 @@
 # Stock and import receipts: scan a supplier receipt into stock and expenses
 
-Status: Done · Merge: [#27](https://github.com/datamonsterr/taphoa-mini/pull/27) · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
+Status: Done · Merge: [#27](https://github.com/datamonsterr/taphoa-mini/pull/27), [#109](https://github.com/datamonsterr/taphoa-mini/pull/109) (live receipt detection, editable lines) · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
 recognition (PRD E2, E4 promoted from P2)
 
 ## Goal
