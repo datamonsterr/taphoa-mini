@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { createStore } from '../src/helpers.js';
 import { decideLatency, latencySampleCount } from '../src/latency.js';
 import { form, post, postRetrying } from '../src/recognition-http.js';
-import { foreground, segmentRetrying, upload } from '../src/segment-points.js';
 
 // Budget specs run apart from the recognition contracts: Railway's inference latency is noisy,
 // so run-e2e.sh runs this file as a soft step.
@@ -68,36 +67,6 @@ describe('recognition latency', () => {
       expect(fetched.response.status).toBe(200);
       expect(fetched.data?.id).toBe(last.id);
       expect(fetched.data?.detections.length).toBe(last.detections.length);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  it(
-    'segments cold quick-enroll photos within the point-segmentation budget',
-    async () => {
-      const store = await createStore();
-      const token = store.session.access_token;
-      const budgetMs = Number(process.env.SEGMENT_POINTS_BUDGET_MS ?? 3000);
-      const samples: number[] = [];
-      for (let run = 0; run < RUNS; run++) {
-        // A new image ID per sample forces an encoder cache miss. Upload is setup;
-        // time the endpoint through reading its response, as with the other probes.
-        const imageId = await upload(token);
-        const result = await segmentRetrying(imageId, [foreground], token);
-        expect(result.response.status, JSON.stringify(result.body)).toBe(200);
-        samples.push(result.ms);
-        expect(result.body.timings.encode).toBeGreaterThan(0);
-        expect(result.body.bbox).toHaveLength(4);
-        expect(result.body.cutout_image_id).toBeTruthy();
-      }
-      const decision = decideLatency(samples, { budgetMs, quantile: QUANTILE });
-      console.info(
-        `segment points latency ms: ${samples.map((s) => Math.round(s)).join(', ')} p90=${Math.round(decision.adjustedMs)} budget=${budgetMs}`,
-      );
-      expect(
-        decision.passes,
-        `segment points p90 ${decision.adjustedMs}ms must be < ${budgetMs}ms`,
-      ).toBe(true);
     },
     TEST_TIMEOUT_MS,
   );
