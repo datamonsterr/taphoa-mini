@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Receipt } from '../src/lib/api';
+import { mapBox } from '../src/lib/bbox';
 import {
   API_URL,
   button,
@@ -9,6 +10,7 @@ import {
   expect,
   keypad,
   openCamera,
+  recordApi,
   test,
   withScanSlot,
 } from './fixtures';
@@ -97,6 +99,7 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
   // path and the document-state shutter (upload → receipt), with no API mocks.
   // shoot() is intentionally unused: it assumes product detection boxes.
   const created = await withScanSlot(async () => {
+    const probes = recordApi(page, 'POST', '/v1/recognition/document-probes');
     await openCamera(page);
     await expect(page.getByText(/^Hóa đơn · \d+ dòng chữ$/)).toBeVisible({
       timeout: 45_000,
@@ -107,6 +110,43 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
     await expect(
       page.getByText('Giữ máy thẳng, đủ sáng · chụp để đọc chữ'),
     ).toBeVisible();
+    // Check alignment against the actual web video transform. Desktop/fake
+    // streams omit facingMode, which Expo 58 treats as a mirrored front camera.
+    const video = await page
+      .locator('video')
+      .evaluate((element: HTMLVideoElement) => ({
+        width: element.videoWidth,
+        height: element.videoHeight,
+        mirrored:
+          new DOMMatrixReadOnly(getComputedStyle(element).transform).a < 0,
+        facingMode: (element.srcObject as MediaStream)
+          .getVideoTracks()[0]
+          .getSettings().facingMode,
+      }));
+    expect(video.mirrored).toBe((video.facingMode ?? 'user') === 'user');
+    const signal = (await probes.stop()).at(-1)!.body;
+    expect(signal.detected).toBe(true);
+    const frame = (await page.getByTestId('viewfinder').boundingBox())!;
+    for (const [index, line] of (signal.line_boxes as number[][]).entries()) {
+      const x = video.mirrored ? 1 - line[0] - line[2] : line[0];
+      const expected = mapBox(
+        [
+          x * video.width,
+          line[1] * video.height,
+          line[2] * video.width,
+          line[3] * video.height,
+        ],
+        video,
+        frame,
+        'cover',
+      );
+      const box = (await page
+        .getByTestId(`document-line-${index}`)
+        .boundingBox())!;
+      // Probe resizing rounds to whole pixels; allow its subpixel fit difference.
+      expect(Math.abs(box.x - frame.x - expected.x)).toBeLessThan(1);
+      expect(Math.abs(box.width - expected.width)).toBeLessThan(1);
+    }
     await screenshot('receipts-01-camera');
     return callApi<Receipt>(page, 'POST', '/v1/receipts', () =>
       button(page, 'Chụp và đọc hóa đơn').click(),

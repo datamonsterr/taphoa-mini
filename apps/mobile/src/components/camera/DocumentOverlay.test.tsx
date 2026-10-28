@@ -62,6 +62,29 @@ test('caps boxes at 40 but retains the full count in the badge', async () => {
   expect(screen.getByText('Hóa đơn · 55 dòng chữ')).toBeOnTheScreen();
 });
 
+test.each([
+  [false, 0],
+  [true, 300],
+])(
+  'mirrored=%s reflects normalized x before cover cropping',
+  async (mirrored, left) => {
+    await render(
+      <DocumentOverlay
+        document={{ ...document, line_boxes: [[0.125, 0.25, 0.25, 0.125]] }}
+        imageSize={{ width: 800, height: 400 }}
+        viewSize={{ width: 400, height: 400 }}
+        mirrored={mirrored}
+      />,
+    );
+    expect(screen.getByTestId('document-line-0')).toHaveStyle({
+      left,
+      top: 100,
+      width: 100,
+      height: 50,
+    });
+  },
+);
+
 test('has no document overlay for a negative signal', async () => {
   await render(
     <DocumentOverlay

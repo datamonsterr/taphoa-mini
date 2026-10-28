@@ -17,7 +17,12 @@ jest.mock('./capture', () => ({
   })),
 }));
 
-const photo = { uri: 'file:///probe.jpg', width: 480, height: 640 };
+const photo = {
+  uri: 'file:///probe.jpg',
+  width: 480,
+  height: 640,
+  previewMirrored: true,
+};
 const document = {
   detected: true,
   score: 0.9,
@@ -78,6 +83,7 @@ test('silently captures and probes every 2.5 seconds, returning dimensions with 
   expect(result.current).toEqual({
     document,
     imageSize: { width: 480, height: 640 },
+    previewMirrored: true,
   });
   expect(capture.discardProbePhoto).toHaveBeenCalledWith(photo.uri);
   await tick();
