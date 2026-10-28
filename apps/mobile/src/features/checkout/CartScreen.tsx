@@ -21,6 +21,7 @@ import {
   type StepperLabels,
 } from '@/components/ui';
 import {
+  cartLineKey,
   selectCount,
   selectLines,
   selectTotal,
@@ -39,6 +40,7 @@ import {
 import { useLabels, useT, fill } from '@/lib/i18n';
 
 import { LineThumb } from './LineThumb';
+import { UnitChooser } from './UnitChooser';
 import { cartStrings } from './strings';
 
 const SHEET_HEIGHT = 660;
@@ -60,7 +62,7 @@ const CartRow = memo(function CartRow({
   onRemove,
   labels,
 }: CartRowProps) {
-  const { productId } = line;
+  const productId = cartLineKey(line);
   const inc = useCallback(
     () => onIncrement(productId),
     [onIncrement, productId],
@@ -75,7 +77,7 @@ const CartRow = memo(function CartRow({
       entering={FadeInDown}
       exiting={FadeOutDown}
       layout={LinearTransition}
-      testID={`cart-line-${productId}`}
+      testID={`cart-line-${line.productId}${line.unitId ? `-${line.unitId}` : ''}`}
       style={[styles.line, !first && styles.divider]}
     >
       <LineThumb uri={line.imageUrl} />
@@ -83,6 +85,7 @@ const CartRow = memo(function CartRow({
         <Text numberOfLines={1} ellipsizeMode="tail" style={styles.lineName}>
           {line.name}
         </Text>
+        <UnitChooser line={line} />
         <MoneyText
           amount={line.price}
           variant="label"
@@ -162,7 +165,7 @@ export function CartScreen() {
             <LayoutAnimationConfig skipEntering>
               {lines.map((line, index) => (
                 <CartRow
-                  key={line.productId}
+                  key={cartLineKey(line)}
                   line={line}
                   first={index === 0}
                   onIncrement={increment}

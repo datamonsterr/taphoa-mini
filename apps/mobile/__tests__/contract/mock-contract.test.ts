@@ -871,6 +871,12 @@ test('debt customers, credit sale, ledger writes, summary and void conform to th
   await call(() => api.listDebtEntries(customer.id), 200);
   await call(() => api.getDebtSummary(), 200);
   await call(async () => {
+    const result = await api.getApiClient().raw.GET('/v1/sales/{saleId}', {
+      params: { path: { saleId: sale.id } },
+    });
+    return result.data;
+  }, 200);
+  await call(async () => {
     const result = await api
       .getApiClient()
       .raw.POST('/v1/sales/{saleId}/void', {

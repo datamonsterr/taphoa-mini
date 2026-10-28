@@ -72,7 +72,8 @@
         {
           "contactsPermission": "Tạp Hóa Mini dùng tên và số điện thoại của liên hệ bạn chọn để tạo khách hàng."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

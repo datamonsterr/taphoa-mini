@@ -7,7 +7,7 @@ The source of truth for the drawn boards is the design canvas v0.2
 https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9, built on the Tạp Hóa Mini design system
 (https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi). The v0.1 canvas
 https://claude.ai/artifact/2Jcc8NqdW7tt9jDB6RsnXh stays as the 2026-10-23 record. This folder
-holds 33 boards: the 32 copied on 2026-10-27 plus `VoiceSystem.dc.html`. Local V6 additions
+holds 37 boards: the 32 copied on 2026-10-27, `VoiceSystem.dc.html` and four repo-mirror boards for issue #88. Local V6 additions
 (understanding state, credit customer row and system surfaces) are published as canvas version 31.
 Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is their
 reference.
@@ -201,11 +201,23 @@ lý" hand-off when the words were a question.
 | Assistant U1-U23, next-step strip, daily digest          | 17, 01 strip, 23              |
 | Voice sale V-U1..V-U5, voice chat V-U6                   | 14-17                         |
 
+### Issue #88 repo-mirror additions
+
+| #   | Board / route                       | Controls                                                                                                                 |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 28a | `RecentSales.dc.html` · `/sales`    | Báo cáo entry; paginated recent sales, completed/voided status; loading, empty, retry                                    |
+| 28  | `SaleDetail.dc.html` · `/sale/[id]` | Sale lines, total, payment, status; Lead-only reason and confirmation; full void/refund, error/retry and recorded reason |
+| 29  | `Export.dc.html` · Báo cáo sheet    | Inclusive date range and CSV/XLSX; download and system share, pending/error; browser download fallback                   |
+| 09b | `ProductUnits.dc.html` · product 09 | Lead-only add/edit/delete extra units, quantity in base and price; cart/payment unit choices                             |
+
+These are repository designs for S10, R5 and C5; they are not a claim that the external canvas was updated.
+Unit writes replace `ProductPatch.units`. The base price remains on product 09. Full voids use the existing backend transaction; there is no partial-refund endpoint.
+
 ## 8. System surfaces and remaining boards
 
 - Boards for 22 (low-stock banner), 25 (add a person) and 27 (PIN lock); the code is the
   reference.
-- Elder-mode variants, TTS (S7), void / refund (S10), CSV export (R5).
+- Elder-mode variants, TTS (S7).
 - `VoiceSystem.dc.html`: Android persistent “Nút nói đang bật” notification with “Tắt”,
   Quick Settings tile “Bán hàng”, and iOS Control Center control (both open 15).
 

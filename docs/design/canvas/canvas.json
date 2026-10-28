@@ -291,6 +291,42 @@
       "w": 1240,
       "x": 3210,
       "y": 4128
+    },
+    "SaleDetail.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "28 Sale detail + refund",
+      "w": 390,
+      "x": 0,
+      "y": 4900
+    },
+    "RecentSales.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "28a Recent sales",
+      "w": 390,
+      "x": 470,
+      "y": 4900
+    },
+    "Export.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "29 Transaction export",
+      "w": 390,
+      "x": 940,
+      "y": 4900
+    },
+    "ProductUnits.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "09b Product units editor",
+      "w": 390,
+      "x": 1410,
+      "y": 4900
     }
   },
   "createdOnFiles": {
