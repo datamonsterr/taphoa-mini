@@ -178,7 +178,7 @@ mod tests {
         let silent = super::super::audio::fixtures::wav(2.0);
         assert_eq!(check(&silent, Format::Wav), Verdict::Silent);
         let mut tone = super::super::audio::fixtures::wav(1.0);
-        for (i, pair) in tone[44..].chunks_exact_mut(2).enumerate() {
+        for (i, pair) in tone[44..].as_chunks_mut::<2>().0.iter_mut().enumerate() {
             let s = ((i as f32 / 16000.0 * 440.0 * std::f32::consts::TAU).sin() * 8000.0) as i16;
             pair.copy_from_slice(&s.to_le_bytes());
         }
