@@ -197,8 +197,8 @@ describe('judgeModelsFromEnv', () => {
   it('defaults to the two free judges', () => {
     expect(judgeModelsFromEnv({})).toEqual(DEFAULT_JUDGE_MODELS);
     expect(DEFAULT_JUDGE_MODELS).toEqual([
-      'google/gemma-4-31b-it:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
+      'nvidia/nemotron-3.5-lightning:free',
+      'nvidia/nemotron-3.5-super-vl:free',
     ]);
   });
 
