@@ -192,3 +192,8 @@ so they are never sent for rolled-back transactions. Amounts in events are bucke
 
 Session replay: on in the app with all text inputs masked, camera preview and product images
 masked (`ph-no-capture` equivalents in the React Native SDK), network bodies not recorded.
+Native builds use `posthog-react-native` with the linked replay plugin (Expo Go stays disabled).
+Web uses `posthog-js` with inputs and rendered text masked, media and explicit mask-wrapper
+subtrees blocked, headers/bodies/console recording off. Web analytics, replay, identity and API
+session headers share one client. Test builds sample 100% and permit browser automation;
+other environments retain the browser SDK's bot filter and project sampling settings.

@@ -1,6 +1,21 @@
 import type { PostHog } from 'posthog-react-native';
 import { useSyncExternalStore } from 'react';
 
+export type AnalyticsClient = Pick<
+  PostHog,
+  | 'capture'
+  | 'screen'
+  | 'register'
+  | 'unregister'
+  | 'identify'
+  | 'group'
+  | 'reset'
+  | 'getSessionId'
+  | 'captureException'
+  | 'getFeatureFlag'
+  | 'onFeatureFlags'
+> & { isFeatureEnabled(key: string): boolean | undefined };
+
 type ExceptionProperties = Parameters<PostHog['captureException']>[1];
 
 /**
@@ -8,10 +23,10 @@ type ExceptionProperties = Parameters<PostHog['captureException']>[1];
  * checks, plus a subscription so hooks outside `PostHogProvider` never call the SDK's own hooks
  * (those log an error when no provider is mounted, which the web e2e suite treats as a crash).
  */
-let client: PostHog | null = null;
+let client: AnalyticsClient | null = null;
 const listeners = new Set<() => void>();
 
-export function setAnalyticsClient(next: PostHog | null): void {
+export function setAnalyticsClient(next: AnalyticsClient | null): void {
   client = next;
   listeners.forEach((listener) => listener());
 }
@@ -21,11 +36,11 @@ export const subscribeAnalyticsClient = (listener: () => void) => {
     listeners.delete(listener);
   };
 };
-export const analyticsClient = (): PostHog | null => client;
-const serverAnalyticsClient = (): PostHog | null => null;
+export const analyticsClient = (): AnalyticsClient | null => client;
+const serverAnalyticsClient = (): AnalyticsClient | null => null;
 
 /** The registered client, or null while analytics is off or not mounted yet. */
-export function useAnalyticsClient(): PostHog | null {
+export function useAnalyticsClient(): AnalyticsClient | null {
   return useSyncExternalStore(
     subscribeAnalyticsClient,
     analyticsClient,
