@@ -1,0 +1,54 @@
+appId: com.datamonsterr.taphoamini
+---
+# Android voice bubble setup in Tài khoản (V3). Covers what a Maestro flow can reach without
+# granting "Hiện trên ứng dụng khác": the switch shows the in-app explainer first, "Để sau"
+# leaves nothing changed, and "Mở cài đặt" jumps to the system Settings screen for the
+# permission. Granting it needs `adb shell appops set <pkg> SYSTEM_ALERT_WINDOW allow`, which
+# Maestro cannot run, so the flow stops at Settings and goes back; the overlay itself (bubble
+# over another app, tap -> sheet, Confirm -> previous app, tile, shortcut, reboot) is the manual
+# script in docs/specs/voice/play-console.md. A CI pre-step that grants the appop can be added
+# later; this flow then also sees the switch turn on.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Nút nói'
+      OWNER_NAME: 'Cô Tư'
+- runFlow: subflows/open-account.yaml
+- scrollUntilVisible:
+    element:
+      id: 'voice-bubble-row'
+- assertVisible: 'Nút nói nhanh'
+- assertVisible: 'Thêm ô cài đặt nhanh'
+# 1. the explainer comes before any Settings jump; "Để sau" closes it
+- tapOn:
+    id: 'voice-bubble-switch'
+- extendedWaitUntil:
+    visible:
+      id: 'voice-overlay-explainer'
+    timeout: 10000
+- assertVisible: 'Hiện trên ứng dụng khác'
+- assertVisible: '.*không tự ghi âm.*'
+- takeScreenshot: voice-bubble-01-explainer
+- tapOn:
+    id: 'voice-overlay-later'
+- assertNotVisible:
+    id: 'voice-overlay-explainer'
+# 2. "Mở cài đặt" opens the system screen for the permission
+- tapOn:
+    id: 'voice-bubble-switch'
+- tapOn:
+    id: 'voice-overlay-continue'
+- extendedWaitUntil:
+    visible: '.*(Hiện trên ứng dụng khác|Display over other apps|Tạp Hóa Mini).*'
+    timeout: 15000
+- takeScreenshot: voice-bubble-02-settings
+- back
+# 3. back in the app without the permission: the switch stays off
+- extendedWaitUntil:
+    visible:
+      id: 'voice-bubble-row'
+    timeout: 20000
+- assertNotVisible:
+    id: 'voice-overlay-explainer'

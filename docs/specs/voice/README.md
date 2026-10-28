@@ -25,6 +25,7 @@ names and prices are heard correctly. On-device recognition stays as the offline
 | [voice.md](voice.md)                                                                                   | Use cases, architecture, parsing rules, API contract, UI, entry points, privacy |
 | [speech-options.md](speech-options.md)                                                                 | Vendor and model comparison with verified prices; the decision and fallbacks    |
 | [epics.md](epics.md)                                                                                   | Epic briefs V0-V6: scope, owned files, tasks, acceptance, out of scope          |
+| [play-console.md](play-console.md)                                                                     | Android bubble: Play Console texts and the real-device test script (V3)         |
 | [DESIGN.md](../../design/DESIGN.md) · [canvas v0.2](https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9) | Screens 14-17 (voice bubble, listening, voice sale sheet, chat listening)       |
 
 ## Definition of done (whole program)
