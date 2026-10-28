@@ -35,9 +35,14 @@ import {
 
 import { uploadPartsAsBlobs } from './testing';
 import { CameraScreen } from './CameraScreen';
+import { useDocumentProbe } from './useDocumentProbe';
 import { useCaptureModeStore } from './modeStore';
 import { initialQuickEnroll, useQuickEnrollStore } from './quickEnroll';
 import * as downsizing from '@/lib/api/downsize';
+
+jest.mock('./useDocumentProbe', () => ({
+  useDocumentProbe: jest.fn(() => null),
+}));
 
 const mockFeedbackProps = jest.fn();
 jest.mock('./AddFeedback', () => {
@@ -159,6 +164,7 @@ const SIZE = { width: 358, height: 358 };
 const IMAGE = { width: 1080, height: 1440 };
 
 beforeEach(() => {
+  jest.mocked(useDocumentProbe).mockReturnValue(null);
   resetMockDb();
   useQuickEnrollStore.setState(initialQuickEnroll);
   useCartStore.setState({ lines: [] });
@@ -201,7 +207,7 @@ const shutter = () =>
   });
 async function capture() {
   await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
-  await screen.findByRole('button', { name: 'Chụp lại' });
+  await screen.findByRole('button', { name: /Chụp lại|Chụp và đọc hóa đơn/ });
   await waitFor(() => expect(screen.queryByTestId('scan-busy')).toBeNull());
 }
 
@@ -994,7 +1000,7 @@ describe('quick enroll capture', () => {
 });
 
 describe('import receipt document', () => {
-  it('hides the document button for a Seller without can_enroll', async () => {
+  it('hides receipt chips for a Seller without can_enroll', async () => {
     const session = testSession();
     setTestMembership({
       ...session!,
@@ -1010,7 +1016,7 @@ describe('import receipt document', () => {
     );
   });
 
-  it('shows the document button for a Seller with can_enroll', async () => {
+  it('shows receipt chips for a Seller with can_enroll', async () => {
     const session = testSession();
     setTestMembership({
       ...session!,
@@ -1024,7 +1030,7 @@ describe('import receipt document', () => {
     ).toBeOnTheScreen();
   });
 
-  it('only offers the document button inside the captured frame after document detection', async () => {
+  it('offers receipt chips in the strip after document detection, with no viewfinder button', async () => {
     await renderWithProviders(<CameraScreen />);
     expect(
       screen.queryByRole('button', { name: 'Đọc hóa đơn nhập' }),
@@ -1037,7 +1043,7 @@ describe('import receipt document', () => {
     setNextScanDocument();
     await capture();
     expect(
-      within(screen.getByTestId('viewfinder')).getByRole('button', {
+      within(screen.getByTestId('next-step-strip')).getByRole('button', {
         name: 'Đọc hóa đơn nhập',
       }),
     ).toBeOnTheScreen();
@@ -1099,9 +1105,7 @@ describe('import receipt document', () => {
     );
     expect(await screen.findByRole('alert')).toHaveTextContent(message);
     expect(mockPush).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
-    ).toBeEnabled();
+    expect(shutter()).toBeEnabled();
   });
 });
 
@@ -1120,9 +1124,7 @@ test('document action is hidden while scanning and an explicit create retry reus
   const doc = await screen.findByRole('button', { name: 'Đọc hóa đơn nhập' });
   await fireEvent.press(doc);
   await screen.findByRole('alert');
-  await fireEvent.press(
-    screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
-  );
+  await fireEvent.press(shutter());
   await waitFor(() => expect(mockPush).toHaveBeenCalled());
   expect(spy.mock.calls[0][1]).toBe(spy.mock.calls[1][1]);
   expect(getMockDb().receipts).toHaveLength(1);
@@ -1173,12 +1175,8 @@ describe('assistant entry points', () => {
     setNextScanDocument();
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await waitFor(() => expect(chipNames()).toHaveLength(3));
-    expect(chipNames()).toEqual([
-      'Hóa đơn nhập hàng. Trợ lý đọc từng dòng',
-      'Cần nhập hàng',
-      'Hóa đơn nháp',
-    ]);
+    await waitFor(() => expect(chipNames()).toHaveLength(2));
+    expect(chipNames()).toEqual(['Đọc hóa đơn nhập', 'Nhập trong trợ lý']);
     expect(screen.getByTestId('viewfinder')).toHaveStyle({ width: 358 });
   });
 
@@ -1260,9 +1258,9 @@ describe('assistant entry points', () => {
     const create = jest.spyOn(receiptsApi, 'createReceipt');
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await waitFor(() => expect(chipNames()).toHaveLength(3));
+    await waitFor(() => expect(chipNames()).toHaveLength(2));
     await fireEvent.press(
-      screen.getByRole('button', { name: /^Hóa đơn nhập hàng/ }),
+      screen.getByRole('button', { name: 'Nhập trong trợ lý' }),
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalled());
     const receiptId = getMockDb().receipts[0].id;
@@ -1276,7 +1274,7 @@ describe('assistant entry points', () => {
     expect(mockPush).toHaveBeenCalledTimes(1);
   });
 
-  it('the receipt chip shows the same notice as the document button when reading fails', async () => {
+  it('the assistant receipt chip shows a notice when reading fails', async () => {
     setNextScanDocument();
     jest
       .spyOn(receiptsApi, 'createReceipt')
@@ -1285,9 +1283,9 @@ describe('assistant entry points', () => {
       );
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await waitFor(() => expect(chipNames()).toHaveLength(3));
+    await waitFor(() => expect(chipNames()).toHaveLength(2));
     await fireEvent.press(
-      screen.getByRole('button', { name: /^Hóa đơn nhập hàng/ }),
+      screen.getByRole('button', { name: 'Nhập trong trợ lý' }),
     );
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Không đọc được chữ trên hóa đơn',
@@ -1342,5 +1340,92 @@ describe('assistant entry points', () => {
     expect(
       screen.getByRole('button', { name: 'Open assistant' }),
     ).toBeOnTheScreen();
+  });
+});
+
+describe('live receipt detection (01b)', () => {
+  const liveProbe = () => {
+    const probe = {
+      document: {
+        detected: true,
+        score: 0.9,
+        text_lines: 12,
+        line_boxes: [
+          [0.25, 0.2, 0.5, 0.04],
+          [0.25, 0.3, 0.5, 0.04],
+        ],
+      },
+      imageSize: IMAGE,
+    };
+    jest
+      .mocked(useDocumentProbe)
+      .mockImplementation((_ref, enabled) => (enabled ? probe : null));
+  };
+
+  it('draws line boxes, badge and hint on the live frame, with only the two receipt chips', async () => {
+    liveProbe();
+    await renderWithProviders(<CameraScreen />);
+    expect(screen.getByText('Hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
+    expect(
+      screen.getByText('Giữ máy thẳng, đủ sáng · chụp để đọc chữ'),
+    ).toBeOnTheScreen();
+    expect(screen.getAllByTestId(/^document-line-/)).toHaveLength(2);
+    expect(screen.queryByTestId('viewfinder-photo')).toBeNull();
+    expect(
+      within(screen.getByTestId('viewfinder')).queryByRole('button', {
+        name: 'Đọc hóa đơn nhập',
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'Nhập trong trợ lý' }),
+    ).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
+  });
+
+  it.each(['Chụp và đọc hóa đơn', 'Đọc hóa đơn nhập', 'Nhập trong trợ lý'])(
+    '%s captures a full photo, uploads and reads it without a product scan',
+    async (action) => {
+      liveProbe();
+      const scan = jest.spyOn(images, 'createScan');
+      const upload = jest.spyOn(images, 'uploadImage');
+      await renderWithProviders(<CameraScreen />);
+      await fireEvent.press(screen.getByRole('button', { name: action }));
+      await waitFor(() => expect(mockPush).toHaveBeenCalled());
+      expect(mockTakePicture).toHaveBeenCalledWith({ quality: 0.6 });
+      expect(scan).not.toHaveBeenCalled();
+      expect(upload).toHaveBeenCalledWith(
+        { uri: 'file:///shot.jpg', name: 'receipt.jpg', type: 'image/jpeg' },
+        'other',
+      );
+      const receiptId = getMockDb().receipts[0].id;
+      expect(mockPush).toHaveBeenCalledWith(
+        action === 'Nhập trong trợ lý'
+          ? {
+              pathname: '/assistant',
+              params: { entry: 'receipt', screen: 'camera', receiptId },
+            }
+          : `/receipt/${receiptId}`,
+      );
+    },
+  );
+
+  it('pauses live probes while quick enroll or a scan result is open and when unfocused', async () => {
+    await renderWithProviders(<CameraScreen />);
+    expect(useDocumentProbe).toHaveBeenLastCalledWith(expect.anything(), true);
+    await capture();
+    expect(useDocumentProbe).toHaveBeenLastCalledWith(expect.anything(), false);
+    await fireEvent.press(shutter());
+    expect(useDocumentProbe).toHaveBeenLastCalledWith(expect.anything(), true);
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
+    );
+    expect(useDocumentProbe).toHaveBeenLastCalledWith(expect.anything(), false);
+    await act(async () => {
+      mockState.listeners.forEach((listener) => listener(false));
+    });
+    expect(useDocumentProbe).toHaveBeenLastCalledWith(expect.anything(), false);
   });
 });

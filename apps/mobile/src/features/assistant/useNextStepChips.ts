@@ -15,14 +15,14 @@ export type UseNextStepChipsOptions = {
   unknownProduct: boolean;
   /** On-device chips lead to flows only a member who can enroll may start. */
   canEnroll: boolean;
-  /** The assistant flag; off means no chips and no request. */
+  /** The assistant flag; off hides assistant suggestions, keeping direct receipt review. */
   enabled: boolean;
 };
 
 /**
- * The chips of the next-step strip: on-device chips first (receipt, unknown product), then the
- * server chips of the screen, one per kind. `next_step_shown` is captured once per chip per screen
- * visit; a visit ends when the screen loses focus.
+ * The receipt state owns the strip with review and assistant actions. Otherwise the unknown
+ * product chip precedes server suggestions, one per kind. `next_step_shown` is captured once per
+ * chip per screen visit; a visit ends when the screen loses focus.
  */
 export function useNextStepChips({
   screen,
@@ -39,18 +39,40 @@ export function useNextStepChips({
   );
 
   const chips = useMemo<NextStepChipData[]>(() => {
+    if (documentDetected && canEnroll) {
+      const receipts: NextStepChipData[] = [
+        {
+          id: 'receipt_detected',
+          kind: 'receipt_detected',
+          title: t(strings, 'readReceipt', language),
+          source: 'device',
+          tone: 'accent',
+          action: { type: 'receipt', destination: 'review' },
+        },
+      ];
+      if (enabled)
+        receipts.push({
+          id: 'receipt_assistant',
+          kind: 'receipt_detected',
+          title: t(strings, 'receiptAssistant', language),
+          source: 'device',
+          tone: 'neutral',
+          action: { type: 'receipt', destination: 'assistant' },
+        });
+      return receipts;
+    }
     if (!enabled) return [];
     const list: NextStepChipData[] = [];
-    const device = (kind: 'receipt_detected' | 'unknown_product') =>
+    const device = (kind: 'unknown_product') =>
       list.push({
         id: kind,
         kind,
         title: t(strings, `kind.${kind}`, language),
         subtitle: t(strings, `sub.${kind}`, language),
         source: 'device',
-        action: { type: kind === 'receipt_detected' ? 'receipt' : 'enroll' },
+        action: { type: 'enroll' },
       });
-    if (documentDetected && canEnroll) device('receipt_detected');
+
     if (unknownProduct && canEnroll) device('unknown_product');
     for (const item of data?.items ?? []) {
       if (list.some((chip) => chip.kind === item.kind)) continue;

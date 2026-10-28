@@ -128,28 +128,25 @@ test('server chips alone, in server order, with Vietnamese text and their action
   expect(result.current.chips[1]!.subtitle).toBeUndefined();
 });
 
-test('on-device chips come first: receipt, then unknown product', async () => {
+test('a detected receipt owns the strip with two different actions', async () => {
   const { result } = await render({
     documentDetected: true,
     unknownProduct: true,
   });
-  expect(kinds(result.current.chips)).toEqual([
-    'receipt_detected',
-    'unknown_product',
-    'restock',
-    'draft_receipts',
+  expect(result.current.chips).toMatchObject([
+    {
+      title: 'Đọc hóa đơn nhập',
+      source: 'device',
+      tone: 'accent',
+      action: { type: 'receipt', destination: 'review' },
+    },
+    {
+      title: 'Nhập trong trợ lý',
+      source: 'device',
+      tone: 'neutral',
+      action: { type: 'receipt', destination: 'assistant' },
+    },
   ]);
-  expect(result.current.chips[0]).toMatchObject({
-    source: 'device',
-    title: 'Hóa đơn nhập hàng',
-    subtitle: 'Trợ lý đọc từng dòng',
-    action: { type: 'receipt' },
-  });
-  expect(result.current.chips[1]).toMatchObject({
-    source: 'device',
-    title: 'Hàng chưa có trong kho',
-    action: { type: 'enroll' },
-  });
 });
 
 test('on-device chips need the member to be able to enroll', async () => {
@@ -172,20 +169,20 @@ test('only the signals that are on produce a chip', async () => {
 test('server chips of a kind already shown are skipped', async () => {
   mockSteps([serverReceipt, restock]);
   const { result } = await render({ documentDetected: true });
-  expect(kinds(result.current.chips)).toEqual(['receipt_detected', 'restock']);
+  expect(kinds(result.current.chips)).toEqual([
+    'receipt_detected',
+    'receipt_detected',
+  ]);
 });
 
 test('English shows a title per kind and drops the Vietnamese subtitle', async () => {
   useSettingsStore.setState({ language: 'en' });
   const { result } = await render({ documentDetected: true });
   expect(result.current.chips.map((c) => c.title)).toEqual([
-    'Supplier receipt',
-    'Restock',
-    'Draft receipts',
+    'Read import receipt',
+    'Import in assistant',
   ]);
-  expect(result.current.chips[0]!.subtitle).toBe(
-    'The assistant reads each line',
-  );
+  expect(result.current.chips[0]!.subtitle).toBeUndefined();
   expect(result.current.chips[1]!.subtitle).toBeUndefined();
 });
 
@@ -214,21 +211,24 @@ test('asks the server only while focused and enabled, with the scan signals', as
   });
 });
 
-test('shows nothing and records nothing while the assistant is off', async () => {
+test('keeps the direct receipt action available while the assistant is off', async () => {
   const { result } = await render({ enabled: false, documentDetected: true });
-  expect(result.current.chips).toEqual([]);
-  expect(events).toEqual([]);
+  expect(result.current.chips).toMatchObject([
+    {
+      title: 'Đọc hóa đơn nhập',
+      action: { type: 'receipt', destination: 'review' },
+    },
+  ]);
 });
 
 test('captures next_step_shown once per chip with its position', async () => {
   const { rerender } = await render({ documentDetected: true });
   expect(shown()).toEqual([
     ['next_step_shown', { kind: 'receipt_detected', position: 0 }],
-    ['next_step_shown', { kind: 'restock', position: 1 }],
-    ['next_step_shown', { kind: 'draft_receipts', position: 2 }],
+    ['next_step_shown', { kind: 'receipt_detected', position: 1 }],
   ]);
   await rerender({ documentDetected: true });
-  expect(shown()).toHaveLength(3);
+  expect(shown()).toHaveLength(2);
 });
 
 test('a chip that appears later is captured alone', async () => {
@@ -259,6 +259,6 @@ test('tap captures next_step_tapped with kind and position', async () => {
   await act(async () => result.current.tap(result.current.chips[1]!, 1));
   expect(events.at(-1)).toEqual([
     'next_step_tapped',
-    { kind: 'restock', position: 1 },
+    { kind: 'receipt_detected', position: 1 },
   ]);
 });
