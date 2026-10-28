@@ -162,6 +162,55 @@ test.describe('board screenshots', () => {
   });
 });
 
+test.describe('issue #88 screenshots', () => {
+  test('RecentSales and SaleDetail', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
+    await openShop(page, '/dashboard');
+    await button(page, 'Đơn gần đây').click();
+    await expect(
+      page.getByRole('heading', { name: 'Đơn gần đây' }),
+    ).toBeVisible();
+    const sale = page.getByRole('button', { name: /Đã thanh toán/ }).first();
+    await expect(sale).toBeVisible();
+    await capture(page, testInfo, 'RecentSales');
+
+    await sale.click();
+    await expect(
+      page.getByRole('heading', { name: /Chi tiết đơn/ }),
+    ).toBeVisible();
+    await capture(page, testInfo, 'SaleDetail');
+
+    await page.getByLabel('Lý do hủy').fill('Khách trả hàng');
+    await button(page, 'Hủy đơn / hoàn tiền').click();
+    await button(page, 'Xác nhận hủy').click();
+    await expect(page.getByTestId('sale-status')).toHaveText('Đã hủy');
+    await capture(page, testInfo, 'SaleDetailVoided');
+  });
+
+  test('ExportSheet', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
+    await openShop(page, '/dashboard');
+    await button(page, 'Xuất giao dịch').click();
+    await expect(page.getByTestId('export-sheet')).toBeVisible();
+    await capture(page, testInfo, 'ExportSheet');
+  });
+
+  test('ProductUnits', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
+    await openShop(page, '/inventory');
+    await button(page, /^Coca-Cola lon 330ml, /).click();
+    await expect(
+      page.getByRole('heading', { name: 'Coca-Cola lon 330ml' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Đơn vị bán' }),
+    ).toBeVisible();
+    await button(page, 'Thêm đơn vị').click();
+    await expect(page.getByTestId('unit-sheet')).toBeVisible();
+    await capture(page, testInfo, 'ProductUnits');
+  });
+});
+
 test.describe('onboarding screenshots', () => {
   test.use({ signedIn: false });
 
