@@ -7,6 +7,10 @@ appId: com.datamonsterr.taphoamini
 # no /v1/voice/* routes (probe below) the flow passes after creating the store: the voice steps
 # are skipped, not failed.
 #
+# The store is new and has no catalog, so the clip is unknown-product.m4a: one manual line at the
+# spoken price (15.000đ), which needs no product. The backend runs the scripted voice model
+# (scripts/e2e/stack.sh), and the fixture bytes carry their own answer.
+#
 # Not covered here: the real microphone and the Android bubble (V3). Playwright (voice.spec.ts)
 # and Jest cover the long-press and the chip entry points.
 - runFlow: subflows/launch.yaml
@@ -25,7 +29,7 @@ appId: com.datamonsterr.taphoamini
     when:
       true: ${output.voice}
     commands:
-      - openLink: 'taphoa://voice?entry=chip&fixture=two-line-sale.m4a'
+      - openLink: 'taphoa://voice?entry=chip&fixture=unknown-product.m4a'
       # the sheet opens recording; the fixture stands in for the microphone
       - extendedWaitUntil:
           visible:

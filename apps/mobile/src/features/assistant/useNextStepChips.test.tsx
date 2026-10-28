@@ -275,10 +275,10 @@ describe('voice_sale chip', () => {
   test('shows after the device chips and before the server chips for a new member', async () => {
     const { result } = await render({
       joinedAt: joined(2),
-      documentDetected: true,
+      unknownProduct: true,
     });
     expect(kinds(result.current.chips)).toEqual([
-      'receipt_detected',
+      'unknown_product',
       'voice_sale',
       'restock',
       'draft_receipts',

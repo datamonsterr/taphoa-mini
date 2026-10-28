@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 
 import {
   clipToUpload,
+  fixtureBytes,
   fixtureClip,
   fixtureName,
   voiceFixturesEnabled,
@@ -49,4 +50,40 @@ test('the web uploads a Blob', async () => {
   const { audio } = await clipToUpload(fixtureClip('two-line-sale.m4a'));
   expect(audio).toBeInstanceOf(Blob);
   expect((audio as Blob).type).toBe('audio/mp4');
+});
+
+test('fixture bytes embed the answer the scripted backend model reads', () => {
+  const text = new TextDecoder().decode(fixtureBytes('two-line-sale.m4a'));
+  const json = text.slice(text.indexOf('VOICE_PARSE=') + 'VOICE_PARSE='.length);
+  expect(JSON.parse(json)).toMatchObject({
+    intent: 'sale',
+    payment_method: 'cash',
+    lines: [
+      { spoken: 'coca', quantity: 2 },
+      { spoken: 'pepsi', quantity: 1 },
+    ],
+  });
+});
+
+test('a clip with no scripted answer carries no marker (heard as silence)', () => {
+  expect(new TextDecoder().decode(fixtureBytes('no-speech.m4a'))).not.toContain(
+    'VOICE_PARSE=',
+  );
+});
+
+test.each([
+  'two-line-sale.m4a',
+  'noisy-sale.m4a',
+  'single-sale.m4a',
+  'transfer-sale.m4a',
+  'credit-sale.m4a',
+  'ambiguous.m4a',
+  'unknown-product.m4a',
+  'price-shorthand.m4a',
+  'chat-intent.m4a',
+])('%s has a parseable embedded answer', (name) => {
+  const text = new TextDecoder().decode(fixtureBytes(name));
+  expect(() =>
+    JSON.parse(text.slice(text.indexOf('VOICE_PARSE=') + 12)),
+  ).not.toThrow();
 });
