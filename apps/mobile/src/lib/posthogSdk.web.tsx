@@ -20,8 +20,10 @@ export function webPostHogConfig(host: string): Partial<PostHogConfig> {
     defaults: '2026-08-30',
     // The shared router hook emits the contract's sanitized $screen events.
     autocapture: false,
-    // Browser automation sets navigator.webdriver; capture our test flows deliberately.
-    opt_out_useragent_filter: process.env.EXPO_PUBLIC_ENVIRONMENT === 'test',
+    // Browser automation sets navigator.webdriver; capture our test and smoke flows deliberately.
+    opt_out_useragent_filter:
+      process.env.EXPO_PUBLIC_ENVIRONMENT === 'test' ||
+      process.env.EXPO_PUBLIC_SMOKE === '1',
     capture_pageview: false,
     capture_pageleave: false,
     capture_heatmaps: false,

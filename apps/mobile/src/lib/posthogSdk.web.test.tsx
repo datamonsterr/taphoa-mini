@@ -86,6 +86,13 @@ test('browser replay masks inputs/text/media and disables body, header and conso
     webPostHogConfig('host').session_recording!.sampleRate,
   ).toBeUndefined();
   expect(webPostHogConfig('host').opt_out_useragent_filter).toBe(false);
+  // Production smoke exports run under Playwright and must not be dropped as bots.
+  process.env.EXPO_PUBLIC_SMOKE = '1';
+  try {
+    expect(webPostHogConfig('host').opt_out_useragent_filter).toBe(true);
+  } finally {
+    delete process.env.EXPO_PUBLIC_SMOKE;
+  }
 });
 
 test('adapter uses the browser replay session for events, identities, flags and API correlation', async () => {
