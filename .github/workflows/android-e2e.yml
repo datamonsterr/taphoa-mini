@@ -217,6 +217,8 @@ jobs:
         env:
           BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
           E2E_PUBLIC_HOST: 10.0.2.2
+          # Start at 10:00 on today's store date to match the emulator; time then advances.
+          TAPHOA_TEST_NOW: '10:00'
           # Request lines (method, path, status) so a failed save in a flow shows in the log.
           RUST_LOG: info,tower_http=debug
           # The backend verifies the app's Clerk session JWTs (issuer from the publishable key).

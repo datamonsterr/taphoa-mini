@@ -31,7 +31,9 @@ appId: com.datamonsterr.taphoamini
     timeout: 20000
 - tapOn: 'Tên khách hàng'
 - inputText: 'Chị Lan'
-- hideKeyboard
+# Enter blurs this single-line field without sending Android Back to the sheet.
+- pressKey: Enter
+- assertVisible: 'Tạo khách hàng'
 - takeScreenshot: debts-01-picker
 - tapOn: 'Tạo khách hàng'
 # the picker closes and the pay screen shows who owes

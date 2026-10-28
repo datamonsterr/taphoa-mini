@@ -434,7 +434,7 @@ async fn confirm(
     let row = load(&mut tx, actor.store_id, id).await?;
     let expense = CreateExpense {
         id: Uuid::now_v7(),
-        spent_at: input.spent_at.unwrap_or_else(Utc::now),
+        spent_at: input.spent_at.unwrap_or_else(|| state.clock.now()),
         amount: total,
         category: "nhap_hang".into(),
         paid_with: input.paid_with,

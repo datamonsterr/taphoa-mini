@@ -182,7 +182,7 @@ pub(crate) async fn send_message(
     let eval = eval::from_headers(&headers, &state.assistant.config);
     let today = eval
         .as_ref()
-        .map_or_else(|| crate::time::business_date(Utc::now()), |e| e.today);
+        .map_or_else(|| state.clock.today(), |e| e.today);
     let store_name: String = sqlx::query_scalar("SELECT name FROM stores WHERE id=$1")
         .bind(actor.store_id)
         .fetch_one(db)

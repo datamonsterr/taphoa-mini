@@ -40,7 +40,9 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: '3/8'
 - tapOn: 'Tên (không bắt buộc)'
 - inputText: 'Banh nhanh E2E'
-- hideKeyboard
+# Enter blurs this single-line field without sending Android Back to the sheet.
+- pressKey: Enter
+- assertVisible: 'Lưu sản phẩm'
 - tapOn: '1'
 - tapOn: '7'
 - tapOn: '000'
