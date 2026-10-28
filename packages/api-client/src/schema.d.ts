@@ -269,9 +269,11 @@ export interface paths {
          *     still every 2–3 seconds. Expo Go has no frame processors. Runs only the text
          *     detector, without SAM, embeddings, scan/image rows or object storage uploads.
          *     Maximum image size is 512 KB (524288 bytes). Limited to 40 requests per minute
-         *     per member; 429 includes Retry-After. Inference admission is shared with scans;
-         *     a busy instance returns 503 with Retry-After. Returns 503 `ocr_unavailable`
-         *     when no text detector is configured.
+         *     per member; 429 includes Retry-After. Probes use a separate admission pool
+         *     (DOCUMENT_PROBE_CONCURRENCY, default 1) and never consume scan/enrollment slots.
+         *     When the probe pool is full, returns 200 with the empty signal
+         *     `{detected:false, score:0, text_lines:0, line_boxes:[]}` as a best-effort result.
+         *     Returns 503 `ocr_unavailable` when no text detector is configured.
          */
         post: operations["probeDocument"];
         delete?: never;

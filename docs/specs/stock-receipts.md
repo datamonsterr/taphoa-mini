@@ -68,7 +68,10 @@ run out, using a configurable threshold.
   This detector-only endpoint returns `DocumentSignal` with normalized boxes per grouped
   text line for the preview overlay. It runs no SAM or embeddings and persists no scan,
   image row or object. The image limit is 512 KB; the member limit is 40 requests/minute.
-  An instance without a text detector returns 503 `ocr_unavailable`.
+  Probes use a separate pool (`DOCUMENT_PROBE_CONCURRENCY`, default 1), never scan or
+  enrollment slots. When this pool is full, the best-effort response is 200 with
+  `{detected:false, score:0, text_lines:0, line_boxes:[]}`. An instance without a text
+  detector returns 503 `ocr_unavailable`; rate limiting still returns 429.
 - **Parse: rules first, decision model second.** `receipt::parse` turns OCR lines into
   candidates with regexes for Vietnamese money (`204.000`, `204,000`, `204000đ`) and
   quantities (`x24`, `SL 24`, `24 thùng`). Common layouts: `name qty unit_price amount`,

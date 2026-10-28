@@ -950,15 +950,108 @@ async fn document_probe_rate_limits_per_member_with_standard_retry_shape() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn document_probe_respects_scan_inference_admission() {
+async fn document_probe_works_while_scan_slots_are_exhausted() {
     let state = probe_state(true).await;
     let app = router(state.clone());
     let (_, _, token) = create_store(&app).await;
     let _permit = state.inference_slots.clone().acquire_owned().await.unwrap();
     let (status, body, headers) =
         post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
-    assert!(headers.contains_key("retry-after"));
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], true);
+    assert_eq!(body["text_lines"], 6);
+    assert!(!headers.contains_key("retry-after"));
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_pool_full_returns_empty_signal() {
+    let state = probe_state(true).await;
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let permit = state.probe_slots.clone().acquire_owned().await.unwrap();
+    let photo = draw_photo();
+    let (status, body, headers) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({"detected":false,"score":0.,"text_lines":0,"line_boxes":[]})
+    );
+    assert!(!headers.contains_key("retry-after"));
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+    assert_eq!(state.inference_slots.available_permits(), 1);
+    drop(permit);
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["detected"], true,
+        "pool resumes detection after release"
+    );
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_works_while_probe_holds_its_slot() {
+    use std::sync::{
+        Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+    use taphoa_recognition::ocr::{OcrError, TextBox, TextDetector};
+    struct BlockingFirstDetection {
+        first: AtomicBool,
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+    impl TextDetector for BlockingFirstDetection {
+        fn detect(&self, _: &[u8]) -> Result<Vec<TextBox>, OcrError> {
+            if self.first.swap(false, Ordering::SeqCst) {
+                self.started.notify_one();
+                let (lock, changed) = &*self.release;
+                let _guard = changed
+                    .wait_timeout_while(
+                        lock.lock().unwrap(),
+                        std::time::Duration::from_secs(5),
+                        |released| !*released,
+                    )
+                    .unwrap();
+            }
+            Ok(vec![])
+        }
+    }
+    let (_, mut state, _) = build_state(scan_segments())
+        .await
+        .expect("test services configured");
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    state.text_detector = Some(Arc::new(BlockingFirstDetection {
+        first: AtomicBool::new(true),
+        started: started.clone(),
+        release: release.clone(),
+    }));
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let probe = tokio::spawn({
+        let app = app.clone();
+        let token = token.clone();
+        async move { post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), started.notified())
+        .await
+        .expect("probe entered its blocking detector");
+    assert_eq!(state.probe_slots.available_permits(), 0);
+    assert_eq!(state.inference_slots.available_permits(), 1);
+    let scan = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    let probe_permits_during_scan = state.probe_slots.available_permits();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    let (probe_status, probe_body, _) = probe.await.unwrap();
+    assert_eq!(probe_status, StatusCode::OK, "{probe_body}");
+    assert_eq!(probe_permits_during_scan, 0, "probe was still running");
+    let (status, body, _) = scan;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+    assert_eq!(state.probe_slots.available_permits(), 1);
 }
 
 /// A detector that cannot finish until after the response proves checkout does not

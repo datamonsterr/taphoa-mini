@@ -119,11 +119,14 @@ async fn probe_document(
         image = Some(bytes);
     }
     let bytes = image.ok_or_else(bad_request)?;
-    let permit = state
-        .inference_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
+    let Ok(permit) = state.probe_slots.clone().try_acquire_owned() else {
+        return Ok(Json(DocumentSignal {
+            detected: false,
+            score: 0.,
+            text_lines: 0,
+            line_boxes: vec![],
+        }));
+    };
     let inference_started = Instant::now();
     let signal = tokio::task::spawn_blocking(move || {
         // Retain admission even if the HTTP request is cancelled.
