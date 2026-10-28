@@ -71,6 +71,10 @@ jest.mock('lucide-react-native', () => {
   );
 });
 
+jest.mock('expo-contacts', () => ({
+  Contact: { presentPicker: jest.fn().mockResolvedValue(null) },
+}));
+
 jest.mock('expo-camera', () => {
   const React = require('react');
   const { View } = require('react-native');

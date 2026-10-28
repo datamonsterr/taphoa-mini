@@ -1,6 +1,18 @@
 import type { Dict } from '@/lib/i18n';
 export const debtStrings: Dict = {
   vi: {
+    'picker.title': 'Chọn khách ghi nợ',
+    'picker.new': 'Khách mới',
+    'picker.creditCreate': 'Tạo và ghi nợ',
+    'picker.contact': 'Chọn từ danh bạ',
+    'picker.contactError':
+      'Không mở được danh bạ. Thử lại hoặc nhập tên và số điện thoại.',
+    'picker.updated': 'Cập nhật {date}',
+    'picker.duplicate': 'Dùng khách này?',
+    'picker.useExisting': 'Dùng khách này',
+    'picker.createAnyway': 'Vẫn tạo khách mới',
+    'picker.checkError': 'Không kiểm tra được khách trùng. Thử lại.',
+    'book.add': 'Thêm khách hàng',
     search: 'Tìm khách hàng',
     recent: 'Khách gần đây',
     name: 'Tên khách hàng',
@@ -78,6 +90,18 @@ export const debtStrings: Dict = {
     'sheet.close': 'Đóng',
   },
   en: {
+    'picker.title': 'Choose credit customer',
+    'picker.new': 'New customer',
+    'picker.creditCreate': 'Create and use for credit',
+    'picker.contact': 'Choose from contacts',
+    'picker.contactError':
+      'Could not open contacts. Try again or enter the name and phone.',
+    'picker.updated': 'Updated {date}',
+    'picker.duplicate': 'Use this customer?',
+    'picker.useExisting': 'Use this customer',
+    'picker.createAnyway': 'Create a new customer anyway',
+    'picker.checkError': 'Could not check for duplicates. Try again.',
+    'book.add': 'Add customer',
     search: 'Search customers',
     recent: 'Recent customers',
     name: 'Customer name',
