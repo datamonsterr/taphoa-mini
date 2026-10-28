@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Voice system surfaces</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<!-- System surfaces, not app screens. Only the foreground voice sheet records. -->
+<div style="width: 1240px; height: 844px; box-sizing: border-box; padding: 32px; background: var(--surface); color: var(--ink); font-family: var(--font-sans)">
+  <h1 class="title" style="margin: 0 0 12px">Nút nói nhanh</h1>
+  <p class="body" style="margin: 0 0 32px; color: var(--ink-muted)">Chạm để mở màn hình nói · chỉ thu âm khi màn hình nói đang mở</p>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+    <!-- Android: persistent, low-priority foreground-service notification. -->
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <h2 class="heading" style="margin: 0">Android · Thông báo</h2>
+      <div style="height: 520px; box-sizing: border-box; padding: 24px 12px; border-radius: 36px; background: var(--surface-soft)">
+        <div style="display: flex; justify-content: space-between; padding: 0 12px; margin-bottom: 24px"><span class="heading">09:41</span><span class="caption" style="align-self: center; color: var(--ink-muted)">Thứ hai, 27/10</span></div>
+        <sc-if value="{{bubbleEnabled}}" hint-placeholder-val="{{true}}">
+          <div style="padding: 16px; border-radius: 28px; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center; gap: 8px; color: var(--ink-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; color: var(--accent)"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg><span class="caption">Tạp Hóa Mini · Đang chạy</span></div>
+            <div class="label">Nút nói đang bật</div>
+            <div class="body" style="color: var(--ink-muted)">Chạm nút nói trên màn hình để bán hàng.</div>
+            <button type="button" class="th-btn" onClick="{{turnOff}}" aria-label="Tắt nút nói trên màn hình" style="align-self: flex-start; color: var(--accent)">Tắt</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{bubbleDisabled}}" hint-placeholder-val="{{false}}">
+          <div role="status" class="body" style="padding: 16px; text-align: center; color: var(--ink-muted)">Nút nói đã tắt</div>
+        </sc-if>
+      </div>
+      <p class="caption" style="margin: 0; color: var(--ink-muted)">Thông báo thường trực · Tắt ẩn nút nói và dừng dịch vụ; bật lại trong Tài khoản.</p>
+    </div>
+
+    <!-- Android: Quick Settings tile launches /voice, independent of overlay permission. -->
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <h2 class="heading" style="margin: 0">Android · Cài đặt nhanh</h2>
+      <div style="height: 520px; box-sizing: border-box; padding: 24px 16px; border-radius: 36px; background: var(--camera-bg); color: var(--camera-ink)">
+        <div class="heading" style="margin: 0 8px 28px">09:41</div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+          <div style="height: 88px; padding: 16px; box-sizing: border-box; border-radius: 28px; background: var(--surface-pressed); color: var(--ink); display: flex; flex-direction: column; justify-content: center; gap: 8px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a5.5 5.5 0 0 1 7 0M12 19h.01"/></svg><span class="label">Wi-Fi</span></div>
+          <div style="height: 88px; padding: 16px; box-sizing: border-box; border-radius: 28px; background: #2a2a2e; display: flex; flex-direction: column; justify-content: center; gap: 8px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg><span class="label">Bluetooth</span></div>
+          <a href="VoiceListen.dc.html" aria-label="Bán hàng bằng giọng nói" style="height: 100px; padding: 16px; box-sizing: border-box; border-radius: 28px; background: var(--accent-soft); color: var(--accent); display: flex; flex-direction: column; justify-content: center; gap: 8px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg><span class="label">Bán hàng</span></a>
+          <div style="height: 100px; padding: 16px; box-sizing: border-box; border-radius: 28px; background: #2a2a2e; display: flex; flex-direction: column; justify-content: center; gap: 8px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 7 9-7 9-7-9z"/></svg><span class="label">Đèn pin</span></div>
+        </div>
+      </div>
+      <p class="caption" style="margin: 0; color: var(--ink-muted)">Tài khoản → Thêm ô cài đặt nhanh · Chạm “Bán hàng” mở màn hình nói (15).</p>
+    </div>
+
+    <!-- iOS 18+: Control Center control opens the foreground voice sheet. -->
+    <div style="display: flex; flex-direction: column; gap: 16px">
+      <h2 class="heading" style="margin: 0">iOS · Trung tâm điều khiển</h2>
+      <div style="height: 520px; box-sizing: border-box; padding: 24px; border-radius: 36px; background: linear-gradient(165deg, #1b2b4b 0%, #0f1424 55%, #0c0c0e 100%); color: var(--camera-ink)">
+        <div class="heading" style="margin-bottom: 28px">09:41</div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px">
+          <div style="height: 120px; border-radius: 28px; background: rgba(255,255,255,.14); display: grid; grid-template-columns: repeat(2, 40px); gap: 12px; align-content: center; justify-content: center"><span style="height: 40px; border-radius: 9999px; background: var(--success)"></span><span style="height: 40px; border-radius: 9999px; background: var(--accent)"></span><span style="height: 40px; border-radius: 9999px; background: var(--accent)"></span><span style="height: 40px; border-radius: 9999px; background: rgba(255,255,255,.14)"></span></div>
+          <div style="height: 120px; padding: 16px; box-sizing: border-box; border-radius: 28px; background: rgba(255,255,255,.14); display: flex; flex-direction: column; justify-content: center; gap: 12px"><span class="caption">Nhạc</span><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg></div>
+        </div>
+        <a href="VoiceListen.dc.html" aria-label="Bán hàng bằng giọng nói" style="min-height: 120px; box-sizing: border-box; padding: 20px; border-radius: 28px; background: var(--surface); color: var(--ink); display: flex; align-items: center; gap: 16px"><span class="th-ib th-ib-accent"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg></span><span style="display: flex; flex-direction: column; gap: 4px"><span class="label">Bán hàng</span><span class="caption" style="color: var(--ink-muted)">Tạp Hóa Mini</span></span></a>
+      </div>
+      <p class="caption" style="margin: 0; color: var(--ink-muted)">iOS 18+ · Thêm điều khiển Tạp Hóa Mini trong Trung tâm điều khiển; chạm mở màn hình nói (15).</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1240,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const off = !!(this.state && this.state.off);
+    return { bubbleEnabled: !off, bubbleDisabled: off, turnOff: () => this.setState({ off: true }) };
+  }
+}
+</script>
+</body>
+</html>

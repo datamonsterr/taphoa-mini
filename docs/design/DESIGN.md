@@ -7,11 +7,10 @@ The source of truth for the drawn boards is the design canvas v0.2
 https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9, built on the Tạp Hóa Mini design system
 (https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi). The v0.1 canvas
 https://claude.ai/artifact/2Jcc8NqdW7tt9jDB6RsnXh stays as the 2026-10-23 record. This folder
-holds a copy of all 32 boards taken on 2026-10-27: the 13 original screens (five of them updated
-for the assistant, the three-way pay toggle, the dashboard cards and the voice setup rows), the
-four voice boards, nine boards for screens that were implemented without one, and a voice flow
-board. Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is
-their reference.
+holds 33 boards: the 32 copied on 2026-10-27 plus `VoiceSystem.dc.html`. Local V6 additions
+(understanding state, credit customer row and system surfaces) are published as canvas version 31.
+Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is their
+reference.
 
 ## 1. Principles
 
@@ -66,7 +65,7 @@ Phone boards are 390×844 (Dashboard 390×1080). Route paths are Expo Router rou
 | 06  | `Cart.dc.html` · `/cart`              | Cart (sheet over camera)                           | Collapse · count badge · lines with thumbnail, name, price, stepper (trash at 1) · total · QR button                                                                                                                                                                                                                        |
 | 07  | `Pay.dc.html` · `/pay`                | Payment                                            | Back · title · **three-way toggle with words** chuyển khoản / tiền mặt / ghi nợ · total · VietQR with bank account (transfer) · quick cash chips and change (cash) · thumbnails with quantity and price · green check `Đã nhận tiền` · no bank account → link to 12                                                         |
 | 07b | `PayCredit.dc.html` · `/pay` (ghi nợ) | Credit sale                                        | Customer row (avatar, name, current debt, phone) with `Đổi` → 07c · `Trả trước` chips 0đ / amount / Khác · new debt line · ink button `Ghi nợ 49.500đ` replaces the green check                                                                                                                                             |
-| 07c | `CustomerPick.dc.html` (sheet)        | Choose or create a customer                        | Search by name or phone · recent customers with balance (tap picks) · `Khách mới`: name field, **contact-picker circle** (system picker, one contact, no contacts permission), optional phone · `Tạo và ghi nợ`. Opened from 07b and from the `+` on 20.                                                                    |
+| 07c | `CustomerPick.dc.html` (sheet)        | Choose or create a customer                        | Search by name or phone · recent customers with balance (tap picks) · `Khách mới`: name field, **contact-picker circle** (system picker, one contact, no contacts permission), optional phone · `Tạo và ghi nợ`. Opened from 07b, voice credit (16) and the `+` on 20.                                                      |
 
 ### Row B — Shop (swipe up from the camera)
 
@@ -85,12 +84,12 @@ phones). The low-stock banner can sit above the bar.
 
 ### Row C — Assistant and voice (boards added 2026-10-27)
 
-| #   | Board / route                                           | Purpose                                                              | Controls                                                                                                                                                                                                                                                                                                                                                                                        |
-| --- | ------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 14  | `VoiceBubble.dc.html` · (Android system)                | Voice bubble over the home screen or another app. Not an app screen. | 56 px accent microphone circle with a float shadow at the right edge · draggable, snaps to an edge · tap opens 15 · long-press hides it until the next app open · persistent low-priority notification "Nút nói đang bật" with Tắt. Enabled from 12 ("Hiện nút nói trên màn hình" → system Settings "Hiện trên ứng dụng khác"). No accessibility service.                                       |
-| 15  | `VoiceListen.dc.html` · `/voice`                        | Listening (translucent modal over the previous screen)               | Close · 88 px accent microphone with a pulse ring · level bars · 30 s countdown · hint "Nói tên hàng và giá" · big stop button (tap-to-stop from the bubble; hold-to-talk inside the app). Then "Đang hiểu..." with the transcript greyed.                                                                                                                                                      |
-| 16  | `VoiceSale.dc.html` · `/voice` (draft)                  | Voice sale sheet                                                     | Transcript in quotes · lines like the cart with a status chip on the thumbnail: green check matched, amber "?" ambiguous (tap: three-candidate strip), grey tag unknown (manual line at the spoken price; tap: catalog search) · price pill red on mismatch · stepper · total · payment toggle tiền mặt / chuyển khoản / ghi nợ (customer row for credit) · microphone (add more) · green check |
-| 17  | `Assistant.dc.html`, `ChatVoice.dc.html` · `/assistant` | Assistant chat (full-height sheet) with the microphone held          | Header Trợ lý · thread list toggle · new chat · close · streamed messages, tool status lines, cards (restock list, debt list, chart bars, receipt lines), proposed-action card with Xác nhận / Từ chối, thumbs up / down · composer: input, **hold-to-talk microphone** (server transcription, on-device offline; fills the input, never sends), send                                           |
+| #   | Board / route                                           | Purpose                                                              | Controls                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | `VoiceBubble.dc.html` · (Android system)                | Voice bubble over the home screen or another app. Not an app screen. | 56 px accent microphone circle with a float shadow at the right edge · draggable, snaps to an edge · tap opens 15 · long-press hides it until the next app open · persistent low-priority notification "Nút nói đang bật" with Tắt (VoiceSystem, §8). Enabled from 12 ("Hiện nút nói trên màn hình" → system Settings "Hiện trên ứng dụng khác"). No accessibility service.                                                                   |
+| 15  | `VoiceListen.dc.html` · `/voice`                        | Listening and understanding (translucent modal)                      | Close · 88 px accent microphone with a pulse ring · level bars · 30 s countdown · hint "Nói tên hàng và giá" · big stop button (tap-to-stop from the bubble; hold-to-talk inside the app). Xong → “Đang hiểu…” with large grey transcript, progress line and Hủy (canvas: tap progress to draft).                                                                                                                                             |
+| 16  | `VoiceSale.dc.html` · `/voice` (draft)                  | Voice sale sheet                                                     | Transcript in quotes · lines like the cart with a status chip on the thumbnail: green check matched, amber "?" ambiguous (tap: three-candidate strip), grey tag unknown (manual line at the spoken price; tap: catalog search) · price pill red on mismatch · stepper · total · payment toggle tiền mặt / chuyển khoản / ghi nợ (credit: 07b customer row with matched name / Đổi, or Chọn khách → 07c) · microphone (add more) · green check |
+| 17  | `Assistant.dc.html`, `ChatVoice.dc.html` · `/assistant` | Assistant chat (full-height sheet) with the microphone held          | Header Trợ lý · thread list toggle · new chat · close · streamed messages, tool status lines, cards (restock list, debt list, chart bars, receipt lines), proposed-action card with Xác nhận / Từ chối, thumbs up / down · composer: input, **hold-to-talk microphone** (server transcription, on-device offline; fills the input, never sends), send                                                                                         |
 
 Entry points to 15: the bubble (14), a Quick Settings tile "Bán hàng", the app shortcut,
 the iOS Control Center control, Action Button and Siri, long-press on the chat button, and the
@@ -195,13 +194,13 @@ lý" hand-off when the words were a question.
 | Assistant U1-U23, next-step strip, daily digest          | 17, 01 strip, 23              |
 | Voice sale V-U1..V-U5, voice chat V-U6                   | 14-17                         |
 
-## 8. Not drawn yet
+## 8. System surfaces and remaining boards
 
 - Boards for 22 (low-stock banner), 25 (add a person) and 27 (PIN lock); the code is the
   reference.
 - Elder-mode variants, barcode indicator (S2), TTS (S7), void / refund (S10), CSV export (R5).
-- Voice: the Android notification, the iOS Control Center control and the Quick Settings tile
-  (epic V6 adds them to the canvas).
+- `VoiceSystem.dc.html`: Android persistent “Nút nói đang bật” notification with “Tắt”,
+  Quick Settings tile “Bán hàng”, and iOS Control Center control (both open 15).
 
 ## 9. Files
 
@@ -210,7 +209,7 @@ docs/design/
   DESIGN.md                this file
   canvas/
     canvas.json            board layout, titles, notes, design-system record
-    *.dc.html              one file per board (32)
+    *.dc.html              one file per board (33)
     ds/taphoa/             copy of the design system: tokens.json, tokens.css, components/bundle.css
 ```
 
