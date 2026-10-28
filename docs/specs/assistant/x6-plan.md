@@ -1,6 +1,6 @@
 # X6 plan: product analytics (PostHog)
 
-Status: In progress · Date: 2026-10-26 · Epic brief: [epics.md](epics.md) "X6" · Spec:
+Status: Done · Merge: [#40](https://github.com/datamonsterr/taphoa-mini/pull/40) · Date: 2026-10-26 · Epic brief: [epics.md](epics.md) "X6" · Spec:
 [telemetry-contract.md](telemetry-contract.md) "Product events", PostHog section of
 [dashboards.md](dashboards.md), ADR [0007](../../adr/0007-posthog-only-observability.md).
 

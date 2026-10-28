@@ -1,6 +1,6 @@
 # Stock and import receipts: scan a supplier receipt into stock and expenses
 
-Status: Proposed · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
+Status: Done · Merge: [#27](https://github.com/datamonsterr/taphoa-mini/pull/27) · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
 recognition (PRD E2, E4 promoted from P2)
 
 ## Goal
@@ -84,7 +84,7 @@ run out, using a configurable threshold.
 - **Mock data schema now.** Line schema is exactly `{product_name, quantity, cost}` plus
   match fields. Units (`product_units`) are out of scope: quantities are in the product's
   base unit. Fixture receipts (rendered PNGs with Vietnamese text + expected JSON) live in
-  `apps/backend/crates/api/tests/fixtures/receipts/`; `taphoa-seed` adds two confirmed
+  `apps/backend/crates/recognition/tests/fixtures/receipts/`; `taphoa-seed` adds two confirmed
   receipts and starting stock for seeded products.
 - **Synchronous receipt parse.** `POST /v1/receipts` returns the parsed draft in the same
   request (≤ 6 s budget). Receipts are rare, so no job queue.

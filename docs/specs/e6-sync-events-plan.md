@@ -1,6 +1,6 @@
 # E6 Sync and events: task list and test draft
 
-Status: Draft (conductor working notes). Scope: `/v1/sync/changes`, `/v1/events`, outbox relay, retention.
+Status: Done · Merge: [#10](https://github.com/datamonsterr/taphoa-mini/pull/10) · Scope: `/v1/sync/changes`, `/v1/events`, outbox relay, retention.
 
 ## Tasks
 
@@ -22,7 +22,9 @@ store isolation (another store's changes never appear); 401 without token; 400 o
 role filter (Elder/Helper member rows hide PIN/contact fields, Lead sees them; costs hidden from non-Lead per permission matrix);
 ordering strictly by seq.
 
-SSE: 401 no token; bearer and `?access_token=` per contract; event delivered within 1 s of commit; no cross-store leak;
+SSE: 401 no token; Bearer token in the `Authorization` header; event delivered within 1 s of commit; no cross-store leak;
 `Last-Event-ID` replays missed events with greater id; heartbeat; client disconnect cleans hub entry; relay restart redelivers unpublished rows.
+
+Query-string `?access_token=` authentication is not implemented or defined in OpenAPI/AsyncAPI.
 
 Relay: idempotent publish, ordering by id, SKIP LOCKED with 2 workers, backoff when Redis down then recovery, shutdown flushes in-flight batch.

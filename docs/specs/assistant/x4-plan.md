@@ -1,6 +1,6 @@
 # X4 plan: assistant mobile
 
-Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X4" · UI spec:
+Status: Done · Merge: [#37](https://github.com/datamonsterr/taphoa-mini/pull/37) · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X4" · UI spec:
 [assistant.md](assistant.md) "Mobile UI", "Next-step strip", U14, U15 · Events:
 [telemetry-contract.md](telemetry-contract.md) "Product events" (app rows).
 
