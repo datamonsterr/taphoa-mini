@@ -18,7 +18,11 @@ import {
 } from '@/lib/notifications';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { OfflineSync } from '@/lib/offline/OfflineSync';
-import { createAppQueryClient, persistOptions } from '@/lib/offline/persist';
+import {
+  createAppQueryClient,
+  persistOptions,
+  revalidateRestoredMe,
+} from '@/lib/offline/persist';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -147,6 +151,7 @@ export default function RootLayout() {
         <PersistQueryClientProvider
           client={queryClient}
           persistOptions={persistOptions}
+          onSuccess={() => void revalidateRestoredMe(queryClient)}
         >
           {!publishableKey ? (
             <ConfigurationError />

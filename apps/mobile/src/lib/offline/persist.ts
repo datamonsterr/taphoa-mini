@@ -60,3 +60,12 @@ export const persistOptions: PersistQueryClientProviderProps['persistOptions'] =
     buster: 'v1',
     dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
   };
+
+/**
+ * After the cache is restored: ask the server again who this person is. `me` decides which screen
+ * opens (shop or welcome), so a restored copy must not count as fresh: the last save is throttled
+ * and can predate the store the person just created. The restored copy still shows meanwhile, and
+ * offline the refetch simply waits.
+ */
+export const revalidateRestoredMe = (qc: QueryClient) =>
+  qc.invalidateQueries({ queryKey: keys.me() });

@@ -225,7 +225,7 @@ test.describe('onboarding screenshots', () => {
   test.use({ signedIn: false });
 
   test('Sign in', async ({ page }, testInfo) => {
-    // the pay screen returns to the camera by itself; a reload would need the network
+    await page.goto('/');
     await hydrate(page, signInScreen(page));
     await capture(page, testInfo, 'SignIn');
   });

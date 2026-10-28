@@ -133,8 +133,13 @@ export function AuthGate({
       return;
     const first = previous.current === undefined;
     previous.current = identity;
+    // On the first pass `me` is a copy restored from the device, not yet confirmed by the server:
+    // dropping it makes the gate wait for the answer instead of trusting a copy that can predate
+    // the store the person just created.
     const currentMe =
-      userId && me.data?.clerk_user_id === userId ? me.data : undefined;
+      !first && userId && me.data?.clerk_user_id === userId
+        ? me.data
+        : undefined;
     // The persisted offline cache (restored before this runs) stays only for the person and store
     // it was saved for; on a cold start the same identity keeps its catalog.
     const keepRestored =

@@ -8,8 +8,8 @@ import { createTestQueryClient } from '@/test/render';
 import { OfflineSync } from './OfflineSync';
 
 const mockPrefetch = jest.fn();
-jest.mock('expo-router', () => ({
-  router: { prefetch: (href: string) => mockPrefetch(href) },
+jest.mock('./saleScreens', () => ({
+  prefetchSaleScreens: () => mockPrefetch(),
 }));
 
 test('on reconnect it sends unsent writes first, then pulls the catalog delta', async () => {
@@ -42,5 +42,5 @@ test('on reconnect it sends unsent writes first, then pulls the catalog delta', 
   });
   expect(order).toEqual(['send k1', '/v1/sync/changes']);
   // the sale screens are fetched while online (web chunks), once the network is up
-  expect(mockPrefetch.mock.calls).toEqual([['/cart'], ['/pay']]);
+  expect(mockPrefetch).toHaveBeenCalledTimes(1);
 });
