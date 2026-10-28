@@ -79,19 +79,28 @@ export async function main(args = process.argv.slice(2)) {
       environment: { type: 'string' },
       days: { type: 'string', default: '7' },
       only: { type: 'string' },
+      'only-store': { type: 'string' },
+      'exclude-store': { type: 'string' },
     },
   });
   if (!values.environment) throw new Error('Required: --environment <name>');
   const days = Number(values.days);
   scopeQuery(
-    { kind: 'TrendsQuery' },
-    { environment: values.environment, days },
+    { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$screen' }] },
+    {
+      environment: values.environment,
+      days,
+      onlyStore: values['only-store'],
+      excludeStore: values['exclude-store'],
+    },
   );
   const result = await verifyNonsynthetic({
     client: createClient(loadSecrets()),
     environment: values.environment,
     days,
     only: values.only,
+    onlyStore: values['only-store'],
+    excludeStore: values['exclude-store'],
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exitCode = 1;
