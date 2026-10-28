@@ -1,4 +1,5 @@
 import { addDays, businessDate } from '@/lib/date';
+import type { VoiceOutcomeRequest, VoiceUtterance } from '@taphoa/api-client';
 import type {
   Customer,
   DebtEntry,
@@ -24,6 +25,20 @@ import type {
 import { productImageUri, type ProductImageSlug } from './assets';
 import { randomCode, seedUuid } from './ids';
 
+export type VoiceMockState = {
+  /** When true, every utterance returns 429 voice_quota. */
+  voiceQuotaExceeded: boolean;
+  utterances: Map<string, VoiceUtterance>;
+  /** Last outcome per utterance id; last write wins. */
+  outcomes: Map<string, VoiceOutcomeRequest>;
+};
+
+export const newVoiceState = (): VoiceMockState => ({
+  voiceQuotaExceeded: false,
+  utterances: new Map(),
+  outcomes: new Map(),
+});
+
 export type ProductRecord = { product: Product };
 
 export type MockState = {
@@ -48,6 +63,7 @@ export type MockState = {
   scans: Map<string, Scan>;
   scanCount: number;
   singleScanCount: number;
+  voice: VoiceMockState;
 };
 
 export const STORE_ID = seedUuid(1);
@@ -565,5 +581,6 @@ export function buildSeed(now: Date = new Date()): MockState {
     scans: new Map(),
     scanCount: 0,
     singleScanCount: 0,
+    voice: newVoiceState(),
   };
 }

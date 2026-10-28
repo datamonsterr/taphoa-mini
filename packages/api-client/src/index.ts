@@ -140,8 +140,71 @@ export function createApiClient(options: ApiClientOptions) {
           return form;
         },
       }),
+    createVoiceUtterance: (input: CreateVoiceUtteranceInput) =>
+      client.POST('/v1/voice/utterances', {
+        // The generated type models a binary part as string; the serializer sends a real file part.
+        body: {
+          audio: input.audio as unknown as string,
+          mode: input.mode,
+          language: input.language,
+          context: JSON.stringify(input.context),
+        },
+        bodySerializer: () => {
+          const form = new FormData();
+          const { audio } = input;
+          if (isReactNativeFile(audio)) {
+            // React Native FormData reads {uri, name, type} objects as file parts.
+            form.append('audio', audio as unknown as Blob);
+          } else {
+            form.append('audio', audio, input.filename ?? 'utterance.m4a');
+          }
+          form.append('mode', input.mode);
+          form.append('language', input.language ?? 'vi');
+          form.append('context', JSON.stringify(input.context));
+          return form;
+        },
+      }),
+    postVoiceOutcome: (utteranceId: string, body: VoiceOutcomeRequest) =>
+      client.POST('/v1/voice/utterances/{utteranceId}/outcome', {
+        params: { path: { utteranceId } },
+        body,
+      }),
   };
 }
+
+/** React Native file part: `FormData` accepts this object in place of a Blob. */
+export type ReactNativeFile = { uri: string; name: string; type: string };
+
+export type CreateVoiceUtteranceInput = {
+  audio: Blob | ReactNativeFile;
+  /** File name for a web Blob part; ignored for React Native files (they carry `name`). */
+  filename?: string;
+  mode: 'sale' | 'transcribe';
+  language?: 'vi' | 'en';
+  context: components['schemas']['VoiceUtteranceContext'];
+};
+
+function isReactNativeFile(
+  value: Blob | ReactNativeFile,
+): value is ReactNativeFile {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as ReactNativeFile).uri === 'string' &&
+    typeof Blob !== 'undefined' &&
+    !(value instanceof Blob)
+  );
+}
+
+export type VoiceUtterance = components['schemas']['VoiceUtterance'];
+
+export type VoiceSaleDraft = components['schemas']['VoiceSaleDraft'];
+
+export type VoiceDraftLine = components['schemas']['VoiceDraftLine'];
+
+export type CustomerMatch = components['schemas']['CustomerMatch'];
+
+export type VoiceOutcomeRequest = components['schemas']['VoiceOutcomeRequest'];
 
 export type ApiClient = ReturnType<typeof createApiClient>;
 

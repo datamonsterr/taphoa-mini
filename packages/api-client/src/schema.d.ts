@@ -1385,6 +1385,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/voice/utterances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn one spoken utterance into a transcript and an optional sale draft
+         * @description Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
+         *     1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
+         *     `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
+         *     `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+         *     per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
+         *     back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
+         */
+        post: operations["createVoiceUtterance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/voice/utterances/{utteranceId}/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report what the seller did with a voice draft
+         * @description Idempotent per utterance; the last write wins.
+         */
+        post: operations["postVoiceOutcome"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/devices": {
         parameters: {
             query?: never;
@@ -1810,6 +1855,102 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description Minimal Product subset a voice draft sheet needs. */
+        ProductSummary: {
+            /** Format: uuid */
+            id: string;
+            name: string | null;
+            price: components["schemas"]["Money"];
+            /** @example chai */
+            base_unit: string;
+            units?: components["schemas"]["ProductUnit"][];
+            /** Format: uri */
+            image_url?: string | null;
+        };
+        VoiceUtteranceContext: {
+            /** @enum {string} */
+            entry: "bubble" | "tile" | "shortcut" | "control" | "action_button" | "siri" | "longpress" | "chip" | "chat";
+            /** @example camera */
+            screen: string;
+            /** Format: uuid */
+            thread_id?: string | null;
+        };
+        CustomerMatch: {
+            /** @enum {string} */
+            status: "matched" | "candidates" | "none";
+            customer?: components["schemas"]["Customer"];
+            candidates?: components["schemas"]["Customer"][];
+            spoken_name?: string;
+        };
+        VoiceDraftLine: {
+            /**
+             * Format: uuid
+             * @description Client reuses it as SaleLineInput.id.
+             */
+            id: string;
+            spoken: string;
+            /** @enum {string} */
+            status: "matched" | "ambiguous" | "unknown";
+            product?: components["schemas"]["ProductSummary"];
+            candidates?: components["schemas"]["ProductSummary"][];
+            /** Format: uuid */
+            unit_id?: string | null;
+            quantity: number;
+            /** @description Spoken price, else catalog price, else null. */
+            unit_price?: components["schemas"]["Money"] | null;
+            /** @enum {string} */
+            price_source?: "spoken" | "catalog" | "none";
+            /** @description Spoken price differs from catalog. */
+            price_mismatch?: boolean;
+            needs_price?: boolean;
+        };
+        VoiceSaleDraft: {
+            lines: components["schemas"]["VoiceDraftLine"][];
+            payment_method: components["schemas"]["PaymentMethod"];
+            customer?: components["schemas"]["CustomerMatch"];
+            total: components["schemas"]["Money"];
+        };
+        VoiceUtterance: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            mode: "sale" | "transcribe";
+            transcript: string;
+            /** @enum {string} */
+            language: "vi" | "en";
+            /** @enum {string} */
+            intent: "sale" | "chat" | "none";
+            confidence?: number;
+            sale_draft?: components["schemas"]["VoiceSaleDraft"];
+            /** @description Slug that answered. */
+            model: string;
+            /** @description True when the STT path was used. */
+            stt_fallback?: boolean;
+            latency_ms: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        VoiceCorrection: {
+            /** Format: uuid */
+            line_id: string;
+            /** Format: uuid */
+            chosen_product_id?: string;
+            quantity?: number;
+            unit_price?: components["schemas"]["Money"];
+            removed?: boolean;
+        };
+        VoiceOutcomeRequest: {
+            /** @enum {string} */
+            outcome: "confirmed" | "edited" | "abandoned";
+            /** Format: uuid */
+            sale_id?: string;
+            corrections?: components["schemas"]["VoiceCorrection"][];
+            /**
+             * @description For abandoned.
+             * @enum {string}
+             */
+            stage?: "listening" | "draft" | "pay";
+        };
         /** @description Exactly one of references or image_ids is required; both or neither return 422 validation_failed. */
         CreateProductRequest: {
             /**
@@ -2155,10 +2296,10 @@ export interface components {
         /** @enum {string} */
         PaymentMethod: "cash" | "transfer" | "credit";
         /**
-         * @description How the line entered the cart (S1, S8, S2, S3, S4).
+         * @description How the line entered the cart (S1, S8, S2, S3, S4, voice).
          * @enum {string}
          */
-        LineSource: "camera" | "multi_photo" | "barcode" | "grid" | "manual";
+        LineSource: "camera" | "multi_photo" | "barcode" | "grid" | "manual" | "voice";
         SaleLineInput: {
             /** Format: uuid */
             id: string;
@@ -5600,6 +5741,83 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createVoiceUtterance: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    audio: string;
+                    /** @enum {string} */
+                    mode: "sale" | "transcribe";
+                    /**
+                     * @default vi
+                     * @enum {string}
+                     */
+                    language?: "vi" | "en";
+                    /** @description JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}. */
+                    context?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Utterance understood. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceUtterance"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    postVoiceOutcome: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path: {
+                utteranceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceOutcomeRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
