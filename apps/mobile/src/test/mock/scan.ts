@@ -131,6 +131,12 @@ export function buildScan(input: {
       detected,
       score: detected ? 0.9 : 0,
       text_lines: detected ? 12 : 0,
+      line_boxes: detected
+        ? [
+            [0.25, 0.2, 0.5, 0.04],
+            [0.25, 0.3, 0.5, 0.04],
+          ]
+        : [],
     },
     created_at: nowIso(),
   };

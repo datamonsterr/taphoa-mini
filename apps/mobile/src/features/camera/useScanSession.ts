@@ -35,20 +35,29 @@ export function useScanSession(
     [mutateAsync, mode],
   );
 
-  const capture = useCallback(async () => {
-    if (phase !== 'idle') return;
-    const token = ++tokenRef.current;
-    dispatch({ type: 'shutter', token });
-    let shot: Photo;
-    try {
-      shot = await takePhoto(cameraRef.current);
-    } catch (error) {
-      dispatch({ type: 'failed', token, message: message(error) });
-      return;
-    }
-    dispatch({ type: 'captured', token, photo: shot });
-    await submit(token, shot);
-  }, [phase, cameraRef, submit]);
+  const capture = useCallback(
+    async (onPhoto?: (shot: Photo) => Promise<void>) => {
+      if (phase !== 'idle') return;
+      const token = ++tokenRef.current;
+      dispatch({ type: 'shutter', token });
+      let shot: Photo;
+      try {
+        shot = await takePhoto(cameraRef.current);
+      } catch (error) {
+        dispatch({ type: 'failed', token, message: message(error) });
+        return;
+      }
+      dispatch({ type: 'captured', token, photo: shot });
+      if (onPhoto) {
+        try {
+          await onPhoto(shot);
+        } finally {
+          dispatch({ type: 'reset' });
+        }
+      } else await submit(token, shot);
+    },
+    [phase, cameraRef, submit],
+  );
 
   /** Scan the frozen photo again; with no photo (camera failure) go back to live. */
   const retry = useCallback(async () => {

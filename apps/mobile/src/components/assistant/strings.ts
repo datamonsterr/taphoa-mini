@@ -5,6 +5,8 @@ export const strings: Dict = {
   vi: {
     open: 'Mở trợ lý',
     strip: 'Gợi ý bước tiếp theo',
+    readReceipt: 'Đọc hóa đơn nhập',
+    receiptAssistant: 'Nhập trong trợ lý',
     'kind.receipt_detected': 'Hóa đơn nhập hàng',
     'sub.receipt_detected': 'Trợ lý đọc từng dòng',
     'kind.unknown_product': 'Hàng chưa có trong kho',
@@ -13,6 +15,8 @@ export const strings: Dict = {
   en: {
     open: 'Open assistant',
     strip: 'Suggested next steps',
+    readReceipt: 'Read import receipt',
+    receiptAssistant: 'Import in assistant',
     'kind.receipt_detected': 'Supplier receipt',
     'sub.receipt_detected': 'The assistant reads each line',
     'kind.unknown_product': 'Product not in stock',
