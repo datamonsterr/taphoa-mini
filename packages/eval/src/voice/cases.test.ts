@@ -8,6 +8,7 @@ import {
   smokeSubset,
   VoiceCaseError,
 } from './cases.ts';
+import { normalizeVi } from './normalize.ts';
 
 const valid = {
   id: 'x',
@@ -106,6 +107,16 @@ describe('the golden voice set', () => {
           expect(store, `${c.id}: ${l.product}`).toContain(`| ${l.product} `);
         }
       }
+  });
+
+  it('keeps unknown products out of the eval store catalog', () => {
+    const catalog = normalizeVi(store);
+    for (const c of cases)
+      for (const l of c.lines)
+        if (l.status === 'unknown')
+          expect(catalog, `${c.id}: ${l.spoken}`).not.toContain(
+            normalizeVi(l.spoken),
+          );
   });
 
   it('is synthetic or recorded only', () => {

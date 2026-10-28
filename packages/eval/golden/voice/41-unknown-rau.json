@@ -8,11 +8,10 @@
   "lines": [
     {
       "spoken": "rau muống",
-      "product": null,
-      "status": "unknown",
+      "product": "Rau muống bó",
       "quantity": 1,
       "unit_price": 20000
     }
   ],
-  "tags": ["unknown", "price-shorthand"]
+  "tags": ["price-shorthand"]
 }
