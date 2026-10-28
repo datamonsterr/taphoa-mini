@@ -2,160 +2,137 @@
 
 Date: 2026-10-29 (Asia/Ho_Chi_Minh). Issue: [#58](https://github.com/datamonsterr/taphoa-mini/issues/58).
 
-Configured assistant default: **z-ai/glm-5.3-flash**, as explicitly directed by the owner.
-Last resort: **nvidia/nemotron-3.5-lightning:free**. No second paid assistant was explored
-or selected after that directive. Judge: **google/gemini-2.5-flash**, distinct from both.
+The owner-selected assistant remains **z-ai/glm-5.3-flash**. The existing last resort
+remains **nvidia/nemotron-3.5-lightning:free**; every generation in this full run used
+GLM. Judge: **google/gemini-2.5-flash**, unchanged and previously calibrated at
+90% agreement / MAE 0.5 ([calibration](judge-calibration.md)).
 
-**Acceptance: FAIL. Issue #58 remains open; the missed bars below are not waived.**
-This delivers local code and evidence for controller review. No push, PR, merge, Railway
-variable change, hosted test, or PostHog configuration change was performed.
+**Acceptance: FAIL. Issue #58 and PR #126 remain open. No bars, rubrics, golden
+cases or judge settings were changed. No push, merge or deployment was performed.**
 
-## Full run
+## Latest full run
 
-- Run: `eval-20261028T2024-a18e`; CLI source SHA `3897af62028a`.
-- Backend: `127.0.0.1:18081`, rebuilt with `packages/eval/scripts/local-stack.sh up`.
+- Run: `eval-20261028T2113-1bbd`; committed source `4a5767a7d066` (prompt v7).
+- Local stack rebuilt and reseeded with `packages/eval/scripts/local-stack.sh up`.
 - Command: `pnpm --filter @taphoa/eval run full -- --force --concurrency 1 --no-posthog`.
-- `ASSISTANT_MODELS=z-ai/glm-5.3-flash,nvidia/nemotron-3.5-lightning:free`.
-- Cases: 134 scored, 10 pending, 0 not run. Pending cases remain excluded from every bar.
-- [Full report](2026-10-29-z-ai-glm-5.3-flash.md), [per-case gaps and decision](2026-10-29-z-ai-glm-5.3-flash-gaps.md),
-  [exact unmet oracle expectations/tools](2026-10-29-z-ai-glm-5.3-flash-gaps.json).
+- Models: `ASSISTANT_MODELS=z-ai/glm-5.3-flash,nvidia/nemotron-3.5-lightning:free`;
+  `EVAL_JUDGE_MODELS=google/gemini-2.5-flash`.
+- 134 scored cases, 10 pending, zero not run; all 134 were judged.
+- [Full report](2026-10-29-z-ai-glm-5.3-flash.md),
+  [remaining gaps](2026-10-29-z-ai-glm-5.3-flash-gaps.md),
+  [per-case evidence](2026-10-29-z-ai-glm-5.3-flash-gaps.json).
 
-| Metric             | Value  | Bar     | Cases | Result |
-| ------------------ | ------ | ------- | ----- | ------ |
-| tool_selection     | 94.8 % | ≥ 90 %  | 134   | pass   |
-| facts              | 63.1 % | ≥ 85 %  | 84    | FAIL   |
-| judge              | 53.4 % | ≥ 80 %  | 133   | FAIL   |
-| action             | 91.7 % | ≥ 90 %  | 12    | pass   |
-| permission_leak    | 0      | 0 cases | 14    | pass   |
-| injection_resisted | 100 %  | 100 %   | 7     | pass   |
-| language           | 100 %  | 100 %   | 134   | pass   |
-| latency_p95_ms     | 13.5 s | < 20 s  | 134   | pass   |
+| Metric             | Prior full run | Latest | Bar     | Result |
+| ------------------ | -------------- | ------ | ------- | ------ |
+| tool_selection     | 94.8%          | 98.5%  | ≥90%    | pass   |
+| facts              | 63.1%          | 92.3%  | ≥85%    | pass   |
+| judge              | 53.4%          | 61.9%  | ≥80%    | FAIL   |
+| action             | 91.7%          | 91.7%  | ≥90%    | pass   |
+| permission_leak    | 0              | 0      | 0 cases | pass   |
+| injection_resisted | 100%           | 100%   | 100%    | pass   |
+| language           | 100%           | 99.3%  | 100%    | FAIL   |
+| latency p95        | 13.5 s         | 13.6 s | <20 s   | pass   |
 
-The earlier [full baseline](2026-10-29-z-ai-glm-5.3-flash-baseline.md) passed
-latency at 12.4 s p95, but had 72% facts, 49.6% judge pass and one seller permission
-leak. Its recorded source `4f9e435` was rebased to `0a13fc4`; the historical report is preserved as recorded. Fixes retained on this branch include numerical decrease normalization,
-missing tool metadata, tool-required grounding recovery, focused prompts and
-sampling at temperature 0. The owner-selected narrow seller guard refuses explicit
-day-close/counted-cash/shortfall requests before model/tool calls, in Vietnamese
-with or without diacritics and in English. Ordinary seller revenue, expense, stock
-and product-sales questions remain allowed; tool permission contracts are unchanged.
+Prior full run: `eval-20261028T2024-a18e`. No second final full run was made: the
+judge remains 18.1 percentage points below its bar, so the result is not close.
+Budget was available; the owner's condition for a second full run was not met.
+There is no Railway/hosted acceptance or deployment proof in this continuation.
 
-The [six-case rerun](2026-10-29-z-ai-glm-5.3-flash-partial.md) verified the seller
-refusal and four cases overall, p95 6.3 s. The [smoke run](2026-10-29-z-ai-glm-5.3-flash-smoke.md)
-then scored facts 81.6%, judge 68%, p95 11.5 s. That smoke preceded a judge prompt
-clarification: it must evaluate fixture dates without inventing a current date,
-and distinguish an offer from an executed action. The judge was recalibrated
-before this final full run. No golden cases, oracle values or pass bars were relaxed.
+## Changes and targeted evidence
 
-## Price and routing
+The [grounding investigation](2026-10-29-z-ai-glm-5.3-flash-grounding.md) and
+[captured drafts/tool data](2026-10-29-z-ai-glm-5.3-flash-grounding.json) cover all
+22 historical fallback cases and four additional missing-data cases. The baseline
+rerun had no omitted tool messages; its maximum tool input was 10,574 characters
+against the 24,000-character budget. Six historical symptoms did not recur and
+are explicitly unconfirmed, rather than claimed fixed.
 
-The [current catalog/endpoints snapshot](2026-10-29-openrouter-catalog.json) verifies
-GLM's ID, tool support and 1,048,576-token context. Catalog minimum prices are
-USD **$0.0259/M input, $0.1042/M output**. The configured free last resort is also
-catalog-backed and tool-capable. Only the owner-selected assistant was measured.
-Source: [OpenRouter catalog](https://openrouter.ai/api/v1/models),
-[GLM provider endpoints](https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints).
-The endpoint snapshot supplied no 30-minute latency/throughput statistics; measured
-local turn latencies determine the results above.
+V7 adds tested normalization for cash deductions, loss percentages, calendar ranges,
+matcher probabilities and a same-member manual-lines/sales ratio. Read tools now
+provide stored-cost fallbacks, named margin queries, receipt supplier/candidates,
+review price differences, recognition confusion pairs, supplier counts/premiums,
+utility totals and forecast category/aggregate data. Prompts emphasize focused
+answers, unexecuted proposal drafts, permission refusals, available help content,
+current-turn evidence and the intended tools.
 
-Requests send `provider.sort="latency"`, reasoning effort `low`, temperature `0`.
-Latency routing can select a provider priced above the catalog minimum; actual
-usage costs, rather than catalog-token estimates, determine spend below. No paid
-fallback was added without comparative evidence that it was needed.
+- [26-case baseline](2026-10-29-z-ai-glm-5.3-flash-grounding-baseline.md): facts 34.8%, judge 23.1%.
+- [39-case v7 iteration](2026-10-29-z-ai-glm-5.3-flash-v7-priority.md): tools 97.4%, facts 70.4%, judge 53.8%.
+- [Eight-case follow-up](2026-10-29-z-ai-glm-5.3-flash-v7-verify.md): exposed the final probability/ratio regressions, then fixed with failing-before/passing-after unit tests.
 
-## Judge
+Targeted reports record their starting HEAD while v7 was still being edited. The
+full run above used the committed final source, with no compilation during it.
+Sampling remains temperature 0, reasoning `low`, provider sorting by latency.
 
-[Calibration](judge-calibration.md): **90% agreement, MAE 0.5**, 10 unchanged
-hand-labelled items. Both required bars pass. Gemini never judges its own model.
-Its catalog price is $0.30/M input and $2.50/M output. Other paid judges measured
-before the fixture-context clarification are retained for review:
+## Remaining work and decisions
 
-| Judge                                                      | Agreement | MAE | Verdict |
-| ---------------------------------------------------------- | --------- | --- | ------- |
-| [GPT-4.1-mini](judges/gpt-4.1-mini-calibration.md)         | 70%       | 1.0 | FAIL    |
-| [GPT-5-mini](judges/gpt-5-mini-calibration.md)             | 80%       | 0.4 | FAIL    |
-| [Claude Haiku 5.5](judges/claude-haiku-5.5-calibration.md) | 80%       | 0.5 | FAIL    |
-| [Gemini 2.5 Flash](judge-calibration.md), final prompt     | 90%       | 0.5 | PASS    |
+There are 51 judge misses. Many remain real relevance, completeness, refusal or
+proposal-answer issues; judge scores are preserved. U15-03 also has a reviewable
+judge mismatch: it demands a spelled-out answer amount although the rubric asks
+to understand the transcribed amount and explicitly supplies 95.000 dong.
 
-Judge reasons in the gaps report are model assessments; factual scoring remains
-independent SQL-oracle scoring. Any unjudged cases are explicitly listed in the
-full report and do not constitute passing judge evidence.
+Five final answers still hit the grounding fallback; exact drafts, tool payloads
+and unmatched values are in the gaps JSON:
+
+- U7-02 / U7-06: inclusive 60-day interval is reported as 59 by tool metadata.
+- U16-06: parenthesized `9/2026` is parsed as a claim of 2026.
+- U17-03: valid latest-supplier difference and percentage lack explicit derived evidence.
+- U18-02: valid Friday–Sunday subtotal lacks evidence; only Saturday/Sunday is summarized.
+
+The full run also omitted tool messages in U18-01 / U18-04, including a current
+forecast. Forecast arrays and combined results need a compact representation that
+preserves totals and requested daily detail. This is distinct from the priority
+baseline, which had no omissions; raising the budget globally is not yet justified.
+
+Other remaining misses: tool routing U10-03 / U21-06; action U14-03; facts for
+U20-02 / U21-01 / U21-06. The help library lacks some U12-02/04/05 flows expected
+by the unchanged cases; current app code has no sale-history/void screen or invite
+role selector. Do not invent those instructions.
+
+U4-03 is the only language miss: its answer is English and the judge awarded 5/5,
+but required Vietnamese product names trip the heuristic's Vietnamese-letter limit.
+The failed language score remains unchanged pending scorer review.
+
+Keep #58 open, retain both fixed models and keep all bars/cases unchanged. The ten
+pending digest/debt cases remain excluded from every bar.
 
 ## Usage and budget
 
-- Usage-accounted turns: **142**, including policy refusals at zero.
-- Mean cost per turn: **$0.00102023**.
-- p95 cost per turn: **$0.00228595** (nearest rank).
-- Full-run assistant usage: **$0.14487256** across all generations.
-- Task spend by eval-key usage delta: **$0.557549496** from initial
-  usage $0.394561591 to final usage **$0.952111087**.
-- Key limit remains **$6.50**; remaining credit **$5.547888913**.
-  No key limit was raised in this resumed run. The cumulative key usage, including
-  pre-task charges, also remains below the hard task cap.
-- [Spend checkpoints](2026-10-29-spend.json), [usage reconciliation](2026-10-29-z-ai-glm-5.3-flash-accounting.json).
+- 142 completed turns with complete input/output/total cost components.
+- Mean assistant cost/turn: **$0.00094853**; p95: **$0.00183826**.
+- Assistant usage: **$0.134691026**; judge usage: **$0.045737400**.
+- 302 paid GLM generations, zero missing cost fields, component mismatches or
+  provider-price-bound mismatches. All 142 turn captures reconcile with SSE usage.
+- Settled full-run usage: **$0.180428426**. Key usage rose from $1.098763685 to
+  **$1.279192111** after delayed accounting settled.
+- This continuation: **$0.327081024**, from starting key usage $0.952111087.
+- Hard key limit remains **$6.50**; remaining credit **$5.220807889**.
+  Remaining before the owner's $6.00 stop line: **$4.720807889**. No cap was raised.
 
-Key snapshots include judge charges, earlier calibration/smoke/partial/full runs,
-and failed/cancelled calls; account usage can lag individual responses. They are
-not isolated per-run invoices. The cost-per-turn figures are actual assistant
-SSE usage, exclude judge charges, and include all tool-loop calls. OpenRouter
-[usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting)
-is automatic in the final streaming chunk; deprecated `usage.include` is not used.
-Paid missing costs remain unknown; `:free` generations explicitly report zero.
-PostHog verification uses catalog/provider price bounds with 10% + $1e-8 tolerance.
-The local generation-event capture is partial because the prior listener process
-had exited; it was restored during the full run. Full turn usage comes separately
-from captured SSE completions. No remote pricing or online-judge apply was run.
+[Spend checkpoints](2026-10-29-spend.json),
+[usage reconciliation](2026-10-29-z-ai-glm-5.3-flash-accounting.json).
+Key snapshots include assistant/judge charges and can lag responses. The settled
+snapshot reconciles exactly with the full run's assistant plus judge usage. The
+[OpenRouter catalog/endpoints snapshot](2026-10-29-openrouter-catalog.json) supplies
+price bounds; actual streaming usage determines costs, not minimum catalog prices.
+No remote PostHog pricing or online-judge configuration was applied.
 
 ## Validation
 
-All Cargo commands, including commit hooks, use
-`CARGO_TARGET_DIR=/media/storage/cache/i58p-target RUSTC_WRAPPER=env`. No `cargo clean`.
+Cargo used the requested target directory and `RUSTC_WRAPPER=env`; no `cargo clean`.
 
-| Check                                                                     | Result                                                      |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `cargo test -p taphoa-api`                                                | 406 passed; 6 lib tests ignored; DB suites separately below |
-| loop + telemetry + sales-tool tests, `--include-ignored --test-threads=1` | 45 passed (30 + 4 + 11), dedicated local test DB            |
-| `cargo clippy -p taphoa-api --all-targets -- -D warnings`                 | pass                                                        |
-| `cargo fmt --all --check`                                                 | pass                                                        |
-| `pnpm --filter @taphoa/eval test`                                         | 668 passed                                                  |
-| eval typecheck                                                            | pass                                                        |
-| eval SQL-oracle integration                                               | 256 passed                                                  |
-| `node --test infra/posthog/tests infra/posthog/llm/*.test.mjs`            | 68 passed                                                   |
-| `python3 -m pytest scripts/ci`                                            | 68 passed                                                   |
-| API client tests/typecheck/generated check                                | 40 passed; types and generated schema current               |
-| `pnpm lint:api`                                                           | pass, 6 existing warnings                                   |
-| Prettier + commitlint hooks                                               | pass                                                        |
+| Check                                                          | Result                                                |
+| -------------------------------------------------------------- | ----------------------------------------------------- |
+| `cargo test -p taphoa-api`                                     | pass; 411 library tests, 6 library tests ignored      |
+| DB-backed loop / telemetry / tool suites                       | 62 passed (30 + 4 + 16 + 12); latest tool tests 28/28 |
+| `cargo clippy -p taphoa-api --all-targets -- -D warnings`      | pass                                                  |
+| `cargo fmt --all --check`                                      | pass                                                  |
+| `pnpm --filter @taphoa/eval test`                              | 668 passed                                            |
+| eval typecheck                                                 | pass                                                  |
+| `node --test infra/posthog/tests infra/posthog/llm/*.test.mjs` | 68 passed                                             |
+| Prettier and Conventional Commit hooks                         | pass                                                  |
 
-Node is 26.12.0 (repository engine requests Node 24); no Node 24 run is claimed.
-The narrow guard additions were observed failing before implementation, then passed.
-Paid accounting, missing fields, zero-cost free policy, quota independence and
-price tolerances have unit coverage. A final accounting-only fix initializes the
-turn from its first response, then keeps cost unknown if any response omits usage,
-even when it also omits token counts. Its unit regression failed before the fix;
-the database-backed loop regression covers complete and missing accounting.
-The paid full run above was not repeated after this fix: all 142 recorded turns
-had complete cost components, and model selection, prompts and sampling were
-unchanged. Nightly/CI retains the free guard for free
-overrides and uses remaining USD credits for the paid primary.
-
-## Exact controller values
-
-Set on the Railway backend in **test and production** when the controller approves
-this rollout; this task did not change those environments:
-
-```dotenv
-ASSISTANT_MODEL_PROVIDER=openrouter
-ASSISTANT_MODELS=z-ai/glm-5.3-flash,nvidia/nemotron-3.5-lightning:free
-ASSISTANT_REASONING_EFFORT=low
-```
-
-Keep `ASSISTANT_ALLOW_EVAL_HEADERS=1` only on test and `0`/unset in production.
-For the eval runner (CI/nightly or local):
-
-```dotenv
-EVAL_JUDGE_MODELS=google/gemini-2.5-flash
-```
-
-Keep each environment's existing secret key value; ensure it has a suitable finite
-credit limit. The eval key remains capped at $6.50. Worktree and task-owned build
-cache are retained because the branch is unmerged; no cleanup of other worktrees.
+The final two guard additions have current unit/full Cargo coverage; the database
+loop/telemetry run preceded those pure normalization additions. The latest database
+tool run covers the final SQL and payload changes. Node is 26.12.0; the repository
+requests Node 24, and no Node 24 validation is claimed. The unmerged worktree and
+build cache are retained; no push or cleanup of other worktrees.

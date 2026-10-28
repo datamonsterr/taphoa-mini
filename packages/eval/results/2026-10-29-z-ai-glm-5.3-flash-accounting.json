@@ -1,18 +1,18 @@
 {
-  "run_id": "eval-20261028T2024-a18e",
-  "source": "SSE turn usage, plus a partial local capture of backend PostHog generation events; no remote PostHog writes",
-  "generation_capture_coverage": "Partial: listener from the previous account had exited and was restored during the final run",
-  "generations": 219,
-  "paid_generations": 219,
+  "run_id": "eval-20261028T2113-1bbd",
+  "source": "SSE turn usage reconciled with local backend PostHog generation-event capture; runner used --no-posthog",
+  "generation_capture_coverage": "All 142 completed turns captured; 302 generation costs reconcile with SSE turn costs.",
+  "generations": 302,
+  "paid_generations": 302,
   "model_counts": {
-    "z-ai/glm-5.3-flash": 219
+    "z-ai/glm-5.3-flash": 302
   },
   "paid_missing_cost_fields": 0,
   "paid_component_sum_mismatches": 0,
-  "input_usd": 0.085868392,
-  "output_usd": 0.007147700000000003,
-  "total_usd": 0.09301609199999991,
-  "judge_usage_total_usd": 0.04626399999999999,
+  "input_usd": 0.12751267600000007,
+  "output_usd": 0.007178349999999999,
+  "total_usd": 0.134691026,
+  "judge_usage_total_usd": 0.045737400000000004,
   "text_price_bounds": {
     "input_min": 1.2e-8,
     "input_max": 2.25e-7,
@@ -27,12 +27,15 @@
     "turns_with_cost": 142,
     "turns_with_all_components": 142,
     "component_sum_mismatches": 0,
-    "input_usd": 0.13243945599999993,
-    "output_usd": 0.0124331,
-    "total_usd": 0.14487255600000004,
-    "model_counts": {
-      "z-ai/glm-5.3-flash": 141,
-      "policy": 1
-    }
+    "input_usd": 0.12751267600000002,
+    "output_usd": 0.00717835,
+    "total_usd": 0.13469102599999996
+  },
+  "capture_reconciliation": {
+    "captured_turns": 142,
+    "completed_turns": 142,
+    "generation_minus_turn_cost_usd": 2.7755575615628914e-17,
+    "omitted_tool_messages": 4,
+    "max_input_tool_chars": 21578
   }
 }
