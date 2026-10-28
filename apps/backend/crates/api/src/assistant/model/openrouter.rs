@@ -219,6 +219,7 @@ fn request_body(request: &ChatRequest) -> Value {
         "messages": messages,
         "stream": true,
         "max_tokens": request.max_tokens,
+        "temperature": 0,
         "provider": {"sort": "latency"},
     });
     if !request.tools.is_empty() {
@@ -772,7 +773,7 @@ mod tests {
         assert_eq!(headers["content-type"], "application/json");
         assert_eq!(
             body,
-            json!({"model":"test/model:free","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hello"},{"role":"assistant","content":null,"tool_calls":[{"id":"a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","content":"{\"ok\":true}"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup","parameters":{"type":"object"}}}],"tool_choice":"auto","stream":true,"max_tokens":123,"provider":{"sort":"latency"},"reasoning":{"effort":"low"}})
+            json!({"model":"test/model:free","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hello"},{"role":"assistant","content":null,"tool_calls":[{"id":"a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","content":"{\"ok\":true}"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup","parameters":{"type":"object"}}}],"tool_choice":"auto","stream":true,"max_tokens":123,"temperature":0,"provider":{"sort":"latency"},"reasoning":{"effort":"low"}})
         );
     }
     #[tokio::test]
