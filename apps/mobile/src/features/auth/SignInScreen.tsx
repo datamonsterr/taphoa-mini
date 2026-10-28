@@ -1,6 +1,6 @@
 import { useSessionList, useSignIn, useSignUp, useSSO } from '@clerk/expo';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform, StyleSheet, View } from 'react-native';
@@ -8,6 +8,7 @@ import { ScaledText } from '@/components/ui';
 import { DeviceSessions } from '@/features/account/DeviceSessions';
 import { SwitchPinSheet } from '@/features/account/SwitchPinSheet';
 import { useSwitchSession } from '@/features/account/useSwitchSession';
+import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { useDeviceLock } from '@/stores/deviceLock';
 import {
@@ -46,6 +47,7 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
   }, []);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
+  const capturedSession = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const submit = async () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
@@ -96,6 +98,11 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
           session: result.createdSessionId,
           navigate: async () => {},
         });
+        // Only a completed sign-in emits this event; session restoration never reaches here.
+        if (capturedSession.current !== result.createdSessionId) {
+          capturedSession.current = result.createdSessionId;
+          capture('signed_in', { method: 'google' });
+        }
         // A fresh sign-in proves who is holding the phone, so it lifts the device lock, after the
         // PIN if that person has one. Backing out of the PIN signs the new session out again.
         await switcher.admit(result.createdSessionId, wasLocked, (outcome) => {

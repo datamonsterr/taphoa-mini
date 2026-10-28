@@ -1,9 +1,10 @@
 import { useSignIn, useSignUp } from '@clerk/expo';
 import { Redirect, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SwitchPinSheet } from '@/features/account/SwitchPinSheet';
 import { useSwitchSession } from '@/features/account/useSwitchSession';
+import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { useDeviceLock } from '@/stores/deviceLock';
 import {
@@ -30,6 +31,7 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
   const email = useEmailFlow((s) => s.email);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const capturedSession = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Cancelling clears the email; the pop animation must not bounce back to the form.
   const [leaving, setLeaving] = useState(false);
@@ -63,6 +65,11 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
       const sessionId = resource.createdSessionId;
       const finalized = await resource.finalize({ navigate: async () => {} });
       if (finalized.error) throw finalized.error;
+      // Finalize activates the session. Repeated submissions for it must not double count.
+      if (sessionId && capturedSession.current !== sessionId) {
+        capturedSession.current = sessionId;
+        capture('signed_in', { method: 'email_code' });
+      }
       // A fresh sign-in proves who is holding the phone, so it lifts the device lock, after the
       // PIN if that person has one. Backing out of the PIN signs the new session out again.
       await switcher.admit(sessionId, wasLocked, (result) => {
