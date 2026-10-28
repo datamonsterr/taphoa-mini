@@ -71,6 +71,12 @@ jest.mock('lucide-react-native', () => {
   );
 });
 
+jest.mock('expo-speech', () => ({
+  speak: jest.fn(),
+  stop: jest.fn().mockResolvedValue(undefined),
+  isSpeakingAsync: jest.fn().mockResolvedValue(false),
+}));
+
 jest.mock('expo-contacts', () => ({
   Contact: { presentPicker: jest.fn().mockResolvedValue(null) },
 }));

@@ -39,6 +39,7 @@ import type { CreateSaleRequest, Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { fill, useLabels, useT } from '@/lib/i18n';
 import { newUuid, saleCode } from '@/lib/uuid';
+import { useSettingsStore } from '@/stores/settings';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
 import { cartLineKey, type CartLine } from '@/stores/cart';
 import { UnitChooser } from '@/features/checkout/UnitChooser';
@@ -49,6 +50,7 @@ import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
+import { useSpokenTotal } from './speak';
 import { buildVietQr } from './vietqr';
 
 /** How long the green "received" state shows before returning to the camera. */
@@ -171,6 +173,12 @@ export function PayScreen() {
     total,
     Math.max(roundStep, Math.floor(total / roundStep) * roundStep),
   );
+  const speakTotal = useSettingsStore((s) => s.speakTotal);
+  useSpokenTotal({
+    enabled: speakTotal,
+    total,
+    change: method === 'cash' && tendered !== null ? change : 0,
+  });
   const creditAmount = Math.max(0, total - paidNow);
   const confirmDisabled =
     sale.isPending ||

@@ -3,6 +3,7 @@ import { createCustomer } from '@/lib/api/debts';
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 
 import * as storeApi from '@/lib/api/store';
 import { holdNext } from '@/test/hold';
@@ -524,4 +525,38 @@ test('checkout sends chosen unit_id and its price, with separate base and pack l
   );
   expect(new Set(body.lines.map((line) => line.id)).size).toBe(2);
   expect(body.total).toBe(product.price + unit.price);
+});
+
+describe('PayScreen spoken total', () => {
+  afterEach(() => useSettingsStore.setState({ speakTotal: false }));
+
+  it('is silent while the setting is off', async () => {
+    await renderWithProviders(<PayScreen />);
+    expect(Speech.speak).not.toHaveBeenCalled();
+  });
+
+  it('reads the total in Vietnamese when the sheet opens, and stops on unmount', async () => {
+    useSettingsStore.setState({ speakTotal: true });
+    const view = await renderWithProviders(<PayScreen />);
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    expect(Speech.speak).toHaveBeenCalledWith(
+      'Tổng cộng hai mươi bốn nghìn năm trăm đồng',
+      { language: 'vi-VN' },
+    );
+    (Speech.stop as jest.Mock).mockClear();
+    await view.unmount();
+    expect(Speech.stop).toHaveBeenCalled();
+  });
+
+  it('reads the change when the cash given exceeds the total', async () => {
+    useSettingsStore.setState({ speakTotal: true });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByRole('radio', { name: 'Tiền mặt' }));
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByText('100.000'));
+    expect(Speech.speak).toHaveBeenLastCalledWith(
+      'Tiền thối bảy mươi lăm nghìn năm trăm đồng',
+      { language: 'vi-VN' },
+    );
+  });
 });
