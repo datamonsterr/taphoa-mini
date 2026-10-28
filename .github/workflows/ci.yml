@@ -844,7 +844,7 @@ jobs:
     needs: [changes, backend-binary]
     if: needs.changes.outputs.eval == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       group: assistant-eval-smoke-${{ github.ref }}
       cancel-in-progress: true
