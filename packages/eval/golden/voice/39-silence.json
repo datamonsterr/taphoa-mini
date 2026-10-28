@@ -1,0 +1,9 @@
+{
+  "id": "39-silence",
+  "source": "synthetic",
+  "transcript": "",
+  "language": "vi",
+  "intent": "none",
+  "lines": [],
+  "tags": ["smoke", "silence"]
+}

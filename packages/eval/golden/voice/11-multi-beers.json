@@ -1,0 +1,23 @@
+{
+  "id": "11-multi-beers",
+  "source": "synthetic",
+  "transcript": "hai lon bia heineken với ba lon bia ba ba ba",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "bia heineken",
+      "product": "Bia Heineken lon 330ml",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "bia 333",
+      "product": "Bia 333 lon 330ml",
+      "quantity": 3,
+      "unit_price": null
+    }
+  ],
+  "tags": ["multi-line"]
+}

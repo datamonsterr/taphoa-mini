@@ -1,0 +1,9 @@
+{
+  "id": "38-chat-debt",
+  "source": "synthetic",
+  "transcript": "chị Lan đang nợ bao nhiêu tiền",
+  "language": "vi",
+  "intent": "chat",
+  "lines": [],
+  "tags": ["chat"]
+}

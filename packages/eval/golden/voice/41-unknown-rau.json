@@ -1,0 +1,18 @@
+{
+  "id": "41-unknown-rau",
+  "source": "synthetic",
+  "transcript": "một bó rau muống hai chục",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "rau muống",
+      "product": null,
+      "status": "unknown",
+      "quantity": 1,
+      "unit_price": 20000
+    }
+  ],
+  "tags": ["unknown", "price-shorthand"]
+}
