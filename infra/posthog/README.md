@@ -327,3 +327,37 @@ URL-encoded `properties` parameter. A read-only HogQL query of the matching `$se
 can independently confirm its `environment=test` `$screen` event. Browser `$snapshot`
 envelopes deliberately omit super properties, so environment comes from the correlated
 product event, not the snapshot envelope. Project settings alone never prove masking.
+
+## Production smoke and dashboard PNG exports
+
+The opt-in `production-smoke` Playwright project uses one persistent `+clerk_test`
+user and one store named **Smoke test (X9) - do not use**. It is excluded from normal
+projects. See the [production smoke proof](../../docs/specs/assistant/dod/traffic-proof.md#production-smoke)
+for the run command, store ID and exact coverage. App events from a web export built
+with `EXPO_PUBLIC_SMOKE=1` carry `smoke=true`. Backend events retain their ordinary
+store group; no synthetic captures or production backend configuration changes are needed.
+
+Both verification CLIs accept `--only-store <UUID>` or `--exclude-store <UUID>`.
+They filter every event scan/entity and log store attribute, including formula
+denominator probes. They fail closed on unsupported query shapes. Global provider
+quota and online-judge charts keep their existing all-environment scope; a store
+filter does not turn those into store-attributed evidence. Rows without a store
+are preserved by exclusion and omitted by inclusion.
+
+```sh
+node infra/posthog/verify.mjs --environment production --days 1 --only-store <UUID> --json
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 1 --exclude-store <UUID>
+node infra/posthog/export-dashboards.mjs
+# Optional alternate local output directory:
+node infra/posthog/export-dashboards.mjs --output-dir docs/specs/assistant/dod/screenshots
+```
+
+The exporter matches the 11 managed dashboards by exact name, creates each PNG
+through `POST exports/`, polls until `has_content`, then downloads `content/`.
+Only the initial API request carries Authorization; the signed HTTPS redirect
+receives no API credential. PNG signatures are checked before saving. A timestamped
+JSON manifest records dashboard/export IDs and filenames without signed URLs.
+Exports use the **saved all-environment dashboard queries**; they do not temporarily
+mutate dashboards or prove production traffic on their own. Pair these visual
+snapshots with the environment-scoped verification report. Exports require
+`export:write` and `export:read` API scopes ([API reference](https://posthog.com/docs/api/exports)).

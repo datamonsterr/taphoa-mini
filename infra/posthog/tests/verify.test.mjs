@@ -144,3 +144,77 @@ test('allow-empty marks matching empty insights as ok without hiding errors', as
   assert.equal(result.insights[1].ok, false);
   assert.equal(result.ok, false);
 });
+
+test('store filtering covers every managed event scan, entity and log without mutating definitions', async () => {
+  const { scopeQuery, verify } = await import('../verify.mjs');
+  const { llmDashboards } = await import('../llm/index.mjs');
+  const store = '11111111-2222-4333-8444-555555555555';
+  for (const dashboard of [...dashboards, ...llmDashboards]) {
+    for (const insight of dashboard.insights) {
+      const original = JSON.stringify(insight.query);
+      for (const options of [{ onlyStore: store }, { excludeStore: store }]) {
+        const query = scopeQuery(insight.query, {
+          environment: 'production',
+          days: 1,
+          ...options,
+        });
+        if (query.kind === 'HogQLQuery') {
+          const scans = query.query.match(/FROM (events|logs) WHERE/gi);
+          assert.equal(query.query.split(store).length - 1, scans.length);
+          if (options.excludeStore) assert.match(query.query, /coalesce\(/);
+        } else {
+          const entities = query.series ?? [
+            query.retentionFilter.targetEntity,
+            query.retentionFilter.returningEntity,
+          ];
+          assert.ok(
+            entities.every((e) =>
+              e.properties.some(
+                (p) => p.type === 'hogql' && p.key.includes(store),
+              ),
+            ),
+          );
+        }
+      }
+      assert.equal(JSON.stringify(insight.query), original);
+    }
+  }
+  for (const options of [
+    { onlyStore: "x' OR 1=1" },
+    { onlyStore: store, excludeStore: store },
+  ])
+    assert.throws(() => scopeQuery({ kind: 'TrendsQuery' }, options), /store/i);
+  const calls = [];
+  await verify({
+    environment: 'production',
+    days: 1,
+    onlyStore: store,
+    client: {
+      post: async (_, body) => {
+        calls.push(body);
+        return { results: [] };
+      },
+    },
+  });
+  const quota = calls.find((c) => c.name?.includes('1,000/day'));
+  assert.ok(
+    !JSON.stringify(quota.query).includes(store),
+    'shared quota remains global',
+  );
+  assert.ok(
+    calls
+      .filter((c) => c !== quota && !c.name?.includes('Online judge'))
+      .every((c) => JSON.stringify(c.query).includes(store)),
+  );
+});
+
+test('store filter rejects unsupported SQL and query shapes before they can run unfiltered', async () => {
+  const { scopeQuery } = await import('../verify.mjs');
+  const options = { onlyStore: '11111111-2222-4333-8444-555555555555' };
+  for (const query of [
+    { kind: 'HogQLQuery', query: 'SELECT * FROM events e WHERE true' },
+    { kind: 'HogQLQuery', query: 'SELECT * FROM events' },
+    { kind: 'TrendsQuery' },
+  ])
+    assert.throws(() => scopeQuery(query, options), /Unsupported store filter/);
+});

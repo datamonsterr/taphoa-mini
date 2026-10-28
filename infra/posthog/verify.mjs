@@ -6,12 +6,29 @@ import { traceFilters } from './llm/trace-filters.mjs';
 import { createClient } from './lib/client.mjs';
 import { loadSecrets } from './lib/secrets.mjs';
 
-export function scopeQuery(query, { environment, days } = {}) {
+export function scopeQuery(
+  query,
+  { environment, days, onlyStore, excludeStore } = {},
+) {
   if (environment !== undefined && !/^[a-z][a-z0-9_-]*$/.test(environment))
     throw new Error('Invalid environment');
   if (days !== undefined && (!Number.isSafeInteger(days) || days <= 0))
     throw new Error('days must be a positive integer');
   const source = structuredClone(query.source ?? query);
+  if (onlyStore && excludeStore)
+    throw new Error('Choose only-store or exclude-store');
+  const store = onlyStore ?? excludeStore;
+  if (
+    store !== undefined &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      store,
+    )
+  )
+    throw new Error('store must be a UUID');
+  const predicate = (field) =>
+    onlyStore
+      ? `${field} = '${store}'`
+      : `coalesce(${field}, '') != '${store}'`;
   if (source.kind === 'HogQLQuery') {
     const field = /FROM logs\b/.test(source.query)
       ? "resource_attributes['deployment.environment.name']"
@@ -22,6 +39,24 @@ export function scopeQuery(query, { environment, days } = {}) {
         environment ? `${field} = '${environment}'` : '1 = 1',
       )
       .replaceAll('{{days}}', String(days ?? 30));
+    if (store) {
+      const logs = /FROM logs\b/.test(source.query);
+      const table = logs ? 'logs' : 'events';
+      const scans =
+        source.query.match(
+          new RegExp(`\\b(?:FROM|JOIN)\\s+${table}\\b`, 'gi'),
+        ) ?? [];
+      const supported = new RegExp(`\\bFROM\\s+${table}\\s+WHERE\\b`, 'gi');
+      if (
+        !scans.length ||
+        scans.length !== (source.query.match(supported) ?? []).length
+      )
+        throw new Error('Unsupported store filter SQL shape');
+      source.query = source.query.replace(
+        supported,
+        `FROM ${table} WHERE (${predicate(logs ? "attributes['taphoa.store.id']" : 'properties.$groups.store')}) AND`,
+      );
+    }
   } else {
     if (days !== undefined)
       source.dateRange = { ...source.dateRange, date_from: `-${days}d` };
@@ -42,6 +77,22 @@ export function scopeQuery(query, { environment, days } = {}) {
             value: environment,
             operator: 'exact',
           },
+        ];
+    }
+    if (store) {
+      const entities = [
+        ...(source.series ?? []),
+        ...[
+          source.retentionFilter?.targetEntity,
+          source.retentionFilter?.returningEntity,
+        ].filter(Boolean),
+      ];
+      if (!entities.length)
+        throw new Error('Unsupported store filter query shape');
+      for (const entity of entities)
+        entity.properties = [
+          ...(entity.properties ?? []),
+          { type: 'hogql', key: predicate('properties.$groups.store') },
         ];
     }
   }
@@ -80,6 +131,8 @@ export async function verify({
   days = 7,
   allowEmpty,
   only,
+  onlyStore,
+  excludeStore,
 }) {
   if (only && !['dashboards', 'llm'].includes(only))
     throw new Error('--only must be one of: dashboards, llm');
@@ -103,6 +156,7 @@ export async function verify({
         const query = scopeQuery(insight.query, {
           environment: insight.scope === 'all' ? undefined : environment,
           days,
+          ...(insight.scope === 'all' ? {} : { onlyStore, excludeStore }),
         });
         const result = await client.post('query/', {
           query,
@@ -140,7 +194,14 @@ export async function verify({
       }
       insights.push(row);
     }
-  return { ok: insights.every((row) => row.ok), environment, days, insights };
+  return {
+    ok: insights.every((row) => row.ok),
+    environment,
+    days,
+    ...(onlyStore ? { onlyStore } : {}),
+    ...(excludeStore ? { excludeStore } : {}),
+    insights,
+  };
 }
 export async function main(args = process.argv.slice(2)) {
   const { values } = parseArgs({
@@ -151,13 +212,20 @@ export async function main(args = process.argv.slice(2)) {
       json: { type: 'boolean', default: false },
       only: { type: 'string' },
       'allow-empty': { type: 'string' },
+      'only-store': { type: 'string' },
+      'exclude-store': { type: 'string' },
     },
   });
   if (!values.environment) throw new Error('Required: --environment <name>');
   const days = Number(values.days);
   scopeQuery(
-    { kind: 'TrendsQuery' },
-    { environment: values.environment, days },
+    { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$screen' }] },
+    {
+      environment: values.environment,
+      days,
+      onlyStore: values['only-store'],
+      excludeStore: values['exclude-store'],
+    },
   );
   const config = loadSecrets();
   const result = await verify({
@@ -165,6 +233,8 @@ export async function main(args = process.argv.slice(2)) {
     environment: values.environment,
     days,
     only: values.only,
+    onlyStore: values['only-store'],
+    excludeStore: values['exclude-store'],
     allowEmpty: values['allow-empty']
       ? new RegExp(values['allow-empty'])
       : undefined,

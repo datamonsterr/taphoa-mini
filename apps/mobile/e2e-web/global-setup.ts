@@ -100,6 +100,9 @@ export default async function globalSetup() {
     );
   }
 
+  // This fixed identity is intentionally retained for later smoke runs. Never track/delete it.
+  if (process.env.E2E_PRODUCTION_SMOKE === '1') return;
+
   // Every Clerk user created through the Backend API appends its id to a file of its own
   // process here (packages/e2e/src/clerk.ts), so teardown deletes them even after failed tests.
   const tracking = mkdtempSync(path.join(tmpdir(), 'taphoa-clerk-web-e2e-'));

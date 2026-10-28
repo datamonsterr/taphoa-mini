@@ -27,6 +27,7 @@ export function commonProperties(language: string) {
     environment: process.env.EXPO_PUBLIC_ENVIRONMENT || 'local',
     app_version: build ? `${version} (${build})` : version,
     language,
+    ...(process.env.EXPO_PUBLIC_SMOKE === '1' ? { smoke: true } : {}),
   };
 }
 

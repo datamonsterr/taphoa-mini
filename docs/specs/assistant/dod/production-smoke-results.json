@@ -1,0 +1,2116 @@
+{
+  "scope": "Dedicated production smoke; all user IDs masked; no model content or credentials",
+  "storeId": "318e7cdf-8132-47a1-b902-cc806ec59121",
+  "user": "user_3LK…BnUQ",
+  "memberId": "48771b76-d16e-4e62-b4f4-e153662f5b98",
+  "productFlow": {
+    "startedAt": "2026-10-28T19:34:47.314Z",
+    "steps": [
+      {
+        "step": "catalog",
+        "productIds": [
+          "01a183fd-12d0-7226-9979-ba4ffe14c88b",
+          "01a183fd-3dd8-7f0d-94ee-1067f3ca7d0b",
+          "01a183fd-6a1c-7fc0-8ef5-3f5ad00166ba"
+        ]
+      },
+      {
+        "step": "cash-sale",
+        "id": "01a18402-9dca-7dae-8285-2aa7f52f47be"
+      },
+      {
+        "step": "credit-and-repay",
+        "customerId": "01a18400-e6e9-7431-9146-ca2290bd19df",
+        "saleId": "01a18402-e41f-79be-8edd-421d2b8de8ba"
+      },
+      {
+        "step": "receipt",
+        "id": "01a18403-4916-7460-b6c6-2c62a67b4323",
+        "status": "confirmed"
+      },
+      {
+        "step": "day-close",
+        "date": "2026-10-29",
+        "reused": false
+      }
+    ],
+    "user": "user_3LK…BnUQ",
+    "storeId": "318e7cdf-8132-47a1-b902-cc806ec59121",
+    "memberId": "48771b76-d16e-4e62-b4f4-e153662f5b98",
+    "turns": [],
+    "finishedAt": "2026-10-28T19:37:08.542Z",
+    "blockedWrites": []
+  },
+  "assistantResume": {
+    "startedAt": "2026-10-28T19:38:47.387Z",
+    "steps": [
+      {
+        "step": "catalog",
+        "productIds": [
+          "01a183fd-12d0-7226-9979-ba4ffe14c88b",
+          "01a183fd-3dd8-7f0d-94ee-1067f3ca7d0b",
+          "01a183fd-6a1c-7fc0-8ef5-3f5ad00166ba"
+        ]
+      }
+    ],
+    "user": "user_3LK…BnUQ",
+    "storeId": "318e7cdf-8132-47a1-b902-cc806ec59121",
+    "memberId": "48771b76-d16e-4e62-b4f4-e153662f5b98",
+    "turns": [
+      {
+        "question": "Hôm nay bán được bao nhiêu? Trả lời ngắn.",
+        "resumed": true,
+        "messageId": "01a18403-f3b2-70ed-b69e-fca5074a8493",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "completed": true
+      },
+      {
+        "question": "Mặt hàng nào sắp hết? Trả lời ngắn.",
+        "completedAt": "2026-10-28T19:39:37.991Z",
+        "completed": true
+      },
+      {
+        "question": "Đề xuất thêm khoản chi điện 1000 đồng hôm nay, trả từ tiền túi. Chỉ đề xuất, chưa thực hiện.",
+        "completedAt": "2026-10-28T19:39:53.710Z",
+        "completed": true
+      },
+      {
+        "question": "next-step restock chip prompt",
+        "completedAt": "2026-10-28T19:41:01.589Z",
+        "completed": true
+      }
+    ],
+    "actionDecision": "rejected",
+    "finishedAt": "2026-10-28T19:41:36.597Z",
+    "blockedWrites": []
+  },
+  "readback": {
+    "timestamp": "2026-10-28T19:43:58.855Z",
+    "storeId": "318e7cdf-8132-47a1-b902-cc806ec59121",
+    "membershipCount": 1,
+    "productCount": 3,
+    "customers": [
+      {
+        "id": "01a18400-e6e9-7431-9146-ca2290bd19df",
+        "balance": 0
+      }
+    ],
+    "threads": [
+      {
+        "id": "01a18406-dca2-75ba-b290-0614e7f970d7",
+        "messages": [
+          {
+            "id": "01a18406-f16d-7005-8a77-8400958558a0",
+            "role": "user",
+            "model": null,
+            "characters": 23,
+            "feedback": null
+          },
+          {
+            "id": "01a18406-f16d-7005-8a77-84016f427b81",
+            "role": "assistant",
+            "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "characters": 69,
+            "feedback": null
+          }
+        ],
+        "actions": []
+      },
+      {
+        "id": "01a18403-dd2a-759f-9382-40fe5ec94699",
+        "messages": [
+          {
+            "id": "01a18403-f3b2-70ed-b69e-fca435f672d8",
+            "role": "user",
+            "model": null,
+            "characters": 41,
+            "feedback": null
+          },
+          {
+            "id": "01a18403-f3b2-70ed-b69e-fca5074a8493",
+            "role": "assistant",
+            "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "characters": 133,
+            "feedback": "up"
+          },
+          {
+            "id": "01a18406-2aa7-77c5-bb32-ff3727be83b8",
+            "role": "user",
+            "model": null,
+            "characters": 35,
+            "feedback": null
+          },
+          {
+            "id": "01a18406-2aa7-77c5-bb32-ff38e241e9bb",
+            "role": "assistant",
+            "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "characters": 64,
+            "feedback": null
+          },
+          {
+            "id": "01a18406-7cb7-75d6-9594-6042af55f29b",
+            "role": "user",
+            "model": null,
+            "characters": 92,
+            "feedback": null
+          },
+          {
+            "id": "01a18406-7cb7-75d6-9594-60439667cc42",
+            "role": "assistant",
+            "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "characters": 96,
+            "feedback": null
+          }
+        ],
+        "actions": [
+          {
+            "id": "01a18406-9bb2-7365-9b6f-c2629de69fc6",
+            "kind": "expense",
+            "status": "rejected"
+          }
+        ]
+      }
+    ]
+  },
+  "verification": {
+    "production-final": {
+      "ok": false,
+      "environment": "production",
+      "days": 1,
+      "insights": [
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · DAU / WAU / MAU",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Active stores",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · New stores per week",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Week-1 and week-4 retention",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Stickiness",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Sales per active store per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Revenue per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Payment method mix including credit",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Conversion by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Time to convert by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scans by match class",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Unknown rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scan latency p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Sales with manual lines share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Voids per 100 sales",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Scan to confirmation by via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Receipt lines matched share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Stock adjustments by reason and via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Opens by entry",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Weekly users sending a message",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Messages per user",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Action confirm rate by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Feedback ratio",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Next-step CTR by kind and position",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Voice input share and success",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Digest open rate (card vs push)",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Credit sales share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Debts recorded vs repaid per week",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Customers created",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Overdue reminder shares",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Exceptions trend",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Crash-free sessions",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Backend error logs per route",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · API p95 per route",
+          "rows": 32,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · 5xx rate",
+          "rows": 32,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turns per day by environment",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turn latency p50 / p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Time to first token p50 / p95 by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Model calls per turn",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Error and quota rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Fallback rate by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Input / output tokens per day by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Tokens per turn p50 / p95",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Cost per day by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Requests vs. 1,000/day free quota",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool calls per day by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool error and denied rate by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool latency p95 by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Use-case mix",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Proposed action outcomes by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step turns by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step chip to turn",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · User feedback (thumbs) over time",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval scores per run by model",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval pass rate by use case",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Online judge score on production sample",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Errors",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Quota hits",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Rejected actions",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        }
+      ]
+    },
+    "production-nonsynthetic-final": {
+      "ok": false,
+      "environment": "production",
+      "days": 1,
+      "insights": [
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · DAU / WAU / MAU",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Active stores",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · New stores per week",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Week-1 and week-4 retention",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Stickiness",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Sales per active store per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Revenue per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Payment method mix including credit",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Conversion by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Time to convert by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scans by match class",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Unknown rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scan latency p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Sales with manual lines share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Voids per 100 sales",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Scan to confirmation by via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Receipt lines matched share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Stock adjustments by reason and via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Opens by entry",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Weekly users sending a message",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Messages per user",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Action confirm rate by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Feedback ratio",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Next-step CTR by kind and position",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Voice input share and success",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Digest open rate (card vs push)",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Credit sales share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Debts recorded vs repaid per week",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Customers created",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Overdue reminder shares",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Exceptions trend",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Crash-free sessions",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Backend error logs per route",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · API p95 per route",
+          "rows": 32,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · 5xx rate",
+          "rows": 32,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turns per day by environment",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turn latency p50 / p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Time to first token p50 / p95 by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Model calls per turn",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Error and quota rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Fallback rate by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Input / output tokens per day by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Tokens per turn p50 / p95",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Cost per day by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Requests vs. 1,000/day free quota",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool calls per day by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool error and denied rate by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool latency p95 by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Use-case mix",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Proposed action outcomes by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step turns by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step chip to turn",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · User feedback (thumbs) over time",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval scores per run by model",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval pass rate by use case",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Online judge score on production sample",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Errors",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Quota hits",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Rejected actions",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        }
+      ],
+      "exclusion": "NOT coalesce(properties.synthetic, false) AND distinct_id != 'synthetic-x6-validation'",
+      "logs": "unchanged: event synthetic flags do not apply to logs"
+    },
+    "production-only-store-final": {
+      "ok": false,
+      "environment": "production",
+      "days": 1,
+      "onlyStore": "318e7cdf-8132-47a1-b902-cc806ec59121",
+      "insights": [
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · DAU / WAU / MAU",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Active stores",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · New stores per week",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Week-1 and week-4 retention",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Stickiness",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Sales per active store per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Revenue per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Payment method mix including credit",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Conversion by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Time to convert by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scans by match class",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Unknown rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scan latency p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Sales with manual lines share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Voids per 100 sales",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Scan to confirmation by via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Receipt lines matched share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Stock adjustments by reason and via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Opens by entry",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Weekly users sending a message",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Messages per user",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Action confirm rate by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Feedback ratio",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Next-step CTR by kind and position",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Voice input share and success",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Digest open rate (card vs push)",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Credit sales share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Debts recorded vs repaid per week",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Customers created",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Overdue reminder shares",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Exceptions trend",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Crash-free sessions",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Backend error logs per route",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · API p95 per route",
+          "rows": 27,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · 5xx rate",
+          "rows": 27,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turns per day by environment",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turn latency p50 / p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Time to first token p50 / p95 by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Model calls per turn",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Error and quota rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Fallback rate by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Input / output tokens per day by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Tokens per turn p50 / p95",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Cost per day by model",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Requests vs. 1,000/day free quota",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool calls per day by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool error and denied rate by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool latency p95 by tool",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Use-case mix",
+          "rows": 4,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Proposed action outcomes by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step turns by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step chip to turn",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · User feedback (thumbs) over time",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval scores per run by model",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval pass rate by use case",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Online judge score on production sample",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Errors",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Quota hits",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Rejected actions",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        }
+      ]
+    },
+    "test-final": {
+      "ok": false,
+      "environment": "test",
+      "days": 1,
+      "insights": [
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · DAU / WAU / MAU",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Active stores",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · New stores per week",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Week-1 and week-4 retention",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Stickiness",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Sales per active store per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Revenue per day",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Product overview",
+          "insight": "Product overview · Payment method mix including credit",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Conversion by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Activation funnel",
+          "insight": "Activation funnel · Time to convert by sign-in method",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scans by match class",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Unknown rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Scan latency p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Sales with manual lines share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Checkout and recognition",
+          "insight": "Checkout and recognition · Voids per 100 sales",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Scan to confirmation by via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Receipt lines matched share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Receipts and stock",
+          "insight": "Receipts and stock · Stock adjustments by reason and via",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Opens by entry",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Weekly users sending a message",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Messages per user",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Action confirm rate by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Feedback ratio",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Next-step CTR by kind and position",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Voice input share and success",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Assistant adoption",
+          "insight": "Assistant adoption · Digest open rate (card vs push)",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Credit sales share",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Debts recorded vs repaid per week",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Customers created",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Debt book",
+          "insight": "Debt book · Overdue reminder shares",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Exceptions trend",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Crash-free sessions",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · Backend error logs per route",
+          "rows": 0,
+          "ok": false,
+          "data": false
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · API p95 per route",
+          "rows": 65,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Reliability",
+          "insight": "Reliability · 5xx rate",
+          "rows": 65,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turns per day by environment",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Turn latency p50 / p95",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Time to first token p50 / p95 by model",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Model calls per turn",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Error and quota rate",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant health",
+          "insight": "Assistant health · Fallback rate by model",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Input / output tokens per day by model",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Tokens per turn p50 / p95",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Cost per day by model",
+          "rows": 5,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Cost and tokens",
+          "insight": "Cost and tokens · Requests vs. 1,000/day free quota",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool calls per day by tool",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool error and denied rate by tool",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Tool latency p95 by tool",
+          "rows": 3,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Use-case mix",
+          "rows": 2,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Proposed action outcomes by kind",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step turns by kind",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Tools and actions",
+          "insight": "Tools and actions · Next-step chip to turn",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · User feedback (thumbs) over time",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval scores per run by model",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Eval pass rate by use case",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Quality",
+          "insight": "Quality · Online judge score on production sample",
+          "rows": 1,
+          "ok": true,
+          "data": true
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Errors",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Quota hits",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        },
+        {
+          "dashboard": "Assistant traces",
+          "insight": "Assistant traces · Rejected actions",
+          "rows": 0,
+          "ok": true,
+          "data": false,
+          "note": "empty (allowed)"
+        }
+      ]
+    }
+  },
+  "earlierAttempts": [
+    {
+      "startedAt": "2026-10-28T19:29:01.468Z",
+      "finishedAt": "2026-10-28T19:30:11.367Z",
+      "blockedWrites": []
+    },
+    {
+      "startedAt": "2026-10-28T19:30:34.237Z",
+      "finishedAt": "2026-10-28T19:31:30.019Z",
+      "blockedWrites": []
+    },
+    {
+      "startedAt": "2026-10-28T19:32:35.280Z",
+      "finishedAt": "2026-10-28T19:33:59.117Z",
+      "blockedWrites": []
+    }
+  ],
+  "posthogEventEvidence": {
+    "timestamp": "2026-10-28T19:44:55.660Z",
+    "inventory": [
+      ["$ai_generation", 9, 0],
+      ["$ai_span", 4, 0],
+      ["$ai_trace", 4, 0],
+      ["$exception", 11, 11],
+      ["$feature_flag_called", 1, 1],
+      ["$groupidentify", 21, 21],
+      ["$screen", 31, 31],
+      ["$set", 16, 16],
+      ["Application Opened", 16, 16],
+      ["assistant_action_decided", 1, 0],
+      ["assistant_action_proposed", 1, 0],
+      ["assistant_feedback_given", 1, 1],
+      ["assistant_feedback_submitted", 1, 0],
+      ["assistant_message_sent", 4, 4],
+      ["assistant_opened", 4, 4],
+      ["assistant_reply_received", 3, 3],
+      ["customer_created", 1, 0],
+      ["day_closed", 1, 0],
+      ["debt_recorded", 2, 0],
+      ["debt_repaid", 1, 0],
+      ["digest_opened", 1, 1],
+      ["expense_added", 1, 0],
+      ["member_joined", 1, 0],
+      ["next_step_shown", 32, 32],
+      ["next_step_tapped", 1, 1],
+      ["product_enrolled", 3, 0],
+      ["receipt_confirmed", 1, 0],
+      ["receipt_scanned", 1, 0],
+      ["sale_completed", 8, 0],
+      ["sale_voided", 2, 0],
+      ["scan_completed", 4, 0],
+      ["stock_adjusted", 6, 0],
+      ["store_created", 1, 0],
+      ["survey sent", 1, 0]
+    ],
+    "signIn": [],
+    "linkage": [
+      [
+        "01a18407-b3b5-72bc-a1a9-047c50d16f81",
+        "$ai_trace",
+        "2026-10-28T19:40:59.701000Z",
+        "48771b76…5b98",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        null
+      ],
+      [
+        "01a18406-d9ec-761e-a0e5-e641b28fba79",
+        "$screen",
+        "2026-10-28T19:40:04.085000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ],
+      [
+        "01a18406-d9d6-73e1-b3cd-efd2f95353a4",
+        "next_step_tapped",
+        "2026-10-28T19:40:04.063000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ],
+      [
+        "01a18406-ced3-71a9-aefa-80cb97702b24",
+        "$screen",
+        "2026-10-28T19:40:01.244000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ],
+      [
+        "01a18406-bda8-7737-b860-fc10f109ee93",
+        "$screen",
+        "2026-10-28T19:39:56.849000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ],
+      [
+        "01a18406-bd33-73a1-a035-669ad937ab34",
+        "assistant_action_decided",
+        "2026-10-28T19:39:56.595000Z",
+        "48771b76…5b98",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        null
+      ],
+      [
+        "01a18406-ab40-7bb5-b860-a7e6c372be7a",
+        "$ai_trace",
+        "2026-10-28T19:39:52Z",
+        "48771b76…5b98",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        null
+      ],
+      [
+        "01a18406-6c47-7b4d-a0ae-574f8bcec371",
+        "$ai_trace",
+        "2026-10-28T19:39:35.879000Z",
+        "48771b76…5b98",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        null
+      ],
+      [
+        "01a18406-21a0-7ba6-83db-0bedc909b9a3",
+        "assistant_feedback_submitted",
+        "2026-10-28T19:39:16.768000Z",
+        "48771b76…5b98",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        null
+      ],
+      [
+        "01a18406-0f5b-7641-983e-a75ab79d7400",
+        "$screen",
+        "2026-10-28T19:39:12.215000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ],
+      [
+        "01a18406-052a-7c70-a5ae-48483bf5f48b",
+        "$screen",
+        "2026-10-28T19:39:09.632000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ],
+      [
+        "01a18405-fded-74af-b2a5-df014ff969c2",
+        "$screen",
+        "2026-10-28T19:39:07.779000Z",
+        "user_3LK…BnUQ",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        true
+      ]
+    ]
+  },
+  "dashboardExports": {
+    "timestamp": "2026-10-28T19:40:36.947Z",
+    "scope": "Saved dashboards: all environments",
+    "dashboards": [
+      {
+        "name": "Product overview",
+        "dashboardId": 2260461,
+        "exportId": 19544420,
+        "file": "2026-10-28T19-40-36-947Z-product-overview.png"
+      },
+      {
+        "name": "Activation funnel",
+        "dashboardId": 2260462,
+        "exportId": 19544639,
+        "file": "2026-10-28T19-40-36-947Z-activation-funnel.png"
+      },
+      {
+        "name": "Checkout and recognition",
+        "dashboardId": 2260464,
+        "exportId": 19544772,
+        "file": "2026-10-28T19-40-36-947Z-checkout-and-recognition.png"
+      },
+      {
+        "name": "Receipts and stock",
+        "dashboardId": 2260466,
+        "exportId": 19544886,
+        "file": "2026-10-28T19-40-36-947Z-receipts-and-stock.png"
+      },
+      {
+        "name": "Assistant adoption",
+        "dashboardId": 2260467,
+        "exportId": 19544942,
+        "file": "2026-10-28T19-40-36-947Z-assistant-adoption.png"
+      },
+      {
+        "name": "Debt book",
+        "dashboardId": 2260468,
+        "exportId": 19545238,
+        "file": "2026-10-28T19-40-36-947Z-debt-book.png"
+      },
+      {
+        "name": "Reliability",
+        "dashboardId": 2260469,
+        "exportId": 19545500,
+        "file": "2026-10-28T19-40-36-947Z-reliability.png"
+      },
+      {
+        "name": "Assistant health",
+        "dashboardId": 2271249,
+        "exportId": 19545743,
+        "file": "2026-10-28T19-40-36-947Z-assistant-health.png"
+      },
+      {
+        "name": "Cost and tokens",
+        "dashboardId": 2271251,
+        "exportId": 19545924,
+        "file": "2026-10-28T19-40-36-947Z-cost-and-tokens.png"
+      },
+      {
+        "name": "Tools and actions",
+        "dashboardId": 2271252,
+        "exportId": 19546121,
+        "file": "2026-10-28T19-40-36-947Z-tools-and-actions.png"
+      },
+      {
+        "name": "Quality",
+        "dashboardId": 2271253,
+        "exportId": 19546449,
+        "file": "2026-10-28T19-40-36-947Z-quality.png"
+      }
+    ]
+  }
+}
