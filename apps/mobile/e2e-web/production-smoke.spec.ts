@@ -28,7 +28,14 @@ import path from 'node:path';
 // This file uses Playwright's base fixtures: no throwaway stores or Clerk cleanup.
 const EMAIL = 'smoke-prod-x9+clerk_test@example.com';
 const STORE = 'Smoke test (X9) - do not use';
-const PROD = 'https://backend-production-5f5c.up.railway.app';
+// The deployed ASSISTANT_MODELS may be paid (z-ai/glm-5.3-flash) or free; any OpenRouter id.
+const MODEL_ID = /^[\w.-]+\/[\w.:-]+$/;
+// E2E_SMOKE_ENV=test runs the same isolated flow against Railway test (its own smoke store).
+const SMOKE_ENV = process.env.E2E_SMOKE_ENV === 'test' ? 'test' : 'production';
+const PROD =
+  SMOKE_ENV === 'test'
+    ? 'https://backend-test-70c2.up.railway.app'
+    : 'https://backend-production-5f5c.up.railway.app';
 
 test('production smoke: reusable isolated store, product flow and four assistant turns', async ({
   page,
@@ -37,7 +44,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
   page.setDefaultTimeout(25_000);
   expect(process.env.E2E_PRODUCTION_SMOKE).toBe('1');
   expect(API_URL).toBe(PROD);
-  expect(process.env.EXPO_PUBLIC_ENVIRONMENT).toBe('production');
+  expect(process.env.EXPO_PUBLIC_ENVIRONMENT).toBe(SMOKE_ENV);
   expect(process.env.EXPO_PUBLIC_SMOKE).toBe('1');
   expect(process.env.EXPO_PUBLIC_POSTHOG_KEY).toBeTruthy();
   expect(process.env.CLERK_TRACKING_DIR).toBeUndefined();
@@ -391,7 +398,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
           const reply = thread.messages.at(-1);
           expect(reply.role).toBe('assistant');
           expect(reply.content.trim().length).toBeGreaterThan(0);
-          expect(reply.model).toMatch(/:free$/);
+          expect(reply.model).toMatch(MODEL_ID);
           turns.push({
             question,
             completedAt: new Date().toISOString(),
@@ -412,7 +419,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
           expect(detail.messages[0].content).toBe(
             'Hôm nay bán được bao nhiêu? Trả lời ngắn.',
           );
-          expect(detail.messages[1].model).toMatch(/:free$/);
+          expect(detail.messages[1].model).toMatch(MODEL_ID);
           await page.goto(
             `/assistant?entry=button&screen=inventory&threadId=${resumeThread}`,
           );
@@ -472,7 +479,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
           new URL(stream.url()).pathname.replace(/\/messages$/, ''),
         );
         expect(chipThread.messages.at(-1).role).toBe('assistant');
-        expect(chipThread.messages.at(-1).model).toMatch(/:free$/);
+        expect(chipThread.messages.at(-1).model).toMatch(MODEL_ID);
         turns.push({
           question: 'next-step restock chip prompt',
           completedAt: new Date().toISOString(),
