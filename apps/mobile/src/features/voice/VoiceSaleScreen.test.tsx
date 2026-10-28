@@ -111,6 +111,44 @@ describe('listening', () => {
     expect(captured('voice_sale_started')).toEqual([{ entry: 'bubble' }]);
   });
 
+  test('records, stops by itself after 2 s of silence and shows the draft', async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    audioMock.setNextUri('file:///cache/two-line-sale.m4a');
+    mockParams = { entry: 'bubble' };
+    await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalled());
+    await act(async () => audioMock.setMetering(-10));
+    await act(() => jest.advanceTimersByTimeAsync(600));
+    await act(async () => audioMock.setMetering(-60));
+    await act(() => jest.advanceTimersByTimeAsync(2200));
+    expect(await screen.findByTestId('voice-draft')).toBeOnTheScreen();
+    expect(audioMock.recorder.stop).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Coca-Cola lon 330ml')).toBeOnTheScreen();
+  });
+
+  test('the stop button ends the recording and sends it', async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    audioMock.setNextUri('file:///cache/ambiguous.m4a');
+    mockParams = { entry: 'tile' };
+    await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalled());
+    await act(() => jest.advanceTimersByTimeAsync(1000));
+    await fireEvent.press(screen.getByLabelText('Xong, hiểu lời vừa nói'));
+    expect(await screen.findByTestId('voice-draft')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Chưa chắc, chọn đúng món')).toBeOnTheScreen();
+  });
+
+  test('a tap too short to hold speech says it could not hear', async () => {
+    mockParams = { entry: 'tile' };
+    await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalled());
+    await fireEvent.press(screen.getByLabelText('Xong, hiểu lời vừa nói'));
+    expect(await screen.findByTestId('voice-no-speech')).toBeOnTheScreen();
+  });
+
   test('a refused microphone shows the permission pane with a way to Settings', async () => {
     audioMock.setPermission('prompt-denied');
     const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue();

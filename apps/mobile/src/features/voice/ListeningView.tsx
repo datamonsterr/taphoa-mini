@@ -24,6 +24,10 @@ export type ListeningViewProps = {
   onClose: () => void;
 };
 
+/** Dash offset of the countdown ring: the full circle at 0, nothing left at 1. */
+export const ringOffset = (progress: number) =>
+  CIRCUMFERENCE * (1 - Math.min(1, Math.max(0, progress)));
+
 const clock = (ms: number) => {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -86,7 +90,7 @@ export const ListeningView = memo(function ListeningView({
             strokeWidth={STROKE}
             strokeLinecap="round"
             strokeDasharray={CIRCUMFERENCE}
-            strokeDashoffset={CIRCUMFERENCE * (1 - progress)}
+            strokeDashoffset={ringOffset(progress)}
             rotation={-90}
             origin={`${RING / 2}, ${RING / 2}`}
             fill="none"
