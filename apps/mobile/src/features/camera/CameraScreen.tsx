@@ -678,6 +678,7 @@ export function CameraScreen() {
               document={document}
               imageSize={hasResult ? imageSize : probe!.imageSize}
               viewSize={viewSize}
+              mirrored={!hasResult && probe?.previewMirrored}
             />
           ) : null}
           {phase === 'error' ? (

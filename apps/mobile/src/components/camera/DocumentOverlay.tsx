@@ -10,10 +10,13 @@ export function DocumentOverlay({
   document,
   imageSize,
   viewSize,
+  mirrored = false,
 }: {
   document: ScanDocument;
   imageSize: Size;
   viewSize: Size;
+  /** Live preview only; captured stills retain their original coordinates. */
+  mirrored?: boolean;
 }) {
   if (!document.detected) return null;
   return (
@@ -21,7 +24,7 @@ export function DocumentOverlay({
       {(document.line_boxes ?? []).slice(0, 40).map((line, index) => {
         const box = mapBox(
           [
-            line[0] * imageSize.width,
+            (mirrored ? 1 - line[0] - line[2] : line[0]) * imageSize.width,
             line[1] * imageSize.height,
             line[2] * imageSize.width,
             line[3] * imageSize.height,

@@ -151,6 +151,7 @@ jobs:
 
   # Two emulator shards. Baseline durations from the last green run (flows run in this order):
   #   a: multi-session 312 s + onboarding 127 s + assistant 99 s + smoke 68 s = 606 s
+  #      + receipts (new, budget ~140 s) ≈ 746 s; measure after its first CI run.
   #   b: quick-enroll 225 s + inventory 201 s + debts 173 s + checkout 149 s = 748 s
   # Rebalance by moving a flow between the `flows` lists. Paths are relative to apps/mobile and must
   # not contain spaces: the list is word-split by the shell in the emulator step.
@@ -165,7 +166,7 @@ jobs:
       matrix:
         include:
           - shard: a
-            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/smoke.yaml
+            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/smoke.yaml .maestro/receipts.yaml
           - shard: b
             flows: .maestro/quick-enroll.yaml .maestro/inventory.yaml .maestro/debts.yaml .maestro/checkout.yaml
     env:
@@ -247,6 +248,9 @@ jobs:
 
       - name: Run Maestro flows on emulator
         uses: reactivecircus/android-emulator-runner@v2.38.0
+        env:
+          # The host-side receipt seed signs in as this flow's own Clerk test user.
+          MAESTRO_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
         with:
           api-level: 34
           target: google_apis

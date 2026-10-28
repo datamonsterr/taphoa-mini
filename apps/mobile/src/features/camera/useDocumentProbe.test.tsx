@@ -17,7 +17,12 @@ jest.mock('./capture', () => ({
   })),
 }));
 
-const photo = { uri: 'file:///probe.jpg', width: 480, height: 640 };
+const photo = {
+  uri: 'file:///probe.jpg',
+  width: 480,
+  height: 640,
+  previewMirrored: true,
+};
 const document = {
   detected: true,
   score: 0.9,
@@ -78,6 +83,7 @@ test('silently captures and probes every 2.5 seconds, returning dimensions with 
   expect(result.current).toEqual({
     document,
     imageSize: { width: 480, height: 640 },
+    previewMirrored: true,
   });
   expect(capture.discardProbePhoto).toHaveBeenCalledWith(photo.uri);
   await tick();
@@ -169,6 +175,21 @@ test('429 honours Retry-After across pause/resume, then probes again', async () 
   expect(mutateAsync).toHaveBeenCalledTimes(1);
   await tick(1);
   expect(mutateAsync).toHaveBeenCalledTimes(2);
+});
+
+test('a busy inference slot retries after backoff instead of disabling receipt detection', async () => {
+  mutateAsync.mockRejectedValueOnce(
+    new ApiError(503, { error: 'segmenter busy', code: 'unavailable' }, 10_000),
+  );
+  const { result, rerender } = await mount();
+  await tick();
+  await rerender(false);
+  await rerender(true);
+  await tick(9999);
+  expect(mutateAsync).toHaveBeenCalledTimes(1);
+  await tick(1);
+  expect(mutateAsync).toHaveBeenCalledTimes(2);
+  expect(result.current?.document).toEqual(document);
 });
 
 test('transient capture/network errors recover and a negative signal clears detection', async () => {

@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { takePhoto, toScanMode, toUploadFile } from './capture';
 
 describe('takePhoto', () => {
@@ -41,6 +42,32 @@ describe('toUploadFile / toScanMode', () => {
 describe('probe capture', () => {
   const { takeProbePhoto } = jest.requireActual('./capture');
   const { ImageManipulator } = jest.requireMock('expo-image-manipulator');
+
+  it.each([
+    ['web', undefined, true],
+    ['web', 'user', true],
+    ['web', 'environment', false],
+    ['android', undefined, false],
+    ['android', 'environment', false],
+  ] as const)(
+    'uses Expo preview mirroring for %s with facingMode=%s',
+    async (platform, facingMode, previewMirrored) => {
+      const platformSpy = jest.replaceProperty(Platform, 'OS', platform);
+      try {
+        const photo = await takeProbePhoto({
+          takePictureAsync: jest.fn().mockResolvedValue({
+            uri: 'file:///probe.jpg',
+            width: 1080,
+            height: 1440,
+            exif: { facingMode },
+          }),
+        });
+        expect(photo.previewMirrored).toBe(previewMirrored);
+      } finally {
+        platformSpy.restore();
+      }
+    },
+  );
 
   it.each([
     [1080, 1440, 480, 640],

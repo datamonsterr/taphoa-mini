@@ -1,4 +1,5 @@
 import type { CameraPictureOptions } from 'expo-camera';
+import { Platform } from 'react-native';
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
@@ -9,9 +10,15 @@ import type { Photo } from './scanReducer';
 
 /** The part of `CameraView` the screen uses. */
 export type PictureTaker = {
-  takePictureAsync: (
-    options: CameraPictureOptions,
-  ) => Promise<{ uri: string; width: number; height: number } | undefined>;
+  takePictureAsync: (options: CameraPictureOptions) => Promise<
+    | {
+        uri: string;
+        width: number;
+        height: number;
+        exif?: { facingMode?: string };
+      }
+    | undefined
+  >;
 };
 
 /** Captures a JPEG at quality 0.6 (small upload, enough for the matcher). */
@@ -60,7 +67,7 @@ export function discardProbePhoto(uri: string) {
 /** SDK 58 skips quality with skipProcessing; always recompress after resizing. */
 export async function takeProbePhoto(
   camera: PictureTaker | null,
-): Promise<Photo> {
+): Promise<Photo & { previewMirrored: boolean }> {
   if (!camera) throw new Error('camera not ready');
   const picture = await captureStill(camera, {
     quality: 0.2,
@@ -76,7 +83,20 @@ export async function takeProbePhoto(
       maxHeight: 640,
     });
     const image = await context.renderAsync();
-    return await image.saveAsync({ format: SaveFormat.JPEG, compress: 0.3 });
+    const saved = await image.saveAsync({
+      format: SaveFormat.JPEG,
+      compress: 0.3,
+    });
+    return {
+      ...saved,
+      // Expo Camera 58 web returns MediaTrackSettings in exif. Its preview
+      // mirrors facingMode=user, including the desktop/fake-device fallback
+      // when facingMode is absent, even with facing="back" and mirror=false.
+      // The captured canvas itself is unmirrored (isImageMirror defaults false).
+      previewMirrored:
+        Platform.OS === 'web' &&
+        (picture.exif?.facingMode ?? 'user') === 'user',
+    };
   } finally {
     discardProbePhoto(picture.uri);
   }

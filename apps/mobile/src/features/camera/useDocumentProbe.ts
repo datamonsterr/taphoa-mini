@@ -9,13 +9,13 @@ import {
   toUploadFile,
   type PictureTaker,
 } from './capture';
-import type { Photo } from './scanReducer';
 
 export const PROBE_INTERVAL_MS = 2500;
 
 type Probe = {
   document: ScanDocument;
   imageSize: { width: number; height: number };
+  previewMirrored: boolean;
 };
 
 /** One capture/request at a time, only in the foreground live view; no persisted scan. */
@@ -56,7 +56,7 @@ export function useDocumentProbe(
         return;
       }
       inFlight.current = true;
-      let photo: Photo | undefined;
+      let photo: Awaited<ReturnType<typeof takeProbePhoto>> | undefined;
       try {
         photo = await takeProbePhoto(cameraRef.current);
         if (stopped) return;
@@ -68,11 +68,20 @@ export function useDocumentProbe(
           setProbe({
             document,
             imageSize: { width: photo.width, height: photo.height },
+            previewMirrored: photo.previewMirrored,
           });
       } catch (error) {
         // Persist server backoff even when a result or sheet interrupted this request.
-        if (isApiError(error) && error.status === 503) {
+        if (
+          isApiError(error) &&
+          error.status === 503 &&
+          error.code === 'ocr_unavailable'
+        ) {
           disabled.current = true;
+          setProbe(null);
+        } else if (isApiError(error) && error.status === 503) {
+          retryAt.current =
+            Date.now() + (error.retryAfterMs ?? PROBE_INTERVAL_MS);
           setProbe(null);
         } else if (isApiError(error) && error.status === 429) {
           retryAt.current = Date.now() + (error.retryAfterMs ?? 60_000);

@@ -1344,23 +1344,46 @@ describe('assistant entry points', () => {
 });
 
 describe('live receipt detection (01b)', () => {
-  const liveProbe = () => {
+  const liveProbe = (previewMirrored = false) => {
     const probe = {
       document: {
         detected: true,
         score: 0.9,
         text_lines: 12,
         line_boxes: [
-          [0.25, 0.2, 0.5, 0.04],
+          [0.125, 0.2, 0.5, 0.04],
           [0.25, 0.3, 0.5, 0.04],
         ],
       },
       imageSize: IMAGE,
+      previewMirrored,
     };
     jest
       .mocked(useDocumentProbe)
       .mockImplementation((_ref, enabled) => (enabled ? probe : null));
   };
+
+  it('reflects live document boxes when the captured probe reports a mirrored preview', async () => {
+    liveProbe(true);
+    await renderWithProviders(<CameraScreen />);
+    const box = mapBox(
+      [
+        0.375 * IMAGE.width,
+        0.2 * IMAGE.height,
+        0.5 * IMAGE.width,
+        0.04 * IMAGE.height,
+      ],
+      IMAGE,
+      SIZE,
+      'cover',
+    );
+    expect(screen.getByTestId('document-line-0')).toHaveStyle({
+      left: box.x,
+      top: box.y,
+      width: box.width,
+      height: box.height,
+    });
+  });
 
   it('draws line boxes, badge and hint on the live frame, with only the two receipt chips', async () => {
     liveProbe();
