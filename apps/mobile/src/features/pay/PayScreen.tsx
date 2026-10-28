@@ -335,6 +335,7 @@ export function PayScreen() {
                 accessibilityRole="radio"
                 accessibilityLabel={formatVnd(amount)}
                 accessibilityState={{ checked: paidNow === amount }}
+                aria-checked={paidNow === amount}
                 onPress={() => setPaidText(String(amount))}
                 style={[styles.paidChip, paidNow === amount && styles.chipOn]}
               >
