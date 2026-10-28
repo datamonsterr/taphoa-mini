@@ -1,0 +1,990 @@
+{
+  "eval_run_id": "eval-20261028T1615-9ea0",
+  "source": "main baseline, joined by event UUID before removing identifiers",
+  "generations": [
+    {
+      "case": "U19-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 23.750269376,
+      "ttft_ms": 1810.247859,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U19-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 34.935364364,
+      "ttft_ms": 6524.611843,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U19-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 3.649399285,
+      "ttft_ms": 3645.357666,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U20-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 14.432224093,
+      "ttft_ms": 7871.466718,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U20-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 20.001078335,
+      "ttft_ms": null,
+      "fallback_index": 0,
+      "error": {
+        "kind": "timeout",
+        "message": "model request timed out"
+      },
+      "message_count": 6
+    },
+    {
+      "case": "U20-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 2.714391045,
+      "ttft_ms": 2574.865388,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U16-02",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 3.041955415,
+      "ttft_ms": 3040.848133,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 6
+    },
+    {
+      "case": "U16-02",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 8.074354062,
+      "ttft_ms": 7193.249191,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 8
+    },
+    {
+      "case": "U16-02",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 3.479688293,
+      "ttft_ms": 3473.456063,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U16-02",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 5.447932182,
+      "ttft_ms": 5000.457855,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U22-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 7.813066527,
+      "ttft_ms": 3557.573666,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U22-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 8.165614314,
+      "ttft_ms": 6274.963703,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 6
+    },
+    {
+      "case": "U22-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 6.936641291,
+      "ttft_ms": 6477.139416,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U17-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 6.7051477980000005,
+      "ttft_ms": 3554.962181,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U17-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 12.864970387,
+      "ttft_ms": 2320.371143,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U17-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 2.694447709,
+      "ttft_ms": 2690.467968,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U18-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 5.130429043,
+      "ttft_ms": 5089.769851,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U18-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 34.33806703,
+      "ttft_ms": 9593.197994,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "OT-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 2.195959268,
+      "ttft_ms": 2156.8391,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U16-05",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 2.398854885,
+      "ttft_ms": 2394.567028,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U16-05",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 5.614892708,
+      "ttft_ms": 1896.0761,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U21-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 14.824689102,
+      "ttft_ms": 12011.133379,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U21-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 2.266354165,
+      "ttft_ms": 2261.5378389999996,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U3-03",
+      "component": "failed provider attempts",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 20.001511018,
+      "ttft_ms": null,
+      "fallback_index": 0,
+      "error": {
+        "kind": "timeout",
+        "message": "model request timed out"
+      },
+      "message_count": 2
+    },
+    {
+      "case": "U3-03",
+      "component": "ordinary successful generations",
+      "model": "poolside/laguna-s-2.1:free",
+      "latency_s": 12.627086919,
+      "ttft_ms": 1199.914281,
+      "fallback_index": 1,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U9-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 25.149672094,
+      "ttft_ms": 12557.085766,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U9-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 40.040637214,
+      "ttft_ms": 15221.247575,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U9-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 14.803366672,
+      "ttft_ms": 14765.018251,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U4-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 8.485626722,
+      "ttft_ms": 8478.974126000001,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U4-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 16.430162627,
+      "ttft_ms": 3975.131386,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U2-03",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 27.865922122,
+      "ttft_ms": 10485.670605,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U2-03",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 3.585103131,
+      "ttft_ms": 3544.142619,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U2-03",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 10.9550861,
+      "ttft_ms": 7895.934366,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U11-03",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 2.698332781,
+      "ttft_ms": 1029.164974,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 6
+    },
+    {
+      "case": "U11-03",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 4.044192551,
+      "ttft_ms": 3994.060923,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U11-03",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 9.141682148,
+      "ttft_ms": 9106.89549,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U14-04",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 5.073651491,
+      "ttft_ms": 5067.445478,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U14-04",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 21.633349885,
+      "ttft_ms": 10621.151475,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U10-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 10.981542773,
+      "ttft_ms": 5823.454412,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U10-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 9.446666157,
+      "ttft_ms": 9404.530365,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U10-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 16.594765813,
+      "ttft_ms": 11429.416596,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U11-05",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 14.543495573,
+      "ttft_ms": 9492.24901,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U11-05",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 3.339315104,
+      "ttft_ms": 3292.985382,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U12-01",
+      "component": "failed provider attempts",
+      "model": "poolside/laguna-s-2.1:free",
+      "latency_s": 0.190494874,
+      "ttft_ms": null,
+      "fallback_index": 1,
+      "error": {
+        "kind": "rate_limited",
+        "message": "model rate limited"
+      },
+      "message_count": 4
+    },
+    {
+      "case": "U12-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3.5-lightning:free",
+      "latency_s": 12.808826956,
+      "ttft_ms": 4409.306053,
+      "fallback_index": 2,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U12-01",
+      "component": "failed provider attempts",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 0.394069515,
+      "ttft_ms": null,
+      "fallback_index": 0,
+      "error": {
+        "kind": "stream_failed",
+        "message": "model stream failed"
+      },
+      "message_count": 4
+    },
+    {
+      "case": "U12-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3.5-lightning:free",
+      "latency_s": 9.764434963,
+      "ttft_ms": 5530.372904,
+      "fallback_index": 2,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U12-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 5.5491627789999995,
+      "ttft_ms": 5545.711253,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U6-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 6.274591389,
+      "ttft_ms": 6270.70855,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U6-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 24.157708943,
+      "ttft_ms": 16838.090223000003,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U6-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 11.094427773,
+      "ttft_ms": 2496.017287,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U5-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3.5-lightning:free",
+      "latency_s": 16.354929873,
+      "ttft_ms": 4384.257937,
+      "fallback_index": 2,
+      "error": null,
+      "message_count": 6
+    },
+    {
+      "case": "U5-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3.5-lightning:free",
+      "latency_s": 14.677702452,
+      "ttft_ms": 8155.171643999999,
+      "fallback_index": 2,
+      "error": null,
+      "message_count": 7
+    },
+    {
+      "case": "U5-01",
+      "component": "failed provider attempts",
+      "model": "poolside/laguna-s-2.1:free",
+      "latency_s": 0.361553435,
+      "ttft_ms": null,
+      "fallback_index": 1,
+      "error": {
+        "kind": "rate_limited",
+        "message": "model rate limited"
+      },
+      "message_count": 6
+    },
+    {
+      "case": "U5-01",
+      "component": "failed provider attempts",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 20.001898426,
+      "ttft_ms": null,
+      "fallback_index": 0,
+      "error": {
+        "kind": "timeout",
+        "message": "model request timed out"
+      },
+      "message_count": 6
+    },
+    {
+      "case": "U5-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 6.188188612,
+      "ttft_ms": 6163.483612,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U5-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 15.915855761,
+      "ttft_ms": 15505.144855,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U8-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 6.085284279,
+      "ttft_ms": 5817.432312,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U8-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 6.191953896,
+      "ttft_ms": 4379.964576,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U7-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 25.516584942,
+      "ttft_ms": 7629.615113,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U7-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 17.766033846,
+      "ttft_ms": 17722.569889,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U7-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 20.001438118,
+      "ttft_ms": null,
+      "fallback_index": 0,
+      "error": {
+        "kind": "timeout",
+        "message": "model request timed out"
+      },
+      "message_count": 5
+    },
+    {
+      "case": "U13-05",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 4.454860536,
+      "ttft_ms": 4450.365263,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U13-05",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 10.138207285,
+      "ttft_ms": 7794.019705000001,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U13-05",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 8.612372677,
+      "ttft_ms": 3605.725187,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U15-01",
+      "component": "grounding recovery",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 7.307300596,
+      "ttft_ms": 5418.606993,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 5
+    },
+    {
+      "case": "U15-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 5.736288774,
+      "ttft_ms": 1713.003897,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U15-01",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 4.173940701,
+      "ttft_ms": 4173.240055,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    },
+    {
+      "case": "U1-04",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 14.989021598,
+      "ttft_ms": 2767.4531140000004,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 6
+    },
+    {
+      "case": "U1-04",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 14.874612316,
+      "ttft_ms": 14867.899178,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 4
+    },
+    {
+      "case": "U1-04",
+      "component": "ordinary successful generations",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "latency_s": 11.963133277,
+      "ttft_ms": 11959.583644,
+      "fallback_index": 0,
+      "error": null,
+      "message_count": 2
+    }
+  ],
+  "tool_spans": [
+    {
+      "case": "U19-01",
+      "tool": "tool:get_catalog_issues",
+      "latency_s": 0.021349132
+    },
+    {
+      "case": "U20-01",
+      "tool": "tool:get_stock_levels",
+      "latency_s": 0.005650805
+    },
+    {
+      "case": "U20-01",
+      "tool": "tool:suggest_low_stock_thresholds",
+      "latency_s": 0.0237188
+    },
+    {
+      "case": "U16-02",
+      "tool": "tool:search_sales",
+      "latency_s": 0.004625785
+    },
+    {
+      "case": "U16-02",
+      "tool": "tool:search_sales",
+      "latency_s": 0.006412712
+    },
+    {
+      "case": "U22-01",
+      "tool": "tool:start_export",
+      "latency_s": 3.3053e-5
+    },
+    {
+      "case": "U22-01",
+      "tool": "tool:get_sales_summary",
+      "latency_s": 0.076750947
+    },
+    {
+      "case": "U17-01",
+      "tool": "tool:get_supplier_prices",
+      "latency_s": 0.009744142
+    },
+    {
+      "case": "U18-01",
+      "tool": "tool:forecast_demand",
+      "latency_s": 0.02582207
+    },
+    {
+      "case": "U16-05",
+      "tool": "tool:search_products",
+      "latency_s": 0.004232034
+    },
+    {
+      "case": "U21-01",
+      "tool": "tool:get_setup_checklist",
+      "latency_s": 0.005838917
+    },
+    {
+      "case": "U9-01",
+      "tool": "tool:detect_anomalies",
+      "latency_s": 0.009726703
+    },
+    {
+      "case": "U4-01",
+      "tool": "tool:get_dead_stock",
+      "latency_s": 0.010143677
+    },
+    {
+      "case": "U2-03",
+      "tool": "tool:get_sales_summary",
+      "latency_s": 0.016860947
+    },
+    {
+      "case": "U11-03",
+      "tool": "tool:propose_price_change",
+      "latency_s": 0.08099855
+    },
+    {
+      "case": "U11-03",
+      "tool": "tool:search_products",
+      "latency_s": 0.004460295
+    },
+    {
+      "case": "U14-04",
+      "tool": "tool:get_receipt",
+      "latency_s": 0.009846129
+    },
+    {
+      "case": "U10-01",
+      "tool": "tool:get_tax_overview",
+      "latency_s": 0.005735171
+    },
+    {
+      "case": "U11-05",
+      "tool": "tool:search_products",
+      "latency_s": 0.00891021
+    },
+    {
+      "case": "U12-01",
+      "tool": "tool:search_help",
+      "latency_s": 0.000408082
+    },
+    {
+      "case": "U6-01",
+      "tool": "tool:list_review_queue",
+      "latency_s": 0.02280664
+    },
+    {
+      "case": "U5-01",
+      "tool": "tool:explain_day_close",
+      "latency_s": 0.014706102
+    },
+    {
+      "case": "U5-01",
+      "tool": "tool:explain_day_close",
+      "latency_s": 0.004479648
+    },
+    {
+      "case": "U8-01",
+      "tool": "tool:get_sales_summary",
+      "latency_s": 0.051593125
+    },
+    {
+      "case": "U7-01",
+      "tool": "tool:get_recognition_health",
+      "latency_s": 0.028165018
+    },
+    {
+      "case": "U13-05",
+      "tool": "tool:get_sales_summary",
+      "latency_s": 0.017278141
+    },
+    {
+      "case": "U15-01",
+      "tool": "tool:get_sales_summary",
+      "latency_s": 0.028875012
+    },
+    {
+      "case": "U1-04",
+      "tool": "tool:get_restock_plan",
+      "latency_s": 0.015754979
+    },
+    {
+      "case": "U1-04",
+      "tool": "tool:propose_reorder_list",
+      "latency_s": 0.086305495
+    }
+  ],
+  "turns": [
+    {
+      "case": "U19-01",
+      "latency_s": 62.361984068
+    },
+    {
+      "case": "U20-01",
+      "latency_s": 37.184534196
+    },
+    {
+      "case": "U16-02",
+      "latency_s": 11.127625296
+    },
+    {
+      "case": "U16-02",
+      "latency_s": 8.938010607
+    },
+    {
+      "case": "U22-01",
+      "latency_s": 22.996624544
+    },
+    {
+      "case": "U17-01",
+      "latency_s": 22.279514305
+    },
+    {
+      "case": "U18-01",
+      "latency_s": 39.498594716
+    },
+    {
+      "case": "OT-01",
+      "latency_s": 2.196991613
+    },
+    {
+      "case": "U16-05",
+      "latency_s": 8.02186984
+    },
+    {
+      "case": "U21-01",
+      "latency_s": 17.100692184
+    },
+    {
+      "case": "U3-03",
+      "latency_s": 32.631942856
+    },
+    {
+      "case": "U9-01",
+      "latency_s": 80.008279915
+    },
+    {
+      "case": "U4-01",
+      "latency_s": 24.931538754
+    },
+    {
+      "case": "U2-03",
+      "latency_s": 42.427306299
+    },
+    {
+      "case": "U11-03",
+      "latency_s": 15.975638729
+    },
+    {
+      "case": "U14-04",
+      "latency_s": 26.721890598
+    },
+    {
+      "case": "U10-01",
+      "latency_s": 37.034826433
+    },
+    {
+      "case": "U11-05",
+      "latency_s": 17.903696657
+    },
+    {
+      "case": "U12-01",
+      "latency_s": 28.712726831
+    },
+    {
+      "case": "U6-01",
+      "latency_s": 41.55392611
+    },
+    {
+      "case": "U5-01",
+      "latency_s": 73.525166982
+    },
+    {
+      "case": "U8-01",
+      "latency_s": 12.332944439
+    },
+    {
+      "case": "U7-01",
+      "latency_s": 63.317150094
+    },
+    {
+      "case": "U13-05",
+      "latency_s": 23.227141112
+    },
+    {
+      "case": "U15-01",
+      "latency_s": 17.250941581
+    },
+    {
+      "case": "U1-04",
+      "latency_s": 41.933305091
+    }
+  ]
+}

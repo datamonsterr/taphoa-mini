@@ -1,5 +1,5 @@
 import { act, render, renderHook } from '@testing-library/react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Application from 'expo-application';
 import { Text } from 'react-native';
 import { capture, setAnalyticsSink, type AppEventProps } from './analytics';
@@ -113,6 +113,33 @@ test('without a key renders children and leaves capture and bridge off', async (
   expect(isFeatureEnabled('flag')).toBeUndefined();
   captureException(new Error('off'));
   expect(posthog.captureException).not.toHaveBeenCalled();
+});
+
+test('Expo Go keeps analytics but never enables the native replay plugin', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  const environment = jest.replaceProperty(
+    Constants,
+    'executionEnvironment',
+    ExecutionEnvironment.StoreClient,
+  );
+  try {
+    const view = await render(
+      <AnalyticsProvider>
+        <Text>child</Text>
+      </AnalyticsProvider>,
+    );
+    expect(view.getByText('child')).toBeTruthy();
+    expect(providerProps.mock.calls[0][0].options.enableSessionReplay).toBe(
+      false,
+    );
+    capture('signed_out', { method: 'google' });
+    expect(posthog.capture).toHaveBeenCalledWith('signed_out', {
+      method: 'google',
+    });
+    await view.unmount();
+  } finally {
+    environment.restore();
+  }
 });
 
 test('provider configures privacy, registers properties and clears sink and bridge on unmount', async () => {

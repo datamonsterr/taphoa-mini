@@ -36,12 +36,13 @@ export default dashboard('Quality', [
   [
     'Online judge score on production sample',
     chart(
-      `SELECT toStartOfDay(timestamp) AS day, properties.model AS model, avg(${score}) AS mean_judge_score FROM events WHERE ${where} AND event = 'eval_case_scored' AND properties.scorer = 'judge' AND properties.value IS NOT NULL GROUP BY day, model ORDER BY day`,
+      `SELECT toStartOfDay(timestamp) AS day, properties.$ai_evaluation_name AS evaluation, avg(${number('$ai_evaluation_numeric_result')}) AS mean_judge_score, count() AS scored FROM events WHERE timestamp >= now() - INTERVAL {{days}} DAY AND event = '$ai_evaluation' AND properties.$ai_evaluation_numeric_result IS NOT NULL GROUP BY day, evaluation ORDER BY day`,
       'ActionsLineGraph',
       'day',
       ['mean_judge_score'],
-      'model',
+      'evaluation',
     ),
-    'Nightly harness sample alternative: reads existing eval_case_scored scorer=judge (environment=eval today). This chart does not create a judge or sampling pipeline; #63 owns online evaluation configuration. Use --environment eval to verify harness scores.',
+    'PostHog online judge (#63, 0-4, pass at 4) on sampled assistant generations: test 100 %, production 10 %. $ai_evaluation events carry no environment property, so this chart covers all environments; the sampling filter on the evaluation decides which generations are scored.',
+    'all',
   ],
 ]);

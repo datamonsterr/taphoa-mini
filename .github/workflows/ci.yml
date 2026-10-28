@@ -976,6 +976,8 @@ jobs:
           node-version-file: .nvmrc
       - name: PostHog controller, product and LLM definitions tests
         run: node --test infra/posthog/tests
+      - name: LLM pricing and judge tests
+        run: node --test infra/posthog/llm/*.test.mjs
       - name: Offline product and LLM dashboard plan
         run: node infra/posthog/apply.mjs --dry-run --offline
       - name: Summary

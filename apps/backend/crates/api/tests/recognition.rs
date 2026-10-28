@@ -492,6 +492,138 @@ async fn scan_orders_classes_candidates_and_persists() {
     let _ = blue;
 }
 
+/// Exercise empty/singleton arrays as well as a full 24-detection multi scan.
+/// Distinct boxes and mixed colours catch array alignment, ordering and JSONB
+/// snapshot regressions; embeddings are read directly because the API hides them.
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn multi_scan_many_detections_round_trips_unchanged() {
+    for count in [0, 1, 24] {
+        let mut photo = image::RgbImage::new(384, 256);
+        let mut segments = Vec::new();
+        let colours = [RED, PURPLE, GREY, BLUE];
+        for i in 0..count {
+            let (x, y) = ((i % 6) * 64, (i / 6) * 64);
+            let colour = colours[i as usize % colours.len()];
+            for py in y..y + 64 {
+                for px in x..x + 64 {
+                    photo.put_pixel(px, py, image::Rgb(colour));
+                }
+            }
+            segments.push(segment(
+                [x as f32 + 16., y as f32 + 16., 20. + (i % 3) as f32, 24.],
+                0.5 + i as f32 * 0.015,
+            ));
+        }
+        // The segmenter order deliberately disagrees with row-major display order.
+        let Some((app, state, index)) = build_state(segments.iter().rev().cloned().collect()).await
+        else {
+            return;
+        };
+        let pool = state.postgres.clone().unwrap();
+        let (store_id, member_id, token) = create_store(&app).await;
+        seed_products(&pool, store_id, member_id, &index).await;
+        let (status, body, _) =
+            post_scan(&app, &token, Some(&encode_png(photo)), &[("mode", "multi")]).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let scan_id = body["id"].as_str().unwrap();
+        let posted = body["detections"].as_array().unwrap();
+        assert_eq!(posted.len(), count as usize);
+        let (status, fetched) = get_scan(&app, &token, scan_id).await;
+        assert_eq!(status, StatusCode::OK, "{fetched}");
+        for key in ["id", "mode", "purpose", "pipeline", "created_at"] {
+            assert_eq!(fetched[key], body[key], "{key}");
+        }
+        let stored: Vec<(Value, Option<pgvector::Vector>, Value)> = sqlx::query_as(
+            "SELECT to_jsonb(d) - 'embedding', d.embedding, to_jsonb(i) \
+             FROM detections d JOIN images i ON i.id = d.crop_image_id \
+             WHERE d.scan_id = $1 ORDER BY d.position",
+        )
+        .bind(scan_id.parse::<Uuid>().unwrap())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored.len(), posted.len());
+        for (position, ((row, embedding, crop), expected)) in
+            stored.iter().zip(&segments).enumerate()
+        {
+            let detection = &posted[position];
+            let loaded = &fetched["detections"][position];
+            for key in ["id", "match"] {
+                assert_eq!(row[key], detection[key], "persisted {key} at {position}");
+            }
+            for key in ["id", "bbox", "score", "match"] {
+                assert_eq!(loaded[key], detection[key], "GET {key} at {position}");
+            }
+            assert_eq!(row["position"], position);
+            assert_eq!(row["store_id"], store_id.to_string());
+            assert_eq!(row["scan_id"], scan_id);
+            let bbox: [f32; 4] = serde_json::from_value(row["bbox"].clone()).unwrap();
+            assert_eq!(bbox, expected.bbox);
+            assert_eq!(
+                bbox,
+                serde_json::from_value::<[f32; 4]>(detection["bbox"].clone()).unwrap()
+            );
+            assert!((row["score"].as_f64().unwrap() - f64::from(expected.score)).abs() < 1e-7);
+            assert!(
+                (row["score"].as_f64().unwrap() - detection["score"].as_f64().unwrap()).abs()
+                    < 1e-7
+            );
+            assert_eq!(row["area"], expected.area);
+            assert_eq!(row["crop_image_id"], crop["id"]);
+            assert_eq!(crop["store_id"], store_id.to_string());
+            assert_eq!(crop["uploaded_by"], member_id.to_string());
+            assert_eq!(crop["content_type"], "image/jpeg");
+            assert_eq!(crop["purpose"], "crop");
+            assert!(crop["byte_size"].as_i64().unwrap() > 0);
+            let crop_key = crop["object_key"].as_str().unwrap();
+            assert!(detection["crop_url"].as_str().unwrap().contains(crop_key));
+            // Presigned URLs are generated afresh; all persisted candidate fields
+            // must agree, including their order and optional default unit ids.
+            let snapshots = row["candidates"].as_array().unwrap();
+            let candidates = detection["candidates"].as_array().unwrap();
+            assert_eq!(snapshots.len(), candidates.len());
+            for (snapshot, candidate) in snapshots.iter().zip(candidates) {
+                for key in ["product_id", "name", "price", "default_unit_id"] {
+                    assert_eq!(snapshot[key], candidate[key]);
+                }
+                // JSONB stores the f32 snapshot through serde_json::Value;
+                // the API serializes f32 directly with shorter decimal text.
+                assert!(
+                    (snapshot["similarity"].as_f64().unwrap()
+                        - candidate["similarity"].as_f64().unwrap())
+                    .abs()
+                        < 1e-7
+                );
+            }
+            assert_eq!(loaded["candidates"], detection["candidates"]);
+            let [r, g, b] = colours[position % colours.len()];
+            assert_eq!(
+                embedding.as_ref().unwrap().to_vec(),
+                TestEmbedder.colour_vector(f32::from(r), f32::from(g), f32::from(b)),
+            );
+        }
+        let crops: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM images WHERE store_id = $1 AND purpose = 'crop'",
+        )
+        .bind(store_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(crops, i64::from(count));
+        let completed: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM outbox_events WHERE store_id = $1 AND type = 'scan.completed' \
+             AND payload->'data'->>'scan_id' = $2",
+        )
+        .bind(store_id)
+        .bind(scan_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(completed, 1);
+    }
+}
+
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
 async fn get_scan_and_cross_store_404() {

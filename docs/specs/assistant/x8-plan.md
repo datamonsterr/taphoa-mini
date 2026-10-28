@@ -1,6 +1,6 @@
 # X8 · Push notifications and daily digest: plan
 
-Status: In progress · Date: 2026-10-26 · Branch `epic/x8-push-digest` · Program: [README](README.md) ·
+Status: Done · Merge: [#41](https://github.com/datamonsterr/taphoa-mini/pull/41) · Date: 2026-10-26 · Branch `epic/x8-push-digest` · Program: [README](README.md) ·
 Epic brief: [epics.md](epics.md#x8--push-notifications-and-daily-digest) · Contract: `docs/api/openapi.yaml`
 (`GET /v1/assistant/digest`, `POST /v1/devices`, `DELETE /v1/devices/{token}`, schemas `Digest`,
 `RegisterDevice`, `Device`).

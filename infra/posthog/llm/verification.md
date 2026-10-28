@@ -21,32 +21,32 @@ Verification returned data for **15** insights; **9** were empty.
 The quota insight intentionally includes all environments. Every other row is
 scoped to `test` and a 30-day lookback.
 
-| Dashboard         | Insight suffix                          | Rows | Data | Query             |
-| ----------------- | --------------------------------------- | ---: | ---- | ----------------- |
-| Assistant health  | Turns per day by environment            |    2 | yes  | ok                |
-| Assistant health  | Turn latency p50 / p95                  |    2 | yes  | ok                |
-| Assistant health  | Time to first token p50 / p95 by model  |    2 | yes  | ok                |
-| Assistant health  | Model calls per turn                    |    0 | no   | ok; empty allowed |
-| Assistant health  | Error and quota rate                    |    2 | yes  | ok                |
-| Assistant health  | Fallback rate by model                  |    1 | yes  | ok                |
-| Cost and tokens   | Input / output tokens per day by model  |    2 | yes  | ok                |
-| Cost and tokens   | Tokens per turn p50 / p95               |    0 | no   | ok; empty allowed |
-| Cost and tokens   | Cost per day by model                   |    2 | yes  | ok                |
-| Cost and tokens   | Requests vs. 1,000/day free quota       |    2 | yes  | ok                |
-| Tools and actions | Tool calls per day by tool              |    6 | yes  | ok                |
-| Tools and actions | Tool error and denied rate by tool      |    3 | yes  | ok                |
-| Tools and actions | Tool latency p95 by tool                |    3 | yes  | ok                |
-| Tools and actions | Use-case mix                            |    2 | yes  | ok                |
-| Tools and actions | Proposed action outcomes by kind        |    1 | yes  | ok                |
-| Tools and actions | Next-step turns by kind                 |    0 | no   | ok; empty allowed |
-| Tools and actions | Next-step chip to turn                  |    1 | yes  | ok                |
-| Quality           | User feedback (thumbs) over time        |    2 | yes  | ok                |
-| Quality           | Eval scores per run by model            |    0 | no   | ok; empty allowed |
-| Quality           | Eval pass rate by use case              |    0 | no   | ok; empty allowed |
-| Quality           | Online judge score on production sample |    0 | no   | ok; empty allowed |
-| Assistant traces  | Errors                                  |    0 | no   | ok; empty allowed |
-| Assistant traces  | Quota hits                              |    0 | no   | ok; empty allowed |
-| Assistant traces  | Rejected actions                        |    0 | no   | ok; empty allowed |
+| Dashboard         | Insight suffix                          | Rows | Data | Query                           |
+| ----------------- | --------------------------------------- | ---: | ---- | ------------------------------- |
+| Assistant health  | Turns per day by environment            |    2 | yes  | ok                              |
+| Assistant health  | Turn latency p50 / p95                  |    2 | yes  | ok                              |
+| Assistant health  | Time to first token p50 / p95 by model  |    2 | yes  | ok                              |
+| Assistant health  | Model calls per turn                    |    0 | no   | ok; empty allowed               |
+| Assistant health  | Error and quota rate                    |    2 | yes  | ok                              |
+| Assistant health  | Fallback rate by model                  |    1 | yes  | ok                              |
+| Cost and tokens   | Input / output tokens per day by model  |    2 | yes  | ok                              |
+| Cost and tokens   | Tokens per turn p50 / p95               |    0 | no   | ok; empty allowed               |
+| Cost and tokens   | Cost per day by model                   |    2 | yes  | ok                              |
+| Cost and tokens   | Requests vs. 1,000/day free quota       |    2 | yes  | ok                              |
+| Tools and actions | Tool calls per day by tool              |    6 | yes  | ok                              |
+| Tools and actions | Tool error and denied rate by tool      |    3 | yes  | ok                              |
+| Tools and actions | Tool latency p95 by tool                |    3 | yes  | ok                              |
+| Tools and actions | Use-case mix                            |    2 | yes  | ok                              |
+| Tools and actions | Proposed action outcomes by kind        |    1 | yes  | ok                              |
+| Tools and actions | Next-step turns by kind                 |    0 | no   | ok; empty allowed               |
+| Tools and actions | Next-step chip to turn                  |    1 | yes  | ok                              |
+| Quality           | User feedback (thumbs) over time        |    2 | yes  | ok                              |
+| Quality           | Eval scores per run by model            |    0 | no   | ok; empty allowed               |
+| Quality           | Eval pass rate by use case              |    0 | no   | ok; empty allowed               |
+| Quality           | Online judge score on production sample | data | yes  | ok ($ai_evaluation, 2026-10-28) |
+| Assistant traces  | Errors                                  |    0 | no   | ok; empty allowed               |
+| Assistant traces  | Quota hits                              |    0 | no   | ok; empty allowed               |
+| Assistant traces  | Rejected actions                        |    0 | no   | ok; empty allowed               |
 
 A property-completeness check of existing test events found 28 `$ai_trace`,
 52 `$ai_generation`, 19 `$ai_span` and 6 `assistant_action_decided` events;

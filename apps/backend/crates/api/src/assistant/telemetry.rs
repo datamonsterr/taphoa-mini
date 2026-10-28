@@ -1,7 +1,7 @@
 //! Assistant spans and non-blocking PostHog captures. Content belongs only in masked events.
 use super::{
     agent::{ModelAttempt, TurnRecord},
-    model::ModelError,
+    model::{ChatRole, ModelError},
     threads::{ActionRow, Rating},
     tools::ToolKind,
 };
@@ -209,10 +209,10 @@ pub(crate) fn turn_finished(state: &AppState, record: &TurnRecord) {
             "use_cases":use_cases, "entry":entry, "next_step_kind":next.map(|s|s.split(':').next().unwrap_or(s)), "prompt_version":record.prompt_version
         }))];
         for attempt in &record.attempts {
-            let input: Vec<_> = attempt.request.messages.iter().map(|m|json!({"role":m.role,"content":m.content})).collect();
+            let input: Vec<_> = attempt.request.messages.iter().map(|m|json!({"role":m.role,"content":m.content.as_deref().map(|text| mask_content(text, m.role))})).collect();
             let mut properties = json!({
                 "$ai_span_id":attempt.span_id, "$ai_parent_id":record.trace_id,
-                "$ai_model":attempt.model, "$ai_provider":"openrouter", "$ai_input":mask_json(json!(input)),
+                "$ai_model":attempt.model, "$ai_provider":"openrouter", "$ai_input":json!(input),
                 "$ai_output_choices":mask_json(json!([{"role":"assistant","content":attempt.content}])),
                 "$ai_input_tokens":attempt.usage.input_tokens, "$ai_output_tokens":attempt.usage.output_tokens,
                 "$ai_latency":attempt.latency.as_secs_f64(), "$ai_time_to_first_token":attempt.time_to_first_token.map(|t|t.as_secs_f64()),
@@ -341,6 +341,16 @@ pub(crate) fn use_cases<'a>(tools: impl Iterator<Item = &'a str>) -> Vec<&'stati
     }
     cases
 }
+// Tool messages contain serialized JSON. Redact string leaves without treating long
+// decimal runs or integer measures as phone numbers and breaking that JSON.
+fn mask_content(text: &str, role: ChatRole) -> String {
+    if role != ChatRole::Tool {
+        return mask_text(text);
+    }
+    serde_json::from_str::<Value>(text)
+        .map(|value| mask_json(value).to_string())
+        .unwrap_or_else(|_| mask_text(text))
+}
 fn mask_json(value: Value) -> Value {
     match value {
         Value::String(s) => Value::String(mask_text(&s)),
@@ -400,6 +410,17 @@ mod tests {
             json!({"nested":["[số]",{"bank":"[số]","short":"12345678","money":"1.234.000","long":"1234567890123456","uuid":"12345678-1234-1234-1234-123456789012"}]})
         );
         assert_eq!(mask_text("SĐT 0912345678, 123456789!"), "SĐT [số], [số]!");
+    }
+    #[test]
+    fn tool_json_preserves_numeric_evidence_while_masking_string_identifiers() {
+        let raw = r#"{"change_pct":{"revenue":81.00948131622978},"annual_revenue_dong":121064500,"phone":"0912345678","nested":[{"quantity":3.1234567890123}]}"#;
+        let masked: Value = serde_json::from_str(&mask_content(raw, ChatRole::Tool)).unwrap();
+        assert_eq!(masked["change_pct"]["revenue"], json!(81.00948131622978));
+        assert_eq!(masked["annual_revenue_dong"], json!(121064500));
+        assert_eq!(masked["phone"], "[số]");
+        assert_eq!(mask_content("123456789", ChatRole::User), "[số]");
+        assert_eq!(mask_content("123456789", ChatRole::Assistant), "[số]");
+        assert_eq!(masked["nested"][0]["quantity"], json!(3.1234567890123));
     }
     #[test]
     fn masks_unicode_digit_runs_and_preserves_longer_runs() {

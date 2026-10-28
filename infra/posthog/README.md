@@ -37,6 +37,9 @@ node infra/posthog/verify.mjs --environment test --days 7
 # Charts that are empty by design (regex on the insight name) report `empty (allowed)`.
 node infra/posthog/verify.mjs --environment test --allow-empty 'Backend error logs'
 node infra/posthog/verify.mjs --environment production --days 30 --json
+# Same metrics with both flagged and known X6 synthetic events excluded (reads only).
+node infra/posthog/verify-nonsynthetic.mjs --environment test --days 7
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 30
 node infra/posthog/verify.mjs --only llm --environment test --days 30
 node infra/posthog/verify.mjs --only llm --environment eval --days 30
 ```
@@ -73,6 +76,13 @@ filter `environment = <name>`. HogQL templates scope events by
 `resource_attributes['deployment.environment.name']`; `--days` applies to all
 queries. Applied insights cover all environments, without an environment filter.
 The table/JSON reports each insight's returned row count, `data` yes/no and `ok`.
+`verify-nonsynthetic.mjs` reuses these queries, excludes
+`coalesce(properties.synthetic, false)` and distinct ID `synthetic-x6-validation`
+at every event scan, and adds the same HogQL predicate to every native event/entity
+(including retention and formula denominator probes). It emits JSON and preserves
+the global quota scope. Log queries stay unchanged because event synthetic flags
+do not apply to the logs table. Unsupported event SQL shapes fail closed. This is
+a query-time exclusion; no events or saved insights are modified.
 Empty product insights fail unless allowed with `--allow-empty`. Empty LLM
 insights succeed with `data=no` and `empty (allowed)` because traffic is still
 arriving; query errors always fail. A valid zero-cost or zero-error SQL row
@@ -243,7 +253,9 @@ API/query shapes were checked against current primary sources before coding:
 [visualization schema](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-general.ts)
 and [saved-filter persistence](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/nodes/DataTable/dataTableSavedFiltersLogic.ts).
 The real-service apply and verification results are in
-[llm/verification.md](llm/verification.md).
+[llm/verification.md](llm/verification.md). Phase A deployed traffic, synthetic
+exclusions, and incomplete DoD evidence are recorded in
+[traffic-proof.md](../../docs/specs/assistant/dod/traffic-proof.md).
 
 ## Add a chart
 

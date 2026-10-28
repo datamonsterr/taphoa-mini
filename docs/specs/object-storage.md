@@ -67,7 +67,10 @@ Errors: 400 bad multipart / missing field / bad uuid, 413 too large, 415 unsuppo
 - Unit: storage behind an `ObjectStore` trait with an in-memory fake; handler tests for
   201/404/413/415/503 and the delete-on-insert-failure path.
 - Integration: real Postgres + RustFS: upload, row exists, presigned URL downloads identical bytes.
-- e2e (`scripts/e2e.sh` against Compose): upload, get, download through the presigned URL.
+- e2e: `packages/e2e/tests/health.test.ts` uploads an image, gets its presigned URL, downloads
+  it, and checks status 200, an `image/*` content type, and identical bytes. This passed on
+  Railway `test` in [run 40726908085](https://github.com/datamonsterr/taphoa-mini/actions/runs/40726908085).
+- Compose e2e (`scripts/e2e.sh`): upload, get, download through the presigned URL.
 
 ## Out of scope
 
