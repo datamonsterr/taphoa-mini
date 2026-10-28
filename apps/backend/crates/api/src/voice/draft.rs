@@ -251,7 +251,7 @@ async fn customer_match(state: &AppState, actor: &Actor, spoken: Option<&str>) -
         CustomerBand::Candidates(ids) => ids.clone(),
         CustomerBand::None => vec![],
     };
-    let loaded = matching::load_customers(pool, actor.store_id, &ids).await?;
+    let loaded = matching::load_customers(pool, actor.store_id, &ids, state.clock.today()).await?;
     let find = |id: &Uuid| loaded.iter().find(|(i, _)| i == id).map(|(_, v)| v.clone());
     let spoken_name: String = spoken.chars().take(80).collect();
     Ok(match band {

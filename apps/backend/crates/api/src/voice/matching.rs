@@ -318,12 +318,13 @@ pub async fn load_customers(
     pool: &PgPool,
     store: Uuid,
     ids: &[Uuid],
+    today: chrono::NaiveDate,
 ) -> crate::ApiResult<Vec<(Uuid, serde_json::Value)>> {
     let mut conn = pool
         .acquire()
         .await
         .map_err(|_| crate::ApiError::unavailable())?;
-    debts::load_customers(&mut conn, store, ids).await
+    debts::load_customers(&mut conn, store, ids, today).await
 }
 
 #[cfg(test)]
