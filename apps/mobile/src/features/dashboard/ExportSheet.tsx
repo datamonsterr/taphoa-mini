@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Modal, View } from 'react-native';
 import { Sheet, Text, PressableScale } from '@/components/ui';
 import { exportTransactions } from '@/lib/api/salesActions';
 import { businessDate, startOfMonth, isDateString } from '@/lib/date';
@@ -37,70 +37,79 @@ export function ExportSheet({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   };
+  // A Modal draws above the shop tab bar; the Sheet animates itself.
   return (
-    <Sheet
-      onClose={() => {
+    <Modal
+      transparent
+      animationType="none"
+      onRequestClose={() => {
         if (!busy) onClose();
       }}
-      testID="export-sheet"
     >
-      <Text accessibilityRole="header" style={styles.heading}>
-        {t('export')}
-      </Text>
-      <Field
-        label={t('from')}
-        value={from}
-        onChangeText={setFrom}
-        placeholder="YYYY-MM-DD"
-        maxLength={10}
-        editable={!busy}
-      />
-      <Field
-        label={t('to')}
-        value={to}
-        onChangeText={setTo}
-        placeholder="YYYY-MM-DD"
-        maxLength={10}
-        editable={!busy}
-      />
-      {!valid ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {t('invalidRange')}
-        </Text>
-      ) : null}
-      <View
-        accessibilityRole="radiogroup"
-        accessibilityLabel={t('format')}
-        style={{ gap: 8 }}
+      <Sheet
+        onClose={() => {
+          if (!busy) onClose();
+        }}
+        testID="export-sheet"
       >
-        {(['csv', 'xlsx'] as const).map((value) => (
-          <PressableScale
-            key={value}
-            accessibilityRole="radio"
-            accessibilityLabel={value.toUpperCase()}
-            accessibilityState={{ checked: format === value, disabled: busy }}
-            disabled={busy}
-            onPress={() => setFormat(value)}
-            style={styles.card}
-          >
-            <Text>
-              {format === value ? '● ' : '○ '}
-              {value.toUpperCase()}
-            </Text>
-          </PressableScale>
-        ))}
-      </View>
-      {failed ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {t('exportFailed')}
+        <Text accessibilityRole="header" style={styles.heading}>
+          {t('export')}
         </Text>
-      ) : null}
-      <Action
-        label={busy ? t('loading') : t('share')}
-        disabled={!valid || busy}
-        onPress={() => void download()}
-      />
-      <Action label={t('close')} disabled={busy} onPress={onClose} />
-    </Sheet>
+        <Field
+          label={t('from')}
+          value={from}
+          onChangeText={setFrom}
+          placeholder="YYYY-MM-DD"
+          maxLength={10}
+          editable={!busy}
+        />
+        <Field
+          label={t('to')}
+          value={to}
+          onChangeText={setTo}
+          placeholder="YYYY-MM-DD"
+          maxLength={10}
+          editable={!busy}
+        />
+        {!valid ? (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {t('invalidRange')}
+          </Text>
+        ) : null}
+        <View
+          accessibilityRole="radiogroup"
+          accessibilityLabel={t('format')}
+          style={{ gap: 8 }}
+        >
+          {(['csv', 'xlsx'] as const).map((value) => (
+            <PressableScale
+              key={value}
+              accessibilityRole="radio"
+              accessibilityLabel={value.toUpperCase()}
+              accessibilityState={{ checked: format === value, disabled: busy }}
+              disabled={busy}
+              onPress={() => setFormat(value)}
+              style={styles.card}
+            >
+              <Text>
+                {format === value ? '● ' : '○ '}
+                {value.toUpperCase()}
+              </Text>
+            </PressableScale>
+          ))}
+        </View>
+        {failed ? (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {t('exportFailed')}
+          </Text>
+        ) : null}
+        <Action
+          label={busy ? t('loading') : t('share')}
+          disabled={!valid || busy}
+          onPress={() => void download()}
+        />
+        <Action label={t('close')} disabled={busy} onPress={onClose} />
+      </Sheet>
+    </Modal>
   );
 }

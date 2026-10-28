@@ -3,7 +3,7 @@ import { PressableScale, Text, MoneyText } from '@/components/ui';
 import { useRecentSales } from '@/lib/api/salesActions';
 import { useT } from '@/lib/i18n';
 import { transactionStrings } from '@/features/dashboard/transactionStrings';
-import { Action, Page, styles } from './kit';
+import { Action, Header, Page, styles } from './kit';
 
 export function RecentSalesScreen() {
   const t = useT(transactionStrings);
@@ -11,10 +11,11 @@ export function RecentSalesScreen() {
   const items = sales.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <Page>
-      <Action label={t('back')} onPress={() => router.replace('/dashboard')} />
-      <Text accessibilityRole="header" style={styles.heading}>
-        {t('recent')}
-      </Text>
+      <Header
+        title={t('recent')}
+        backLabel={t('back')}
+        onBack={() => router.replace('/dashboard')}
+      />
       {sales.isPending ? (
         <Text accessibilityRole="progressbar">{t('loading')}</Text>
       ) : null}

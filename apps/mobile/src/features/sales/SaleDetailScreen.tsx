@@ -6,7 +6,7 @@ import { useIsLead } from '@/features/auth/useMembership';
 import { useSale, useVoidSale } from '@/lib/api/salesActions';
 import { useT } from '@/lib/i18n';
 import { transactionStrings } from '@/features/dashboard/transactionStrings';
-import { Action, ConfirmDialog, Field, Page, styles } from './kit';
+import { Action, ConfirmDialog, Field, Header, Page, styles } from './kit';
 
 export function SaleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,11 +20,11 @@ export function SaleDetailScreen() {
   const valid = reason.trim().length > 0 && reason.trim().length <= 200;
   return (
     <Page>
-      <Action label={t('recent')} onPress={() => router.replace('/sales')} />
-      <Text accessibilityRole="header" style={styles.heading}>
-        {t('detail')}
-        {sale ? ` · ${sale.code}` : ''}
-      </Text>
+      <Header
+        title={`${t('detail')}${sale ? ` · ${sale.code}` : ''}`}
+        backLabel={t('recent')}
+        onBack={() => router.replace('/sales')}
+      />
       {query.isPending ? (
         <Text accessibilityRole="progressbar">{t('loading')}</Text>
       ) : null}

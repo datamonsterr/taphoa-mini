@@ -192,6 +192,10 @@ test.describe('issue #88 screenshots', () => {
     await openShop(page, '/dashboard');
     await button(page, 'Xuất giao dịch').click();
     await expect(page.getByTestId('export-sheet')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Xuất giao dịch' }),
+    ).toBeInViewport();
+    await expect(button(page, 'Tải và chia sẻ')).toBeInViewport();
     await capture(page, testInfo, 'ExportSheet');
   });
 
@@ -207,6 +211,7 @@ test.describe('issue #88 screenshots', () => {
     ).toBeVisible();
     await button(page, 'Thêm đơn vị').click();
     await expect(page.getByTestId('unit-sheet')).toBeVisible();
+    await expect(page.getByLabel('Tên đơn vị')).toBeInViewport();
     await capture(page, testInfo, 'ProductUnits');
   });
 });

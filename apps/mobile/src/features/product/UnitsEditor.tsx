@@ -91,7 +91,7 @@ export function UnitSheet({
   return (
     <Modal
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={() => {
         if (!mutation.isPending) onClose();
       }}

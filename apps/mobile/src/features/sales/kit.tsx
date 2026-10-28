@@ -8,7 +8,8 @@ import {
   type TextInputProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PressableScale, Text } from '@/components/ui';
+import { ChevronLeft } from 'lucide-react-native';
+import { CircleButton, PressableScale, Text } from '@/components/ui';
 import { colors, radius, space, typography } from '@/theme';
 
 export function Action({
@@ -48,6 +49,29 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
         accessibilityLabel={label}
         style={[styles.input, props.style]}
       />
+    </View>
+  );
+}
+/** Round back button plus title, like the debt and product screens. */
+export function Header({
+  title,
+  backLabel,
+  onBack,
+}: {
+  title: string;
+  backLabel: string;
+  onBack: () => void;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+      <CircleButton
+        icon={ChevronLeft}
+        accessibilityLabel={backLabel}
+        onPress={onBack}
+      />
+      <Text accessibilityRole="header" style={[styles.heading, { flex: 1 }]}>
+        {title}
+      </Text>
     </View>
   );
 }
