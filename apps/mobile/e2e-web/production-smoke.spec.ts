@@ -28,6 +28,8 @@ import path from 'node:path';
 // This file uses Playwright's base fixtures: no throwaway stores or Clerk cleanup.
 const EMAIL = 'smoke-prod-x9+clerk_test@example.com';
 const STORE = 'Smoke test (X9) - do not use';
+// The deployed ASSISTANT_MODELS may be paid (z-ai/glm-5.3-flash) or free; any OpenRouter id.
+const MODEL_ID = /^[\w.-]+\/[\w.:-]+$/;
 // E2E_SMOKE_ENV=test runs the same isolated flow against Railway test (its own smoke store).
 const SMOKE_ENV = process.env.E2E_SMOKE_ENV === 'test' ? 'test' : 'production';
 const PROD =
@@ -396,7 +398,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
           const reply = thread.messages.at(-1);
           expect(reply.role).toBe('assistant');
           expect(reply.content.trim().length).toBeGreaterThan(0);
-          expect(reply.model).toMatch(/:free$/);
+          expect(reply.model).toMatch(MODEL_ID);
           turns.push({
             question,
             completedAt: new Date().toISOString(),
@@ -417,7 +419,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
           expect(detail.messages[0].content).toBe(
             'Hôm nay bán được bao nhiêu? Trả lời ngắn.',
           );
-          expect(detail.messages[1].model).toMatch(/:free$/);
+          expect(detail.messages[1].model).toMatch(MODEL_ID);
           await page.goto(
             `/assistant?entry=button&screen=inventory&threadId=${resumeThread}`,
           );
@@ -477,7 +479,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
           new URL(stream.url()).pathname.replace(/\/messages$/, ''),
         );
         expect(chipThread.messages.at(-1).role).toBe('assistant');
-        expect(chipThread.messages.at(-1).model).toMatch(/:free$/);
+        expect(chipThread.messages.at(-1).model).toMatch(MODEL_ID);
         turns.push({
           question: 'next-step restock chip prompt',
           completedAt: new Date().toISOString(),
