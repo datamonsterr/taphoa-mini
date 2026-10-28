@@ -87,6 +87,11 @@ export const voiceStrings: Dict = {
     'quick.tile': 'Thêm ô cài đặt nhanh',
     'quick.tileAdded': 'Đã thêm ô cài đặt nhanh',
     'quick.error': 'Chưa bật được. Thử lại.',
+    'quick.explainTitle': 'Hiện trên ứng dụng khác',
+    'quick.explainBody':
+      'Để nút nói nổi trên màn hình chính và các ứng dụng khác, Tạp Hóa Mini cần quyền "Hiện trên ứng dụng khác". Nút chỉ mở ứng dụng để bạn nói. Ứng dụng không đọc màn hình và không tự ghi âm. Bạn có thể tắt bất cứ lúc nào.',
+    'quick.explainContinue': 'Mở cài đặt',
+    'quick.explainLater': 'Để sau',
     donate: 'Góp giọng nói để cải thiện',
     'donate.hint':
       'Chỉ lưu lựa chọn trên máy này. Chưa gửi giọng nói đi trong bản này.',
@@ -170,6 +175,11 @@ export const voiceStrings: Dict = {
     'quick.tile': 'Add the quick settings tile',
     'quick.tileAdded': 'Quick settings tile added',
     'quick.error': "Couldn't turn it on. Try again.",
+    'quick.explainTitle': 'Display over other apps',
+    'quick.explainBody':
+      'To float the voice button over the home screen and other apps, Tạp Hóa Mini needs the "Display over other apps" permission. The button only opens the app so you can speak. The app does not read your screen and never records on its own. You can turn it off at any time.',
+    'quick.explainContinue': 'Open settings',
+    'quick.explainLater': 'Not now',
     donate: 'Share my voice to improve it',
     'donate.hint':
       'Only saves your choice on this phone. This version does not upload any voice yet.',

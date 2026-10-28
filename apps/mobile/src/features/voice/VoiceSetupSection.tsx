@@ -1,6 +1,6 @@
 import { Hand, LayoutGrid, Mic } from 'lucide-react-native';
-import { memo, useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 
 import { Icon, PressableScale, ScaledText, Switch } from '@/components/ui';
 import { capture } from '@/lib/analytics';
@@ -15,6 +15,9 @@ const BubbleRow = memo(function BubbleRow() {
   const t = useT(voiceStrings);
   const [on, setOn] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [explaining, setExplaining] = useState(false);
+  /** The user went to system Settings; when the app comes back, finish turning the bubble on. */
+  const awaitingSettings = useRef(false);
   useEffect(() => {
     let alive = true;
     void voiceBubble
@@ -25,41 +28,105 @@ const BubbleRow = memo(function BubbleRow() {
       alive = false;
     };
   }, []);
-  const toggle = useCallback((next: boolean) => {
+  const enable = useCallback(() => {
     setFailed(false);
-    voiceBubble.setEnabled(next).then(
+    voiceBubble.setEnabled(true).then(
       (result) => {
         setOn(result);
-        if (next && result)
+        if (result)
           capture('voice_setup_completed', {
             platform: 'android',
             kind: 'bubble',
           });
-        else if (next) setFailed(true);
+        else setFailed(true);
       },
       () => setFailed(true),
     );
   }, []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !awaitingSettings.current) return;
+      awaitingSettings.current = false;
+      if (voiceBubble.canDrawOverlays()) enable();
+    });
+    return () => subscription.remove();
+  }, [enable]);
+  const toggle = useCallback(
+    (next: boolean) => {
+      setFailed(false);
+      if (!next) {
+        setExplaining(false);
+        voiceBubble.setEnabled(false).then(
+          (result) => setOn(result),
+          () => setFailed(true),
+        );
+      } else if (voiceBubble.canDrawOverlays()) enable();
+      else setExplaining(true);
+    },
+    [enable],
+  );
+  const goToSettings = useCallback(() => {
+    setExplaining(false);
+    awaitingSettings.current = true;
+    voiceBubble.openOverlaySettings();
+  }, []);
   return (
-    <View testID="voice-bubble-row" style={[styles.row, styles.rowRight12]}>
-      <Icon icon={Mic} color={colors.inkMuted} />
-      <View style={styles.grow}>
-        <ScaledText variant="label">{t('quick.bubble')}</ScaledText>
-        {failed ? (
-          <ScaledText
-            variant="caption"
-            accessibilityRole="alert"
-            style={styles.error}
-          >
-            {t('quick.error')}
-          </ScaledText>
-        ) : null}
+    <View style={styles.group}>
+      <View testID="voice-bubble-row" style={[styles.row, styles.rowRight12]}>
+        <Icon icon={Mic} color={colors.inkMuted} />
+        <View style={styles.grow}>
+          <ScaledText variant="label">{t('quick.bubble')}</ScaledText>
+          {failed ? (
+            <ScaledText
+              variant="caption"
+              accessibilityRole="alert"
+              style={styles.error}
+            >
+              {t('quick.error')}
+            </ScaledText>
+          ) : null}
+        </View>
+        <Switch
+          testID="voice-bubble-switch"
+          value={on || explaining}
+          onValueChange={toggle}
+          accessibilityLabel={t('quick.bubble')}
+        />
       </View>
-      <Switch
-        value={on}
-        onValueChange={toggle}
-        accessibilityLabel={t('quick.bubble')}
-      />
+      {explaining ? (
+        <View testID="voice-overlay-explainer" style={styles.explainer}>
+          <ScaledText variant="label" accessibilityRole="header">
+            {t('quick.explainTitle')}
+          </ScaledText>
+          <ScaledText variant="caption" style={styles.hint}>
+            {t('quick.explainBody')}
+          </ScaledText>
+          <View style={styles.explainerActions}>
+            <PressableScale
+              testID="voice-overlay-later"
+              accessibilityRole="button"
+              accessibilityLabel={t('quick.explainLater')}
+              pressedScale={0.97}
+              onPress={() => setExplaining(false)}
+              style={styles.explainerButton}
+            >
+              <ScaledText variant="label">{t('quick.explainLater')}</ScaledText>
+            </PressableScale>
+            <PressableScale
+              testID="voice-overlay-continue"
+              accessibilityRole="button"
+              accessibilityLabel={t('quick.explainContinue')}
+              pressedScale={0.97}
+              onPress={goToSettings}
+              style={[styles.explainerButton, styles.explainerPrimary]}
+            >
+              <ScaledText variant="label" style={styles.primaryText}>
+                {t('quick.explainContinue')}
+              </ScaledText>
+            </PressableScale>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -164,6 +231,28 @@ export const VoiceSetupSection = memo(function VoiceSetupSection() {
 
 const styles = StyleSheet.create({
   section: { gap: space[4] },
+  group: { gap: space[2] },
+  explainer: {
+    gap: space[2],
+    padding: space[4],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  explainerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: space[3],
+  },
+  explainerButton: {
+    minHeight: 48,
+    minWidth: 96,
+    paddingHorizontal: space[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.lg,
+  },
+  explainerPrimary: { backgroundColor: colors.accent },
+  primaryText: { color: colors.onAccent },
   title: { color: colors.inkMuted },
   grow: { flex: 1, minWidth: 0 },
   row: {

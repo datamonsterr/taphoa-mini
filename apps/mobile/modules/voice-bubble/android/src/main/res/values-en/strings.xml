@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="voice_bubble_description">Sell by voice</string>
+    <string name="voice_bubble_notification_title">Voice button is on</string>
+    <string name="voice_bubble_notification_text">Tap the floating button to sell by voice</string>
+    <string name="voice_bubble_notification_stop">Turn off</string>
+    <string name="voice_bubble_channel_name">Voice button</string>
+    <string name="voice_tile_label">Sell</string>
+    <string name="voice_shortcut_short">Sell by voice</string>
+    <string name="voice_shortcut_long">Sell by voice</string>
+</resources>

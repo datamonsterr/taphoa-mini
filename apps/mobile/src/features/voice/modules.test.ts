@@ -93,6 +93,8 @@ describe('quick access capabilities', () => {
       bubble: {
         isSupported: () => true,
         isEnabled: async () => true,
+        canDrawOverlays: () => true,
+        openOverlaySettings: () => undefined,
         setEnabled: async (on) => on,
       },
     });

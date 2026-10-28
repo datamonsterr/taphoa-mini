@@ -1,5 +1,5 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { AppState, Platform } from 'react-native';
 
 import { setAnalyticsSink } from '@/lib/analytics';
 import { useSettingsStore } from '@/stores/settings';
@@ -27,6 +27,8 @@ afterEach(() => {
 const supportedBubble = (initial = false) => ({
   isSupported: () => true,
   isEnabled: jest.fn(async () => initial),
+  canDrawOverlays: jest.fn(() => true),
+  openOverlaySettings: jest.fn(),
   setEnabled: jest.fn(async (on: boolean) => on),
 });
 const supportedTile = () => ({
@@ -111,6 +113,97 @@ describe('Android with the native module', () => {
     await fireEvent.press(toggle);
     await waitFor(() => expect(toggle).not.toBeChecked());
     expect(events).toHaveLength(1);
+  });
+
+  describe('without the overlay permission', () => {
+    const setup = () => {
+      const bubble = {
+        ...supportedBubble(),
+        canDrawOverlays: jest.fn(() => false),
+      };
+      setVoiceQuickAccess({ bubble });
+      return bubble;
+    };
+    let appState: (state: string) => void;
+    beforeEach(() => {
+      jest
+        .spyOn(AppState, 'addEventListener')
+        .mockImplementation((_type, listener) => {
+          appState = listener as (state: string) => void;
+          return { remove: jest.fn() };
+        });
+    });
+
+    test('the switch shows the explainer first and does not start anything', async () => {
+      const bubble = setup();
+      await renderWithProviders(<VoiceSetupSection />);
+      await fireEvent.press(
+        screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+      );
+      expect(screen.getByTestId('voice-overlay-explainer')).toBeOnTheScreen();
+      expect(
+        screen.getByText(/Nút chỉ mở ứng dụng để bạn nói/),
+      ).toBeOnTheScreen();
+      expect(bubble.openOverlaySettings).not.toHaveBeenCalled();
+      expect(bubble.setEnabled).not.toHaveBeenCalled();
+    });
+
+    test('Để sau closes the explainer', async () => {
+      const bubble = setup();
+      await renderWithProviders(<VoiceSetupSection />);
+      await fireEvent.press(
+        screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Để sau' }));
+      expect(screen.queryByTestId('voice-overlay-explainer')).toBeNull();
+      expect(bubble.openOverlaySettings).not.toHaveBeenCalled();
+    });
+
+    test('Mở cài đặt jumps to Settings; coming back with the permission starts the bubble', async () => {
+      const bubble = setup();
+      await renderWithProviders(<VoiceSetupSection />);
+      await fireEvent.press(
+        screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Mở cài đặt' }));
+      expect(bubble.openOverlaySettings).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('voice-overlay-explainer')).toBeNull();
+      bubble.canDrawOverlays.mockReturnValue(true);
+      await act(async () => appState('active'));
+      await waitFor(() => expect(bubble.setEnabled).toHaveBeenCalledWith(true));
+      await waitFor(() =>
+        expect(
+          screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+        ).toBeChecked(),
+      );
+      expect(events).toEqual([
+        {
+          event: 'voice_setup_completed',
+          props: { platform: 'android', kind: 'bubble' },
+        },
+      ]);
+    });
+
+    test('coming back without the permission leaves it off', async () => {
+      const bubble = setup();
+      await renderWithProviders(<VoiceSetupSection />);
+      await fireEvent.press(
+        screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Mở cài đặt' }));
+      await act(async () => appState('active'));
+      expect(bubble.setEnabled).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+      ).not.toBeChecked();
+    });
+
+    test('an app state change without a Settings trip does nothing', async () => {
+      const bubble = setup();
+      await renderWithProviders(<VoiceSetupSection />);
+      await act(async () => appState('active'));
+      expect(bubble.setEnabled).not.toHaveBeenCalled();
+    });
   });
 
   test('a refused permission leaves the switch off and says so', async () => {
