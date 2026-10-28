@@ -418,7 +418,10 @@ async fn fallback_chain_audio_slugs_then_stt_then_503() {
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     ok(&w, r.status, &r.body);
     assert_eq!(r.body["stt_fallback"], true);
-    assert_eq!(r.body["model"], "g/one");
+    assert_eq!(
+        r.body["model"], "p/one",
+        "the STT text goes to VOICE_PARSE_MODELS"
+    );
     assert_eq!(
         r.body["transcript"], "hai chai nước",
         "falls back to the STT text"
@@ -439,7 +442,7 @@ async fn fallback_chain_audio_slugs_then_stt_then_503() {
             "audio:g/one",
             "audio:g/two",
             "stt:w/stt",
-            "text:g/one:hai chai nước"
+            "text:p/one:hai chai nước"
         ]
     );
 
@@ -943,4 +946,171 @@ async fn voice_sale_lines_are_accepted_move_stock_and_count_in_the_event() {
         .await
         .unwrap_or(-1);
     assert_eq!(voice_lines, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn a_model_price_that_was_not_spoken_is_replaced_by_the_catalog_price() {
+    // The model echoes the catalog price as unit_price and says nothing in price_spoken.
+    let parse = sale(
+        "một chai nước suối lavie",
+        vec![line(
+            "một chai nước suối lavie",
+            "nước suối lavie",
+            Some(1.0),
+            Some("chai"),
+            Some(8000.0),
+            None,
+        )],
+        "cash",
+        None,
+    );
+    let (w, _) = setup(vec![Step::parse(parse)], |_| {}).await;
+    w.product("Nước suối Lavie", 8000, None).await;
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    ok(&w, r.status, &r.body);
+    let l = &r.body["sale_draft"]["lines"][0];
+    assert_eq!(l["price_source"], "catalog");
+    assert_eq!(l["unit_price"], 8000);
+    assert_eq!(l["price_mismatch"], false);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn invented_lines_on_silence_are_dropped_into_no_speech() {
+    let invented = |transcript: &str| {
+        sale(
+            transcript,
+            vec![
+                line(
+                    "2 lon bia Tiger",
+                    "bia Tiger",
+                    Some(2.0),
+                    Some("lon"),
+                    None,
+                    None,
+                ),
+                line(
+                    "1 gói mì Hảo Hảo",
+                    "mì Hảo Hảo",
+                    Some(1.0),
+                    Some("gói"),
+                    None,
+                    None,
+                ),
+            ],
+            "cash",
+            None,
+        )
+    };
+    let (w, _) = setup(
+        vec![Step::parse(invented("")), Step::parse(invented("ừm"))],
+        |_| {},
+    )
+    .await;
+    w.product("Bia Tiger", 18000, None).await;
+    w.product("Mì Hảo Hảo", 4500, None).await;
+    for _ in 0..2 {
+        let r = upload(&w, &clip(), "sale").await;
+        assert_eq!(
+            (r.status, r.body["code"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("no_speech")),
+            "{}",
+            r.body
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn only_the_ungrounded_lines_are_dropped() {
+    let parse = sale(
+        "hai lon bia tiger",
+        vec![
+            line(
+                "hai lon bia tiger",
+                "bia tiger",
+                Some(2.0),
+                Some("lon"),
+                None,
+                None,
+            ),
+            line(
+                "một gói mì hảo hảo",
+                "mì hảo hảo",
+                Some(1.0),
+                None,
+                None,
+                None,
+            ),
+        ],
+        "cash",
+        None,
+    );
+    let (w, _) = setup(vec![Step::parse(parse)], |_| {}).await;
+    w.product("Bia Tiger", 18000, None).await;
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert_eq!(r.body["sale_draft"]["lines"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn rate_limits_move_to_the_next_slug_and_retry_the_last_once() {
+    let ok = || {
+        sale(
+            "hai chai",
+            vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+            "cash",
+            None,
+        )
+    };
+    let limited = || {
+        Step::error(taphoa_api::assistant::model::ModelError::RateLimited {
+            status: 429,
+            message: "slow down".into(),
+        })
+    };
+    // First slug limited: the second answers, no 503.
+    let (w, model) = setup(vec![limited(), Step::parse(ok())], |_| {}).await;
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        (
+            r.status,
+            r.body["model"].as_str(),
+            r.body["stt_fallback"].as_bool()
+        ),
+        (StatusCode::CREATED, Some("g/two"), Some(false)),
+        "{}",
+        r.body
+    );
+    assert_eq!(model.calls().len(), 2);
+    // Both limited: the last slug gets one more try after a short pause.
+    let (w, model) = setup(vec![limited(), limited(), Step::parse(ok())], |_| {}).await;
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(
+        (r.status, r.body["model"].as_str()),
+        (StatusCode::CREATED, Some("g/two")),
+        "{}",
+        r.body
+    );
+    let slugs: Vec<_> = model
+        .calls()
+        .iter()
+        .map(|c| match c {
+            Call::Audio { model, .. } => model.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(slugs, ["g/one", "g/two", "g/two"]);
+    // A single configured slug is retried once as well, and only once.
+    let (w, model) = setup(vec![limited(), limited(), Step::unavailable()], |c| {
+        c.models = vec!["g/one".into()]
+    })
+    .await;
+    let r = upload(&w, &clip(), "sale").await;
+    assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE, "{}", r.body);
+    // Two audio calls (original and one retry), then the STT call.
+    assert_eq!(model.calls().len(), 3);
 }

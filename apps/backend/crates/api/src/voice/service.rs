@@ -64,6 +64,26 @@ fn db(error: sqlx::Error) -> ApiError {
     ApiError::internal()
 }
 
+/// Pause before the single retry of a rate-limited last slug.
+const RATE_LIMIT_PAUSE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Whether to retry the same slug once: it is the last in the chain, rate limited, not yet
+/// retried, and the deadline leaves room for the pause and a call.
+fn retry_last(
+    error: &ModelError,
+    index: usize,
+    len: usize,
+    retried: &mut bool,
+    deadline: Instant,
+) -> bool {
+    let ok = matches!(error, ModelError::RateLimited { .. })
+        && index + 1 == len
+        && !*retried
+        && Instant::now() + RATE_LIMIT_PAUSE * 2 < deadline;
+    *retried |= ok;
+    ok
+}
+
 struct ChainOk {
     parsed: Parsed,
     stt_fallback: bool,
@@ -155,7 +175,12 @@ async fn run_chain(
         .model_override
         .clone()
         .map_or_else(|| cfg.models.clone(), |m| vec![m]);
-    for (index, slug) in models.iter().enumerate() {
+    // A 429 moves on to the next slug; if the last slug is the one rate limited, one short retry
+    // of it is made while the deadline allows.
+    let mut index = 0;
+    let mut retried = false;
+    while index < models.len() {
+        let slug = &models[index];
         if expired() {
             return None;
         }
@@ -176,9 +201,14 @@ async fn run_chain(
                 });
             }
             Err(error) => {
-                tracing::warn!(model = %slug, error = %assistant::error_info(&error).0, "voice audio model failed")
+                tracing::warn!(model = %slug, error = %assistant::error_info(&error).0, "voice audio model failed");
+                if retry_last(&error, index, models.len(), &mut retried, deadline) {
+                    tokio::time::sleep(RATE_LIMIT_PAUSE).await;
+                    continue;
+                }
             }
         }
+        index += 1;
     }
     let stt_index = models.len();
     if expired() {
@@ -231,7 +261,14 @@ async fn run_chain(
     if req.mode == Mode::Transcribe {
         return Some(transcript_only(transcript.model));
     }
-    for (offset, slug) in models.iter().enumerate() {
+    let parse_models: Vec<String> = req
+        .model_override
+        .clone()
+        .map_or_else(|| cfg.parse_models.clone(), |m| vec![m]);
+    let mut offset = 0;
+    let mut retried = false;
+    while offset < parse_models.len() {
+        let slug = &parse_models[offset];
         if expired() {
             return None;
         }
@@ -255,9 +292,14 @@ async fn run_chain(
                 });
             }
             Err(error) => {
-                tracing::warn!(model = %slug, error = %assistant::error_info(&error).0, "voice text model failed")
+                tracing::warn!(model = %slug, error = %assistant::error_info(&error).0, "voice text model failed");
+                if retry_last(&error, offset, parse_models.len(), &mut retried, deadline) {
+                    tokio::time::sleep(RATE_LIMIT_PAUSE).await;
+                    continue;
+                }
             }
         }
+        offset += 1;
     }
     None
 }

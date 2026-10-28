@@ -68,7 +68,7 @@ async fn utterance_span_model_call_spans_and_generation_events() {
         tracing_subscriber::registry().with(telemetry::otel_layers(&traces, &logs)),
     );
     let parse = sale(
-        "hai chai nước mắm Lan Anh 0912345678",
+        "hai chai nước mắm Lan Anh 0912345678 và bia tiger mười lăm nghìn",
         vec![
             line("hai chai nước mắm", "nước mắm", Some(2.0), None, None, None),
             line(
@@ -77,7 +77,7 @@ async fn utterance_span_model_call_spans_and_generation_events() {
                 Some(1.0),
                 None,
                 Some(15000.0),
-                None,
+                Some("mười lăm nghìn"),
             ),
         ],
         "cash",

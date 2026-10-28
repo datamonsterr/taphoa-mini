@@ -109,8 +109,10 @@ export default defineRailway((ctx) => {
       ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID: preserve(),
       // Voice always uses OpenRouter on Railway; never deploy the scripted provider.
       VOICE_MODEL_PROVIDER: 'openrouter',
-      // Per-environment audio-native model order (default google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite).
+      // Per-environment audio-native model order (default google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite).
       VOICE_MODELS: preserve(),
+      // Text-only parse models used after the STT fallback.
+      VOICE_PARSE_MODELS: preserve(),
       VOICE_STT_MODEL: preserve(),
       // Per-environment store utterance cap (default 300); lower it on test to exercise voice_quota.
       VOICE_DAILY_UTTERANCES_PER_STORE: preserve(),

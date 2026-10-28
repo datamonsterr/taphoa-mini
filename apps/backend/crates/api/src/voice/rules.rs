@@ -258,6 +258,46 @@ pub struct SpokenPrice<'a> {
     pub model_value: Option<f64>,
 }
 
+/// Keep the model's price only when it was really spoken: `price_spoken` must be non-empty and
+/// every word or digit group of it must occur in the transcript. Some models echo the catalog
+/// price as `unit_price` with `price_spoken` null; that is not a spoken price.
+pub fn spoken_price<'a>(
+    words: Option<&'a str>,
+    model_value: Option<f64>,
+    transcript: &str,
+) -> SpokenPrice<'a> {
+    let words = words.map(str::trim).filter(|w| !w.is_empty());
+    let transcript_tokens: std::collections::HashSet<String> =
+        fold(transcript).split(' ').map(str::to_owned).collect();
+    let grounded = words.is_some_and(|w| {
+        let folded = fold(w);
+        !folded.is_empty() && folded.split(' ').all(|t| transcript_tokens.contains(t))
+    });
+    if grounded {
+        SpokenPrice { words, model_value }
+    } else {
+        SpokenPrice {
+            words: None,
+            model_value: None,
+        }
+    }
+}
+
+/// Whether a parsed line was really said: its `spoken` (or `query`) text shares a word with the
+/// transcript. Models that hallucinate on silence invent lines with no basis in the words.
+pub fn line_is_grounded(spoken: &str, query: &str, transcript: &str) -> bool {
+    let transcript_tokens: std::collections::HashSet<String> = fold(transcript)
+        .split(' ')
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+        .collect();
+    [spoken, query].iter().any(|text| {
+        fold(text)
+            .split(' ')
+            .any(|t| !t.is_empty() && transcript_tokens.contains(t))
+    })
+}
+
 /// Decide the unit price of one line.
 /// - The spoken price is re-read from the words when they parse, else the model's number
 ///   (also under the thousands rule).
@@ -516,6 +556,43 @@ mod tests {
             None,
         );
         assert!(d.needs_price);
+    }
+
+    #[test]
+    fn model_price_without_spoken_words_is_not_spoken() {
+        // The model echoed the catalog price: no price_spoken, so it is dropped.
+        let sp = spoken_price(None, Some(8000.0), "một chai nước suối lavie");
+        assert!(sp.words.is_none() && sp.model_value.is_none());
+        let sp = spoken_price(Some("  "), Some(8000.0), "một chai nước suối lavie");
+        assert!(sp.model_value.is_none());
+        let d = decide_price(sp, 1, Some(8000));
+        assert_eq!(d.source, PriceSource::Catalog);
+    }
+
+    #[test]
+    fn price_words_must_occur_in_the_transcript() {
+        let said = "hai chai tương ớt hai mươi nghìn";
+        let sp = spoken_price(Some("hai mươi nghìn"), Some(20000.0), said);
+        assert_eq!(sp.model_value, Some(20000.0));
+        assert_eq!(sp.words, Some("hai mươi nghìn"));
+        // Words the speaker never said.
+        let sp = spoken_price(Some("ba mươi nghìn"), Some(30000.0), said);
+        assert!(sp.words.is_none() && sp.model_value.is_none());
+        // Digits and accents are normalized.
+        let sp = spoken_price(Some("20K"), Some(20000.0), "hai chai 20k");
+        assert_eq!(sp.model_value, Some(20000.0));
+        let sp = spoken_price(Some("HAI MƯƠI NGHÌN"), None, said);
+        assert!(sp.words.is_some());
+    }
+
+    #[test]
+    fn grounded_lines_share_a_word_with_the_transcript() {
+        let t = "hai lon bia tiger";
+        assert!(line_is_grounded("hai lon bia tiger", "bia tiger", t));
+        assert!(line_is_grounded("", "tiger", t));
+        assert!(!line_is_grounded("gói mì hảo hảo", "hảo hảo", t));
+        assert!(!line_is_grounded("bia tiger", "tiger", ""));
+        assert!(!line_is_grounded("", "", t));
     }
 
     #[test]

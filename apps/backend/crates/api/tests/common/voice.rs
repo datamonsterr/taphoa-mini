@@ -56,6 +56,7 @@ pub async fn setup(
     let model = Arc::new(ScriptedVoiceModel::new(steps));
     let mut config = VoiceConfig {
         models: vec!["g/one".into(), "g/two".into()],
+        parse_models: vec!["p/one".into(), "p/two".into()],
         stt_model: "w/stt".into(),
         hint_ttl: Duration::ZERO,
         ..VoiceConfig::default()

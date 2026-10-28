@@ -3,7 +3,9 @@
 use anyhow::{Context, bail, ensure};
 use std::time::Duration;
 
-pub const DEFAULT_MODELS: &str = "google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite";
+pub const DEFAULT_MODELS: &str = "google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite";
+/// Text-only parse after the STT fallback.
+pub const DEFAULT_PARSE_MODELS: &str = "google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite";
 pub const DEFAULT_STT_MODEL: &str = "openai/whisper-large-v3-turbo";
 /// Extra bytes allowed in the multipart body besides the audio part.
 pub const MULTIPART_OVERHEAD: usize = 64 * 1024;
@@ -20,6 +22,8 @@ pub enum VoiceProvider {
 pub struct VoiceConfig {
     /// Ordered audio-native models; the first that answers wins.
     pub models: Vec<String>,
+    /// Text-only models for the parse after the STT fallback, in order.
+    pub parse_models: Vec<String>,
     pub stt_model: String,
     pub daily_utterances_per_store: u32,
     pub max_seconds: u32,
@@ -40,6 +44,7 @@ impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
             models: DEFAULT_MODELS.split(',').map(str::to_owned).collect(),
+            parse_models: DEFAULT_PARSE_MODELS.split(',').map(str::to_owned).collect(),
             stt_model: DEFAULT_STT_MODEL.into(),
             daily_utterances_per_store: 300,
             max_seconds: 30,
@@ -86,6 +91,14 @@ impl VoiceConfig {
                 "VOICE_MODELS must be 1-5 comma-separated provider/model slugs"
             );
             config.models = models;
+        }
+        if let Some(value) = get("VOICE_PARSE_MODELS") {
+            let models: Vec<String> = value.split(',').map(|s| s.trim().to_owned()).collect();
+            ensure!(
+                !models.is_empty() && models.len() <= 5 && models.iter().all(|m| slug(m)),
+                "VOICE_PARSE_MODELS must be 1-5 comma-separated provider/model slugs"
+            );
+            config.parse_models = models;
         }
         if let Some(value) = get("VOICE_STT_MODEL") {
             ensure!(
@@ -139,6 +152,7 @@ impl VoiceConfig {
                 "VOICE_MODEL_PROVIDER=scripted is forbidden in production"
             );
             config.models = vec!["scripted/voice".into()];
+            config.parse_models = vec!["scripted/voice".into()];
         }
         Ok(config)
     }
@@ -163,6 +177,9 @@ mod tests {
         let c = VoiceConfig::from_lookup(lookup(&[])).unwrap();
         assert_eq!(c, VoiceConfig::default());
         assert_eq!(c.models.len(), 2);
+        // 3.1 is faster and more accurate; 2.5 backs it up.
+        assert_eq!(c.models[0], "google/gemini-3.1-flash-lite");
+        assert_eq!(c.parse_models[0], "google/gemini-2.5-flash-lite");
         assert_eq!(c.daily_utterances_per_store, 300);
         assert_eq!((c.max_seconds, c.max_bytes), (30, 1_048_576));
         assert_eq!(c.model_timeout, Duration::from_secs(6));
@@ -173,6 +190,7 @@ mod tests {
     fn overrides_and_paid_slugs() {
         let c = VoiceConfig::from_lookup(lookup(&[
             ("VOICE_MODELS", "a/b, c/d"),
+            ("VOICE_PARSE_MODELS", "e/f"),
             ("VOICE_STT_MODEL", "x/y"),
             ("VOICE_DAILY_UTTERANCES_PER_STORE", "5"),
             ("VOICE_MAX_SECONDS", "10"),
@@ -183,6 +201,7 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(c.models, ["a/b", "c/d"]);
+        assert_eq!(c.parse_models, ["e/f"]);
         assert_eq!(c.stt_model, "x/y");
         assert_eq!(
             (
@@ -200,6 +219,7 @@ mod tests {
     fn rejects_bad_values() {
         for pairs in [
             &[("VOICE_MODELS", "noslash")][..],
+            &[("VOICE_PARSE_MODELS", "noslash")],
             &[("VOICE_DAILY_UTTERANCES_PER_STORE", "0")],
             &[("VOICE_MAX_BYTES", "abc")],
             &[("VOICE_MODEL_PROVIDER", "other")],

@@ -2,7 +2,7 @@
 use super::{
     matching::{self, Band, CustomerBand, ProductInfo, UnitChoice, UnitInfo},
     model::VoiceParse,
-    rules::{self, PriceDecision, PriceSource, Quantity, SpokenPrice},
+    rules::{self, PriceDecision, PriceSource, Quantity},
     telemetry::Counts,
 };
 use crate::{ApiError, ApiResult, AppState, auth::Action, auth::Actor};
@@ -84,6 +84,8 @@ pub async fn build(
         .lines
         .iter()
         .filter(|l| !l.spoken.trim().is_empty() || !l.query.trim().is_empty())
+        // Lines with no word in common with the transcript are hallucinations (silence, noise).
+        .filter(|l| rules::line_is_grounded(&l.spoken, &l.query, &parse.transcript))
         .take(MAX_LINES)
         .collect();
     if lines.is_empty() {
@@ -168,10 +170,11 @@ pub async fn build(
             .as_ref()
             .map(|sel| sel.unit.map_or(sel.product.price, |u| u.price));
         let decision: PriceDecision = rules::decide_price(
-            SpokenPrice {
-                words: line.price_spoken.as_deref(),
-                model_value: line.unit_price,
-            },
+            rules::spoken_price(
+                line.price_spoken.as_deref(),
+                line.unit_price,
+                &parse.transcript,
+            ),
             count,
             catalog_price,
         );

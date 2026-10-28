@@ -143,6 +143,8 @@ quantity là số lượng (không nói số thì là 1), unit là đơn vị đ
 Giá nói tắt theo nghìn: \"hai mươi\" là 20000, \"hai lăm\" là 25000, \"mười rưỡi\" là 10500, \"trăm rưỡi\" là 150000, \"hai trăm\" là 200000. \
 Số đứng ngay sau tên hàng mà là một phần của tên (mã như ST25, 330ml, 500g) không phải giá, trừ khi theo sau là nghìn, k hoặc \"giá\". \
 Không bịa mặt hàng không được nói; không nói giá thì để unit_price và price_spoken là null. \
+unit_price chỉ được điền khi người nói thực sự nói giá, và khi đó price_spoken phải chép đúng lời nói về giá; tuyệt đối không lấy giá từ danh mục cửa hàng. \
+Khi chỉ có im lặng hoặc tiếng ồn, không có lời nói: transcript rỗng, lines rỗng, intent là none; không được lấy tên hàng từ danh mục. \
 intent là sale khi đang bán hàng, chat khi là câu hỏi hoặc yêu cầu (ví dụ \"hôm nay bán được bao nhiêu\"), none khi không nghe thấy gì có ích. \
 payment_method là cash, transfer (chuyển khoản) hoặc credit (ghi nợ, cho nợ); customer_name là tên khách khi ghi nợ. \
 confidence từ 0 đến 1. \
