@@ -849,19 +849,19 @@ was replaced locally by this refreshed set; no remote PostHog data was deleted.
 
 | Dashboard                | Exported PNG                                                             |
 | ------------------------ | ------------------------------------------------------------------------ |
-| Product overview         | [PNG](screenshots/2026-10-28T20-09-13-433Z-product-overview.png)         |
-| Activation funnel        | [PNG](screenshots/2026-10-28T20-09-13-433Z-activation-funnel.png)        |
-| Checkout and recognition | [PNG](screenshots/2026-10-28T20-09-13-433Z-checkout-and-recognition.png) |
-| Receipts and stock       | [PNG](screenshots/2026-10-28T20-09-13-433Z-receipts-and-stock.png)       |
-| Assistant adoption       | [PNG](screenshots/2026-10-28T20-09-13-433Z-assistant-adoption.png)       |
-| Debt book                | [PNG](screenshots/2026-10-28T20-09-13-433Z-debt-book.png)                |
-| Reliability              | [PNG](screenshots/2026-10-28T20-09-13-433Z-reliability.png)              |
-| Assistant health         | [PNG](screenshots/2026-10-28T20-09-13-433Z-assistant-health.png)         |
-| Cost and tokens          | [PNG](screenshots/2026-10-28T20-09-13-433Z-cost-and-tokens.png)          |
-| Tools and actions        | [PNG](screenshots/2026-10-28T20-09-13-433Z-tools-and-actions.png)        |
-| Quality                  | [PNG](screenshots/2026-10-28T20-09-13-433Z-quality.png)                  |
+| Product overview         | [PNG](screenshots/2026-10-28T23-42-46-019Z-product-overview.png)         |
+| Activation funnel        | [PNG](screenshots/2026-10-28T23-42-46-019Z-activation-funnel.png)        |
+| Checkout and recognition | [PNG](screenshots/2026-10-28T23-42-46-019Z-checkout-and-recognition.png) |
+| Receipts and stock       | [PNG](screenshots/2026-10-28T23-42-46-019Z-receipts-and-stock.png)       |
+| Assistant adoption       | [PNG](screenshots/2026-10-28T23-42-46-019Z-assistant-adoption.png)       |
+| Debt book                | [PNG](screenshots/2026-10-28T23-42-46-019Z-debt-book.png)                |
+| Reliability              | [PNG](screenshots/2026-10-28T23-42-46-019Z-reliability.png)              |
+| Assistant health         | [PNG](screenshots/2026-10-28T23-42-46-019Z-assistant-health.png)         |
+| Cost and tokens          | [PNG](screenshots/2026-10-28T23-42-46-019Z-cost-and-tokens.png)          |
+| Tools and actions        | [PNG](screenshots/2026-10-28T23-42-46-019Z-tools-and-actions.png)        |
+| Quality                  | [PNG](screenshots/2026-10-28T23-42-46-019Z-quality.png)                  |
 
-[Export manifest](screenshots/2026-10-28T20-09-13-433Z-manifest.json). The start timestamp is
+[Export manifest](screenshots/2026-10-28T23-42-46-019Z-manifest.json). The start timestamp is
 **2026-10-28T20:09:13Z**; dashboards export sequentially.
 
 ### Validation and delivery
@@ -874,3 +874,32 @@ was replaced locally by this refreshed set; no remote PostHog data was deleted.
 - Production resume: **1/1 passed**; preceding failed attempts and the fresh-run validation limit are recorded above.
 - Verification: all **59/59 queried** per scope; **zero final query errors**. Empty rows are reported honestly.
 - No Rust build, `cargo clean`, push, PR, merge or deploy. Local commit only; the unmerged worktree is retained.
+
+## Final verification (GLM default, 2026-10-28 23:30-23:45 UTC)
+
+After PR #126 (paid `z-ai/glm-5.3-flash` default) reached `test` and `production`, the isolated
+smoke flow ran once per environment (`E2E_SMOKE_ENV=test|production`, one dedicated store each:
+test `272deedf-3abc-44e2-844c-00b50e4c8c6e`, production `318e7cdf-8132-47a1-b902-cc806ec59121`).
+Both passed, with replies from `z-ai/glm-5.3-flash` and one proposed expense rejected.
+
+`node infra/posthog/verify-nonsynthetic.mjs` (X6 synthetic events excluded), zero query errors:
+
+| Environment | Window | Insights with data | Empty                                                                    |
+| ----------- | ------ | -----------------: | ------------------------------------------------------------------------ |
+| test        | 7 days |            55 / 59 | time to convert; backend error logs; eval scores per run; eval pass rate |
+| production  | 2 days |            54 / 59 | the same four, plus quota hits                                           |
+
+Why the remaining charts are empty:
+
+- Backend error logs per route and quota hits: no backend errors and no quota hits occurred.
+- Eval scores per run and eval pass rate: eval traffic is `environment=eval` by design. These
+  charts have data under `--environment eval` (nightly and PR eval runs).
+- Time to convert by sign-in method needs one person to complete the whole activation funnel
+  (sign-in, store, three products, sale, day close) after the `signed_in` producer shipped
+  (PR #125). The smoke stores already existed or completed their steps out of order, so no
+  qualifying conversion exists yet.
+
+The X6 synthetic person (`synthetic-x6-validation`, 16 events) was deleted with
+`delete_events=true` (#67); PostHog removes the events asynchronously.
+
+Dashboard PNGs: `screenshots/2026-10-28T23-42-46-019Z-*.png` (all-environment snapshots, 11 dashboards).
