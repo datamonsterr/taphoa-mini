@@ -239,6 +239,13 @@ test('parseProductPatch handles nullable fields and rejects bad types', () => {
   }
 });
 
+test('parseCreateSale accepts the voice line source', () => {
+  expect(
+    parseCreateSale({ ...sale, lines: [{ ...line, source: 'voice' }] })
+      .lines[0],
+  ).toMatchObject({ source: 'voice' });
+});
+
 test('parseCreateSale', () => {
   expect(
     parseCreateSale({
