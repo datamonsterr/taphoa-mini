@@ -1,11 +1,7 @@
 import * as Application from 'expo-application';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
+import Constants from 'expo-constants';
 import { usePathname, useSegments } from 'expo-router';
-import {
-  PostHogProvider,
-  usePostHog,
-  type PostHog,
-} from 'posthog-react-native';
+import { AnalyticsSdkProvider, usePostHog, type PostHog } from './posthogSdk';
 import {
   useCallback,
   useEffect,
@@ -76,34 +72,12 @@ export function AnalyticsProvider({ children }: PropsWithChildren) {
   const apiKey = process.env.EXPO_PUBLIC_POSTHOG_KEY;
   if (!apiKey) return children;
   return (
-    <PostHogProvider
+    <AnalyticsSdkProvider
       apiKey={apiKey}
-      options={{
-        host:
-          process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
-        // The JS analytics SDK works in Expo Go; its native replay plugin does not.
-        enableSessionReplay:
-          Constants.executionEnvironment !== ExecutionEnvironment.StoreClient,
-        sessionReplayConfig: {
-          maskAllTextInputs: true,
-          maskAllImages: true,
-          maskAllSandboxedViews: true,
-          captureLog: false,
-          captureNetworkTelemetry: false,
-        },
-        errorTracking: {
-          autocapture: {
-            uncaughtExceptions: true,
-            unhandledRejections: true,
-            console: [],
-          },
-        },
-        captureAppLifecycleEvents: true,
-      }}
-      autocapture={{ captureScreens: false, captureTouches: false }}
+      host={process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'}
     >
       <AnalyticsRegistration>{children}</AnalyticsRegistration>
-    </PostHogProvider>
+    </AnalyticsSdkProvider>
   );
 }
 

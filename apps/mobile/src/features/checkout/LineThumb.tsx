@@ -1,4 +1,4 @@
-import { PostHogMaskView } from 'posthog-react-native';
+import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
 import { Package } from 'lucide-react-native';
 import { memo } from 'react';

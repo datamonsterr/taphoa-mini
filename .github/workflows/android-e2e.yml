@@ -132,6 +132,10 @@ jobs:
       - name: Build release APK
         env:
           EXPO_PUBLIC_API_URL: http://10.0.2.2:8080
+          # Expo embeds these during assembleRelease, not when Maestro launches the APK.
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          EXPO_PUBLIC_ENVIRONMENT: test
           # Public by design; the bundle embeds it so ClerkProvider talks to the same instance.
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         working-directory: apps/mobile/android

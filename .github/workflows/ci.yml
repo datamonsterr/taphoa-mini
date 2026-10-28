@@ -460,6 +460,9 @@ jobs:
         if: matrix.target == 'web'
         env:
           EXPO_PUBLIC_API_URL: http://localhost:8080
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          EXPO_PUBLIC_ENVIRONMENT: test
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: pnpm --filter @taphoa/mobile ${{ matrix.script }}
       - uses: actions/upload-artifact@v7
@@ -804,6 +807,9 @@ jobs:
         env:
           E2E_WEB_EXPORT_READY: ${{ steps.web-export.outcome == 'success' && '1' || '0' }}
           EXPO_PUBLIC_API_URL: http://localhost:8080
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          EXPO_PUBLIC_ENVIRONMENT: test
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}

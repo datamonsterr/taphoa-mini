@@ -271,3 +271,43 @@ then run the tests and offline plan before controller verification.
 The tests inject fake fetch at the HTTP boundary. CI runs only tests and the
 offline plan, with no PostHog credentials or requests. `tests/package.json` and
 `tests/index.mjs` let Node 24 resolve the explicitly requested test directory.
+
+## Masked replay smoke
+
+The Expo web app uses `posthog-js`; native `posthog-react-native` replay does not support
+web or Expo Go. Android APKs need the linked plugin and public PostHog key at bundle time.
+CI uses the existing `POSTHOG_PROJECT_TOKEN` secret and `POSTHOG_HOST` variable for both
+web exports and `assembleRelease`, with `EXPO_PUBLIC_ENVIRONMENT=test`. Setting these only
+when launching a prebuilt APK/export cannot enable analytics retroactively. Missing keys
+leave the app's analytics disabled. EAS builds obtain their public key from EAS environment
+variables independently; the `test`/`e2e` profiles supply the test label.
+
+For a cheap replay proof without an emulator, load the configured credentials in a shell
+without shell tracing, leave `E2E_WEB_EXPORT_READY` unset so the export embeds the values,
+and run:
+
+```sh
+set -a
+. ~/.config/taphoa-mini/secrets.env
+set +a
+EXPO_PUBLIC_POSTHOG_KEY="$POSTHOG_PROJECT_TOKEN" \
+EXPO_PUBLIC_POSTHOG_HOST="${POSTHOG_INGEST_HOST:-https://us.i.posthog.com}" \
+EXPO_PUBLIC_ENVIRONMENT=test \
+EXPO_PUBLIC_API_URL=https://backend-test-70c2.up.railway.app \
+POSTHOG_REPLAY_SMOKE=1 \
+pnpm --filter @taphoa/mobile test:e2e:web replay.spec.ts --project chromium --workers 1
+```
+
+This signs nobody in, submits no form, and never opens the assistant. It interacts with
+the sign-in input for more than 10 seconds, verifies successful snapshot ingestion, masked
+input values, blocked media canaries, and an `environment=test` product event with the
+same session id. Browser automation is captured deliberately only in test. It emits a safe
+`masked-replay-evidence` attachment containing the session id and assertion results.
+
+List `GET /api/projects/<id>/session_recordings/` with the personal key in the Authorization
+header to verify that id after ingestion. For environment scoping, pass event properties
+`[{"key":"environment","value":["test"],"operator":"exact","type":"event"}]` in the
+URL-encoded `properties` parameter. A read-only HogQL query of the matching `$session_id`
+can independently confirm its `environment=test` `$screen` event. Browser `$snapshot`
+envelopes deliberately omit super properties, so environment comes from the correlated
+product event, not the snapshot envelope. Project settings alone never prove masking.

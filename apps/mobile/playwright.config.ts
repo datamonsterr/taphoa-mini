@@ -85,6 +85,10 @@ export default defineConfig({
     // signs in through the Clerk development instance.
     env: {
       EXPO_PUBLIC_API_URL: API_URL,
+      EXPO_PUBLIC_POSTHOG_KEY: process.env.EXPO_PUBLIC_POSTHOG_KEY ?? '',
+      EXPO_PUBLIC_POSTHOG_HOST:
+        process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+      EXPO_PUBLIC_ENVIRONMENT: process.env.EXPO_PUBLIC_ENVIRONMENT ?? 'test',
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: CLERK_PUBLISHABLE_KEY,
     },
   },
