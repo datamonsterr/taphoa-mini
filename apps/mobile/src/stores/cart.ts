@@ -15,7 +15,7 @@ export type CartLine = {
   suggestedProductId?: string;
   scanId?: string;
   /** How the line entered the cart (S1 `camera`, S8 `multi_photo`); sent as the sale line `source`. */
-  source?: 'camera' | 'multi_photo';
+  source?: 'camera' | 'multi_photo' | 'barcode';
 };
 
 export type NewCartLine = Omit<CartLine, 'qty' | 'manual'> & {

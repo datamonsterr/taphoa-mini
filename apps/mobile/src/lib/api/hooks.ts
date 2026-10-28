@@ -65,6 +65,7 @@ import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
 import { listManualLines, resolveManualLine } from './review';
 import {
+  barcodeAliases,
   addProductImage,
   createProduct,
   getProduct,
@@ -149,6 +150,23 @@ export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
     placeholderData: keepPreviousData,
     select: (data) => data.pages.flatMap((page) => page.items),
   });
+}
+
+/** Exact barcode lookup shares product list keys and mutation invalidation. Cached per session. */
+export function useLookupBarcode() {
+  const client = useQueryClient();
+  return async (barcode: string) => {
+    for (const code of barcodeAliases(barcode)) {
+      const data = await client.fetchInfiniteQuery({
+        ...productsQuery({ barcode: code, limit: 1 }),
+        staleTime: Infinity,
+        gcTime: Infinity,
+      });
+      const product = data.pages[0]?.items[0];
+      if (product) return product;
+    }
+    return null;
+  };
 }
 
 export const useProduct = (id: string | undefined) =>

@@ -47,6 +47,7 @@ import {
   useCreateReceipt,
   isApiError,
   useProduct,
+  useLookupBarcode,
   useSegmentPoints,
   useUploadImage,
   type Product,
@@ -69,6 +70,11 @@ import {
   measuredFlyVector,
   type Layout,
 } from './AddFeedback';
+import { BARCODE_SETTINGS } from './barcode';
+import { BarcodeIndicator } from './BarcodeIndicator';
+import { useBarcodeScanner } from './useBarcodeScanner';
+import type { BarcodeScanningResult } from 'expo-camera';
+
 import { takePhoto } from './capture';
 import {
   DocumentOverlay,
@@ -112,9 +118,11 @@ const FIXED_HEIGHT =
 function LivePreview({
   cameraRef,
   onReadyChange,
+  onBarcodeScanned,
 }: {
   cameraRef: React.RefObject<CameraView | null>;
   onReadyChange: (ready: boolean) => void;
+  onBarcodeScanned?: (result: BarcodeScanningResult) => void;
 }) {
   useEffect(() => () => onReadyChange(false), [onReadyChange]);
   const onCameraReady = useCallback(() => onReadyChange(true), [onReadyChange]);
@@ -124,6 +132,8 @@ function LivePreview({
         ref={cameraRef}
         facing="back"
         animateShutter={false}
+        barcodeScannerSettings={BARCODE_SETTINGS}
+        onBarcodeScanned={onBarcodeScanned}
         onCameraReady={onCameraReady}
         style={StyleSheet.absoluteFill}
       />
@@ -342,6 +352,41 @@ export function CameraScreen() {
   );
   const openDetection = detections.find((d) => d.id === openId);
 
+  const [barcodeResult, setBarcodeResult] = useState<{
+    code: string;
+    product: Product | null;
+  } | null>(null);
+  const lookupBarcode = useLookupBarcode();
+  const barcodeEnabled =
+    focused &&
+    !!permission?.granted &&
+    cameraReady &&
+    phase === 'idle' &&
+    !barcodeResult &&
+    !sheetOpen &&
+    !readingReceipt &&
+    !quickCapturing &&
+    !currentShot;
+  const barcodeScanner = useBarcodeScanner({
+    enabled: barcodeEnabled,
+    lookup: lookupBarcode,
+    onResult: (code, product) => {
+      setBarcodeResult({ code, product });
+      if (!product) {
+        if (canEnroll)
+          router.push({ pathname: '/enroll', params: { barcode: code } });
+        else
+          setNotice('Mã vạch chưa có trong kho. Nhờ chủ cửa hàng thêm hàng.');
+      }
+    },
+    onError: () => setNotice('Chưa tìm được mã vạch. Thử lại.'),
+  });
+  useEffect(() => {
+    if (!focused) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBarcodeResult(null);
+    }
+  }, [focused]);
   const hasResult = phase === 'result' && !!scan;
   const busy = phase === 'capturing' || phase === 'scanning';
   const probe = useDocumentProbe(
@@ -352,10 +397,13 @@ export function CameraScreen() {
       phase === 'idle' &&
       !quickActive &&
       !sheetOpen &&
-      !readingReceipt,
+      !readingReceipt &&
+      !barcodeScanner.busy &&
+      !barcodeResult,
   );
   const document = hasResult ? scan.document : probe?.document;
-  const documentDetected = !!document?.detected && !quickActive;
+  const documentDetected =
+    !!document?.detected && !quickActive && !barcodeResult;
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
   const goEnroll = useCallback(
@@ -389,6 +437,7 @@ export function CameraScreen() {
       quickCapturePending.current = false;
       setQuickCapturing(false);
       setSheetOpen(false);
+      setBarcodeResult(null);
       setAddingAngle(false);
       if (!useQuickEnrollStore.getState().active) reset();
       dispatch({ type: 'toggle' });
@@ -487,14 +536,25 @@ export function CameraScreen() {
   );
 
   const onAdd = useCallback(() => {
-    if (!scan) return;
-    for (const line of toCartLines(scan, selected, chosen, fallbackName)) {
-      addLine(line);
+    if (barcodeResult?.product) {
+      const product = barcodeResult.product;
+      addLine({
+        productId: product.id,
+        name: product.name ?? fallbackName,
+        price: product.price,
+        imageUrl: product.images[0]?.url,
+        source: 'barcode',
+      });
+      setBarcodeResult(null);
+    } else {
+      if (!scan) return;
+      for (const line of toCartLines(scan, selected, chosen, fallbackName))
+        addLine(line);
+      added();
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setAddCount((n) => n + 1);
-    added();
-  }, [scan, selected, chosen, fallbackName, addLine, added]);
+  }, [barcodeResult, scan, selected, chosen, fallbackName, addLine, added]);
 
   const openCart = useCallback(() => router.push('/cart'), [router]);
   const openShop = useCallback(() => router.push('/inventory'), [router]);
@@ -548,7 +608,8 @@ export function CameraScreen() {
     }
   }, [canEnroll, cameraReady, focused, dispatch, uploadImage]);
   const onShutter = () => {
-    if (quickActive) void captureQuickPhoto();
+    if (barcodeResult) setBarcodeResult(null);
+    else if (quickActive) void captureQuickPhoto();
     else if (documentDetected && canEnroll) void readReceipt();
     else if (phase === 'idle') void capture();
     else reset();
@@ -611,6 +672,9 @@ export function CameraScreen() {
               <LivePreview
                 cameraRef={cameraRef}
                 onReadyChange={setCameraReady}
+                onBarcodeScanned={
+                  barcodeEnabled ? barcodeScanner.scan : undefined
+                }
               />
             ) : null
           }
@@ -681,6 +745,7 @@ export function CameraScreen() {
               mirrored={!hasResult && probe?.previewMirrored}
             />
           ) : null}
+          {barcodeResult ? <BarcodeIndicator {...barcodeResult} /> : null}
           {phase === 'error' ? (
             <ScanError
               message={t('scanError')}
@@ -767,9 +832,11 @@ export function CameraScreen() {
             label={
               documentDetected && canEnroll
                 ? 'Chụp và đọc hóa đơn'
-                : phase === 'idle'
-                  ? t('shutter')
-                  : t('reshoot')
+                : barcodeResult
+                  ? t('reshoot')
+                  : phase === 'idle'
+                    ? t('shutter')
+                    : t('reshoot')
             }
             busy={
               quickActive
@@ -777,14 +844,22 @@ export function CameraScreen() {
                   quickCapturing ||
                   !cameraReady ||
                   !canEnroll
-                : readingReceipt || busy || (phase === 'idle' && !cameraReady)
+                : readingReceipt ||
+                  barcodeScanner.busy ||
+                  busy ||
+                  (phase === 'idle' && !cameraReady)
             }
             onPress={onShutter}
           />
         )}
         <View testID="camera-add-slot" onLayout={onAddLayout}>
           <AddButton
-            disabled={documentDetected || !hasResult || batch === 0}
+            disabled={
+              barcodeScanner.busy ||
+              (barcodeResult
+                ? !barcodeResult.product
+                : documentDetected || !hasResult || batch === 0)
+            }
             count={mode === 'many' && hasResult ? batch : 0}
             onPress={onAdd}
           />

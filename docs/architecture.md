@@ -605,7 +605,8 @@ sequenceDiagram
 ```
 
 Single-item camera (S1), barcode (S2) and grid (S3) skip the multi-photo call: S1 uses
-`mode=single`; barcode and grid resolve against the local catalog with no network.
+`mode=single`; barcode uses exact `GET /v1/products?barcode=` lookups cached for the current
+session. Offline barcode catalog lookup is deferred to G3; grid resolves against the local catalog.
 
 ### 9.5 Unknown item and Lead review (F3, S4)
 

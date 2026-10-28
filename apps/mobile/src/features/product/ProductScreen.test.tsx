@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Dimensions } from 'react-native';
 
+import { ApiError } from '@/lib/api/errors';
 import * as productsApi from '@/lib/api/products';
 import * as stockApi from '@/lib/api/stock';
 import { keys } from '@/lib/api/keys';
@@ -508,4 +509,67 @@ describe('product threshold override', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Lưu ngưỡng' }));
     expect(await screen.findByText('Ngưỡng sắp hết: 0')).toBeOnTheScreen();
   });
+});
+
+test('product edit saves and clears the base barcode without changing price', async () => {
+  const patch = jest.spyOn(productsApi, 'patchProduct');
+  await renderProduct();
+  await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' });
+  await fireEvent.press(screen.getByLabelText('Sửa giá'));
+  await fireEvent.changeText(
+    screen.getByLabelText('Mã vạch (không bắt buộc)'),
+    '4006381333931',
+  );
+  await fireEvent.press(screen.getByLabelText('Lưu giá'));
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(PRODUCT_IDS.coca, {
+      barcode: '4006381333931',
+    }),
+  );
+  await screen.findByText('Mã vạch · 4006381333931');
+  await fireEvent.press(screen.getByLabelText('Sửa giá'));
+  expect(screen.getByLabelText('Mã vạch (không bắt buộc)')).toHaveDisplayValue(
+    '4006381333931',
+  );
+  await fireEvent.changeText(
+    screen.getByLabelText('Mã vạch (không bắt buộc)'),
+    '',
+  );
+  await fireEvent.press(screen.getByLabelText('Lưu giá'));
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(PRODUCT_IDS.coca, { barcode: null }),
+  );
+});
+
+test('product edit preserves a duplicate code and allows correction after 409', async () => {
+  await productsApi.patchProduct(PRODUCT_IDS.pepsi, {
+    barcode: '4006381333931',
+  });
+  const patch = jest
+    .spyOn(productsApi, 'patchProduct')
+    .mockRejectedValueOnce(
+      new ApiError(409, { error: 'barcode already used', code: 'conflict' }),
+    );
+  await renderProduct();
+  await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' });
+  await fireEvent.press(screen.getByLabelText('Sửa giá'));
+  await fireEvent.changeText(
+    screen.getByLabelText('Mã vạch (không bắt buộc)'),
+    '4006381333931',
+  );
+  await fireEvent.press(screen.getByLabelText('Lưu giá'));
+  await screen.findByText('Mã vạch đã dùng cho Pepsi lon 330ml');
+  expect(screen.getByLabelText('Mã vạch (không bắt buộc)')).toHaveDisplayValue(
+    '4006381333931',
+  );
+  await fireEvent.changeText(
+    screen.getByLabelText('Mã vạch (không bắt buộc)'),
+    '12345678',
+  );
+  await fireEvent.press(screen.getByLabelText('Lưu giá'));
+  await waitFor(() =>
+    expect(patch).toHaveBeenLastCalledWith(PRODUCT_IDS.coca, {
+      barcode: '12345678',
+    }),
+  );
 });

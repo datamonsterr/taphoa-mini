@@ -18,9 +18,12 @@ import {
 import { formatVnd } from '@/lib/format';
 import { colors, radius, space, typography } from '@/theme';
 
+import { BarcodeField } from './BarcodeField';
+import { validBarcode } from '@/features/camera/barcode';
+
 const PHOTO = 72;
 const MAX_DIGITS = 9;
-export type ProductValues = { name: string; price: number };
+export type ProductValues = { name: string; price: number; barcode?: string };
 export type ProductPhoto = { id: string; uri: string };
 type Props = {
   photos: ProductPhoto[];
@@ -35,6 +38,9 @@ type Props = {
   onClose: () => void;
   initialName?: string;
   initialPrice?: string;
+  initialBarcode?: string;
+  barcodeError?: string;
+  onBarcodeChange?: () => void;
   saveLabel?: string;
   testID?: string;
   footer?: ReactNode;
@@ -74,11 +80,15 @@ export function ProductForm({
   onClose,
   initialName = '',
   initialPrice = '',
+  initialBarcode = '',
+  barcodeError,
+  onBarcodeChange,
   saveLabel = 'Lưu vào kho và thêm vào giỏ',
   testID = 'enroll-sheet',
   footer,
   children,
 }: Props) {
+  const [barcode, setBarcode] = useState(initialBarcode);
   const [name, setName] = useState(initialName);
   const [digits, setDigits] = useState(() =>
     String(Math.min(Number(initialPrice) || 0, 10 ** MAX_DIGITS - 1) || ''),
@@ -86,7 +96,11 @@ export function ProductForm({
   const keyDiameter = useKeypadDiameter(76);
   const price = Number(digits || '0');
   const canSave =
-    price > 0 && photos.length >= minPhotos && !saving && !disabled;
+    price > 0 &&
+    photos.length >= minPhotos &&
+    !saving &&
+    !disabled &&
+    (!barcode || validBarcode(barcode));
   return (
     <Sheet
       height={740}
@@ -98,7 +112,13 @@ export function ProductForm({
           <CheckButton
             variant="ink"
             accessibilityLabel={saveLabel}
-            onPress={() => onSave({ name: name.trim(), price })}
+            onPress={() =>
+              onSave({
+                name: name.trim(),
+                price,
+                ...(barcode ? { barcode } : {}),
+              })
+            }
             disabled={!canSave}
             block
           />
@@ -149,7 +169,11 @@ export function ProductForm({
           value={name}
           onChangeText={(next) => {
             setName(next);
-            onValuesChange?.({ name: next, price });
+            onValuesChange?.({
+              name: next,
+              price,
+              ...(barcode ? { barcode } : {}),
+            });
           }}
           placeholder="Tên"
           placeholderTextColor={colors.inkMuted}
@@ -158,6 +182,16 @@ export function ProductForm({
           style={styles.nameInput}
         />
       </View>
+      <BarcodeField
+        value={barcode}
+        disabled={saving}
+        error={barcodeError}
+        onChange={(next) => {
+          setBarcode(next);
+          onBarcodeChange?.();
+          onValuesChange?.({ name, price, ...(next ? { barcode: next } : {}) });
+        }}
+      />
       <Text
         accessibilityLiveRegion="polite"
         accessibilityLabel="Giá bán"
@@ -170,7 +204,11 @@ export function ProductForm({
           onKey={(key) => {
             const next = applyKey(digits, key, MAX_DIGITS);
             setDigits(next);
-            onValuesChange?.({ name, price: Number(next || '0') });
+            onValuesChange?.({
+              name,
+              price: Number(next || '0'),
+              ...(barcode ? { barcode } : {}),
+            });
           }}
           diameter={keyDiameter}
         />

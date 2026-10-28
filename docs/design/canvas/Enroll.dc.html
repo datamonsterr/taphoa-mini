@@ -13,6 +13,7 @@
 <style>
 body{margin:0;padding:0;background:#0c0c0e}
 a{color:inherit;text-decoration:none}
+.th-keypad .th-key{width:64px;height:64px}
 </style>
 </helmet>
 <div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); font-family: var(--font-sans); color: var(--ink)">
@@ -40,7 +41,7 @@ a{color:inherit;text-decoration:none}
 
     <output aria-live="polite" aria-label="Giá bán" class="th-big-total" style="display: block; text-align: center; padding: 4px 0">{{priceText}}</output>
 
-    <div class="th-keypad" style="--key-size: 64px; gap: 4px">
+    <div class="th-keypad" style="gap: 8px">
       <sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
         <button type="button" class="th-key" onClick="{{k.press}}" aria-label="{{k.aria}}" style="{{k.style}}">
           <sc-if value="{{k.isBack}}" hint-placeholder-val="{{false}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="M18 9l-6 6M12 9l6 6"/></svg></sc-if>
