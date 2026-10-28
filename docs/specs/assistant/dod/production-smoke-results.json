@@ -174,9 +174,10 @@
   },
   "verification": {
     "production-final": {
+      "completedAt": "2026-10-28T20:10:29.918Z",
       "ok": false,
       "environment": "production",
-      "days": 1,
+      "days": 2,
       "insights": [
         {
           "dashboard": "Product overview",
@@ -447,10 +448,9 @@
         {
           "dashboard": "Assistant health",
           "insight": "Assistant health · Model calls per turn",
-          "rows": 0,
+          "rows": 2,
           "ok": true,
-          "data": false,
-          "note": "empty (allowed)"
+          "data": true
         },
         {
           "dashboard": "Assistant health",
@@ -476,10 +476,9 @@
         {
           "dashboard": "Cost and tokens",
           "insight": "Cost and tokens · Tokens per turn p50 / p95",
-          "rows": 0,
+          "rows": 1,
           "ok": true,
-          "data": false,
-          "note": "empty (allowed)"
+          "data": true
         },
         {
           "dashboard": "Cost and tokens",
@@ -491,7 +490,7 @@
         {
           "dashboard": "Cost and tokens",
           "insight": "Cost and tokens · Requests vs. 1,000/day free quota",
-          "rows": 1,
+          "rows": 2,
           "ok": true,
           "data": true
         },
@@ -593,10 +592,9 @@
         {
           "dashboard": "Assistant traces",
           "insight": "Assistant traces · Rejected actions",
-          "rows": 0,
+          "rows": 1,
           "ok": true,
-          "data": false,
-          "note": "empty (allowed)"
+          "data": true
         }
       ]
     },
@@ -1030,9 +1028,10 @@
       "logs": "unchanged: event synthetic flags do not apply to logs"
     },
     "production-only-store-final": {
+      "completedAt": "2026-10-28T20:10:18.001Z",
       "ok": false,
       "environment": "production",
-      "days": 1,
+      "days": 2,
       "onlyStore": "318e7cdf-8132-47a1-b902-cc806ec59121",
       "insights": [
         {
@@ -1304,10 +1303,9 @@
         {
           "dashboard": "Assistant health",
           "insight": "Assistant health · Model calls per turn",
-          "rows": 0,
+          "rows": 2,
           "ok": true,
-          "data": false,
-          "note": "empty (allowed)"
+          "data": true
         },
         {
           "dashboard": "Assistant health",
@@ -1333,10 +1331,9 @@
         {
           "dashboard": "Cost and tokens",
           "insight": "Cost and tokens · Tokens per turn p50 / p95",
-          "rows": 0,
+          "rows": 1,
           "ok": true,
-          "data": false,
-          "note": "empty (allowed)"
+          "data": true
         },
         {
           "dashboard": "Cost and tokens",
@@ -1348,7 +1345,7 @@
         {
           "dashboard": "Cost and tokens",
           "insight": "Cost and tokens · Requests vs. 1,000/day free quota",
-          "rows": 1,
+          "rows": 2,
           "ok": true,
           "data": true
         },
@@ -1450,10 +1447,9 @@
         {
           "dashboard": "Assistant traces",
           "insight": "Assistant traces · Rejected actions",
-          "rows": 0,
+          "rows": 1,
           "ok": true,
-          "data": false,
-          "note": "empty (allowed)"
+          "data": true
         }
       ]
     },
@@ -2042,75 +2038,101 @@
     ]
   },
   "dashboardExports": {
-    "timestamp": "2026-10-28T19:40:36.947Z",
+    "timestamp": "2026-10-28T20:09:13.433Z",
     "scope": "Saved dashboards: all environments",
     "dashboards": [
       {
         "name": "Product overview",
         "dashboardId": 2260461,
-        "exportId": 19544420,
-        "file": "2026-10-28T19-40-36-947Z-product-overview.png"
+        "exportId": 19561368,
+        "file": "2026-10-28T20-09-13-433Z-product-overview.png"
       },
       {
         "name": "Activation funnel",
         "dashboardId": 2260462,
-        "exportId": 19544639,
-        "file": "2026-10-28T19-40-36-947Z-activation-funnel.png"
+        "exportId": 19561654,
+        "file": "2026-10-28T20-09-13-433Z-activation-funnel.png"
       },
       {
         "name": "Checkout and recognition",
         "dashboardId": 2260464,
-        "exportId": 19544772,
-        "file": "2026-10-28T19-40-36-947Z-checkout-and-recognition.png"
+        "exportId": 19561830,
+        "file": "2026-10-28T20-09-13-433Z-checkout-and-recognition.png"
       },
       {
         "name": "Receipts and stock",
         "dashboardId": 2260466,
-        "exportId": 19544886,
-        "file": "2026-10-28T19-40-36-947Z-receipts-and-stock.png"
+        "exportId": 19561934,
+        "file": "2026-10-28T20-09-13-433Z-receipts-and-stock.png"
       },
       {
         "name": "Assistant adoption",
         "dashboardId": 2260467,
-        "exportId": 19544942,
-        "file": "2026-10-28T19-40-36-947Z-assistant-adoption.png"
+        "exportId": 19562017,
+        "file": "2026-10-28T20-09-13-433Z-assistant-adoption.png"
       },
       {
         "name": "Debt book",
         "dashboardId": 2260468,
-        "exportId": 19545238,
-        "file": "2026-10-28T19-40-36-947Z-debt-book.png"
+        "exportId": 19562179,
+        "file": "2026-10-28T20-09-13-433Z-debt-book.png"
       },
       {
         "name": "Reliability",
         "dashboardId": 2260469,
-        "exportId": 19545500,
-        "file": "2026-10-28T19-40-36-947Z-reliability.png"
+        "exportId": 19562320,
+        "file": "2026-10-28T20-09-13-433Z-reliability.png"
       },
       {
         "name": "Assistant health",
         "dashboardId": 2271249,
-        "exportId": 19545743,
-        "file": "2026-10-28T19-40-36-947Z-assistant-health.png"
+        "exportId": 19562443,
+        "file": "2026-10-28T20-09-13-433Z-assistant-health.png"
       },
       {
         "name": "Cost and tokens",
         "dashboardId": 2271251,
-        "exportId": 19545924,
-        "file": "2026-10-28T19-40-36-947Z-cost-and-tokens.png"
+        "exportId": 19562648,
+        "file": "2026-10-28T20-09-13-433Z-cost-and-tokens.png"
       },
       {
         "name": "Tools and actions",
         "dashboardId": 2271252,
-        "exportId": 19546121,
-        "file": "2026-10-28T19-40-36-947Z-tools-and-actions.png"
+        "exportId": 19562778,
+        "file": "2026-10-28T20-09-13-433Z-tools-and-actions.png"
       },
       {
         "name": "Quality",
         "dashboardId": 2271253,
-        "exportId": 19546449,
-        "file": "2026-10-28T19-40-36-947Z-quality.png"
+        "exportId": 19562914,
+        "file": "2026-10-28T20-09-13-433Z-quality.png"
       }
+    ]
+  },
+  "aiStoreGroupProbe": {
+    "environment": "production",
+    "days": 2,
+    "query": "SELECT event, JSONExtractString(toString(properties), '$groups', 'store') AS nested_store, JSONExtractString(toString(properties), '$group_0') AS group_0, count() AS events FROM posthog.ai_events WHERE timestamp >= now() - INTERVAL 2 DAY AND properties.environment = 'production' GROUP BY event, nested_store, group_0 ORDER BY events DESC LIMIT 30",
+    "columns": ["event", "nested_store", "group_0", "events"],
+    "results": [
+      [
+        "$ai_generation",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        9
+      ],
+      [
+        "$ai_span",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        4
+      ],
+      [
+        "$ai_trace",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        "318e7cdf-8132-47a1-b902-cc806ec59121",
+        4
+      ]
     ]
   }
 }

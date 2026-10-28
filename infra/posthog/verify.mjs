@@ -40,13 +40,19 @@ export function scopeQuery(
       )
       .replaceAll('{{days}}', String(days ?? 30));
     if (store) {
-      const logs = /FROM logs\b/.test(source.query);
-      const table = logs ? 'logs' : 'events';
+      // Managed SQL can mix AI and product scans, including nested aggregates.
+      // AI properties retain the store group as JSON rather than a typed column.
+      const fields = {
+        events: 'properties.$groups.store',
+        'posthog.ai_events':
+          "JSONExtractString(toString(properties), '$groups', 'store')",
+        logs: "attributes['taphoa.store.id']",
+      };
       const scans =
         source.query.match(
-          new RegExp(`\\b(?:FROM|JOIN)\\s+${table}\\b`, 'gi'),
+          /\b(?:FROM|JOIN)\s+(?:events|posthog\.ai_events|logs)\b/gi,
         ) ?? [];
-      const supported = new RegExp(`\\bFROM\\s+${table}\\s+WHERE\\b`, 'gi');
+      const supported = /\bFROM\s+(events|posthog\.ai_events|logs)\s+WHERE\b/gi;
       if (
         !scans.length ||
         scans.length !== (source.query.match(supported) ?? []).length
@@ -54,7 +60,8 @@ export function scopeQuery(
         throw new Error('Unsupported store filter SQL shape');
       source.query = source.query.replace(
         supported,
-        `FROM ${table} WHERE (${predicate(logs ? "attributes['taphoa.store.id']" : 'properties.$groups.store')}) AND`,
+        (_scan, table) =>
+          `FROM ${table} WHERE (${predicate(fields[table.toLowerCase()])}) AND`,
       );
     }
   } else {

@@ -135,3 +135,52 @@ test('filters ai_events and events independently in a scoped union and rejects u
       /Unsupported/,
     );
 });
+
+test('non-synthetic verification composes with both store filters on every managed scan', async () => {
+  const store = '11111111-2222-4333-8444-555555555555';
+  for (const options of [{ onlyStore: store }, { excludeStore: store }]) {
+    const calls = [];
+    const result = await verifyNonsynthetic({
+      environment: 'production',
+      days: 2,
+      ...options,
+      client: {
+        post: async (_path, body) => {
+          calls.push(body);
+          return { results: [] };
+        },
+      },
+    });
+    assert.equal(result.insights.length, 59);
+    assert.ok(result.insights.every((row) => !row.error));
+    for (const { query, name } of calls) {
+      const global = /1,000\/day|Online judge/.test(name ?? '');
+      if (query.kind === 'HogQLQuery') {
+        const scans = query.query.match(
+          /FROM (events|posthog\.ai_events|logs) WHERE/gi,
+        );
+        assert.equal(
+          query.query.split(store).length - 1,
+          global ? 0 : scans.length,
+        );
+        if (!/FROM logs/.test(query.query))
+          assert.equal(
+            query.query.split(nonSynthetic).length - 1,
+            scans.length,
+          );
+      } else {
+        for (const entity of query.series ?? [
+          query.retentionFilter.targetEntity,
+          query.retentionFilter.returningEntity,
+        ]) {
+          assert.ok(entity.properties.some((p) => p.key === nonSynthetic));
+          assert.ok(
+            entity.properties.some(
+              (p) => p.type === 'hogql' && p.key.includes(store),
+            ),
+          );
+        }
+      }
+    }
+  }
+});
