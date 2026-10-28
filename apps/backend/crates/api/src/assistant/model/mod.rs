@@ -329,4 +329,57 @@ mod tests {
             serde_json::from_value::<ChatMessage>(json!({"role":"robot","content":"x"})).is_err()
         );
     }
+
+    #[test]
+    fn turn_costs_sum_all_model_calls_and_do_not_fill_missing_accounting() {
+        let call = Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+            cost: Some(UsageCost {
+                input_usd: Some(0.125),
+                output_usd: Some(0.25),
+                total_usd: 0.375,
+            }),
+        };
+        let mut turn = Usage::default();
+        turn.accumulate(call);
+        assert_eq!(turn, call);
+        turn.accumulate(call);
+        assert_eq!((turn.input_tokens, turn.output_tokens), (20, 10));
+        assert_eq!(
+            turn.cost.unwrap(),
+            UsageCost {
+                input_usd: Some(0.25),
+                output_usd: Some(0.5),
+                total_usd: 0.75,
+            }
+        );
+        turn.accumulate(Usage {
+            input_tokens: 1,
+            ..Usage::default()
+        });
+        assert!(turn.cost.is_none());
+        turn.accumulate(call);
+        assert!(
+            turn.cost.is_none(),
+            "later accounting cannot cover a missing call"
+        );
+    }
+
+    #[test]
+    fn known_total_survives_missing_upstream_components() {
+        let mut turn = Usage {
+            input_tokens: 1,
+            cost: Some(UsageCost {
+                input_usd: None,
+                output_usd: None,
+                total_usd: 0.125,
+            }),
+            ..Usage::default()
+        };
+        turn.accumulate(turn);
+        let cost = turn.cost.unwrap();
+        assert_eq!(cost.total_usd, 0.25);
+        assert!(cost.input_usd.is_none() && cost.output_usd.is_none());
+    }
 }
