@@ -2,15 +2,15 @@ import { fetchPrices, hogql, liveClient, main, sqlString } from './pricing.mjs';
 
 export function costQuery({ model, input, output }) {
   return `SELECT count() AS generations,
-    countIf(isNull(properties.$ai_input_tokens) OR isNull(properties.$ai_output_tokens)) AS missing_tokens,
-    countIf(isNull(properties.$ai_input_cost_usd) OR isNull(properties.$ai_output_cost_usd) OR isNull(properties.$ai_total_cost_usd)) AS missing_costs,
-    countIf(abs(toFloat(properties.$ai_input_cost_usd) - toFloat(properties.$ai_input_tokens) * ${input}) > ${input === 0 ? 0 : 1e-12}
-      OR abs(toFloat(properties.$ai_output_cost_usd) - toFloat(properties.$ai_output_tokens) * ${output}) > ${output === 0 ? 0 : 1e-12}
-      OR abs(toFloat(properties.$ai_total_cost_usd) - (toFloat(properties.$ai_input_tokens) * ${input} + toFloat(properties.$ai_output_tokens) * ${output})) > ${input === 0 && output === 0 ? 0 : 1e-12}) AS mismatches,
+    countIf(isNull(input_tokens) OR isNull(output_tokens)) AS missing_tokens,
+    countIf(isNull(input_cost_usd) OR isNull(output_cost_usd) OR isNull(total_cost_usd)) AS missing_costs,
+    countIf(abs(toFloat(input_cost_usd) - toFloat(input_tokens) * ${input}) > ${input === 0 ? 0 : 1e-12}
+      OR abs(toFloat(output_cost_usd) - toFloat(output_tokens) * ${output}) > ${output === 0 ? 0 : 1e-12}
+      OR abs(toFloat(total_cost_usd) - (toFloat(input_tokens) * ${input} + toFloat(output_tokens) * ${output})) > ${input === 0 && output === 0 ? 0 : 1e-12}) AS mismatches,
     groupUniqArray(toString(properties.$ai_cost_model_source)) AS cost_sources,
-    sum(toFloat(properties.$ai_total_cost_usd)) AS total_cost_usd
-    FROM events WHERE event = '$ai_generation' AND properties.environment = 'test'
-      AND properties.$ai_provider = 'openrouter' AND properties.$ai_model = ${sqlString(model)}
+    sum(toFloat(total_cost_usd)) AS total_cost_usd
+    FROM posthog.ai_events WHERE event = '$ai_generation' AND properties.environment = 'test'
+      AND provider = 'openrouter' AND model = ${sqlString(model)}
       AND timestamp >= now() - INTERVAL 30 DAY`;
 }
 

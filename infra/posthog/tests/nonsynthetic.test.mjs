@@ -19,7 +19,10 @@ test('excludes flagged and known synthetic events at every SQL scan without muta
   const query = excludeSynthetic(original);
   assert.equal(query.query.split(nonSynthetic).length - 1, 2);
   assert.ok(!original.query.includes('synthetic'));
-  assert.match(nonSynthetic, /NOT coalesce\(properties.synthetic, false\)/);
+  assert.match(
+    nonSynthetic,
+    /NOT coalesce\(toBool\(properties.synthetic\), false\)/,
+  );
   assert.match(nonSynthetic, /distinct_id != 'synthetic-x6-validation'/);
 });
 
@@ -104,4 +107,31 @@ test('read-only verifier filters denominator probes, keeps quota global, and rep
   assert.ok(quota.query.query.includes(nonSynthetic));
   assert.ok(!quota.query.query.includes("properties.environment = 'test'"));
   assert.ok(calls.every((c) => c.refresh === 'force_blocking'));
+});
+
+test('filters ai_events and events independently in a scoped union and rejects unsupported AI scans', () => {
+  const template = {
+    kind: 'HogQLQuery',
+    query:
+      'SELECT event FROM posthog.ai_events WHERE {{environment}} AND timestamp >= now() - INTERVAL {{days}} DAY UNION ALL SELECT event FROM events WHERE {{environment}} AND timestamp >= now() - INTERVAL {{days}} DAY',
+  };
+  const scoped = scopeQuery(template, { environment: 'test', days: 7 });
+  const filtered = excludeSynthetic(scoped);
+  assert.equal(filtered.query.split(nonSynthetic).length - 1, 2);
+  assert.equal(
+    filtered.query.split("properties.environment = 'test'").length - 1,
+    2,
+  );
+  assert.match(filtered.query, /FROM posthog\.ai_events WHERE \(NOT coalesce/);
+  assert.match(filtered.query, /FROM events WHERE \(NOT coalesce/);
+  assert.equal(scoped.query.includes('synthetic'), false);
+  for (const query of [
+    'SELECT count() FROM posthog.ai_events',
+    'SELECT * FROM posthog.ai_events a WHERE true',
+    'SELECT * FROM events WHERE true JOIN posthog.ai_events ON events.uuid = ai_events.uuid',
+  ])
+    assert.throws(
+      () => excludeSynthetic({ kind: 'HogQLQuery', query }),
+      /Unsupported/,
+    );
 });

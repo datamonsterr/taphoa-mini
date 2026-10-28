@@ -4,25 +4,34 @@ import { createClient } from './lib/client.mjs';
 import { loadSecrets } from './lib/secrets.mjs';
 import { verify, scopeQuery } from './verify.mjs';
 
+// AI custom properties can be strings; normalize before combining with false.
 export const nonSynthetic =
-  "NOT coalesce(properties.synthetic, false) AND distinct_id != 'synthetic-x6-validation'";
+  "NOT coalesce(toBool(properties.synthetic), false) AND distinct_id != 'synthetic-x6-validation'";
 
 // This transformer supports only the managed definitions, not arbitrary user SQL.
-// Apply at each event scan (including subqueries), before aggregation/funnel math.
+// Apply at each events/ai_events scan (including subqueries), before aggregation/funnel math.
 export function excludeSynthetic(source) {
   const query = structuredClone(source);
   if (query.kind === 'HogQLQuery') {
-    if (/FROM logs\b/i.test(query.query) && !/\bevents\b/i.test(query.query))
+    if (
+      /FROM logs\b/i.test(query.query) &&
+      !/\b(?:events|ai_events)\b/i.test(query.query)
+    )
       return query; // Logs are a separate signal; event synthetic flags do not apply.
-    const scans = query.query.match(/\b(?:FROM|JOIN)\s+events\b/gi) ?? [];
-    const supported = query.query.match(/\bFROM\s+events\s+WHERE\b/gi) ?? [];
+    const scans =
+      query.query.match(
+        /\b(?:FROM|JOIN)\s+(?:events|posthog\.ai_events)\b/gi,
+      ) ?? [];
+    const supported =
+      query.query.match(/\bFROM\s+(?:events|posthog\.ai_events)\s+WHERE\b/gi) ??
+      [];
     if (!scans.length || scans.length !== supported.length)
       throw new Error(
         'Unsupported event SQL shape; refusing an unfiltered query',
       );
     query.query = query.query.replace(
-      /\bFROM\s+events\s+WHERE\b/gi,
-      `FROM events WHERE (${nonSynthetic}) AND`,
+      /\bFROM\s+(events|posthog\.ai_events)\s+WHERE\b/gi,
+      (_scan, table) => `FROM ${table} WHERE (${nonSynthetic}) AND`,
     );
   } else {
     const entities = [

@@ -37,10 +37,10 @@ export function resultsQuery(id) {
         AND properties.$ai_evaluation_numeric_result >= 0 AND properties.$ai_evaluation_numeric_result <= 4
         AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped = false)
     ) AS e JOIN (
-      SELECT toString(uuid) AS generation_id, toString(properties.$ai_model) AS model
-      FROM events WHERE event = '$ai_generation' AND properties.environment = 'test'
-        AND properties.$ai_provider = 'openrouter'
-        AND properties.$ai_model IN (${[...assistantModels, ...legacyModels].map(sqlString).join(', ')})
+      SELECT toString(uuid) AS generation_id, toString(model) AS model
+      FROM posthog.ai_events WHERE event = '$ai_generation' AND properties.environment = 'test'
+        AND provider = 'openrouter'
+        AND model IN (${[...assistantModels, ...legacyModels].map(sqlString).join(', ')})
         AND timestamp >= now() - INTERVAL 30 DAY
     ) AS g ON g.generation_id = e.target_id`;
 }
