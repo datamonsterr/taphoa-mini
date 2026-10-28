@@ -4,9 +4,10 @@ import {
   expect,
   expectDashboardShows,
   formatVnd,
-  goShop,
+  goOffline,
   openShop,
   test,
+  uuid7,
   waitForApi,
 } from './fixtures';
 
@@ -24,13 +25,12 @@ test.describe('offline sale', () => {
     store,
   }) => {
     const coca = await store.api.createProduct(COCA);
-    await store.api.createExpense({
-      amount: 10 * COCA.cost_price,
-      category: 'nhap_hang',
-      purchase_lines: [
-        { product_id: coca.id, quantity: 10, unit_cost: COCA.cost_price },
-      ],
-    });
+    // a purchase does not start stock tracking; a count does
+    await store.api.post(
+      `/v1/products/${coca.id}/stock-adjustments`,
+      { count: 10 },
+      { 'Idempotency-Key': uuid7() },
+    );
 
     // online first: the catalog lands in the on-device cache
     await openShop(page, '/inventory');
@@ -45,7 +45,7 @@ test.describe('offline sale', () => {
         posts.push(request.postData() ?? '');
     });
 
-    await page.context().setOffline(true);
+    await goOffline(page);
     await expect(addTile).toBeVisible();
 
     // sell two from the grid, pay cash
@@ -80,7 +80,7 @@ test.describe('offline sale', () => {
     // the reports count it once, and the server stock matches the screen
     const [report] = await Promise.all([
       waitForApi(page, 'GET', '/v1/reports/today'),
-      goShop(page, 'Báo cáo'),
+      openShop(page, '/dashboard'),
     ]);
     expect(report.body).toMatchObject({
       revenue: total,

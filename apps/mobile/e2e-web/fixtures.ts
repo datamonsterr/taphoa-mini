@@ -735,6 +735,15 @@ export async function openShopLoading<T = any>(
 
 // ---- camera ------------------------------------------------------------------------------
 
+/**
+ * Cuts the network after the page settled: Clerk loads its UI chunks from its CDN a moment after
+ * the app is up, and a chunk that fails to load offline is a console error the guard rejects.
+ */
+export async function goOffline(page: Page) {
+  await page.waitForLoadState('networkidle');
+  await page.context().setOffline(true);
+}
+
 export const shutter = (page: Page) => button(page, 'Chụp');
 export const enrollTag = (page: Page) => button(page, 'Thêm vào kho với giá');
 export const reshoot = (page: Page) => button(page, 'Chụp lại');

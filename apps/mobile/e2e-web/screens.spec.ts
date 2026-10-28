@@ -1,11 +1,15 @@
 import path from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';
 import {
+  type Api,
   button,
   cartPill,
   createNewcomer,
   expect,
   fillEnroll,
+  formatVnd,
+  goOffline,
+  goShop,
   hydrate,
   keypad,
   openCamera,
@@ -20,6 +24,7 @@ import {
   test,
   typeAmount,
   unknownPill,
+  uuid7,
   welcomeScreen,
 } from './fixtures';
 
@@ -220,7 +225,7 @@ test.describe('onboarding screenshots', () => {
   test.use({ signedIn: false });
 
   test('Sign in', async ({ page }, testInfo) => {
-    await page.goto('/');
+    // the pay screen returns to the camera by itself; a reload would need the network
     await hydrate(page, signInScreen(page));
     await capture(page, testInfo, 'SignIn');
   });
@@ -235,5 +240,293 @@ test.describe('onboarding screenshots', () => {
       page.getByRole('textbox', { name: 'Tên cửa hàng' }),
     ).toBeVisible();
     await capture(page, testInfo, 'Create');
+  });
+});
+
+const COCA = { name: 'Coca-Cola lon 330ml', price: 10_000, cost_price: 7_500 };
+const PEPSI = { name: 'Pepsi lon 330ml', price: 9_000, cost_price: 7_000 };
+
+/** Two products with stock, so the Kho grid has tiles to sell from. */
+async function seedShelf(api: Api) {
+  const coca = await api.createProduct(COCA);
+  const pepsi = await api.createProduct(PEPSI);
+  await api.createExpense({
+    amount: 10 * COCA.cost_price + 10 * PEPSI.cost_price,
+    category: 'nhap_hang',
+    purchase_lines: [
+      { product_id: coca.id, quantity: 10, unit_cost: COCA.cost_price },
+      { product_id: pepsi.id, quantity: 10, unit_cost: PEPSI.cost_price },
+    ],
+  });
+  return { coca, pepsi };
+}
+
+/** A customer who already owes `owed` through a credit sale. */
+async function seedDebtor(
+  api: Api,
+  productId: string,
+  name: string,
+  owed: number,
+  phone = '0912345678',
+) {
+  const customer = await api.post('/v1/customers', {
+    id: uuid7(),
+    name,
+    phone,
+  });
+  const id = uuid7();
+  await api.post(
+    '/v1/sales',
+    {
+      id,
+      sold_at: new Date().toISOString(),
+      payment_method: 'credit',
+      total: owed,
+      credit: { customer_id: customer.id, amount: owed },
+      lines: [
+        {
+          id: uuid7(),
+          source: 'grid',
+          product_id: productId,
+          quantity: 1,
+          unit_price: owed,
+        },
+      ],
+    },
+    { 'Idempotency-Key': id },
+  );
+  return customer;
+}
+
+/** Waits until a sheet or screen has finished animating into the viewport. */
+const settled = async (locator: ReturnType<Page['locator']>) => {
+  await expect(locator).toBeInViewport({ ratio: 0.9 });
+  // a sheet keeps sliding after it is first in view: wait until it stops moving
+  let last = '';
+  await expect
+    .poll(async () => {
+      const now = JSON.stringify(await locator.boundingBox());
+      const still = now === last;
+      last = now;
+      return still;
+    })
+    .toBe(true);
+};
+
+/** Grid -> cart -> pay screen with `count` Coca sold. */
+async function openPay(page: Page, coca: { name: string }, count = 1) {
+  await openShop(page, '/inventory');
+  const add = page.getByRole('button', { name: `Thêm ${coca.name} vào giỏ` });
+  await expect(add).toBeVisible();
+  for (let i = 0; i < count; i++) await add.click();
+  await cartPill(page).click();
+  await button(page, 'Hiện mã QR thanh toán').click();
+  await expect(page).toHaveURL(/\/pay/);
+  await expect(
+    page.getByRole('radiogroup', { name: 'Cách trả' }),
+  ).toBeVisible();
+}
+
+test.describe('issue #78 screenshots', () => {
+  test('PayToggleWords: three worded segments', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await store.api.setBank();
+    await openPay(page, coca, 2);
+    for (const name of ['Chuyển khoản', 'Tiền mặt', 'Ghi nợ'])
+      await expect(
+        page.getByRole('radio', { name, exact: true }),
+      ).toBeVisible();
+    await capture(page, testInfo, 'PayToggleWords');
+  });
+
+  test('PayCredit: credit with a customer', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await seedDebtor(store.api, coca.id, 'Chị Lan', 30_000);
+    await openPay(page, coca, 2);
+    await page.getByRole('radio', { name: 'Ghi nợ', exact: true }).click();
+    await button(page, /^Chị Lan, /).click();
+    await expect(
+      button(page, `Ghi nợ ${formatVnd(2 * COCA.price)}`),
+    ).toBeVisible();
+    await expect(page.getByText(/^Đang nợ /)).toBeVisible();
+    await expect(page.getByText(/^Nợ mới của khách /)).toBeVisible();
+    await expect(page.getByText('Trả trước', { exact: true })).toBeVisible();
+    await settled(button(page, `Ghi nợ ${formatVnd(2 * COCA.price)}`));
+    await capture(page, testInfo, 'PayCredit');
+  });
+
+  test('CustomerPickerCreate: add sheet from the debt book', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await seedDebtor(store.api, coca.id, 'Chị Lan', 30_000);
+    await openShop(page, '/dashboard');
+    await button(page, /^Sổ nợ, /).click();
+    await button(page, 'Thêm khách hàng').click();
+    await page
+      .getByRole('textbox', { name: 'Tên khách hàng' })
+      .fill('Anh Minh');
+    await page
+      .getByRole('textbox', { name: 'Số điện thoại (không bắt buộc)' })
+      .fill('0987654321');
+    await expect(button(page, 'Chọn từ danh bạ')).toBeVisible();
+    await settled(button(page, 'Chọn từ danh bạ'));
+    await settled(button(page, 'Tạo khách hàng'));
+    await capture(page, testInfo, 'CustomerPickerCreate');
+  });
+
+  test('DebtBookAdd: debt book header with the add circle', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await seedDebtor(store.api, coca.id, 'Chị Lan', 30_000);
+    await seedDebtor(store.api, coca.id, 'Anh Tuấn', 12_000, '0901112223');
+    await openShop(page, '/dashboard');
+    await button(page, /^Sổ nợ, /).click();
+    await expect(page.getByRole('heading', { name: 'Sổ nợ' })).toBeVisible();
+    await expect(button(page, 'Thêm khách hàng')).toBeVisible();
+    await expect(button(page, /^Chị Lan, /)).toBeVisible();
+    await expect(button(page, /^Anh Tuấn, /)).toBeVisible();
+    await capture(page, testInfo, 'DebtBookAdd');
+  });
+
+  test('DuplicateGuard: same name asks before creating', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await seedDebtor(store.api, coca.id, 'Chị Lan', 30_000);
+    await openShop(page, '/dashboard');
+    await button(page, /^Sổ nợ, /).click();
+    await button(page, 'Thêm khách hàng').click();
+    await page.getByRole('textbox', { name: 'Tên khách hàng' }).fill('chi lan');
+    await button(page, 'Tạo khách hàng').click();
+    await expect(page.getByText('Dùng khách này?')).toBeVisible();
+    await expect(button(page, 'Vẫn tạo khách mới')).toBeVisible();
+    await settled(button(page, 'Vẫn tạo khách mới'));
+    await capture(page, testInfo, 'DuplicateGuard');
+  });
+});
+
+test.describe('issue #86 screenshots', () => {
+  test('GridSell: tiles with + and the cart pill', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca, pepsi } = await seedShelf(store.api);
+    await openShop(page, '/inventory');
+    await page
+      .getByRole('button', { name: `Thêm ${coca.name} vào giỏ` })
+      .click();
+    await page
+      .getByRole('button', { name: `Thêm ${pepsi.name} vào giỏ` })
+      .click();
+    await expect(cartPill(page)).toHaveAccessibleName(
+      `Giỏ hàng: 2 món, ${formatVnd(COCA.price + PEPSI.price)}`,
+    );
+    await settled(cartPill(page));
+    await capture(page, testInfo, 'GridSell');
+  });
+
+  test('ElderGrid: elder mode on, bigger tiles', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await openShop(page, '/account');
+    await page.getByRole('switch', { name: 'Chế độ người lớn tuổi' }).click();
+    await expect(
+      page.getByRole('switch', { name: 'Chế độ người lớn tuổi' }),
+    ).toBeChecked();
+    await goShop(page, 'Kho');
+    await expect(
+      page.getByRole('button', { name: `Thêm ${coca.name} vào giỏ` }),
+    ).toBeVisible();
+    await capture(page, testInfo, 'ElderGrid');
+  });
+
+  test('AccountSpeak: Đọc to số tiền toggle', async ({
+    page,
+    store,
+  }, testInfo) => {
+    await store.api.setBank();
+    await openShop(page, '/account');
+    const speak = page.getByRole('switch', { name: 'Đọc to số tiền' });
+    await speak.scrollIntoViewIfNeeded();
+    await speak.click();
+    await expect(speak).toBeChecked();
+    await settled(speak);
+    await capture(page, testInfo, 'AccountSpeak');
+  });
+});
+
+test.describe('issue #87 screenshots', () => {
+  const HINT = 'Không có mạng. Bán bằng Kho: giá và đơn vẫn lưu được.';
+
+  test('OfflineHint: camera says to sell from the grid', async ({
+    page,
+    store,
+  }, testInfo) => {
+    await seedShelf(store.api);
+    await openCamera(page);
+    await goOffline(page);
+    await expect(page.getByText(HINT)).toBeVisible();
+    await expect(button(page, /Mở Kho để bán/)).toBeVisible();
+    await settled(button(page, /Mở Kho để bán/));
+    await capture(page, testInfo, 'OfflineHint');
+  });
+
+  test('OfflineGridSale, OfflineSynced: offline sale, outbox, replay', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const { coca } = await seedShelf(store.api);
+    await openShop(page, '/inventory');
+    const add = page.getByRole('button', { name: `Thêm ${coca.name} vào giỏ` });
+    await expect(add).toBeVisible();
+    await goOffline(page);
+    await add.click();
+    await add.click();
+    await cartPill(page).click();
+    await button(page, 'Hiện mã QR thanh toán').click();
+    await page.getByRole('radio', { name: 'Tiền mặt' }).click();
+    await button(page, '50.000').click();
+    await button(page, 'Đã nhận tiền').click();
+    await expect(page.getByLabel('Đã nhận tiền xong')).toBeVisible();
+    // the check zooms in from nothing: wait until it covers the screen
+    await expect
+      .poll(
+        async () =>
+          (await page.getByLabel('Đã nhận tiền xong').boundingBox())?.width,
+      )
+      .toBeGreaterThanOrEqual(380);
+    await capture(page, testInfo, 'OfflineGridSale');
+
+    // pending outbox indicator on the camera overlay
+    // the pay screen returns to the camera by itself; a reload would need the network
+    await expect(page.getByText(HINT)).toBeVisible();
+    await expect(page.getByText('1 đơn chờ gửi khi có mạng')).toBeVisible();
+    await capture(page, testInfo, 'OfflineOutbox');
+
+    // back online: the sale posts and the reports count it
+    const replay = page.waitForResponse(
+      (r) => r.url().endsWith('/v1/sales') && r.request().method() === 'POST',
+    );
+    await page.context().setOffline(false);
+    expect((await replay).status()).toBe(201);
+    await expect(page.getByText('1 đơn chờ gửi khi có mạng')).toHaveCount(0);
+    await openShop(page, '/dashboard');
+    await expect(
+      page.getByText(formatVnd(2 * COCA.price)).first(),
+    ).toBeVisible();
+    await capture(page, testInfo, 'OfflineSynced');
   });
 });
