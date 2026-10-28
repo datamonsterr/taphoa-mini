@@ -357,6 +357,7 @@ pub(crate) fn no_document() -> taphoa_recognition::ocr::DocumentSignal {
         detected: false,
         score: 0.,
         text_lines: 0,
+        line_boxes: vec![],
     }
 }
 

@@ -265,6 +265,16 @@ async fn post_scan(
     image: Option<&[u8]>,
     extras: &[(&str, &str)],
 ) -> (StatusCode, Value, HeaderMap) {
+    post_recognition(app, token, "/v1/recognition/scans", image, extras).await
+}
+
+async fn post_recognition(
+    app: &Router,
+    token: &str,
+    path: &str,
+    image: Option<&[u8]>,
+    extras: &[(&str, &str)],
+) -> (StatusCode, Value, HeaderMap) {
     let mut body = Vec::new();
     for (name, value) in extras {
         body.extend_from_slice(
@@ -284,7 +294,7 @@ async fn post_scan(
     let response = app
         .clone()
         .oneshot(
-            Request::post("/v1/recognition/scans")
+            Request::post(path)
                 .header("content-type", "multipart/form-data; boundary=SCAN")
                 .header("authorization", format!("Bearer {token}"))
                 .header("x-forwarded-for", unique_ip())
@@ -721,7 +731,7 @@ async fn scan_without_detector_has_document_signal() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(
         body["document"],
-        json!({"detected":false,"score":0.0,"text_lines":0})
+        json!({"detected":false,"score":0.0,"text_lines":0,"line_boxes":[]})
     );
 }
 
@@ -751,12 +761,204 @@ async fn scan_fake_document_detector_true_false_and_get() {
         assert_eq!(status, StatusCode::CREATED, "{body}");
         assert_eq!(body["document"]["detected"], detected);
         assert_eq!(body["document"]["text_lines"], if detected { 6 } else { 0 });
+        let expected_boxes: Vec<_> = if detected {
+            (0..6)
+                .map(|i| json!([0., i as f32 * 20. / 128., 100. / 160., 10. / 128.]))
+                .collect()
+        } else {
+            vec![]
+        };
+        assert_eq!(body["document"]["line_boxes"], json!(expected_boxes));
         Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
         let (status, got) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(got["document"], body["document"]);
         Contract::load().assert_conforms("/v1/recognition/scans/{scanId}", "get", status, &got);
+        // Old timing snapshots keep their detection/count when boxes are absent.
+        sqlx::query("UPDATE scans SET timings = timings #- '{document,line_boxes}' WHERE id = $1")
+            .bind(body["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .execute(state.postgres.as_ref().unwrap())
+            .await
+            .unwrap();
+        let (status, legacy) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let mut expected = body["document"].clone();
+        expected["line_boxes"] = json!([]);
+        assert_eq!(legacy["document"], expected);
     }
+}
+
+const PROBES: &str = "/v1/recognition/document-probes";
+
+/// Auth uses real membership rows; the preview has no storage or other inference ports.
+async fn probe_state(with_detector: bool) -> AppState {
+    use taphoa_recognition::ocr::{FakeTextDetector, TextBox};
+    let mut state = AppState::connect(
+        Some(&std::env::var("DATABASE_URL").expect("DATABASE_URL")),
+        Some(&std::env::var("REDIS_URL").expect("REDIS_URL")),
+        None,
+    )
+    .await
+    .unwrap();
+    common::clerk::install(&mut state);
+    state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
+    if with_detector {
+        state.text_detector = Some(Arc::new(FakeTextDetector {
+            boxes: (0..6)
+                .rev()
+                .flat_map(|i| {
+                    [
+                        TextBox {
+                            bbox: [0., i as f32 * 20., 40., 10.],
+                            score: 0.9,
+                        },
+                        TextBox {
+                            bbox: [60., i as f32 * 20., 40., 10.],
+                            score: 0.9,
+                        },
+                    ]
+                })
+                .collect(),
+        }));
+    }
+    state
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_returns_grouped_signal_without_scan_services_or_writes() {
+    let state = probe_state(true).await;
+    assert!(state.storage.is_none());
+    assert!(state.segmenter.is_none());
+    assert!(state.embedder.is_none());
+    assert!(state.vector_index.is_none());
+    let app = router(state.clone());
+    let (store_id, _, token) = create_store(&app).await;
+    let pool = state.postgres.as_ref().unwrap();
+    let counts = || async {
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT (SELECT count(*) FROM scans WHERE store_id=$1), (SELECT count(*) FROM images WHERE store_id=$1)"
+        ).bind(store_id).fetch_one(pool).await.unwrap()
+    };
+    let before = counts().await;
+    let png = draw_photo();
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::load_from_memory(&png)
+        .unwrap()
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+    for photo in [&png, jpeg.get_ref()] {
+        let (status, body, _) = post_recognition(&app, &token, PROBES, Some(photo), &[]).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["detected"], true);
+        assert_eq!(body["text_lines"], 6);
+        assert_eq!(body["score"], 1.);
+        let expected: Vec<_> = (0..6)
+            .map(|i| json!([0., i as f32 * 20. / 128., 100. / 160., 10. / 128.]))
+            .collect();
+        assert_eq!(body["line_boxes"], json!(expected));
+        Contract::load().assert_conforms(PROBES, "post", status, &body);
+    }
+    assert_eq!(
+        counts().await,
+        before,
+        "probes must not persist scans or images"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_without_detector_returns_ocr_unavailable() {
+    let app = router(probe_state(false).await);
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["code"], "ocr_unavailable");
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_enforces_image_limit_and_validates_input() {
+    let app = router(probe_state(true).await);
+    let (_, _, token) = create_store(&app).await;
+    let mut photo = draw_photo();
+    photo.resize(512 * 1024, 0);
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::OK, "exactly 512 KB allowed: {body}");
+    photo.push(0);
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    assert_eq!(body["code"], "payload_too_large");
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+    for (image, expected) in [
+        (None, StatusCode::BAD_REQUEST),
+        (
+            Some(b"not an image".as_slice()),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            Some(b"\x89PNG\r\n\x1a\ninvalid".as_slice()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let (status, body, _) = post_recognition(&app, &token, PROBES, image, &[]).await;
+        assert_eq!(status, expected, "{body}");
+        Contract::load().assert_conforms(PROBES, "post", status, &body);
+    }
+    let (status, _, _) = post_recognition(&app, "", PROBES, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_rate_limits_per_member_with_standard_retry_shape() {
+    let state = probe_state(true).await;
+    let app = router(state.clone());
+    let (store_id, _, token) = create_store(&app).await;
+    let photo = draw_photo();
+    for _ in 0..40 {
+        let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let (status, body, headers) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(
+        body,
+        json!({"code":"too_many_requests", "error":"rate limit exceeded"})
+    );
+    let retry: u64 = headers["retry-after"].to_str().unwrap().parse().unwrap();
+    assert!((1..=60).contains(&retry));
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+    let other_user = common::clerk::user();
+    sqlx::query(
+        "INSERT INTO members (store_id, display_name, role, clerk_user_id) VALUES ($1, 'Seller', 'seller', $2)",
+    )
+    .bind(store_id)
+    .bind(&other_user)
+    .execute(state.postgres.as_ref().unwrap())
+    .await
+    .unwrap();
+    let other_token = common::clerk::clerk_token(&other_user, "sess_probe_seller");
+    let (status, body, _) = post_recognition(&app, &other_token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a seller in the same store has its own limit: {body}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_respects_scan_inference_admission() {
+    let state = probe_state(true).await;
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let _permit = state.inference_slots.clone().acquire_owned().await.unwrap();
+    let (status, body, headers) =
+        post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(headers.contains_key("retry-after"));
 }
 
 /// A detector that cannot finish until after the response proves checkout does not
@@ -783,6 +985,7 @@ async fn slow_detector_times_out_without_releasing_inference_admission() {
                 detected: true,
                 score: 1.,
                 text_lines: 8,
+                line_boxes: vec![],
             })
         }
     }
@@ -805,7 +1008,7 @@ async fn slow_detector_times_out_without_releasing_inference_admission() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(
         body["document"],
-        json!({"detected":false,"score":0.0,"text_lines":0})
+        json!({"detected":false,"score":0.0,"text_lines":0,"line_boxes":[]})
     );
     assert_eq!(
         permits_before_release, 0,

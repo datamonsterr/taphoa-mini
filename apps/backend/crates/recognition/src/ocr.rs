@@ -30,6 +30,9 @@ pub struct DocumentSignal {
     pub detected: bool,
     pub score: f32,
     pub text_lines: u32,
+    /// Grouped lines in normalized [x, y, width, height] coordinates, at most 40.
+    #[serde(default)]
+    pub line_boxes: Vec<[f32; 4]>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -179,13 +182,27 @@ fn group_lines(mut boxes: Vec<TextBox>) -> Vec<Vec<TextBox>> {
 const DOCUMENT_MIN_LINES: u32 = 6;
 const DOCUMENT_MIN_AREA_RATIO: f32 = 0.08;
 fn document_signal(boxes: &[TextBox], width: u32, height: u32) -> DocumentSignal {
-    let text_lines = group_lines(boxes.to_vec()).len() as u32;
+    let lines = group_lines(boxes.to_vec());
+    let text_lines = lines.len() as u32;
+    let line_boxes = lines
+        .iter()
+        .take(40)
+        .map(|line| {
+            let [x, y, w, h] = union(line);
+            let left = (x / width as f32).clamp(0., 1.);
+            let top = (y / height as f32).clamp(0., 1.);
+            let right = ((x + w) / width as f32).clamp(left, 1.);
+            let bottom = ((y + h) / height as f32).clamp(top, 1.);
+            [left, top, right - left, bottom - top]
+        })
+        .collect();
     let ratio =
         boxes.iter().map(|b| b.bbox[2] * b.bbox[3]).sum::<f32>() / (width as f32 * height as f32);
     DocumentSignal {
         detected: text_lines >= DOCUMENT_MIN_LINES && ratio >= DOCUMENT_MIN_AREA_RATIO,
         score: (ratio / 0.2).clamp(0., 1.),
         text_lines,
+        line_boxes,
     }
 }
 
@@ -221,11 +238,73 @@ mod tests {
             DocumentSignal {
                 detected: false,
                 score: 0.,
-                text_lines: 0
+                text_lines: 0,
+                line_boxes: vec![],
             }
         );
         let boundary: Vec<_> = (0..6).map(|i| b(0., i as f32 * 15., 40., 10.)).collect();
         assert!(document_signal(&boundary, 100, 300).detected);
+    }
+    #[test]
+    fn document_line_boxes_group_normalize_clip_sort_and_cap() {
+        // Two columns on the same row form one line, even with vertical offsets.
+        let signal = document_signal(
+            &[
+                b(80., 44., 30., 20.),
+                b(-10., 40., 40., 20.),
+                b(20., -5., 40., 15.),
+            ],
+            100,
+            200,
+        );
+        assert_eq!(signal.text_lines, 2);
+        for (actual, expected) in signal
+            .line_boxes
+            .iter()
+            .flatten()
+            .zip([0.2, 0., 0.4, 0.05, 0., 0.2, 1., 0.12])
+        {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+        // Count remains the full line count; only the preview geometry is capped.
+        let boxes: Vec<_> = (0..45)
+            .rev()
+            .map(|i| b(50., i as f32 * 20., 80., 15.))
+            .collect();
+        let signal = document_signal(&boxes, 100, 800);
+        assert_eq!(signal.text_lines, 45);
+        assert_eq!(signal.line_boxes.len(), 40);
+        assert_eq!(signal.line_boxes[0], [0.5, 0., 0.5, 15. / 800.]);
+        assert_eq!(signal.line_boxes[39][1], 780. / 800.);
+        assert!(
+            signal
+                .line_boxes
+                .windows(2)
+                .all(|pair| pair[0][1] <= pair[1][1])
+        );
+        assert!(
+            signal
+                .line_boxes
+                .iter()
+                .flatten()
+                .all(|value| (0. ..=1.).contains(value))
+        );
+        assert_eq!(
+            document_signal(&[b(90., 195., 30., 20.)], 100, 200).line_boxes[0],
+            [0.9, 0.975, 1. - 0.9, 1. - 0.975]
+        );
+    }
+
+    #[test]
+    fn old_document_signal_defaults_line_boxes_without_losing_detection() {
+        let signal: DocumentSignal = serde_json::from_value(serde_json::json!({
+            "detected": true, "score": 0.8, "text_lines": 12
+        }))
+        .unwrap();
+        assert!(signal.detected);
+        assert_eq!(signal.text_lines, 12);
+        assert_eq!(signal.score, 0.8);
+        assert!(signal.line_boxes.is_empty());
     }
     #[test]
     fn crop_width_rounds_like_reference_and_clamps() {
