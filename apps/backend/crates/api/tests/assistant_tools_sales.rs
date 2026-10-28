@@ -263,6 +263,7 @@ async fn restock_margin_dead_stock_and_permissions_are_exact() {
     let stock = f.run("get_stock_levels", json!({"filter":"low"})).await;
     assert_eq!(stock.rows, 1);
     assert_eq!(stock.data["items"][0]["status"], "low");
+    assert_eq!(stock.data["returned_status_counts"], json!({"low":1}));
     let plan = f.run("get_restock_plan", json!({})).await;
     assert_eq!(plan.rows, 1);
     let item = &plan.data["items"][0];
@@ -332,6 +333,7 @@ async fn forecast_constant_series_applies_named_holiday_uplift_and_cost_history_
         .run("get_supplier_prices", json!({"product_query":"hao hao"}))
         .await;
     assert_eq!(prices.rows, 2);
+    assert_eq!(prices.data["cheapest_lookback_days"], 90);
     assert_eq!(prices.data["items"][0]["unit_cost_dong"], 6000);
     assert_eq!(prices.data["cheapest"][0]["unit_cost_dong"], 5000);
     assert_eq!(prices.data["cheapest"][0]["supplier"], "Kho A");

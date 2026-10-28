@@ -136,7 +136,16 @@ async fn levels(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError
                 OR ($2='low' AND p.stock_quantity<=COALESCE(p.low_stock_threshold,s.low_stock_threshold)))
             ORDER BY p.stock_quantity NULLS LAST,p.id LIMIT 51
         ) r"#).bind(ctx.actor.store_id).bind(text(args,"filter").unwrap_or("all")).fetch_all(pool(&ctx.state)?).await?;
-    Ok(items_output(items, 50, "sản phẩm tồn kho"))
+    let mut out = items_output(items, 50, "sản phẩm tồn kho");
+    let mut counts = BTreeMap::<String, usize>::new();
+    for item in out.data["items"].as_array().unwrap() {
+        if let Some(status) = item["status"].as_str() {
+            *counts.entry(status.into()).or_default() += 1;
+        }
+    }
+    // Counts describe returned rows only, including when the result was capped.
+    out.data["returned_status_counts"] = json!(counts);
+    Ok(out)
 }
 async fn restock(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> {
     let horizon = integer(args, "horizon_days", 7);
@@ -281,6 +290,7 @@ async fn suppliers(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolEr
     );
     let (cheapest, more) = capped(result["cheapest"].as_array().unwrap().clone(), 50);
     out.data["cheapest"] = json!(cheapest);
+    out.data["cheapest_lookback_days"] = json!(90);
     out.data["supplier_names_missing"] = result["supplier_names_missing"].clone();
     if more {
         out.truncated = true;

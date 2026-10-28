@@ -171,3 +171,14 @@ test('paid cache and tier prices bound actual usage without rejecting optional c
   assert.ok(free.includes('properties.$ai_input_cost_usd) != 0'));
   assert.ok(free.includes('))) > 0'));
 });
+
+test('free policy rejects nonzero optional billing components too', () => {
+  assert.throws(
+    () =>
+      modelPrices(
+        ['x/y:free'],
+        catalog('x/y:free', '0', '0', { input_cache_read: '0.0001' }),
+      ),
+    /Nonzero :free/,
+  );
+});

@@ -114,6 +114,13 @@ impl AssistantConfig {
         config.feedback_comment_question_id = get("ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID");
         Ok(config)
     }
+    /// A remembered daily free-request limit never blocks a paid primary or eval override.
+    pub fn free_quota_applies(&self, override_model: Option<&str>) -> bool {
+        override_model.map_or_else(
+            || !self.models.is_empty() && self.models.iter().all(|m| m.ends_with(":free")),
+            |m| m.ends_with(":free"),
+        )
+    }
     pub fn from_env() -> anyhow::Result<Self> {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
@@ -225,6 +232,16 @@ mod tests {
         for bad in [",", ":free", "a/", "/b", "a/b c", "a/b\nsecret", "a/b?x=1"] {
             assert!(config(&[("ASSISTANT_MODELS", bad)]).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn free_quota_only_applies_to_free_chains_or_free_overrides() {
+        let paid = AssistantConfig::default();
+        assert!(!paid.free_quota_applies(None));
+        assert!(paid.free_quota_applies(Some("x/model:free")));
+        let free = config(&[("ASSISTANT_MODELS", "x/one:free,x/two:free")]).unwrap();
+        assert!(free.free_quota_applies(None));
+        assert!(!free.free_quota_applies(Some("x/paid")));
     }
 
     #[test]

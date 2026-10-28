@@ -3,7 +3,7 @@ use super::{
     Language,
     eval::{self, EvalContext},
     grounding,
-    model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage},
+    model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage, UsageCost},
     quota::{self, QuotaOutcome},
     stream::{self, Sender, StreamEvent},
     telemetry, threads,
@@ -28,7 +28,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "5";
+pub const PROMPT_VERSION: &str = "6";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -622,7 +622,30 @@ async fn run_turn_inner(
         error: None,
         grounding_retry: false,
     };
-    let openrouter_exhausted = quota::openrouter_exhausted(state).await;
+    if super::policy::seller_day_close(ctx.actor.role, &record.input) {
+        let reply = match ctx.language {
+            Language::Vi => {
+                "Số liệu chốt sổ, tiền kiểm quỹ và chênh lệch quỹ chỉ chủ cửa hàng được xem. Em hỏi trực tiếp chủ cửa hàng nhé."
+            }
+            Language::En => {
+                "Only the store owner can view day-close and cash reconciliation figures. Please ask the owner."
+            }
+        };
+        record.model = Some("policy".into());
+        record.usage.cost = Some(UsageCost {
+            input_usd: Some(0.0),
+            output_usd: Some(0.0),
+            total_usd: 0.0,
+        });
+        record
+            .transcript
+            .push(ChatMessage::assistant(Some(reply.into()), vec![]));
+        text(&mut record, tx, reply.into());
+        return record;
+    }
+    let openrouter_exhausted = config
+        .free_quota_applies(record.eval.as_ref().and_then(|e| e.model.as_deref()))
+        && quota::openrouter_exhausted(state).await;
     let quota = if openrouter_exhausted {
         Ok(QuotaOutcome::Exceeded)
     } else if record.eval.is_some() {
@@ -691,7 +714,8 @@ async fn run_turn_inner(
                 tools: state.assistant.registry.specs_for(&ctx.actor),
                 max_tokens: 2048,
                 reasoning_effort: Some(config.reasoning_effort.clone()),
-                tool_choice: None,
+                tool_choice: (record.grounding_retry && !record.tools.iter().any(|t| t.ok))
+                    .then(|| "required".into()),
             };
             let (deltas, mut rx) = mpsc::unbounded_channel();
             let started = Instant::now();

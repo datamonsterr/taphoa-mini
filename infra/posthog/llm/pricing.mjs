@@ -85,6 +85,8 @@ export function modelPrices(models, catalog, endpoints = {}) {
           throw new Error(
             `Additional pricing components require review: ${model}`,
           );
+        if (free && rate(value) !== 0)
+          throw new Error(`Nonzero :free price: ${model}`);
         rate(value);
       }
     const inputs = tiers.flatMap((t) =>

@@ -121,3 +121,5 @@ mod tests {
         assert_eq!(state.confirms.available_permits(), 4);
     }
 }
+
+mod policy;

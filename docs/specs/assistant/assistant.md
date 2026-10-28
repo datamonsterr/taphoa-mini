@@ -85,6 +85,12 @@ Vietnamese description for the model, a JSON Schema for arguments, the required
 
 Rules:
 
+- Explicit seller requests for day-close, counted/expected cash or cash shortfalls
+  receive a server-side refusal before any model/tool call. This narrow intent guard
+  recognizes Vietnamese with or without diacritics and English. Generic app help and
+  ordinary seller revenue, expense, stock and product-sales questions stay available.
+  Tool `auth::Action` permissions continue to apply to every execution.
+
 - The tool list sent to the model contains only the tools the caller may use. A tool still
   re-checks its permission when it runs.
 - Money is integer đồng, as everywhere in the API. Dates are business dates in
