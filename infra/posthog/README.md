@@ -3,8 +3,8 @@
 Node 24 ESM, no npm dependencies. These definitions manage the seven X6 product
 analytics dashboards (35 insights), three replay playlists, `assistant_enabled`,
 three saved log views, store group labels and replay/error project settings.
-The X9 `llm/` scope adds four assistant LLM dashboards (21 insights covering
-20 spec rows) and three shared saved trace filters.
+The X9 `llm/` scope adds five assistant LLM dashboards (29 insights; 21 cover
+20 spec rows, 8 are the voice DoD charts) and three shared saved trace filters.
 
 ## Run
 
@@ -29,7 +29,7 @@ node infra/posthog/apply.mjs
 node infra/posthog/apply.mjs --only flags
 node infra/posthog/apply.mjs --dry-run --offline --only llm
 node infra/posthog/apply.mjs --only llm
-# Run again: all 28 LLM objects should report unchanged.
+# Run again: all 37 LLM objects should report unchanged.
 node infra/posthog/apply.mjs --only llm
 
 # Controller: execute queries to check real data for one environment.
@@ -48,8 +48,8 @@ node infra/posthog/verify.mjs --only llm --environment eval --days 30
 `playlists`, `logs`, `groups` or `settings`. With no scope it includes everything.
 `verify --only` accepts `dashboards` or `llm`; its default covers both scopes.
 `--offline` requires `--dry-run`, skips credentials and network entirely, and uses
-empty fixtures. Its full plan includes 77 creates, one skipped group and one settings
-update. The isolated LLM plan has 28 creates (4 dashboards, 21 dashboard insights,
+empty fixtures. Its full plan includes 86 creates, one skipped group and one settings
+update. The isolated LLM plan has 37 creates (5 dashboards, 29 dashboard insights,
 3 trace-filter insights). The CLI prints create/update/unchanged/skip totals.
 A credentialed dry-run reads lists with pagination and returns the planned
 payloads through the exported `apply` function without POST or PATCH requests.
@@ -182,6 +182,14 @@ insights to show both counts by kind and an ordered conversion funnel.
 | Quality           | Eval scores per run by model            |
 | Quality           | Eval pass rate by use case              |
 | Quality           | Online judge score on production sample |
+| Voice             | Cost per utterance avg / p95            |
+| Voice             | Voice spend per day                     |
+| Voice             | Utterance funnel                        |
+| Voice             | Abandoned by stage                      |
+| Voice             | Engine split                            |
+| Voice             | Draft latency p50 / p95                 |
+| Voice             | STT fallback rate                       |
+| Voice             | Calls and cost by model                 |
 
 LLM definitions use SQL `DataVisualizationNode` charts with explicit axes,
 series, breakdowns and the 1,000/day goal line. The model-calls histogram groups counts
