@@ -77,7 +77,7 @@ export const ProductTile = memo(function ProductTile({
           </View>
         </PostHogMaskView>
         <Text
-          numberOfLines={1}
+          numberOfLines={elder ? 2 : 1}
           style={[styles.name, elder && styles.nameElder]}
         >
           {name}

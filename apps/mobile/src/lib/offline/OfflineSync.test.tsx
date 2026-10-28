@@ -7,6 +7,11 @@ import { createTestQueryClient } from '@/test/render';
 
 import { OfflineSync } from './OfflineSync';
 
+const mockPrefetch = jest.fn();
+jest.mock('expo-router', () => ({
+  router: { prefetch: (href: string) => mockPrefetch(href) },
+}));
+
 test('on reconnect it sends unsent writes first, then pulls the catalog delta', async () => {
   const order: string[] = [];
   registerOutboxHandler('order', {
@@ -36,4 +41,6 @@ test('on reconnect it sends unsent writes first, then pulls the catalog delta', 
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
   expect(order).toEqual(['send k1', '/v1/sync/changes']);
+  // the sale screens are fetched while online (web chunks), once the network is up
+  expect(mockPrefetch.mock.calls).toEqual([['/cart'], ['/pay']]);
 });
