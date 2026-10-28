@@ -71,8 +71,16 @@ export function useDocumentProbe(
           });
       } catch (error) {
         // Persist server backoff even when a result or sheet interrupted this request.
-        if (isApiError(error) && error.status === 503) {
+        if (
+          isApiError(error) &&
+          error.status === 503 &&
+          error.code === 'ocr_unavailable'
+        ) {
           disabled.current = true;
+          setProbe(null);
+        } else if (isApiError(error) && error.status === 503) {
+          retryAt.current =
+            Date.now() + (error.retryAfterMs ?? PROBE_INTERVAL_MS);
           setProbe(null);
         } else if (isApiError(error) && error.status === 429) {
           retryAt.current = Date.now() + (error.retryAfterMs ?? 60_000);

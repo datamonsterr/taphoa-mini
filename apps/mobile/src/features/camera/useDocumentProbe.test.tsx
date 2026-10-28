@@ -171,6 +171,21 @@ test('429 honours Retry-After across pause/resume, then probes again', async () 
   expect(mutateAsync).toHaveBeenCalledTimes(2);
 });
 
+test('a busy inference slot retries after backoff instead of disabling receipt detection', async () => {
+  mutateAsync.mockRejectedValueOnce(
+    new ApiError(503, { error: 'segmenter busy', code: 'unavailable' }, 10_000),
+  );
+  const { result, rerender } = await mount();
+  await tick();
+  await rerender(false);
+  await rerender(true);
+  await tick(9999);
+  expect(mutateAsync).toHaveBeenCalledTimes(1);
+  await tick(1);
+  expect(mutateAsync).toHaveBeenCalledTimes(2);
+  expect(result.current?.document).toEqual(document);
+});
+
 test('transient capture/network errors recover and a negative signal clears detection', async () => {
   jest
     .mocked(capture.takeProbePhoto)
