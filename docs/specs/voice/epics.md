@@ -160,15 +160,20 @@ change; "Touches" lists agreed integration points it may edit minimally.
 ## V6 · Design canvas and docs
 
 - **Branch:** `epic/v6-voice-design` · **Depends:** none · **Wave:** 1
-- **Owns:** `docs/design/canvas/VoiceBubble.dc.html`, `VoiceSale.dc.html`,
-  `ChatVoice.dc.html`, `canvas.json`, DESIGN.md screens 14-16 and components, the Flow
-  board update, the design canvas artifact (owner's claude.ai canvas) refresh.
+- **Owns:** `docs/design/canvas/VoiceBubble.dc.html`, `VoiceListen.dc.html`, `VoiceSale.dc.html`,
+  `ChatVoice.dc.html`, `FlowVoice.dc.html`, `VoiceSystem.dc.html`, `canvas.json`, DESIGN.md
+  screens 14-17 and components, the Flow board update, the design canvas artifact
+  (owner's claude.ai canvas) refresh.
 - **Done on 2026-10-27:** canvas v0.2 (https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9)
   holds boards 14-17 (bubble, listening, voice sale draft, chat listening), the voice flow board
   and the Account voice setup rows; `docs/design/canvas/` mirrors it.
-- **Tasks:** the understanding state, the credit customer row on the sheet, the Android
-  notification, the iOS Control Center control and the Quick Settings tile; keep the canvas and
-  DESIGN.md in sync as V1-V4 change the UI.
-- **Acceptance:** boards open from `canvas.json`; DESIGN.md §3 lists 14-16 with controls;
+- **Remaining boards done on 2026-10-28 (published as canvas version 31):**
+  - [x] Understanding state: large grey transcript, progress line and cancel on `VoiceListen.dc.html`.
+  - [x] Credit customer row: matched name or “Chọn khách”, using the 07b row on `VoiceSale.dc.html`.
+  - [x] Android persistent notification with “Tắt”, Quick Settings tile and iOS Control Center
+        control on `VoiceSystem.dc.html`; registered in `canvas.json`, documented in DESIGN.md.
+- **Follow-up:** keep the canvas and DESIGN.md in sync as
+  V1-V4 change the UI.
+- **Acceptance:** boards open from `canvas.json`; DESIGN.md §3 lists 14-17 with controls;
   reviewed by the owner.
 - **Out of scope:** app code.

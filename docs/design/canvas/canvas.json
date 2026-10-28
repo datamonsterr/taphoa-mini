@@ -283,6 +283,14 @@
       "title": "19b Receipt OCR: adjust lines",
       "is_interactive": true,
       "radius": 44
+    },
+    "VoiceSystem.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Voice · Android & iOS system surfaces",
+      "w": 1240,
+      "x": 3210,
+      "y": 4128
     }
   },
   "createdOnFiles": {
@@ -328,8 +336,8 @@
     },
     "rowD": {
       "kind": "title1",
-      "maxW": 3130,
-      "text": "Voice — bubble, listen, sale, flow (program V0-V6, planned)",
+      "maxW": 4450,
+      "text": "Voice — bubble, listen, sale, flow, system surfaces (program V0-V6, planned)",
       "w": 240,
       "x": 0,
       "y": 3828
@@ -374,6 +382,7 @@
     "VoiceListen.dc.html",
     "VoiceSale.dc.html",
     "FlowVoice.dc.html",
+    "VoiceSystem.dc.html",
     "Flow.dc.html",
     "Components.dc.html"
   ],
