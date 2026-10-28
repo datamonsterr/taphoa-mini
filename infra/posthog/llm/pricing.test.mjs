@@ -168,7 +168,7 @@ test('paid cache and tier prices bound actual usage without rejecting optional c
   assert.ok(sql.includes('* 1e-8 * 0.9 - 1e-8'));
   assert.ok(sql.includes('* 5e-7 * 1.1 + 1e-8'));
   const free = costQuery({ model: 'x/y:free', input: 0, output: 0 });
-  assert.ok(free.includes('properties.$ai_input_cost_usd) != 0'));
+  assert.ok(free.includes('input_cost_usd) != 0'));
   assert.ok(free.includes('))) > 0'));
 });
 

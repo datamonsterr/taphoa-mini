@@ -27,8 +27,12 @@ pub(super) fn seller_day_close(role: Role, input: &str) -> bool {
     let has = |phrase: &str| text.contains(&format!(" {phrase} "));
     let restricted = [
         "chot so",
+        "chot ngay",
         "kiem quy",
         "kiem dem tien",
+        "dem tien mat",
+        "chenh lech tien mat",
+        "thieu tien mat",
         "tien mat du kien",
         "tien mat thuc dem",
         "quy hut",
@@ -41,6 +45,7 @@ pub(super) fn seller_day_close(role: Role, input: &str) -> bool {
         "cash shortfall",
         "cash shortage",
         "cash difference",
+        "cash discrepancy",
         "day close",
         "end of day close",
         "counted cash",
@@ -95,6 +100,11 @@ mod tests {
             "Show the cash-count amount",
             "How do I see the counted cash amount?",
             "expected cash please",
+            "Xem chốt ngày hôm qua",
+            "dem tien mat trong quy",
+            "Hôm qua chênh lệch tiền mặt bao nhiêu?",
+            "hom qua thieu tien mat bao nhieu",
+            "Why is there a cash discrepancy?",
         ] {
             assert!(seller_day_close(Role::Seller, input), "{input}");
             assert!(!seller_day_close(Role::Lead, input), "{input}");
@@ -114,6 +124,9 @@ mod tests {
             "Show electricity expenses",
             "How much stock is left?",
             "How many Pepsi sold yesterday?",
+            "Doanh thu tiền mặt hôm nay bao nhiêu?",
+            "Tien dien hom nay chi bao nhieu?",
+            "What were today's cash expenses?",
         ] {
             assert!(!seller_day_close(Role::Seller, input), "{input}");
         }
