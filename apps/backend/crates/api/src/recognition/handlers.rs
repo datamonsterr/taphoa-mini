@@ -22,12 +22,27 @@ use axum::{
 };
 use chrono::Utc;
 use futures_util::future::join_all;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use taphoa_recognition::ocr::{DocumentSignal, OcrError};
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
+const MAX_PROBE_IMAGE_BYTES: usize = 512 * 1024;
+const MAX_PROBE_REQUEST_BYTES: usize = MAX_PROBE_IMAGE_BYTES + 64 * 1024;
+
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/v1/recognition/document-probes",
+            post(probe_document)
+                .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(
+                    MAX_PROBE_REQUEST_BYTES,
+                ))
+                .layer(RequestBodyLimitLayer::new(MAX_PROBE_REQUEST_BYTES)),
+        )
         .route(
             "/v1/recognition/scans",
             post(create_scan)
@@ -37,6 +52,111 @@ pub(crate) fn router() -> Router<AppState> {
                 .layer(RequestBodyLimitLayer::new(MAX_IMAGE_REQUEST_BYTES)),
         )
         .route("/v1/recognition/scans/{scanId}", get(get_scan))
+}
+
+/// A low-rate preview still only needs text detection, with no persisted artifacts.
+#[tracing::instrument(name = "recognition.document_probe", skip_all, fields(member_id = %actor.member_id))]
+async fn probe_document(
+    State(state): State<AppState>,
+    actor: Actor,
+    multipart: Result<Multipart, MultipartRejection>,
+) -> ApiResult<Json<DocumentSignal>> {
+    let wall = Instant::now();
+    actor.require(Action::Sell)?;
+    let decision = state
+        .rate_limiter
+        .hit(
+            &format!("document_probe:{}:{}", actor.store_id, actor.member_id),
+            40,
+            Duration::from_secs(60),
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "document probe rate limiter failed");
+            unavailable("rate limiter unavailable")
+        })?;
+    if !decision.allowed {
+        return Err(ApiError::too_many_requests(decision.retry_after_secs));
+    }
+    let detector = state.text_detector.clone().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ocr_unavailable",
+            "text detector not configured",
+        )
+    })?;
+    let mut multipart = multipart.map_err(|_| bad_request())?;
+    let mut image = None;
+    while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
+        if field.name() != Some("image") || image.is_some() {
+            return Err(bad_request());
+        }
+        if let Some(value) = field.content_type()
+            && !matches!(
+                declared_mime(value).as_deref(),
+                Some("image/jpeg" | "image/png")
+            )
+        {
+            return Err(unsupported_media_type());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+            if bytes.len().saturating_add(chunk.len()) > MAX_PROBE_IMAGE_BYTES {
+                return Err(ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "payload_too_large",
+                    "document probe image exceeds 512 KB",
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if bytes.is_empty() {
+            return Err(bad_request());
+        }
+        if sniff_image(&bytes).is_none() {
+            return Err(unsupported_media_type());
+        }
+        image = Some(bytes);
+    }
+    let bytes = image.ok_or_else(bad_request)?;
+    let Ok(permit) = state.probe_slots.clone().try_acquire_owned() else {
+        return Ok(Json(DocumentSignal {
+            detected: false,
+            score: 0.,
+            text_lines: 0,
+            line_boxes: vec![],
+        }));
+    };
+    let inference_started = Instant::now();
+    let signal = tokio::task::spawn_blocking(move || {
+        // Retain admission even if the HTTP request is cancelled.
+        let _permit = permit;
+        detector.document_signal(&bytes)
+    })
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "document probe task failed");
+        ApiError::internal()
+    })?
+    .map_err(|error| match error {
+        OcrError::InvalidImage(_) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation_failed",
+            "could not decode the image",
+        ),
+        OcrError::Inference(error) => {
+            tracing::error!(%error, "document probe inference failed");
+            ApiError::internal()
+        }
+    })?;
+    tracing::info!(
+        detected = signal.detected,
+        text_lines = signal.text_lines,
+        detect_ms = inference_started.elapsed().as_millis() as u64,
+        total_ms = wall.elapsed().as_millis() as u64,
+        "document probe complete"
+    );
+    Ok(Json(signal))
 }
 
 struct ScanRequest {

@@ -70,7 +70,11 @@ import {
   type Layout,
 } from './AddFeedback';
 import { takePhoto } from './capture';
-import { DocumentButton } from './DocumentButton';
+import {
+  DocumentOverlay,
+  DocumentHint,
+} from '@/components/camera/DocumentOverlay';
+import { useDocumentProbe } from './useDocumentProbe';
 import { ReceiptToast } from '../receipts/ReceiptToast';
 import {
   MIN_SHOTS,
@@ -119,6 +123,7 @@ function LivePreview({
       <CameraView
         ref={cameraRef}
         facing="back"
+        animateShutter={false}
         onCameraReady={onCameraReady}
         style={StyleSheet.absoluteFill}
       />
@@ -217,20 +222,40 @@ export function CameraScreen() {
   const [notice, setNotice] = useState('');
   const receiptCreate = useCreateReceipt();
   const receiptPending = useRef(false);
+  const [readingReceipt, setReadingReceipt] = useState(false);
+  const { mutateAsync: uploadImage } = useUploadImage();
+  const canEnroll = useCanEnroll();
   // Keep the same variables object for an explicit retry of the same uploaded image.
   const receiptInput = useRef<{ image_id: string } | null>(null);
   const readReceipt = async (
     open: (receiptId: string) => void = (id) => router.push(`/receipt/${id}`),
   ) => {
-    if (!scan || receiptPending.current) return;
+    if (
+      !canEnroll ||
+      receiptPending.current ||
+      (!scan && (!cameraReady || phase !== 'idle'))
+    )
+      return;
     receiptPending.current = true;
+    setReadingReceipt(true);
     setNotice('');
-    if (receiptInput.current?.image_id !== scan.image.id)
-      receiptInput.current = { image_id: scan.image.id };
     const started = performance.now();
     try {
-      const receipt = await receiptCreate.mutateAsync(receiptInput.current);
-      open(receipt.id);
+      const create = async (imageId: string) => {
+        if (receiptInput.current?.image_id !== imageId)
+          receiptInput.current = { image_id: imageId };
+        const receipt = await receiptCreate.mutateAsync(receiptInput.current);
+        open(receipt.id);
+      };
+      if (scan) await create(scan.image.id);
+      else
+        await capture(async (shot) => {
+          const image = await uploadImage({
+            file: { uri: shot.uri, name: 'receipt.jpg', type: 'image/jpeg' },
+            purpose: 'other',
+          });
+          await create(image.id);
+        });
       console.info('receipt.tap_to_navigation', {
         duration_ms: Math.round(performance.now() - started),
       });
@@ -246,6 +271,7 @@ export function CameraScreen() {
       );
     } finally {
       receiptPending.current = false;
+      setReadingReceipt(false);
     }
   };
   useEffect(() => {
@@ -255,7 +281,6 @@ export function CameraScreen() {
   }, [notice]);
   const canQuickCapture = useQuickEnrollStore(selectCanCapture);
   const dispatch = useQuickEnrollStore((s) => s.dispatch);
-  const { mutateAsync: uploadImage } = useUploadImage();
   const [quickCapturing, setQuickCapturing] = useState(false);
   const quickCaptureToken = useRef(0);
   const quickCapturePending = useRef(false);
@@ -319,9 +344,20 @@ export function CameraScreen() {
 
   const hasResult = phase === 'result' && !!scan;
   const busy = phase === 'capturing' || phase === 'scanning';
+  const probe = useDocumentProbe(
+    cameraRef,
+    focused &&
+      !!permission?.granted &&
+      cameraReady &&
+      phase === 'idle' &&
+      !quickActive &&
+      !sheetOpen &&
+      !readingReceipt,
+  );
+  const document = hasResult ? scan.document : probe?.document;
+  const documentDetected = !!document?.detected && !quickActive;
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
-  const canEnroll = useCanEnroll();
   const goEnroll = useCallback(
     (detectionId?: string) => {
       if (!canEnroll) return;
@@ -407,7 +443,7 @@ export function CameraScreen() {
   const assistantOn = useAssistantEnabled();
   const { chips, tap } = useNextStepChips({
     screen: 'camera',
-    documentDetected: hasResult && !!scan.document?.detected,
+    documentDetected,
     unknownProduct: anyLow && hasResult,
     canEnroll,
     enabled: assistantOn,
@@ -416,10 +452,17 @@ export function CameraScreen() {
     tap(chip, position);
     const { action } = chip;
     if (action.type === 'receipt')
-      void readReceipt((receiptId) =>
-        router.push(
-          assistantHref({ entry: 'receipt', screen: 'camera', receiptId }),
-        ),
+      void readReceipt(
+        action.destination === 'review'
+          ? undefined
+          : (receiptId) =>
+              router.push(
+                assistantHref({
+                  entry: 'receipt',
+                  screen: 'camera',
+                  receiptId,
+                }),
+              ),
       );
     else if (action.type === 'enroll')
       goEnroll(scan?.detections.find(isLowMatch)?.id);
@@ -504,11 +547,12 @@ export function CameraScreen() {
       }
     }
   }, [canEnroll, cameraReady, focused, dispatch, uploadImage]);
-  const onShutter = useCallback(() => {
+  const onShutter = () => {
     if (quickActive) void captureQuickPhoto();
+    else if (documentDetected && canEnroll) void readReceipt();
     else if (phase === 'idle') void capture();
     else reset();
-  }, [quickActive, captureQuickPhoto, phase, capture, reset]);
+  };
   const onRetry = useCallback(() => void retry(), [retry]);
 
   const [rects, setRects] = useState<{
@@ -589,7 +633,7 @@ export function CameraScreen() {
                   <ActivityIndicator size="large" color={camera.white} />
                 </View>
               ) : null}
-              {hasResult ? (
+              {hasResult && !documentDetected ? (
                 <>
                   <DetectionOverlay
                     imageSize={imageSize}
@@ -629,11 +673,13 @@ export function CameraScreen() {
               onPress={permission.canAskAgain ? askPermission : openSettings}
             />
           ) : null}
-          {canEnroll &&
-          hasResult &&
-          scan.document?.detected &&
-          !receiptCreate.isPending ? (
-            <DocumentButton onPress={() => void readReceipt()} />
+          {documentDetected && document ? (
+            <DocumentOverlay
+              document={document}
+              imageSize={hasResult ? imageSize : probe!.imageSize}
+              viewSize={viewSize}
+              mirrored={!hasResult && probe?.previewMirrored}
+            />
           ) : null}
           {phase === 'error' ? (
             <ScanError
@@ -663,12 +709,21 @@ export function CameraScreen() {
           <IndexingChip key={product.id} id={product.id} />
         ))}
         {!quickActive &&
+        !readingReceipt &&
         !notice &&
         created.length === 0 &&
-        !(hasResult && mode === 'one' && openDetection?.alternatives) ? (
+        !(
+          hasResult &&
+          !documentDetected &&
+          mode === 'one' &&
+          openDetection?.alternatives
+        ) ? (
           <NextStepStrip chips={chips} onPress={onChipPress} />
         ) : null}
-        {hasResult && mode === 'one' && openDetection?.alternatives ? (
+        {hasResult &&
+        !documentDetected &&
+        mode === 'one' &&
+        openDetection?.alternatives ? (
           <AlternativesStrip
             items={openDetection.alternatives}
             currentId={openDetection.alternatives[0]!.id}
@@ -709,21 +764,27 @@ export function CameraScreen() {
           <QuickAdd onPress={() => setSheetOpen(true)} disabled={!canEnroll} />
         ) : (
           <Shutter
-            label={phase === 'idle' ? t('shutter') : t('reshoot')}
+            label={
+              documentDetected && canEnroll
+                ? 'Chụp và đọc hóa đơn'
+                : phase === 'idle'
+                  ? t('shutter')
+                  : t('reshoot')
+            }
             busy={
               quickActive
                 ? !canQuickCapture ||
                   quickCapturing ||
                   !cameraReady ||
                   !canEnroll
-                : busy || (phase === 'idle' && !cameraReady)
+                : readingReceipt || busy || (phase === 'idle' && !cameraReady)
             }
             onPress={onShutter}
           />
         )}
         <View testID="camera-add-slot" onLayout={onAddLayout}>
           <AddButton
-            disabled={!hasResult || batch === 0}
+            disabled={documentDetected || !hasResult || batch === 0}
             count={mode === 'many' && hasResult ? batch : 0}
             onPress={onAdd}
           />
@@ -731,6 +792,7 @@ export function CameraScreen() {
         </View>
       </View>
 
+      {documentDetected ? <DocumentHint /> : null}
       <View style={styles.spacer} />
 
       <View
@@ -748,7 +810,7 @@ export function CameraScreen() {
       </View>
       <ReceiptToast />
       <Modal
-        visible={receiptCreate.isPending}
+        visible={readingReceipt}
         transparent
         animationType="fade"
         onRequestClose={() => {}}

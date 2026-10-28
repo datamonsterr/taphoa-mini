@@ -1,0 +1,79 @@
+appId: com.datamonsterr.taphoamini
+---
+# Virtual camera cannot show a receipt. Seed a real OCR draft through the host API,
+# then use the existing Expense → receipt history entry (no camera or test route).
+# Requires MAESTRO_CLERK_SECRET_KEY in the CLI environment, as configured in CI.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Hóa đơn'
+      OWNER_NAME: 'Cô Ba'
+- runScript: subflows/receipt-seed.js
+- tapOn: 'Vuốt lên: cửa hàng'
+- tapOn: 'Báo cáo'
+- tapOn: 'Thêm khoản chi'
+- tapOn: 'Hóa đơn nhập'
+- extendedWaitUntil:
+    visible:
+      id: 'receipt-history-row'
+    timeout: 30000
+- tapOn:
+    id: 'receipt-history-row'
+- extendedWaitUntil:
+    visible: 'Kiểm tra hóa đơn'
+    timeout: 30000
+# Keep one OCR line, so this flow has one unambiguous quantity/stock assertion.
+- evalScript: ${output.dropIndex = 0}
+- repeat:
+    times: ${output.receipt.drops.length}
+    commands:
+      - scrollUntilVisible:
+          element:
+            text: ${'Xóa dòng ' + output.receipt.drops[output.dropIndex]}
+          direction: DOWN
+      - tapOn: ${'Xóa dòng ' + output.receipt.drops[output.dropIndex]}
+      - evalScript: ${output.dropIndex = output.dropIndex + 1}
+- scrollUntilVisible:
+    element:
+      text: ${output.receipt.name + ', chạm để đổi sản phẩm'}
+    direction: UP
+- tapOn: ${output.receipt.name + ', chạm để đổi sản phẩm'}
+- extendedWaitUntil:
+    visible: ${output.receipt.product}
+    timeout: 30000
+- tapOn: ${output.receipt.product}
+- tapOn: "${'Thêm một: ' + output.receipt.name}"
+- tapOn: "${'Bớt một: ' + output.receipt.name}"
+- tapOn: "${'Thêm một: ' + output.receipt.name}"
+- tapOn: 'Giá nhập:.*'
+- repeat:
+    times: 9
+    commands:
+      - tapOn: 'Xóa'
+- tapOn: '9'
+- tapOn: '000'
+- tapOn: 'Xong'
+- assertVisible: 'Khớp'
+- takeScreenshot: receipts-01-review
+- tapOn: 'Xong, xem lại'
+- assertVisible: 'Hóa đơn nhập'
+- assertVisible: ${output.receipt.quantity + ' × 9.000đ'}
+- takeScreenshot: receipts-02-summary
+- tapOn: 'Xác nhận nhập kho'
+- extendedWaitUntil:
+    visible: 'Vuốt lên: cửa hàng'
+    timeout: 30000
+- tapOn: 'Vuốt lên: cửa hàng'
+- tapOn: 'Tồn kho'
+- extendedWaitUntil:
+    visible: ${output.receipt.product}
+    timeout: 30000
+- takeScreenshot: receipts-03-stock
+# Verify the durable quantity through GET /v1/stock as well as opening the stock
+# screen. Android accessibility groups the row's badge with its product button.
+- runScript:
+    file: subflows/receipt-seed.js
+    env:
+      VERIFY_STOCK: '1'
