@@ -47,12 +47,18 @@ appId: com.datamonsterr.taphoamini
           id: 'voice-total'
       - assertVisible: 'Tiền mặt'
       - takeScreenshot: voice-02-draft
-      # the green check records the sale and shows the toast, then the sheet closes
+      # the green check records the sale; the green "sold" state shows for only 900 ms, which a
+      # slow emulator can miss, so it is optional
       - tapOn: 'Xác nhận bán'
       - extendedWaitUntil:
           visible: 'Đã bán .* món .*'
-          timeout: 30000
-      - takeScreenshot: voice-03-sold
+          timeout: 10000
+          optional: true
       - extendedWaitUntil:
           visible: 'Giỏ hàng trống'
+          timeout: 30000
+      # the sale really landed: its manual line (no product yet) waits in the pending chip
+      - extendedWaitUntil:
+          visible: '1 dòng chờ xử lý'
           timeout: 20000
+      - takeScreenshot: voice-03-sold
