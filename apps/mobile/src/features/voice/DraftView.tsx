@@ -135,11 +135,13 @@ export const DraftView = memo(function DraftView({
             variant="price"
           />
         </View>
-        <PayToggle
-          value={draft.paymentMethod as PayMethod}
-          onChange={(method) => dispatch({ type: 'payment', method })}
-          labels={pay}
-        />
+        <View style={styles.toggle}>
+          <PayToggle
+            value={draft.paymentMethod as PayMethod}
+            onChange={(method) => dispatch({ type: 'payment', method })}
+            labels={pay}
+          />
+        </View>
         {draft.paymentMethod === 'credit' ? (
           <PressableScale
             testID="voice-customer"
@@ -215,6 +217,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  toggle: { alignItems: 'center' },
   totalLabel: { ...typography.label, color: colors.inkMuted },
   customer: {
     minHeight: size.tapMin,

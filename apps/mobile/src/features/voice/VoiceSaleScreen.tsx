@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking, StyleSheet, View } from 'react-native';
+import { AppState, Linking, StyleSheet, View } from 'react-native';
 
 import { Icon, Sheet, Text } from '@/components/ui';
 import { capture } from '@/lib/analytics';
@@ -137,7 +137,11 @@ export function VoiceSaleScreen() {
     [],
   );
 
+  /** The sheet leaves once, whichever of close, the success timer or a scrim tap comes first. */
+  const closed = useRef(false);
   const close = useCallback(() => {
+    if (closed.current) return;
+    closed.current = true;
     voiceExit.onDone({ returnToPrevious }, () => {
       if (router.canGoBack()) router.back();
       else router.replace('/');
@@ -256,6 +260,35 @@ export function VoiceSaleScreen() {
     }
     close();
   }, [cancel, close]);
+
+  // Leaving by the system back gesture (or any other way) without a sale is an abandon too. The
+  // microtask lets a StrictMode remount cancel the report.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      queueMicrotask(() => {
+        if (alive.current || settled.current) return;
+        settled.current = true;
+        const stage = draftRef.current ? 'draft' : 'listening';
+        capture('voice_sale_abandoned', { stage });
+        for (const id of utteranceIds.current)
+          void postOutcome(id, { outcome: 'abandoned', stage });
+      });
+    };
+  }, []);
+
+  // The microphone only runs in the foreground: a recording the app leaves is thrown away.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') return;
+      attempt.current++;
+      void cancel();
+      if (!draftRef.current) setPhase('noSpeech');
+    });
+    return () => subscription.remove();
+  }, [cancel]);
 
   const confirm = useCallback(() => {
     if (!draft || sale.isPending) return;

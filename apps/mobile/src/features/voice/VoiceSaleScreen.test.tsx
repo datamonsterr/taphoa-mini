@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 
 import { setAnalyticsSink } from '@/lib/analytics';
 import { setApiTransport } from '@/lib/api/client';
@@ -478,6 +478,71 @@ describe('confirm', () => {
       }),
     );
     expect(mockRouter.back).toHaveBeenCalled();
+  });
+});
+
+describe('leaving', () => {
+  test('leaving the screen any other way still counts as an abandon', async () => {
+    mockParams = { entry: 'longpress', fixture: 'two-line-sale.m4a' };
+    const view = await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await fireEvent.press(screen.getByLabelText('Xong, hiểu lời vừa nói'));
+    await screen.findByTestId('voice-draft');
+    await view.unmount();
+    await act(async () => {});
+    expect(captured('voice_sale_abandoned')).toEqual([{ stage: 'draft' }]);
+    const [utteranceId] = [...getMockDb().voice.utterances.keys()];
+    await waitFor(() =>
+      expect(getVoiceOutcome(utteranceId!)).toMatchObject({
+        outcome: 'abandoned',
+      }),
+    );
+  });
+
+  test('an abandon is reported once, and not after a confirmed sale', async () => {
+    mockParams = { entry: 'longpress', fixture: 'two-line-sale.m4a' };
+    const view = await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await fireEvent.press(screen.getByLabelText('Xong, hiểu lời vừa nói'));
+    await screen.findByTestId('voice-draft');
+    await fireEvent.press(screen.getByLabelText('Xác nhận bán'));
+    await screen.findByTestId('voice-done');
+    await view.unmount();
+    await act(async () => {});
+    expect(captured('voice_sale_abandoned')).toEqual([]);
+  });
+
+  test('the sheet closes once when the success timer and a scrim tap both fire', async () => {
+    mockParams = { entry: 'longpress', fixture: 'two-line-sale.m4a' };
+    await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await fireEvent.press(screen.getByLabelText('Xong, hiểu lời vừa nói'));
+    await screen.findByTestId('voice-draft');
+    jest.useFakeTimers({ advanceTimers: true });
+    await fireEvent.press(screen.getByLabelText('Xác nhận bán'));
+    await screen.findByTestId('voice-done');
+    await fireEvent.press(screen.getByTestId('sheet-scrim'));
+    await act(() => jest.advanceTimersByTimeAsync(SUCCESS_MS + 10));
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+  });
+
+  test('sending the app to the background throws a recording away', async () => {
+    let listener: (state: string) => void = () => {};
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+      _type: string,
+      handler: (state: string) => void,
+    ) => {
+      listener = handler;
+      return { remove: jest.fn() };
+    }) as never);
+    mockParams = { entry: 'bubble' };
+    await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalled());
+    await act(async () => listener('background'));
+    expect(await screen.findByTestId('voice-no-speech')).toBeOnTheScreen();
+    expect(audioMock.recorder.stop).toHaveBeenCalled();
+    expect(getMockDb().voice.utterances.size).toBe(0);
   });
 });
 

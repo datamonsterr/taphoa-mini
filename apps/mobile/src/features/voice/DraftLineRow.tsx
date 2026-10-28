@@ -107,7 +107,7 @@ export const DraftLineRow = memo(function DraftLineRow({
           </View>
         </PressableScale>
         <View style={styles.body}>
-          <Text numberOfLines={1} style={styles.name}>
+          <Text numberOfLines={2} style={styles.name}>
             {name}
           </Text>
           <View style={styles.priceRow}>
