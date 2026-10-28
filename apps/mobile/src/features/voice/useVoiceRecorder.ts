@@ -59,6 +59,10 @@ export type VoiceRecorder = {
   cancel: () => Promise<void>;
 };
 
+/** The web has no m4a recorder (MediaRecorder writes webm), so only a fixture can stand in there. */
+export const recorderAvailable = (fixture: string | undefined) =>
+  Platform.OS !== 'web' || fixture !== undefined;
+
 const baseName = (uri: string) => uri.split('/').pop() || 'utterance.m4a';
 const normalise = (db: number) =>
   Math.min(1, Math.max(0, (db - FLOOR_DB) / -FLOOR_DB));
@@ -72,7 +76,6 @@ export function useVoiceRecorder({
   const recorder = useAudioRecorder(VOICE_RECORDING);
   const state = useAudioRecorderState(recorder, TICK_MS);
   const [status, setStatus] = useState<RecorderStatus>('idle');
-  const [level, setLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
 
   const latest = useRef(onFinished);
@@ -120,7 +123,6 @@ export function useVoiceRecorder({
         }
       }
       setStatus('idle');
-      setLevel(0);
       if (!deliver || !clip || (!clip.fixture && durationMs < MIN_CLIP_MS))
         return null;
       latest.current?.(clip);
@@ -202,7 +204,6 @@ export function useVoiceRecorder({
     }
     const db = state.metering;
     if (db === undefined || db === null) return;
-    setLevel(normalise(db));
     if (db > SPEECH_DB) {
       heard.current = true;
       lastLoud.current = Date.now();
@@ -222,8 +223,14 @@ export function useVoiceRecorder({
     [recorder],
   );
 
+  const metering = state.metering;
+  const level =
+    status === 'recording' && typeof metering === 'number'
+      ? normalise(metering)
+      : 0;
+
   return {
-    available: Platform.OS !== 'web' || fixture !== undefined,
+    available: recorderAvailable(fixture),
     status,
     level,
     elapsedMs,

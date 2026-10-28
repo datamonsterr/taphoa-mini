@@ -76,6 +76,13 @@ function NavigationTree({
           }}
         />
         <Stack.Screen
+          name="voice"
+          options={{
+            presentation: 'transparentModal',
+            animation: 'slide_from_bottom',
+          }}
+        />
+        <Stack.Screen
           name="enroll"
           options={{
             presentation: 'transparentModal',
