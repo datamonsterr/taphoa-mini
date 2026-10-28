@@ -235,16 +235,32 @@ mod tests {
     use super::*;
     #[test]
     fn startup_validates_business_clock_override() {
-        for (environment, valid) in [("test", true), ("production", false)] {
+        for (raw, environment, valid) in [
+            ("2026-01-15T10:00:00+07:00", "test", true),
+            ("10:00", "test", true),
+            ("2026-01-15T10:00:00+07:00", "production", false),
+            ("10:00", "production", false),
+        ] {
             let config = Config::from_lookup(|name| match name {
                 "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
-                "TAPHOA_TEST_NOW" => Some("2026-01-15T10:00:00+07:00".into()),
+                "TAPHOA_TEST_NOW" => Some(raw.into()),
                 "RAILWAY_ENVIRONMENT_NAME" => Some(environment.into()),
                 _ => None,
             });
             assert_eq!(config.is_ok(), valid);
             if let Ok(config) = config {
-                assert_eq!(config.clock.today().to_string(), "2026-01-15");
+                assert_eq!(
+                    config
+                        .clock
+                        .now()
+                        .with_timezone(&crate::time::STORE_TZ)
+                        .format("%H")
+                        .to_string(),
+                    "10"
+                );
+                if raw != "10:00" {
+                    assert_eq!(config.clock.today().to_string(), "2026-01-15");
+                }
             }
         }
     }

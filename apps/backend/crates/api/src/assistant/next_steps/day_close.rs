@@ -50,6 +50,7 @@ mod tests {
             assert_eq!(due(now, false), expected);
             assert!(!due(now, true));
             assert_eq!(clock.today(), now.date());
+            assert_eq!(now.format("%H").to_string(), &pinned[11..13]);
         }
     }
 

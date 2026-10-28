@@ -1,13 +1,22 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use std::time::Instant;
+
+use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 
 /// Business clock; transport/authentication and database audit timestamps keep real time.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Clock {
-    pinned: Option<DateTime<Utc>>,
+    pinned: Option<(DateTime<Utc>, Instant)>,
 }
 
 impl Clock {
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        Self::from_lookup_at(get, Utc::now())
+    }
+
+    fn from_lookup_at(
+        get: impl Fn(&str) -> Option<String>,
+        wall_now: DateTime<Utc>,
+    ) -> anyhow::Result<Self> {
         let Some(raw) = get("TAPHOA_TEST_NOW") else {
             return Ok(Self::default());
         };
@@ -16,18 +25,37 @@ impl Clock {
                 .is_some_and(|env| env.trim().eq_ignore_ascii_case("production")),
             "TAPHOA_TEST_NOW is forbidden in production"
         );
-        let pinned = DateTime::parse_from_rfc3339(&raw)
-            .map_err(|_| {
-                anyhow::anyhow!("TAPHOA_TEST_NOW must be an RFC 3339 timestamp with offset")
-            })?
-            .with_timezone(&Utc);
+        let invalid = || {
+            anyhow::anyhow!(
+                "TAPHOA_TEST_NOW must be HH:MM in Asia/Ho_Chi_Minh or an RFC 3339 timestamp with offset"
+            )
+        };
+        let pinned = if raw.len() == 5
+            && raw.as_bytes()[2] == b':'
+            && raw
+                .bytes()
+                .enumerate()
+                .all(|(i, byte)| i == 2 || byte.is_ascii_digit())
+        {
+            let time = NaiveTime::parse_from_str(&raw, "%H:%M").map_err(|_| invalid())?;
+            STORE_TZ
+                .from_local_datetime(&business_date(wall_now).and_time(time))
+                .single()
+                .ok_or_else(invalid)?
+                .with_timezone(&Utc)
+        } else {
+            DateTime::parse_from_rfc3339(&raw)
+                .map_err(|_| invalid())?
+                .with_timezone(&Utc)
+        };
         Ok(Self {
-            pinned: Some(pinned),
+            pinned: Some((pinned, Instant::now())),
         })
     }
 
     pub fn now(self) -> DateTime<Utc> {
-        self.pinned.unwrap_or_else(Utc::now)
+        self.pinned
+            .map_or_else(Utc::now, |(pinned, started)| pinned + started.elapsed())
     }
 
     pub fn today(self) -> NaiveDate {
@@ -43,14 +71,57 @@ pub fn business_date(at: DateTime<Utc>) -> NaiveDate {
 mod tests {
     use super::*;
     #[test]
-    fn override_pins_instant_and_business_date() {
+    fn override_sets_starting_instant_and_business_date() {
         let clock = Clock::from_lookup(|name| {
             (name == "TAPHOA_TEST_NOW").then(|| "2026-01-15T00:30:00+07:00".into())
         })
         .unwrap();
-        assert_eq!(clock.now().to_rfc3339(), "2026-01-14T17:30:00+00:00");
-        assert_eq!(clock.now(), clock.now());
+        let now = clock.now();
+        assert_eq!(now.date_naive().to_string(), "2026-01-14");
+        assert_eq!(now.format("%H:%M").to_string(), "17:30");
         assert_eq!(clock.today().to_string(), "2026-01-15");
+    }
+
+    #[test]
+    fn time_only_uses_store_date_at_startup() {
+        for (wall_now, date) in [
+            ("2026-10-23T16:59:59Z", "2026-10-23"),
+            ("2026-10-23T17:00:00Z", "2026-10-24"),
+            ("2026-12-31T17:00:00Z", "2027-01-01"),
+        ] {
+            for time in ["00:00", "10:00", "23:59"] {
+                let clock = Clock::from_lookup_at(
+                    |name| (name == "TAPHOA_TEST_NOW").then(|| time.into()),
+                    wall_now.parse().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(clock.today().to_string(), date);
+                assert_eq!(
+                    clock
+                        .now()
+                        .with_timezone(&STORE_TZ)
+                        .format("%H:%M")
+                        .to_string(),
+                    time
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn override_advances_across_business_midnight_and_copies_share_start() {
+        let pinned: DateTime<Utc> = "2026-01-15T23:59:59+07:00".parse().unwrap();
+        let started = Instant::now() - std::time::Duration::from_secs(2);
+        let clock = Clock {
+            pinned: Some((pinned, started)),
+        };
+        let copied = clock;
+        let before = started.elapsed();
+        let now = copied.now();
+        let after = started.elapsed();
+        assert!(now >= pinned + before && now <= pinned + after);
+        assert!(clock.now() >= now);
+        assert_eq!(clock.today().to_string(), "2026-01-16");
     }
 
     #[test]
@@ -63,8 +134,19 @@ mod tests {
 
     #[test]
     fn rejects_invalid_override_and_production() {
-        for raw in ["", "invalid", "2026-01-15T10:00:00"] {
-            assert!(Clock::from_lookup(|_| Some(raw.into())).is_err());
+        for raw in [
+            "",
+            "invalid",
+            "2026-01-15T10:00:00",
+            "24:00",
+            "10:60",
+            "9:00",
+            " 9:00",
+            "10:00:00",
+        ] {
+            let error = Clock::from_lookup(|name| (name == "TAPHOA_TEST_NOW").then(|| raw.into()))
+                .unwrap_err();
+            assert!(error.to_string().contains("must be HH:MM"));
         }
         for env in ["production", "PRODUCTION", " production "] {
             let error = Clock::from_lookup(|name| match name {
