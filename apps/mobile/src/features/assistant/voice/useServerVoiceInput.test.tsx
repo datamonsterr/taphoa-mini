@@ -83,7 +83,9 @@ test('the request is a transcribe-mode upload with the chat entry', async () => 
   await hold(hook);
   await act(async () => {});
   const upload = seen.find((r) => r.url.endsWith('/v1/voice/utterances'))!;
-  const form = await upload.formData();
+  const form = (await upload.formData()) as unknown as {
+    get: (key: string) => unknown;
+  };
   expect(form.get('mode')).toBe('transcribe');
   expect(form.get('language')).toBe('en');
   expect(JSON.parse(String(form.get('context')))).toEqual({

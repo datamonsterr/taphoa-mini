@@ -62,7 +62,9 @@ test('shows a members error without hiding the rest', async () => {
   expect(
     await screen.findByText('Không tải được thành viên'),
   ).toBeOnTheScreen();
-  expect(screen.getByRole('switch')).toBeOnTheScreen();
+  expect(
+    screen.getByRole('switch', { name: 'Chế độ người lớn tuổi' }),
+  ).toBeOnTheScreen();
 });
 
 test('shows a placeholder when there is no bank account', async () => {
@@ -444,4 +446,13 @@ test('sign-out proceeds even if unregisterPush fails', async () => {
     fireEvent.press(screen.getByRole('button', { name: 'Đăng xuất' }));
   });
   expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
+});
+
+test('has the opt-in voice switch below the language row, and no system rows without the module', async () => {
+  await open();
+  expect(
+    screen.getByRole('switch', { name: 'Góp giọng nói để cải thiện' }),
+  ).not.toBeChecked();
+  expect(screen.queryByTestId('voice-bubble-row')).toBeNull();
+  expect(screen.queryByTestId('voice-tile-row')).toBeNull();
 });

@@ -53,6 +53,7 @@ import { StorePicker } from './StorePicker';
 import { SwitchPinSheet } from './SwitchPinSheet';
 import { fill, strings } from './strings';
 import { useSwitchSession } from './useSwitchSession';
+import { VoiceSetupSection } from '../voice/VoiceSetupSection';
 import { formatAccountNumber, initialOf } from './utils';
 
 /** Space under the content for the floating bottom bar (16 + 64 + 32). */
@@ -436,6 +437,7 @@ export function AccountScreen() {
         <ElderRow />
         <TextSizeRow />
         <LanguageRow />
+        <VoiceSetupSection />
         <DeviceSessions
           sessions={signedInSessions(sessions)}
           currentId={sessionId ?? null}
