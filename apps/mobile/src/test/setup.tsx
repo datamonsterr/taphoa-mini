@@ -125,6 +125,9 @@ jest.mock('expo-secure-store', () => {
   };
 });
 
+// NetInfo has no native module under Jest: always connected unless a test drives `__emit`.
+jest.mock('@react-native-community/netinfo', () => require('./netinfo'));
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );

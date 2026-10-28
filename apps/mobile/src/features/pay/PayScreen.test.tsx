@@ -1,7 +1,7 @@
 import { seedCustomer } from '@/test/debts';
 import { createCustomer } from '@/lib/api/debts';
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 
@@ -9,6 +9,8 @@ import * as storeApi from '@/lib/api/store';
 import { holdNext } from '@/test/hold';
 import { listSales, setApiTransport } from '@/lib/api';
 import { createMockFetch } from '@/test/mock/fetch';
+import { onlineManager } from '@tanstack/react-query';
+import { flushOutbox, pendingItems } from '@/lib/outbox';
 import * as ledgerApi from '@/lib/api/ledger';
 import { getProduct } from '@/lib/api/products';
 import { resetMockDb } from '@/test/mock/db';
@@ -52,6 +54,7 @@ function seed() {
 }
 
 beforeEach(() => {
+  onlineManager.setOnline(true);
   jest.clearAllMocks();
   jest.restoreAllMocks();
   mockRouter.canDismiss.mockReturnValue(true);
@@ -244,34 +247,33 @@ describe('PayScreen received', () => {
     });
   });
 
-  it('keeps the cart and shows an error when the sale fails', async () => {
+  it('records the sale on the device and finishes even when the server fails', async () => {
     jest
       .spyOn(ledgerApi, 'createSale')
-      .mockRejectedValueOnce(new Error('boom'));
+      .mockRejectedValue(new TypeError('Network request failed'));
     await renderWithProviders(<PayScreen />);
     await screen.findByTestId('qr-value');
     await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /Không lưu được đơn/,
-    );
-    expect(useCartStore.getState().lines).toHaveLength(2);
-    expect(mockRouter.dismissAll).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Đã nhận tiền' })).toBeEnabled();
+    expect(await screen.findByLabelText('Đã nhận tiền xong')).toBeOnTheScreen();
+    expect(useCartStore.getState().lines).toEqual([]);
+    await waitFor(() => expect(pendingItems('sale')).toHaveLength(1));
   });
 
-  it('a retry after a failure resends the same request, so the server replays it', async () => {
-    const create = jest
-      .spyOn(ledgerApi, 'createSale')
-      .mockRejectedValueOnce(new Error('offline'));
+  it('offline: no request is made, the sale waits in the outbox and posts once on reconnect', async () => {
+    const create = jest.spyOn(ledgerApi, 'createSale');
     await renderWithProviders(<PayScreen />);
     await screen.findByTestId('qr-value');
+    await act(async () => onlineManager.setOnline(false));
     await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
-    await screen.findByRole('alert');
-    await new Promise((resolve) => setTimeout(resolve, 15));
-    await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
-    const [first, second] = create.mock.calls.map(([body]) => body);
-    expect(second).toEqual(first);
+    expect(await screen.findByLabelText('Đã nhận tiền xong')).toBeOnTheScreen();
+    expect(create).not.toHaveBeenCalled();
+    const [queued] = pendingItems('sale');
+    onlineManager.setOnline(true);
+    await flushOutbox();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(pendingItems()).toEqual([]);
+    const { items } = await listSales({ limit: 200 });
+    expect(items.filter((s) => s.id === queued!.key)).toHaveLength(1);
   });
 
   it('puts the sale id in the Idempotency-Key header and its code in the memo', async () => {

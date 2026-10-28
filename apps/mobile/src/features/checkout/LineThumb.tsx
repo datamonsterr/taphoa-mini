@@ -1,5 +1,6 @@
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
+import { imageCacheKey } from '@/lib/imageCache';
 import { Package } from 'lucide-react-native';
 import { memo } from 'react';
 import { StyleSheet } from 'react-native';
@@ -24,7 +25,7 @@ export const LineThumb = memo(function LineThumb({
     >
       {uri ? (
         <Image
-          source={{ uri }}
+          source={{ uri, cacheKey: imageCacheKey(uri) }}
           cachePolicy="memory-disk"
           contentFit="cover"
           style={StyleSheet.absoluteFill}

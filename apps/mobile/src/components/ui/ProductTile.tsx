@@ -1,6 +1,7 @@
 import { Plus } from 'lucide-react-native';
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
+import { imageCacheKey } from '@/lib/imageCache';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -62,7 +63,7 @@ export const ProductTile = memo(function ProductTile({
         <PostHogMaskView style={styles.photo}>
           {imageUri ? (
             <Image
-              source={{ uri: imageUri }}
+              source={{ uri: imageUri, cacheKey: imageCacheKey(imageUri) }}
               contentFit="contain"
               cachePolicy="memory-disk"
               recyclingKey={imageUri}

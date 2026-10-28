@@ -24,5 +24,5 @@ export * from './events';
 export * from './debts';
 export * from './digest';
 export * from './devices';
-
 export * from './documentProbes';
+export * from './sync';
