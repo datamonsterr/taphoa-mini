@@ -299,7 +299,7 @@
       "title": "28 Sale detail + refund",
       "w": 390,
       "x": 0,
-      "y": 4900
+      "y": 6732
     },
     "RecentSales.dc.html": {
       "h": 844,
@@ -308,7 +308,7 @@
       "title": "28a Recent sales",
       "w": 390,
       "x": 470,
-      "y": 4900
+      "y": 6732
     },
     "Export.dc.html": {
       "h": 844,
@@ -317,7 +317,7 @@
       "title": "29 Transaction export",
       "w": 390,
       "x": 940,
-      "y": 4900
+      "y": 6732
     },
     "ProductUnits.dc.html": {
       "h": 844,
@@ -326,7 +326,7 @@
       "title": "09b Product units editor",
       "w": 390,
       "x": 1410,
-      "y": 4900
+      "y": 6732
     },
     "InventorySell.dc.html": {
       "h": 844,
