@@ -343,6 +343,24 @@ fn stock_and_receipt_input_constraints() {
         assert!(!validate(name, json!({"low_stock_threshold":-1})));
         assert!(!validate(name, json!({"low_stock_threshold":100001})));
     }
+    for name in [
+        "VoiceUtterance",
+        "VoiceSaleDraft",
+        "VoiceDraftLine",
+        "CustomerMatch",
+        "ProductSummary",
+        "VoiceOutcomeRequest",
+    ] {
+        assert!(
+            doc["components"]["schemas"][name].is_object(),
+            "missing schema {name}"
+        );
+    }
+    assert!(validate(
+        "VoiceOutcomeRequest",
+        json!({"outcome":"abandoned","stage":"draft"})
+    ));
+    assert!(!validate("VoiceOutcomeRequest", json!({"outcome":"later"})));
     assert!(
         doc["components"]["schemas"]["Scan"]["required"]
             .as_array()

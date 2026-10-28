@@ -109,6 +109,113 @@ describe('api client', () => {
     expect(form.get('image')).toBeInstanceOf(Blob);
   });
 
+  describe('voice helpers', () => {
+    const ctx = { entry: 'sell_fab', screen: 'sell' };
+    const utterance = {
+      id: '0192b1f0-7c1e-7a8a-9a51-2a4f0e7d1c3b',
+      mode: 'sale',
+      transcript: 'hai chai sting',
+      language: 'vi',
+      intent: 'sale',
+      model: 'test/model',
+      latency_ms: 900,
+      created_at: '2026-10-27T00:00:00Z',
+    };
+
+    it('createVoiceUtterance posts multipart fields for a web Blob', async () => {
+      const { api, fetchMock } = setup(json(utterance, 201), 'tok');
+      const audio = new Blob([new Uint8Array([1, 2])], { type: 'audio/mp4' });
+      const { data, response } = await api.createVoiceUtterance({
+        audio,
+        filename: 'two-line-sale.m4a',
+        mode: 'sale',
+        context: ctx,
+      });
+      expect(response.status).toBe(201);
+      expect(data?.intent).toBe('sale');
+      const req = fetchMock.mock.calls[0]![0];
+      expect(req.url).toBe('https://api.example.test/v1/voice/utterances');
+      expect(req.headers.get('content-type')).toMatch(/^multipart\/form-data/);
+      const form = await req.formData();
+      const file = form.get('audio') as File;
+      expect(file.name).toBe('two-line-sale.m4a');
+      expect(file.type).toBe('audio/mp4');
+      expect(form.get('mode')).toBe('sale');
+      expect(form.get('language')).toBe('vi');
+      expect(JSON.parse(form.get('context') as string)).toEqual(ctx);
+    });
+
+    it('createVoiceUtterance passes a React Native file object through', async () => {
+      const { api, fetchMock } = setup(json(utterance, 201));
+      const appended: unknown[][] = [];
+      const real = FormData.prototype.append;
+      FormData.prototype.append = function (...args: unknown[]) {
+        appended.push(args);
+        return (real as (...a: unknown[]) => void).apply(this, [
+          args[0],
+          typeof args[1] === 'object' && args[1] && 'uri' in args[1]
+            ? new Blob(['x'])
+            : args[1],
+          ...args.slice(2),
+        ]);
+      } as typeof real;
+      try {
+        await api.createVoiceUtterance({
+          audio: { uri: 'file:///a.m4a', name: 'a.m4a', type: 'audio/mp4' },
+          mode: 'transcribe',
+          language: 'en',
+          context: ctx,
+        });
+      } finally {
+        FormData.prototype.append = real;
+      }
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(appended[0]).toEqual([
+        'audio',
+        { uri: 'file:///a.m4a', name: 'a.m4a', type: 'audio/mp4' },
+      ]);
+      expect(appended[1]).toEqual(['mode', 'transcribe']);
+      expect(appended[2]).toEqual(['language', 'en']);
+    });
+
+    it.each([
+      [422, 'no_speech'],
+      [429, 'voice_quota'],
+      [503, 'voice_unavailable'],
+    ])(
+      'createVoiceUtterance maps %s to the error body',
+      async (status, code) => {
+        const { api } = setup(json({ error: 'x', code }, status));
+        const { data, error, response } = await api.createVoiceUtterance({
+          audio: new Blob(['a']),
+          mode: 'sale',
+          context: ctx,
+        });
+        expect(data).toBeUndefined();
+        expect(response.status).toBe(status);
+        expect((error as { code?: string }).code).toBe(code);
+      },
+    );
+
+    it('postVoiceOutcome sends JSON and resolves 204', async () => {
+      const { api, fetchMock } = setup(new Response(null, { status: 204 }));
+      const { response, error } = await api.postVoiceOutcome(utterance.id, {
+        outcome: 'abandoned',
+        stage: 'draft',
+      });
+      expect(response.status).toBe(204);
+      expect(error).toBeUndefined();
+      const req = fetchMock.mock.calls[0]![0];
+      expect(req.url).toBe(
+        `https://api.example.test/v1/voice/utterances/${utterance.id}/outcome`,
+      );
+      expect(await req.json()).toEqual({
+        outcome: 'abandoned',
+        stage: 'draft',
+      });
+    });
+  });
+
   it('types: /v1/segment/points exists and product create accepts references', () => {
     type _SegmentPointsPost = paths['/v1/segment/points']['post'];
     type CreateProductBody =

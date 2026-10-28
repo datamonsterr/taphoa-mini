@@ -85,6 +85,8 @@ tags:
 
   - name: Assistant
     description: Private chat threads, proposed actions, next steps and daily digest.
+  - name: Voice
+    description: Voice sale drafts from a spoken utterance, and outcome feedback (V0-V6).
   - name: Devices
     description: Expo push token registrations.
 
@@ -2331,6 +2333,73 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/voice/utterances:
+    post:
+      tags: [Voice]
+      operationId: createVoiceUtterance
+      summary: Turn one spoken utterance into a transcript and an optional sale draft
+      description: |
+        Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
+        1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
+        `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
+        `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+        per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
+        back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, mode]
+              properties:
+                audio: { type: string, format: binary }
+                mode: { type: string, enum: [sale, transcribe] }
+                language: { type: string, enum: [vi, en], default: vi }
+                context:
+                  type: string
+                  description: 'JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}.'
+            encoding:
+              audio:
+                contentType: audio/mp4, audio/wav, audio/ogg
+      responses:
+        '201':
+          description: Utterance understood.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceUtterance' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/voice/utterances/{utteranceId}/outcome:
+    post:
+      tags: [Voice]
+      operationId: postVoiceOutcome
+      summary: Report what the seller did with a voice draft
+      description: Idempotent per utterance; the last write wins.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+        - name: utteranceId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoiceOutcomeRequest' }
+      responses:
+        '204': { description: Recorded. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /v1/devices:
     post:
       tags:
@@ -3037,6 +3106,118 @@ components:
         version: { type: integer, format: int64 }
         created_by: { type: string, format: uuid }
         updated_at: { type: string, format: date-time }
+    ProductSummary:
+      type: object
+      description: Minimal Product subset a voice draft sheet needs.
+      required: [id, name, price, base_unit]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        price: { $ref: '#/components/schemas/Money' }
+        base_unit: { type: string, example: chai }
+        units:
+          type: array
+          items: { $ref: '#/components/schemas/ProductUnit' }
+        image_url: { type: [string, 'null'], format: uri }
+    VoiceUtteranceContext:
+      type: object
+      required: [entry, screen]
+      properties:
+        entry: { type: string, example: sell_fab }
+        screen: { type: string, example: sell }
+        thread_id: { type: [string, 'null'], format: uuid }
+    CustomerMatch:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [matched, candidates, none] }
+        customer: { $ref: '#/components/schemas/Customer' }
+        candidates:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/Customer' }
+        spoken_name: { type: string }
+    VoiceDraftLine:
+      type: object
+      required: [id, spoken, quantity, status]
+      properties:
+        id:
+          {
+            type: string,
+            format: uuid,
+            description: Client reuses it as SaleLineInput.id.,
+          }
+        spoken: { type: string }
+        status: { type: string, enum: [matched, ambiguous, unknown] }
+        product: { $ref: '#/components/schemas/ProductSummary' }
+        candidates:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/ProductSummary' }
+        unit_id: { type: [string, 'null'], format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+        unit_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+          description: Spoken price, else catalog price, else null.
+        price_source: { type: string, enum: [spoken, catalog, none] }
+        price_mismatch:
+          { type: boolean, description: Spoken price differs from catalog. }
+        needs_price: { type: boolean }
+    VoiceSaleDraft:
+      type: object
+      required: [lines, payment_method, total]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/VoiceDraftLine' }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        customer: { $ref: '#/components/schemas/CustomerMatch' }
+        total: { $ref: '#/components/schemas/Money' }
+    VoiceUtterance:
+      type: object
+      required:
+        [id, mode, transcript, language, intent, model, latency_ms, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        mode: { type: string, enum: [sale, transcribe] }
+        transcript: { type: string }
+        language: { type: string, enum: [vi, en] }
+        intent: { type: string, enum: [sale, chat, none] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        sale_draft: { $ref: '#/components/schemas/VoiceSaleDraft' }
+        model: { type: string, description: Slug that answered. }
+        stt_fallback:
+          { type: boolean, description: True when the STT path was used. }
+        latency_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+    VoiceCorrection:
+      type: object
+      required: [line_id]
+      properties:
+        line_id: { type: string, format: uuid }
+        chosen_product_id: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+        unit_price: { $ref: '#/components/schemas/Money' }
+        removed: { type: boolean }
+    VoiceOutcomeRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { type: string, enum: [confirmed, edited, abandoned] }
+        sale_id: { type: string, format: uuid }
+        corrections:
+          type: array
+          items: { $ref: '#/components/schemas/VoiceCorrection' }
+        stage:
+          {
+            type: string,
+            enum: [listening, draft, pay],
+            description: For abandoned.,
+          }
     CreateProductRequest:
       type: object
       description: Exactly one of references or image_ids is required; both or neither return 422 validation_failed.
@@ -3556,8 +3737,8 @@ components:
       enum: [cash, transfer, credit]
     LineSource:
       type: string
-      enum: [camera, multi_photo, barcode, grid, manual]
-      description: How the line entered the cart (S1, S8, S2, S3, S4).
+      enum: [camera, multi_photo, barcode, grid, manual, voice]
+      description: How the line entered the cart (S1, S8, S2, S3, S4, voice).
     SaleLineInput:
       type: object
       required: [id, source, quantity, unit_price]
