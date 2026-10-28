@@ -134,6 +134,8 @@ jobs:
           EXPO_PUBLIC_API_URL: http://10.0.2.2:8080
           # Public by design; the bundle embeds it so ClerkProvider talks to the same instance.
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          # voice.yaml opens taphoa://voice?fixture=<clip>: the E2E build honours the fixture param.
+          EXPO_PUBLIC_VOICE_FIXTURES: '1'
         working-directory: apps/mobile/android
         run: >-
           ./gradlew assembleRelease
@@ -166,7 +168,7 @@ jobs:
       matrix:
         include:
           - shard: a
-            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/smoke.yaml .maestro/receipts.yaml
+            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/voice.yaml .maestro/smoke.yaml .maestro/receipts.yaml
           - shard: b
             flows: .maestro/quick-enroll.yaml .maestro/inventory.yaml .maestro/debts.yaml .maestro/checkout.yaml
     env:

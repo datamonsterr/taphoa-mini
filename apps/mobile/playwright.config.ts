@@ -86,6 +86,8 @@ export default defineConfig({
     env: {
       EXPO_PUBLIC_API_URL: API_URL,
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: CLERK_PUBLISHABLE_KEY,
+      // voice.spec.ts opens /voice?fixture=<clip> instead of recording.
+      EXPO_PUBLIC_VOICE_FIXTURES: '1',
     },
   },
 });
