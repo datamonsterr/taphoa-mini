@@ -25,6 +25,7 @@ import { EditPriceSheet } from './EditPriceSheet';
 import { StockMovements } from './StockMovements';
 import { ProductStock } from './ProductStock';
 import { PhotoCarousel } from './PhotoCarousel';
+import { UnitsEditor } from './UnitsEditor';
 import { fill, strings } from './strings';
 
 /** Description from the fields the API has: category and extra selling units. */
@@ -174,6 +175,7 @@ export function ProductScreen() {
           onAdjust={() => setAdjusting(true)}
         />
         <StockMovements productId={product.id} />
+        {isLead ? <UnitsEditor product={product} /> : null}
         {description ? (
           <Text testID="product-description" style={styles.description}>
             {description}

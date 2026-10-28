@@ -19,6 +19,15 @@ export {
 export type { components, paths };
 export type Image = components['schemas']['Image'];
 export type ImagePurpose = components['schemas']['ImagePurpose'];
+export type ProductUnit = components['schemas']['ProductUnit'];
+export type ProductUnits = NonNullable<
+  components['schemas']['ProductPatch']['units']
+>;
+export type ExportTransactionsQuery = NonNullable<
+  paths['/v1/exports/transactions']['get']['parameters']['query']
+>;
+export type VoidSaleInput =
+  paths['/v1/sales/{saleId}/void']['post']['requestBody']['content']['application/json'];
 
 export interface ApiClientOptions {
   /** API origin, e.g. https://api.example.com. Trailing slashes are ignored. */
@@ -98,6 +107,53 @@ export function createApiClient(options: ApiClientOptions) {
 
   return {
     raw: client,
+    getSale: (saleId: string) =>
+      client.GET('/v1/sales/{saleId}', {
+        params: { path: { saleId } },
+      }),
+    voidSale: (saleId: string, body: VoidSaleInput) =>
+      client.POST('/v1/sales/{saleId}/void', {
+        params: { path: { saleId } },
+        body,
+      }),
+    exportTransactions: (query: ExportTransactionsQuery) =>
+      client.GET('/v1/exports/transactions', {
+        params: { query },
+        parseAs: 'arrayBuffer',
+      }),
+    // Units are a full replacement on the product, rather than separate REST resources.
+    // Callers pass the currently displayed units so sibling entries are retained.
+    createProductUnit: (
+      productId: string,
+      units: ProductUnits,
+      unit: ProductUnit,
+    ) =>
+      client.PATCH('/v1/products/{productId}', {
+        params: { path: { productId } },
+        body: { units: [...units, unit] },
+      }),
+    updateProductUnit: (
+      productId: string,
+      units: ProductUnits,
+      unit: ProductUnit,
+    ) =>
+      client.PATCH('/v1/products/{productId}', {
+        params: { path: { productId } },
+        body: {
+          units: units.map((existing) =>
+            existing.id === unit.id ? unit : existing,
+          ),
+        },
+      }),
+    deleteProductUnit: (
+      productId: string,
+      units: ProductUnits,
+      unitId: string,
+    ) =>
+      client.PATCH('/v1/products/{productId}', {
+        params: { path: { productId } },
+        body: { units: units.filter((unit) => unit.id !== unitId) },
+      }),
     sendAssistantMessage: async (
       threadId: string,
       body: components['schemas']['SendAssistantMessage'],

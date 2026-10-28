@@ -9,6 +9,7 @@ import { holdNext } from '@/test/hold';
 import { listSales, setApiTransport } from '@/lib/api';
 import { createMockFetch } from '@/test/mock/fetch';
 import * as ledgerApi from '@/lib/api/ledger';
+import { getProduct } from '@/lib/api/products';
 import { resetMockDb } from '@/test/mock/db';
 import { PRODUCT_IDS } from '@/test/mock/fixtures';
 import { useCartStore } from '@/stores/cart';
@@ -487,4 +488,40 @@ describe('PayScreen credit', () => {
       screen.getByRole('header', { name: 'Chọn khách ghi nợ' }),
     ).toBeOnTheScreen();
   });
+});
+
+test('checkout sends chosen unit_id and its price, with separate base and pack lines', async () => {
+  useCartStore.setState({ lines: [] });
+  const product = await getProduct(PRODUCT_IDS.coca);
+  const unit = product.units[0]!;
+  useCartStore
+    .getState()
+    .add({ productId: product.id, name: product.name!, price: product.price });
+  useCartStore.getState().add({
+    productId: product.id,
+    name: product.name!,
+    price: unit.price,
+    unitId: unit.id,
+  });
+  const request = jest.spyOn(ledgerApi, 'createSale');
+  await renderWithProviders(<PayScreen />);
+  await screen.findByTestId('qr-value');
+  await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+  await waitFor(() => expect(request).toHaveBeenCalled());
+  const body = request.mock.calls[0]![0];
+  expect(body.lines).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        product_id: product.id,
+        unit_price: product.price,
+      }),
+      expect.objectContaining({
+        product_id: product.id,
+        unit_id: unit.id,
+        unit_price: unit.price,
+      }),
+    ]),
+  );
+  expect(new Set(body.lines.map((line) => line.id)).size).toBe(2);
+  expect(body.total).toBe(product.price + unit.price);
 });

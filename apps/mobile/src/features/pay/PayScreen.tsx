@@ -40,7 +40,8 @@ import { formatVnd } from '@/lib/format';
 import { fill, useLabels, useT } from '@/lib/i18n';
 import { newUuid, saleCode } from '@/lib/uuid';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
-import type { CartLine } from '@/stores/cart';
+import { cartLineKey, type CartLine } from '@/stores/cart';
+import { UnitChooser } from '@/features/checkout/UnitChooser';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { applyKey } from '@/components/ui/keypad';
@@ -219,14 +220,15 @@ export function PayScreen() {
           ? { cash_received: cashGiven }
           : { vietqr_memo: memo }),
       lines: lines.map((line) => {
-        let id = lineIds.get(line.productId);
+        let id = lineIds.get(cartLineKey(line));
         if (!id) {
           id = newUuid();
-          lineIds.set(line.productId, id);
+          lineIds.set(cartLineKey(line), id);
         }
         return {
           id,
           product_id: line.productId,
+          ...(line.unitId ? { unit_id: line.unitId } : {}),
           source: line.manual ? 'manual' : (line.source ?? 'camera'),
           quantity: line.qty,
           unit_price: line.price,
@@ -464,7 +466,10 @@ export function PayScreen() {
         contentContainerStyle={styles.itemsContent}
       >
         {lines.map((line) => (
-          <OrderItem key={line.productId} line={line} />
+          <View key={cartLineKey(line)}>
+            <OrderItem line={line} />
+            <UnitChooser line={line} />
+          </View>
         ))}
       </ScrollView>
 
