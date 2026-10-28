@@ -453,6 +453,50 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Recognition
+  /v1/recognition/document-probes:
+    post:
+      tags: [Recognition]
+      operationId: probeDocument
+      summary: Detect receipt text lines in a live camera preview still
+      description: |
+        Authenticated members with checkout scan permissions may send a small JPEG/PNG
+        still every 2–3 seconds. Expo Go has no frame processors. Runs only the text
+        detector, without SAM, embeddings, scan/image rows or object storage uploads.
+        Maximum image size is 512 KB (524288 bytes). Limited to 40 requests per minute
+        per member; 429 includes Retry-After. Inference admission is shared with scans;
+        a busy instance returns 503 with Retry-After. Returns 503 `ocr_unavailable`
+        when no text detector is configured.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: JPEG or PNG, at most 524288 bytes.
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+      responses:
+        '200':
+          description: Document detection signal; nothing is persisted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentSignal' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/recognition/scans:
     post:
       tags: [Recognition]
@@ -2499,7 +2543,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     PayloadTooLarge:
-      description: Upload above 10 MiB.
+      description: Upload exceeds the endpoint limit (512 KB for document probes; 10 MiB for image uploads).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2864,9 +2908,11 @@ components:
           items: { $ref: '#/components/schemas/Detection' }
         created_at: { type: string, format: date-time }
     ScanDocument:
+      $ref: '#/components/schemas/DocumentSignal'
+    DocumentSignal:
       type: object
-      description: Present on every scan; detection runs alongside segmentation on the downsized image.
-      required: [detected, score, text_lines]
+      description: Text detection signal, returned by preview probes and every scan.
+      required: [detected, score, text_lines, line_boxes]
       properties:
         detected:
           type: boolean
@@ -2877,6 +2923,15 @@ components:
           maximum: 1
           description: text_area_ratio / 0.2, clamped to [0, 1].
         text_lines: { type: integer, minimum: 0 }
+        line_boxes:
+          type: array
+          description: Grouped text lines sorted top-to-bottom. Each box is [x, y, width, height], normalized to image dimensions and clamped to [0, 1]. Empty when no text is found; the full text_lines count may exceed the box cap.
+          maxItems: 40
+          items:
+            type: array
+            minItems: 4
+            maxItems: 4
+            items: { type: number, minimum: 0, maximum: 1 }
     Detection:
       type: object
       required: [id, bbox, score, match, candidates]

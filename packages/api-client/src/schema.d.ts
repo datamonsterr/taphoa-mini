@@ -254,6 +254,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recognition/document-probes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detect receipt text lines in a live camera preview still
+         * @description Authenticated members with checkout scan permissions may send a small JPEG/PNG
+         *     still every 2–3 seconds. Expo Go has no frame processors. Runs only the text
+         *     detector, without SAM, embeddings, scan/image rows or object storage uploads.
+         *     Maximum image size is 512 KB (524288 bytes). Limited to 40 requests per minute
+         *     per member; 429 includes Retry-After. Inference admission is shared with scans;
+         *     a busy instance returns 503 with Retry-After. Returns 503 `ocr_unavailable`
+         *     when no text detector is configured.
+         */
+        post: operations["probeDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recognition/scans": {
         parameters: {
             query?: never;
@@ -1681,13 +1707,16 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
-        /** @description Present on every scan; detection runs alongside segmentation on the downsized image. */
-        ScanDocument: {
+        ScanDocument: components["schemas"]["DocumentSignal"];
+        /** @description Text detection signal, returned by preview probes and every scan. */
+        DocumentSignal: {
             /** @description True when text_lines >= 6 and text_area_ratio >= 0.08. */
             detected: boolean;
             /** @description text_area_ratio / 0.2, clamped to [0, 1]. */
             score: number;
             text_lines: number;
+            /** @description Grouped text lines sorted top-to-bottom. Each box is [x, y, width, height], normalized to image dimensions and clamped to [0, 1]. Empty when no text is found; the full text_lines count may exceed the box cap. */
+            line_boxes: number[][];
         };
         Detection: {
             /**
@@ -2814,7 +2843,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Upload above 10 MiB. */
+        /** @description Upload exceeds the endpoint limit (512 KB for document probes; 10 MiB for image uploads). */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -3396,6 +3425,47 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    probeDocument: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description JPEG or PNG, at most 524288 bytes.
+                     */
+                    image: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Document detection signal; nothing is persisted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentSignal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
