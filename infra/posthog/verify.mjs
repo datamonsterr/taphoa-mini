@@ -1,6 +1,8 @@
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { dashboards } from './definitions/index.mjs';
+import { llmDashboards } from './llm/index.mjs';
+import { traceFilters } from './llm/trace-filters.mjs';
 import { createClient } from './lib/client.mjs';
 import { loadSecrets } from './lib/secrets.mjs';
 
@@ -72,20 +74,39 @@ export function hasData(results) {
   };
   return results.some(measured);
 }
-export async function verify({ client, environment, days = 7, allowEmpty }) {
+export async function verify({
+  client,
+  environment,
+  days = 7,
+  allowEmpty,
+  only,
+}) {
+  if (only && !['dashboards', 'llm'].includes(only))
+    throw new Error('--only must be one of: dashboards, llm');
+  const selectedDashboards = [
+    ...(!only || only === 'dashboards' ? dashboards : []),
+    ...(!only || only === 'llm'
+      ? [...llmDashboards, { name: 'Assistant traces', insights: traceFilters }]
+      : []),
+  ];
   const insights = [];
-  for (const dashboard of dashboards)
+  for (const dashboard of selectedDashboards)
     for (const insight of dashboard.insights) {
       const row = {
         dashboard: dashboard.name,
         insight: insight.name,
         rows: 0,
         ok: false,
+        data: false,
       };
       try {
-        const query = scopeQuery(insight.query, { environment, days });
+        const query = scopeQuery(insight.query, {
+          environment: insight.scope === 'all' ? undefined : environment,
+          days,
+        });
         const result = await client.post('query/', {
           query,
+          name: insight.name,
           refresh: 'force_blocking',
         });
         row.rows = result.results?.length ?? 0;
@@ -108,8 +129,12 @@ export async function verify({ client, environment, days = 7, allowEmpty }) {
       } catch (error) {
         row.error = error.message;
       }
+      row.data = row.ok;
+      const llm =
+        dashboard.name === 'Assistant traces' ||
+        llmDashboards.includes(dashboard);
       // Charts that are empty by design (no backend errors, producer epic not shipped yet).
-      if (!row.ok && !row.error && allowEmpty?.test(insight.name)) {
+      if (!row.ok && !row.error && (llm || allowEmpty?.test(insight.name))) {
         row.ok = true;
         row.note = 'empty (allowed)';
       }
@@ -124,6 +149,7 @@ export async function main(args = process.argv.slice(2)) {
       environment: { type: 'string' },
       days: { type: 'string', default: '7' },
       json: { type: 'boolean', default: false },
+      only: { type: 'string' },
       'allow-empty': { type: 'string' },
     },
   });
@@ -138,16 +164,17 @@ export async function main(args = process.argv.slice(2)) {
     client: createClient(config),
     environment: values.environment,
     days,
+    only: values.only,
     allowEmpty: values['allow-empty']
       ? new RegExp(values['allow-empty'])
       : undefined,
   });
   if (values.json) console.log(JSON.stringify(result, null, 2));
   else {
-    console.log('dashboard | insight | rows | ok');
+    console.log('dashboard | insight | rows | data | ok');
     for (const row of result.insights)
       console.log(
-        `${row.dashboard} | ${row.insight} | ${row.rows} | ${row.ok ? 'yes' : 'no'}${row.note ? ` (${row.note})` : ''}${row.error ? ` (${row.error})` : ''}`,
+        `${row.dashboard} | ${row.insight} | ${row.rows} | ${row.data ? 'yes' : 'no'} | ${row.ok ? 'yes' : 'no'}${row.note ? ` (${row.note})` : ''}${row.error ? ` (${row.error})` : ''}`,
       );
   }
   if (!result.ok) process.exitCode = 1;

@@ -63,6 +63,7 @@ pub static MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
 
 #[derive(Clone)]
 pub struct AppState {
+    pub clock: time::Clock,
     pub clerk: auth::ClerkVerifier,
     pub profile: auth::profile::ProfileClient,
     pub analytics: Arc<dyn analytics::Analytics>,
@@ -97,6 +98,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            clock: time::Clock::default(),
             clerk: auth::ClerkVerifier::from_jwks(
                 "https://unconfigured.invalid",
                 vec![],
@@ -159,6 +161,7 @@ impl AppState {
         state.rate_limits = config.rate_limits;
         state.client_ip = config.client_ip;
         state.probe_slots = Arc::new(Semaphore::new(config.document_probe_concurrency));
+        state.clock = config.clock;
         state.config = Some(Arc::new(config.clone()));
         Ok(state)
     }

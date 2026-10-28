@@ -76,6 +76,7 @@ impl ClerkSettings {
 // No Debug: contains the optional Clerk secret key.
 #[derive(Clone)]
 pub struct Config {
+    pub clock: crate::time::Clock,
     pub port: u16,
     pub database_url: Option<String>,
     pub redis_url: Option<String>,
@@ -150,6 +151,7 @@ impl Config {
             hops,
         )?;
         Ok(Self {
+            clock: crate::time::Clock::from_lookup(&get)?,
             ocr_det,
             ocr_encoder,
             ocr_decoder,
@@ -233,6 +235,38 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_validates_business_clock_override() {
+        for (raw, environment, valid) in [
+            ("2026-01-15T10:00:00+07:00", "test", true),
+            ("10:00", "test", true),
+            ("2026-01-15T10:00:00+07:00", "production", false),
+            ("10:00", "production", false),
+        ] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "TAPHOA_TEST_NOW" => Some(raw.into()),
+                "RAILWAY_ENVIRONMENT_NAME" => Some(environment.into()),
+                _ => None,
+            });
+            assert_eq!(config.is_ok(), valid);
+            if let Ok(config) = config {
+                assert_eq!(
+                    config
+                        .clock
+                        .now()
+                        .with_timezone(&crate::time::STORE_TZ)
+                        .format("%H")
+                        .to_string(),
+                    "10"
+                );
+                if raw != "10:00" {
+                    assert_eq!(config.clock.today().to_string(), "2026-01-15");
+                }
+            }
+        }
+    }
+
     #[test]
     fn ocr_paths_are_all_or_none_and_threads_are_positive() {
         let keys = [
@@ -392,6 +426,7 @@ mod tests {
                 "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),
                 "TRUSTED_PROXY_HOPS" => "2".into(),
+                "TAPHOA_TEST_NOW" => return None,
                 n if n.starts_with("RATE_LIMIT_") => "7".into(),
                 _ => name.into(),
             })

@@ -6,14 +6,13 @@ use crate::{
     ApiError, ApiResult, AppState,
     auth::{Action, Actor, data::pool},
     money,
-    time::business_date,
 };
 use axum::{
     Json, Router,
     extract::{Query, State, rejection::QueryRejection},
     routing::get,
 };
-use chrono::{Datelike, Duration, Months, NaiveDate, Utc};
+use chrono::{Datelike, Duration, Months, NaiveDate};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -101,9 +100,7 @@ async fn today(
     actor: Actor,
     params: Result<Query<TodayParams>, QueryRejection>,
 ) -> ApiResult<Json<Value>> {
-    let date = query(params)?
-        .date
-        .unwrap_or_else(|| business_date(Utc::now()));
+    let date = query(params)?.date.unwrap_or_else(|| state.clock.today());
     let r: DailyRow = sqlx::query_as(TODAY_SQL)
         .bind(actor.store_id)
         .bind(date)

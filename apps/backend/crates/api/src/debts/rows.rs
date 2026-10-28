@@ -1,6 +1,6 @@
 //! Shared database projections and JSON shaping for HTTP and the sync feed.
 use super::{aging, db_error};
-use crate::{ApiResult, time::business_date};
+use crate::ApiResult;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -53,6 +53,7 @@ pub(crate) async fn load_customers(
     conn: &mut PgConnection,
     store: Uuid,
     ids: &[Uuid],
+    today: NaiveDate,
 ) -> ApiResult<Vec<(Uuid, Value)>> {
     let rows: Vec<CustomerRow> =
         sqlx::query_as("SELECT * FROM customers WHERE store_id=$1 AND id=ANY($2)")
@@ -61,7 +62,6 @@ pub(crate) async fn load_customers(
             .fetch_all(conn)
             .await
             .map_err(db_error)?;
-    let today = business_date(Utc::now());
     Ok(rows.into_iter().map(|r| (r.id, r.json(today))).collect())
 }
 pub(crate) async fn load_entries(

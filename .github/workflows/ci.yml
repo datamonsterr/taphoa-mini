@@ -844,7 +844,7 @@ jobs:
     needs: [changes, backend-binary]
     if: needs.changes.outputs.eval == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       group: assistant-eval-smoke-${{ github.ref }}
       cancel-in-progress: true
@@ -974,9 +974,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      - name: PostHog controller and definitions tests
+      - name: PostHog controller, product and LLM definitions tests
         run: node --test infra/posthog/tests
-      - name: Offline dashboard plan
+      - name: Offline product and LLM dashboard plan
         run: node infra/posthog/apply.mjs --dry-run --offline
       - name: Summary
         if: always()

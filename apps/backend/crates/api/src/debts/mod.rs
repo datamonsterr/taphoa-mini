@@ -192,7 +192,7 @@ async fn entry(
         method.as_deref(),
         reason.as_deref(),
         actor.member_id,
-        business_date(at.unwrap_or_else(Utc::now)),
+        business_date(at.unwrap_or_else(|| state.clock.now())),
         Some(key_hash.as_slice()),
         Some(hash.as_slice()),
         Some(actor.event_actor()),
