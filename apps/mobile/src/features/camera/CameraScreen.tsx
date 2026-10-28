@@ -60,7 +60,8 @@ import { useNextStepChips } from '@/features/assistant/useNextStepChips';
 import { useT } from '@/lib/i18n';
 import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
-import { useCanEnroll } from '@/features/auth/useMembership';
+import { voiceHref } from '@/features/voice/route';
+import { useCanEnroll, useMembership } from '@/features/auth/useMembership';
 import { camera, colors, size, space } from '@/theme';
 
 import {
@@ -235,6 +236,7 @@ export function CameraScreen() {
   const [readingReceipt, setReadingReceipt] = useState(false);
   const { mutateAsync: uploadImage } = useUploadImage();
   const canEnroll = useCanEnroll();
+  const joinedAt = useMembership()?.member.created_at;
   // Keep the same variables object for an explicit retry of the same uploaded image.
   const receiptInput = useRef<{ image_id: string } | null>(null);
   const readReceipt = async (
@@ -496,6 +498,7 @@ export function CameraScreen() {
     unknownProduct: anyLow && hasResult,
     canEnroll,
     enabled: assistantOn,
+    joinedAt,
   });
   const onChipPress = (chip: NextStepChipData, position: number) => {
     tap(chip, position);
@@ -513,6 +516,7 @@ export function CameraScreen() {
                 }),
               ),
       );
+    else if (action.type === 'voice') router.push(voiceHref({ entry: 'chip' }));
     else if (action.type === 'enroll')
       goEnroll(scan?.detections.find(isLowMatch)?.id);
     else if (action.type === 'navigate') router.push(action.route as Href);

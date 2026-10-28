@@ -40,6 +40,7 @@ import { useDocumentProbe } from './useDocumentProbe';
 import { useCaptureModeStore } from './modeStore';
 import { initialQuickEnroll, useQuickEnrollStore } from './quickEnroll';
 import * as downsizing from '@/lib/api/downsize';
+import { useVoiceSettings } from '@/features/voice/voiceSettings';
 
 jest.mock('./useDocumentProbe', () => ({
   useDocumentProbe: jest.fn(() => null),
@@ -1132,6 +1133,8 @@ test('document action is hidden while scanning and an explicit create retry reus
 });
 
 describe('assistant entry points', () => {
+  // The new member sees the voice_sale chip; it is covered below, the others assume it is gone.
+  beforeEach(() => useVoiceSettings.setState({ voiceSales: 3 }));
   const strip = () => screen.findByTestId('next-step-strip');
   const chipNames = () =>
     within(screen.getByTestId('next-step-strip'))
@@ -1153,6 +1156,41 @@ describe('assistant entry points', () => {
       pathname: '/assistant',
       params: { entry: 'button', screen: 'camera' },
     });
+  });
+
+  it('long-pressing the chat button opens the voice sale sheet', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent(screen.getByTestId('chat-button'), 'longPress');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/voice',
+      params: { entry: 'longpress' },
+    });
+  });
+
+  it('a new member sees the voice_sale chip first and it opens the voice sheet', async () => {
+    useVoiceSettings.setState({ voiceSales: 0 });
+    const events: [string, unknown][] = [];
+    setAnalyticsSink({ capture: (name, props) => events.push([name, props]) });
+    try {
+      await renderWithProviders(<CameraScreen />);
+      await strip();
+      expect(chipNames()[0]).toBe(
+        'Bán bằng giọng nói. Nói “hai chai coca” là xong',
+      );
+      await fireEvent.press(
+        screen.getByRole('button', { name: /^Bán bằng giọng nói/ }),
+      );
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/voice',
+        params: { entry: 'chip' },
+      });
+      expect(events).toContainEqual([
+        'next_step_tapped',
+        { kind: 'voice_sale', position: 0 },
+      ]);
+    } finally {
+      setAnalyticsSink(null);
+    }
   });
 
   it('shows the server chips in the strip slot under the viewfinder', async () => {

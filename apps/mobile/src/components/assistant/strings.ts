@@ -4,6 +4,7 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     open: 'Mở trợ lý',
+    voiceHint: 'Giữ để bán bằng giọng nói',
     strip: 'Gợi ý bước tiếp theo',
     readReceipt: 'Đọc hóa đơn nhập',
     receiptAssistant: 'Nhập trong trợ lý',
@@ -11,9 +12,12 @@ export const strings: Dict = {
     'sub.receipt_detected': 'Trợ lý đọc từng dòng',
     'kind.unknown_product': 'Hàng chưa có trong kho',
     'sub.unknown_product': 'Thêm vào kho',
+    'kind.voice_sale': 'Bán bằng giọng nói',
+    'sub.voice_sale': 'Nói “hai chai coca” là xong',
   },
   en: {
     open: 'Open assistant',
+    voiceHint: 'Hold to sell by voice',
     strip: 'Suggested next steps',
     readReceipt: 'Read import receipt',
     receiptAssistant: 'Import in assistant',
@@ -21,6 +25,8 @@ export const strings: Dict = {
     'sub.receipt_detected': 'The assistant reads each line',
     'kind.unknown_product': 'Product not in stock',
     'sub.unknown_product': 'Add it to your stock',
+    'kind.voice_sale': 'Sell by voice',
+    'sub.voice_sale': 'Say “two cokes” and you are done',
     'kind.restock': 'Restock',
     'kind.draft_receipts': 'Draft receipts',
     'kind.overdue_debts': 'Overdue debts',

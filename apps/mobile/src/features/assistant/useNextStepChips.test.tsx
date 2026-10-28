@@ -5,6 +5,10 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import type { NextStepChipData } from '@/components/assistant/chip';
 import { setAnalyticsSink } from '@/lib/analytics';
 import { useSettingsStore } from '@/stores/settings';
+import {
+  initialVoiceSettings,
+  useVoiceSettings,
+} from '@/features/voice/voiceSettings';
 import { createTestQueryClient } from '@/test/render';
 
 import { useNextSteps } from './api';
@@ -107,6 +111,7 @@ beforeEach(() => {
   mockFocus.focused = true;
   setAnalyticsSink({ capture: (name, props) => events.push([name, props]) });
   useSettingsStore.setState({ language: 'vi' });
+  useVoiceSettings.setState(initialVoiceSettings);
   mockSteps([restock, drafts]);
   jest.mocked(useNextSteps).mockClear();
 });
@@ -261,4 +266,76 @@ test('tap captures next_step_tapped with kind and position', async () => {
     'next_step_tapped',
     { kind: 'receipt_detected', position: 1 },
   ]);
+});
+
+describe('voice_sale chip', () => {
+  const joined = (days: number) =>
+    new Date(Date.now() - days * 86_400_000).toISOString();
+
+  test('shows after the device chips and before the server chips for a new member', async () => {
+    const { result } = await render({
+      joinedAt: joined(2),
+      documentDetected: true,
+    });
+    expect(kinds(result.current.chips)).toEqual([
+      'receipt_detected',
+      'voice_sale',
+      'restock',
+      'draft_receipts',
+    ]);
+    expect(result.current.chips[1]).toEqual({
+      id: 'voice_sale',
+      kind: 'voice_sale',
+      title: 'Bán bằng giọng nói',
+      subtitle: 'Nói “hai chai coca” là xong',
+      source: 'app',
+      action: { type: 'voice' },
+    });
+  });
+
+  test('is in English when the language is English', async () => {
+    useSettingsStore.setState({ language: 'en' });
+    const { result } = await render({ joinedAt: joined(1) });
+    expect(result.current.chips[0]).toMatchObject({
+      title: 'Sell by voice',
+      subtitle: 'Say “two cokes” and you are done',
+    });
+  });
+
+  test('is gone after 14 days', async () => {
+    const { result } = await render({ joinedAt: joined(15) });
+    expect(kinds(result.current.chips)).not.toContain('voice_sale');
+  });
+
+  test('is gone after three voice sales and without a join date', async () => {
+    useVoiceSettings.setState({ voiceSales: 3 });
+    expect(
+      kinds((await render({ joinedAt: joined(1) })).result.current.chips),
+    ).not.toContain('voice_sale');
+    useVoiceSettings.setState({ voiceSales: 2 });
+    expect(
+      kinds((await render({ joinedAt: joined(1) })).result.current.chips),
+    ).toContain('voice_sale');
+    expect(kinds((await render()).result.current.chips)).not.toContain(
+      'voice_sale',
+    );
+  });
+
+  test('is hidden with the rest of the strip while the assistant is off', async () => {
+    const { result } = await render({ joinedAt: joined(1), enabled: false });
+    expect(result.current.chips).toEqual([]);
+  });
+
+  test('is counted as shown and tapped like any chip', async () => {
+    const { result } = await render({ joinedAt: joined(1) });
+    expect(shown()).toContainEqual([
+      'next_step_shown',
+      { kind: 'voice_sale', position: 0 },
+    ]);
+    await act(async () => result.current.tap(result.current.chips[0]!, 0));
+    expect(events).toContainEqual([
+      'next_step_tapped',
+      { kind: 'voice_sale', position: 0 },
+    ]);
+  });
 });

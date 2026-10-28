@@ -90,9 +90,6 @@ export const voiceStrings: Dict = {
     donate: 'Góp giọng nói để cải thiện',
     'donate.hint':
       'Chỉ lưu lựa chọn trên máy này. Chưa gửi giọng nói đi trong bản này.',
-    // chip
-    'chip.title': 'Bán bằng giọng nói',
-    'chip.subtitle': 'Nói “hai chai coca” là xong',
   },
   en: {
     title: 'Sell by voice',
@@ -176,7 +173,5 @@ export const voiceStrings: Dict = {
     donate: 'Share my voice to improve it',
     'donate.hint':
       'Only saves your choice on this phone. This version does not upload any voice yet.',
-    'chip.title': 'Sell by voice',
-    'chip.subtitle': 'Say “two cokes” and you are done',
   },
 };
