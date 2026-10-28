@@ -15,6 +15,7 @@ pub mod retention;
 pub mod rules;
 pub mod scripted;
 pub mod service;
+pub mod speech;
 pub mod telemetry;
 pub mod text;
 

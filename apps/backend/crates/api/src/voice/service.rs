@@ -1,9 +1,10 @@
 //! One utterance: quota, catalog hint, model chain, rules and match, customer, stored row,
 //! telemetry. The audio lives only in the request and is dropped with it.
 use super::{
-    VoiceState, draft,
+    VoiceState, audio, draft,
     model::{AudioClip, Intent, Parsed, VoiceModel, VoiceParse},
     quota::{self, QuotaOutcome},
+    speech,
     telemetry::{self, CallRecord, Counts},
 };
 use crate::{
@@ -82,6 +83,16 @@ fn retry_last(
         && Instant::now() + RATE_LIMIT_PAUSE * 2 < deadline;
     *retried |= ok;
     ok
+}
+
+async fn speech_verdict(clip: &AudioClip) -> speech::Verdict {
+    let Some(format) = audio::detect(&clip.bytes) else {
+        return speech::Verdict::Unknown;
+    };
+    let bytes = clip.bytes.clone();
+    tokio::task::spawn_blocking(move || speech::check(&bytes, format))
+        .await
+        .unwrap_or(speech::Verdict::Unknown)
 }
 
 struct ChainOk {
@@ -355,6 +366,20 @@ async fn process(
     pool: &sqlx::PgPool,
 ) -> ApiResult<(StatusCode, Value)> {
     let voice = &state.voice;
+    // Speech gate: silence or steady noise never reaches a model (it would invent a sale from
+    // the catalog hint). The unit stays spent; there is no model cost.
+    if speech_verdict(&req.clip).await == speech::Verdict::Silent {
+        telemetry::utterance_finished(
+            span,
+            req.audio_seconds,
+            None,
+            false,
+            "none",
+            Counts::default(),
+            req.started.elapsed().as_millis() as u64,
+        );
+        return Err(no_speech());
+    }
     let hint = voice
         .hints
         .get(pool, actor.store_id, voice.config.hint_ttl)
@@ -388,7 +413,9 @@ async fn process(
             req.started.elapsed().as_millis() as u64,
         );
     };
-    if parse.intent == Intent::None || transcript.is_empty() {
+    // A transcript denser than human speech is invented, whatever the clip's energy was.
+    let invented = speech::implausible_rate(&transcript, req.audio_seconds);
+    if parse.intent == Intent::None || transcript.is_empty() || invented {
         finish("none", Counts::default(), Some(&answered));
         return Err(no_speech());
     }

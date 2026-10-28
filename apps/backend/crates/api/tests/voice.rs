@@ -1114,3 +1114,106 @@ async fn rate_limits_move_to_the_next_slug_and_retry_the_last_once() {
     // Two audio calls (original and one retry), then the STT call.
     assert_eq!(model.calls().len(), 3);
 }
+
+const SILENCE_CLIP: &[u8] = include_bytes!("../src/voice/testdata/39-silence.m4a");
+const NOISE_CLIP: &[u8] = include_bytes!("../src/voice/testdata/40-noise-only.m4a");
+const SPEECH_CLIP: &[u8] = include_bytes!("../src/voice/testdata/08-single-omo.m4a");
+const NOISY_SPEECH_CLIP: &[u8] = include_bytes!("../src/voice/testdata/49-noise-two-line.m4a");
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn silence_and_noise_never_reach_the_model() {
+    let invented = || {
+        sale(
+            "Cho mình lấy 2 lon bia Tiger, 1 gói mì Hảo Hảo",
+            vec![line(
+                "2 lon bia Tiger",
+                "bia Tiger",
+                Some(2.0),
+                Some("lon"),
+                None,
+                None,
+            )],
+            "cash",
+            None,
+        )
+    };
+    let (w, model) = setup(
+        vec![Step::parse(invented()), Step::parse(invented())],
+        |_| {},
+    )
+    .await;
+    w.product("Bia Tiger", 18000, None).await;
+    for clip in [SILENCE_CLIP, NOISE_CLIP] {
+        for mode in ["sale", "transcribe"] {
+            let r = upload(&w, clip, mode).await;
+            assert_eq!(
+                (r.status, r.body["code"].as_str()),
+                (StatusCode::UNPROCESSABLE_ENTITY, Some("no_speech")),
+                "{mode}: {}",
+                r.body
+            );
+        }
+    }
+    assert!(
+        model.calls().is_empty(),
+        "the gate answers before any model call"
+    );
+    // Real speech, quiet or over noise, goes through to the model.
+    let spoken = || {
+        sale(
+            "một lon bia tiger",
+            vec![line(
+                "lon bia tiger",
+                "bia tiger",
+                Some(1.0),
+                None,
+                None,
+                None,
+            )],
+            "cash",
+            None,
+        )
+    };
+    let (w, model) = setup(vec![Step::parse(spoken()), Step::parse(spoken())], |_| {}).await;
+    w.product("Bia Tiger", 18000, None).await;
+    for clip in [SPEECH_CLIP, NOISY_SPEECH_CLIP] {
+        let r = upload(&w, clip, "sale").await;
+        assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    }
+    assert_eq!(model.calls().len(), 2);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn a_transcript_denser_than_speech_is_an_invention() {
+    // A 3 s clip cannot hold 22 words.
+    let long = "Cho mình lấy 2 lon bia Tiger, 1 gói mì Hảo Hảo tôm chua cay, với 1 chai nước suối Lavie nhé";
+    let made_up = sale(
+        long,
+        vec![line(
+            "2 lon bia Tiger",
+            "bia Tiger",
+            Some(2.0),
+            Some("lon"),
+            None,
+            None,
+        )],
+        "cash",
+        None,
+    );
+    let (w, model) = setup(vec![Step::parse(made_up)], |_| {}).await;
+    w.product("Bia Tiger", 18000, None).await;
+    let r = upload(&w, SPEECH_CLIP, "sale").await;
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("no_speech")),
+        "{}",
+        r.body
+    );
+    assert_eq!(
+        model.calls().len(),
+        1,
+        "the model ran, the guard rejected its transcript"
+    );
+}
