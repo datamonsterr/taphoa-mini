@@ -41,7 +41,7 @@ export async function applyEvaluation(client, { dryRun = true } = {}) {
     status: object?.status ?? 'planned',
     blocker: desired.enabled
       ? null
-      : 'No active healthy OpenAI connection. Add one in Settings > AI Observability and rerun apply to enable; scores are unproven.',
+      : 'No active healthy managed OpenRouter connection. Run evaluations-provider.mjs --apply, then rerun evaluation apply; scores are unproven.',
     definition: desired,
   };
 }

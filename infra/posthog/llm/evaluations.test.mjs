@@ -5,6 +5,8 @@ import {
   evaluationName,
   judgeDefinition,
   judgeModel,
+  judgeModels,
+  providerKeyName,
   rubric,
 } from './evaluations.mjs';
 import { resultsQuery, verifyEvaluation } from './evaluations-verify.mjs';
@@ -13,8 +15,16 @@ import { runOne } from './evaluations-run.mjs';
 function fixture({
   requiresKey = false,
   models = true,
+  offered = judgeModels,
   existing = [],
-  keys = [{ id: 'key-id', provider: 'openai', state: 'ok' }],
+  keys = [
+    {
+      id: 'key-id',
+      name: providerKeyName,
+      provider: 'openrouter',
+      state: 'ok',
+    },
+  ],
   active = 'key-id',
   rows = [[0, null, null, []]],
 } = {}) {
@@ -23,9 +33,11 @@ function fixture({
     get: async (path) =>
       path.includes('models/')
         ? {
-            models: models ? [{ provider: 'openai', id: 'gpt-4.1-mini' }] : [],
+            models: models
+              ? offered.map((id) => ({ provider: 'openrouter', id }))
+              : [],
             providers: [
-              { provider: 'openai', requires_provider_key: requiresKey },
+              { provider: 'openrouter', requires_provider_key: requiresKey },
             ],
           }
         : { active_provider_key: active },
@@ -55,8 +67,8 @@ function fixture({
 }
 test('Vietnamese numeric rubric and environment sampling are explicit', () => {
   const d = judgeDefinition({
-    provider: 'openai',
-    model: 'gpt-4.1-mini',
+    provider: 'openrouter',
+    model: judgeModels[0],
     provider_key_id: null,
   });
   assert.equal(d.target, 'generation');
@@ -102,15 +114,31 @@ test('live model catalog must support judge; healthy active connection is pinned
     fixture({
       requiresKey: true,
       active: 'key-id',
-      keys: [{ id: 'key-id', provider: 'openai', state: 'ok' }],
+      keys: [
+        {
+          id: 'key-id',
+          name: providerKeyName,
+          provider: 'openrouter',
+          state: 'ok',
+        },
+      ],
     }).client,
   );
   assert.equal(result.provider_key_id, 'key-id');
+  assert.equal(result.provider, 'openrouter');
+  assert.equal(result.model, judgeModels[0]);
 });
 test('missing or unhealthy connections save paused even if catalog advertises keyless access', async () => {
   for (const keys of [
     [],
-    [{ id: 'key-id', provider: 'openai', state: 'error' }],
+    [
+      {
+        id: 'key-id',
+        name: providerKeyName,
+        provider: 'openrouter',
+        state: 'error',
+      },
+    ],
     [{ id: 'key-id', provider: 'anthropic', state: 'ok' }],
   ]) {
     const f = fixture({ keys });
@@ -132,7 +160,12 @@ test('adding a healthy connection enables the same paused judge on the next appl
   const f = fixture({ keys });
   const paused = await applyEvaluation(f.client, { dryRun: false });
   assert.equal(paused.enabled, false);
-  keys.push({ id: 'key-id', provider: 'openai', state: 'ok' });
+  keys.push({
+    id: 'key-id',
+    name: providerKeyName,
+    provider: 'openrouter',
+    state: 'ok',
+  });
   const enabled = await applyEvaluation(f.client, { dryRun: false });
   assert.equal(enabled.action, 'update');
   assert.equal(enabled.id, paused.id);
@@ -181,7 +214,7 @@ test('verification requires a real score linked to test generation; disabled/dri
   assert.equal((await verifyEvaluation(g.client)).passed, true);
   g.existing[0].model_configuration.model = 'different-model';
   assert.equal((await verifyEvaluation(g.client)).configurationMatches, false);
-  g.existing[0].model_configuration.model = 'gpt-4.1-mini';
+  g.existing[0].model_configuration.model = judgeModels[0];
   g.existing[0].enabled = false;
   assert.equal((await verifyEvaluation(g.client)).passed, false);
   assert.ok(
@@ -200,6 +233,30 @@ test('one-generation runs reject a paused judge without enqueueing', async () =>
   const f = fixture({ keys: [] });
   await applyEvaluation(f.client, { dryRun: false });
   await assert.rejects(runOne(f.client, { dryRun: false }), /enable/);
+  assert.equal(f.writes.length, 1);
+});
+test('missing captured input/output blocks a run before enqueueing', async () => {
+  const f = fixture();
+  await applyEvaluation(f.client, { dryRun: false });
+  const original = f.client.post;
+  f.client.post = async (path, body) => {
+    if (path === 'query/' && body.query.query.includes('ORDER BY timestamp')) {
+      for (const fragment of [
+        "properties.environment = 'test'",
+        "properties.$ai_provider = 'openrouter'",
+        'properties.$ai_is_error = false',
+        'isNotNull(properties.$ai_input)',
+        'isNotNull(properties.$ai_output_choices)',
+      ])
+        assert.ok(body.query.query.includes(fragment));
+      return { results: [] };
+    }
+    return original(path, body);
+  };
+  await assert.rejects(
+    runOne(f.client, { dryRun: false }),
+    /No successful existing test generation with input\/output/,
+  );
   assert.equal(f.writes.length, 1);
 });
 test('one-generation run skips when score exists and dry-run does not enqueue', async () => {
@@ -225,4 +282,50 @@ test('one-generation run skips when score exists and dry-run does not enqueue', 
   assert.equal(f.writes.length, 1);
   await runOne(f.client, { dryRun: false });
   assert.equal(f.writes[1].path, 'evaluation_runs/');
+});
+
+test('free judge selection follows preference order and accepts a catalog-backed override', async () => {
+  const f = fixture({ offered: [judgeModels[2], judgeModels[1]] });
+  const get = f.client.get;
+  f.client.get = async (path) => {
+    if (path.includes('models/'))
+      assert.match(path, /provider=openrouter&key_id=key-id/);
+    return get(path);
+  };
+  assert.equal((await judgeModel(f.client)).model, judgeModels[1]);
+  assert.equal(
+    (await judgeModel(f.client, { model: judgeModels[2] })).model,
+    judgeModels[2],
+  );
+  await assert.rejects(
+    judgeModel(f.client, { model: judgeModels[0] }),
+    /does not advertise/,
+  );
+  for (const model of [
+    'openai/paid',
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
+    'secret-invalid',
+  ]) {
+    await assert.rejects(
+      judgeModel(f.client, { model }),
+      /must be a free OpenRouter/,
+    );
+  }
+});
+test('nested active connection is accepted; unrelated named key cannot enable the judge', async () => {
+  const f = fixture({
+    active: { id: 'key-id', api_key_masked: 'never-output' },
+  });
+  assert.equal((await judgeModel(f.client)).provider_key_id, 'key-id');
+  const g = fixture({
+    keys: [
+      {
+        id: 'key-id',
+        name: 'someone-else',
+        provider: 'openrouter',
+        state: 'ok',
+      },
+    ],
+  });
+  assert.equal((await judgeModel(g.client)).provider_key_id, null);
 });

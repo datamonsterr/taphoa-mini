@@ -6,7 +6,12 @@ import {
   main,
   sqlString,
 } from './pricing.mjs';
-import { evaluationName, judgeDefinition, matches } from './evaluations.mjs';
+import {
+  evaluationName,
+  judgeDefinition,
+  judgeModel,
+  matches,
+} from './evaluations.mjs';
 
 export async function managedEvaluation(client) {
   const found = (await client.listAll('evaluations/')).filter(
@@ -44,11 +49,7 @@ export async function verifyEvaluation(client) {
   const evaluation = await managedEvaluation(client);
   const configurationMatches = matches(
     evaluation,
-    judgeDefinition({
-      provider: 'openai',
-      model: 'gpt-4.1-mini',
-      provider_key_id: evaluation.model_configuration?.provider_key_id ?? null,
-    }),
+    judgeDefinition(await judgeModel(client)),
   );
   const rows = await hogql(client, resultsQuery(evaluation.id));
   if (

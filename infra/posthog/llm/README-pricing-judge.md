@@ -1,16 +1,18 @@
 # Assistant pricing and online judge (#63)
 
-These dependency-free ESM tools use the existing read-only `../lib/client.mjs`
+These dependency-free ESM tools use the existing `../lib/client.mjs`
 and `../lib/secrets.mjs` helpers. Credentials come from
 `~/.config/taphoa-mini/secrets.env` (mode `600`), or environment variables:
-`POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID`, `POSTHOG_API_HOST`.
+`POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID`, `POSTHOG_API_HOST`. Provider setup
+also reads the dedicated `OPENROUTER_POSTHOG_JUDGE_KEY` at runtime (environment
+overrides the file); it never reads the assistant backend key.
 Never put credential values in definitions, command arguments, or reports.
 
 ## Commands
 
 Run from the repository root. Apply defaults to a read-only dry run. Query POSTs
-are reads; only evaluation apply and the explicitly requested one-generation run
-write to PostHog. No command deletes objects, edits backend code, or creates
+are reads; provider setup, evaluation apply, and the explicitly requested
+one-generation run write to PostHog. No command deletes objects, edits backend code, or creates
 dashboards/insights.
 
 ```sh
@@ -18,6 +20,9 @@ node infra/posthog/llm/pricing-apply.mjs --dry-run
 node infra/posthog/llm/pricing-apply.mjs --apply
 node infra/posthog/llm/pricing-verify.mjs
 
+node infra/posthog/llm/evaluations-provider.mjs --dry-run
+node infra/posthog/llm/evaluations-provider.mjs --apply
+node infra/posthog/llm/evaluations-provider.mjs --apply # unchanged on second apply
 node infra/posthog/llm/evaluations-apply.mjs --dry-run
 node infra/posthog/llm/evaluations-apply.mjs --apply
 node infra/posthog/llm/evaluations-apply.mjs --apply # unchanged on second apply
@@ -104,27 +109,34 @@ The [evaluations documentation](https://posthog.com/docs/llm-analytics/evaluatio
 and [evaluations API reference](https://posthog.com/docs/api/evaluations) expose
 evaluation listing, creation, and PATCH updates. The tools use:
 
-| Endpoint relative to `/api/projects/<id>/` | Use                                                 |
-| ------------------------------------------ | --------------------------------------------------- |
-| `llm_analytics/models/?provider=openai`    | Confirm `gpt-4.1-mini` is offered                   |
-| `llm_analytics/evaluation_config/`         | Read active provider connection ID                  |
-| `llm_analytics/provider_keys/`             | Read connection health/provider metadata            |
-| `evaluations/`, `evaluations/<uuid>/`      | Upsert by exact managed name                        |
-| `evaluation_runs/`                         | Explicit async run for one existing test generation |
-| `query/`                                   | Read cost/score evidence through HogQL              |
+| Endpoint relative to `/api/projects/<id>/`                | Use                                                 |
+| --------------------------------------------------------- | --------------------------------------------------- |
+| `llm_analytics/models/?provider=openrouter&key_id=<uuid>` | Select a free judge from the connection catalog     |
+| `llm_analytics/evaluation_config/`                        | Read active provider connection ID                  |
+| `llm_analytics/provider_keys/`                            | Find or create the dedicated OpenRouter connection  |
+| `llm_analytics/evaluation_config/set_active_key/`         | Activate the healthy connection using `key_id`      |
+| `evaluations/`, `evaluations/<uuid>/`                     | Upsert by exact managed name                        |
+| `evaluation_runs/`                                        | Explicit async run for one existing test generation |
+| `query/`                                                  | Read cost/score evidence through HogQL              |
 
 The provider/model and run wire contracts are also defined in PostHog's public
 [model catalog API source](https://github.com/PostHog/posthog/blob/master/products/ai_observability/backend/api/models.py),
 [provider connection API source](https://github.com/PostHog/posthog/blob/master/products/ai_observability/backend/api/provider_keys.py),
+[active evaluation connection API source](https://github.com/PostHog/posthog/blob/master/products/ai_observability/backend/api/evaluation_config.py),
 and [evaluation run API source](https://github.com/PostHog/posthog/blob/master/products/ai_observability/backend/api/evaluation_runs.py).
 These are real APIs, not dashboard-only capabilities. Personal API key permissions
-must permit evaluation reads/writes, provider metadata reads, and HogQL queries.
+must permit evaluation reads/writes, provider connection reads/writes, and HogQL queries.
 
 The managed evaluation is `taphoa-assistant-vietnamese-quality-v1`:
 
 - `evaluation_type=llm_judge`, `target=generation`, `judge_method=llm`.
-- OpenAI `gpt-4.1-mini`, checked against PostHog's live model catalog and pinned
-  to the active healthy OpenAI connection when available.
+- OpenRouter, pinned to the active healthy `taphoa-mini-posthog-judge` connection.
+  `evaluations.mjs` selects the first model offered by PostHog in this order:
+  `nvidia/nemotron-3.5-super-vl:free`, `poolside/laguna-s-2.1:free`,
+  `nvidia/nemotron-3.5-lightning:free`. Set `POSTHOG_JUDGE_MODEL` consistently for
+  apply/run/verify to override selection. The override must be catalog-backed,
+  end in `:free`, and differ from the assistant's first model
+  `nvidia/nemotron-3-ultra-550b-a55b:free`; paid models are rejected.
 - Numeric 0–4 Vietnamese rubric: grounded numbers, Vietnamese language,
   usefulness, and respect for permissions/secrets. Invented numbers or a
   permission/security violation forces zero. Passing threshold is 4.
@@ -132,37 +144,47 @@ The managed evaluation is `taphoa-assistant-vietnamese-quality-v1`:
   `environment=production` sampled **10%**. Each condition also requires
   `$ai_provider=openrouter` and an explicit assistant model. No `eval` traffic is
   relabeled as `test`; no unrelated generations are selected.
-- Missing/unhealthy active OpenAI connection means the object is saved disabled,
-  with an explicit blocker in the apply summary. Rerunning after setup enables
-  the same object. A duplicate managed name aborts; unrelated objects are left alone.
+- A missing/unhealthy managed active connection saves the judge disabled with
+  an explicit blocker. Rerunning after provider setup enables the same object.
+  A duplicate managed evaluation or connection name aborts; unrelated objects
+  are left alone.
 
-The live catalog advertised `requires_provider_key=false`, but a real enabled
-create was rejected with HTTP 400, `Add a provider API key to enable this
-evaluation.` Consequently the code requires a healthy active OpenAI connection
-before enabling. It never copies credentials from the backend or provisions keys.
+### OpenRouter provider setup and dashboard inspection
 
-### Manual provider setup and dashboard inspection
-
-1. Open the intended PostHog project, then **Settings → AI Observability**
-   (older navigation calls the product LLM analytics).
-2. In AI provider connections/API keys, add an **OpenAI** connection using the
-   owner's provider key; save it and set it as the active/default connection.
-   The connection must pass validation. Do not paste the key into this repository.
-3. Rerun `evaluations-apply.mjs --dry-run`, then `--apply`. It should update the
-   existing judge to enabled, with the connection UUID pinned.
-4. Open **AI Evals → Evaluations → taphoa-assistant-vietnamese-quality-v1**.
-   Confirm **Each generation**, **LLM with explanation**, **gpt-4.1-mini**,
+1. Store the dedicated, $1-limited key in the private secrets file as
+   `OPENROUTER_POSTHOG_JUDGE_KEY`. Do not put the value in command arguments.
+   Provider setup dry-run lists the plan without loading the credential.
+2. Run `evaluations-provider.mjs --dry-run`, then `--apply`. It finds the exact
+   managed name or creates an `openrouter` connection with write-only `api_key`
+   and `set_as_active=true`. The API validates the credential before creation.
+   Existing unhealthy or wrong-provider connections fail without overwriting a
+   credential. An existing healthy inactive connection is activated with
+   `POST evaluation_config/set_active_key/` and `{key_id: <uuid>}`. This changes
+   the project's default evaluation connection; the managed judge also pins it.
+3. Rerun provider apply: expect `unchanged`, `changes=0`, `state=ok`, `active=true`.
+   Output contains only allowlisted metadata. Entire provider API errors are
+   redacted, including responses that might echo partial credential values.
+4. Run `evaluations-apply.mjs --dry-run`, then `--apply`, then repeat `--apply`.
+   Expect the same evaluation UUID, enabled/active, then `unchanged` and zero
+   changes. The model catalog requires `key_id` even after activation; the
+   provider-only request can still return zero models and
+   `requires_provider_key=true`.
+5. In PostHog, open **AI Evals → Evaluations →
+   taphoa-assistant-vietnamese-quality-v1**. Confirm **Each generation**,
+   **LLM with explanation**, provider **OpenRouter**, the selected free model,
    numeric scale **0–4**, passing **≥4**, and both property-filter groups:
    test **100%**, production **10%**, OpenRouter and the configured model IDs.
-5. Run `evaluations-run.mjs --dry-run`, then `--apply` to enqueue one existing
-   successful test generation. It reuses real captured content and creates no
-   synthetic generation. The request is asynchronous and may incur judge cost.
+6. Run `evaluations-run.mjs --dry-run`, then `--apply` to enqueue one existing
+   successful test generation **with captured input/output**. It creates no
+   synthetic generation. Missing captured content fails before enqueueing;
+   fresh test traffic is needed in that case. The request is asynchronous.
    It skips when linked test score evidence already exists; avoid repeating while
    a run is pending, since the run API creates a new workflow on each request.
-6. Run `evaluations-verify.mjs` after processing. In PostHog, open the evaluation's
-   run history, then the linked generation/trace to inspect the numeric score and
-   explanation. Alternatively use the evaluation's **Backfills** tab for a chosen
-   historical test-only interval, following the documented backfill steps.
+7. After an accepted run, poll `evaluations-verify.mjs` about every 30–60 seconds
+   for up to ten minutes. A queued request is not proof of a score. In PostHog,
+   open the evaluation's run history, then the linked generation/trace to inspect
+   the numeric score and explanation. The **Backfills** tab also supports a
+   chosen historical test-only interval with captured content.
 
 Online sampling evaluates **new** events after creation/enabling; it does not
 automatically score the previous 30 days. PostHog now supports explicit runs and
@@ -179,38 +201,44 @@ Against the configured real project:
 
 - Pricing plan: five zero-price model definitions, zero project pricing writes
   because no public project pricing CRUD capability is documented.
-- Judge first successful apply: **create 1**, paused/disabled because there is
-  no provider connection. Evaluation UUID:
-  `01a182a2-bbe6-0000-92f8-955540555f4b`.
-- Second judge apply: **unchanged, changes 0**, same UUID, paused.
-- Last-30-day test cost verification: Nemotron Ultra **52** generations,
+- Dedicated provider apply: **create 1**, healthy (`state=ok`), active.
+  Connection name `taphoa-mini-posthog-judge`, UUID
+  `01a1831d-0b76-0000-59f5-009cbe683cb1`; second apply **unchanged, changes 0**.
+- The connection-scoped OpenRouter catalog offered **456 models**, including all
+  three preferred free judges. Selected `nvidia/nemotron-3.5-super-vl:free`.
+- Judge apply: **update 1**, existing UUID
+  `01a182a2-bbe6-0000-92f8-955540555f4b`, **enabled=true**, **status=active**,
+  provider **openrouter**, pinned to the dedicated connection. Test sampling
+  remains **100%**, production **10%**. Second apply: **unchanged, changes 0**.
+- Earlier last-30-day test cost verification: Nemotron Ultra **52** generations,
   **0** missing tokens, **0** missing costs, **0** mismatches, **$0** total.
-  PostHog reports cost source `openrouter`.
-- Laguna, Lightning, Gemma, and legacy Super: **0 test generations** in this
-  window. Separate discovery found Laguna **49** and Lightning **5** under
-  `environment=eval`; those do not satisfy test acceptance.
-- Judge verification query: configuration matches, **0 scores**, paused/disabled,
-  overall `passed=false`. Judge score proof is blocked by the absent provider connection. No passing
-  score result or automatic production sampling is claimed. Configure the
-  provider and rerun the commands above; fill model/event coverage in #66.
+  PostHog reports cost source `openrouter`. This pricing result was retained
+  from the earlier #63 verification; it was not rerun for this provider change.
+- Laguna, Lightning, Gemma, and legacy Super had **0 test generations** in the
+  earlier window. Separate discovery found Laguna **49** and Lightning **5**
+  under `environment=eval`; those do not satisfy test acceptance.
+- `evaluations-run.mjs --apply` was attempted and exited **1** before enqueueing:
+  `No successful existing test generation with input/output`. Aggregate live
+  inspection found **52** test generations (**51** successful, **1** error),
+  all missing `$ai_input` and `$ai_output_choices`. The content-required selector
+  was retained; no empty-content judge run or synthetic traffic was submitted.
+- Final `evaluations-verify.mjs`: **configurationMatches=true**, **enabled=true**,
+  **status=active**, **scores=0**, **passed=false** (exit **1**). There was no
+  accepted workflow to poll. The provider blocker is resolved; actual score
+  proof requires fresh test generations with captured content in **#66**.
+  Automatic new-event sampling and production 10% execution remain unproven.
 
 ## Local validation
 
 ```sh
-node --test infra/posthog/llm
-npx --yes prettier@3.9.10 --check 'infra/posthog/llm/*.mjs' infra/posthog/llm/README-pricing-judge.md
-```
-
-The exact directory command works on the installed Node 26. For Node 24 (the
-repository's required runtime), use explicit files:
-
-```sh
 node --test infra/posthog/llm/*.test.mjs
+pnpm exec prettier --check 'infra/posthog/llm/evaluations*.mjs' infra/posthog/llm/README-pricing-judge.md
 ```
 
-Node 24 resolves an explicitly passed directory as a module; it requires a
-`package.json`/entrypoint there. Adding `llm/package.json` would exceed this
-task's strict `pricing*`/`evaluations*`/README write boundary, so no metadata
-exception was made. The actual ESM tools and tests run on Node 24 with no npm
-runtime dependencies. Tests use isolated fakes; they are separate from the
-real-project evidence and incomplete live acceptance above.
+Tests use isolated fakes and cover provider creation/activation/idempotency,
+secret loading/redaction, free-model selection and overrides, judge upsert and
+sampling, configuration verification, and content-required single-event runs.
+The local commands were run with Node **26.12.0**, which emits an engine warning
+because the repository requires Node **24**. The explicit test-file command is
+also suitable for Node 24; no Node 24 run is claimed here. Local tests do not
+replace the real-project evidence or pending live score acceptance above.
