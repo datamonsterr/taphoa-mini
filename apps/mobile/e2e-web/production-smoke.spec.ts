@@ -28,7 +28,12 @@ import path from 'node:path';
 // This file uses Playwright's base fixtures: no throwaway stores or Clerk cleanup.
 const EMAIL = 'smoke-prod-x9+clerk_test@example.com';
 const STORE = 'Smoke test (X9) - do not use';
-const PROD = 'https://backend-production-5f5c.up.railway.app';
+// E2E_SMOKE_ENV=test runs the same isolated flow against Railway test (its own smoke store).
+const SMOKE_ENV = process.env.E2E_SMOKE_ENV === 'test' ? 'test' : 'production';
+const PROD =
+  SMOKE_ENV === 'test'
+    ? 'https://backend-test-70c2.up.railway.app'
+    : 'https://backend-production-5f5c.up.railway.app';
 
 test('production smoke: reusable isolated store, product flow and four assistant turns', async ({
   page,
@@ -37,7 +42,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
   page.setDefaultTimeout(25_000);
   expect(process.env.E2E_PRODUCTION_SMOKE).toBe('1');
   expect(API_URL).toBe(PROD);
-  expect(process.env.EXPO_PUBLIC_ENVIRONMENT).toBe('production');
+  expect(process.env.EXPO_PUBLIC_ENVIRONMENT).toBe(SMOKE_ENV);
   expect(process.env.EXPO_PUBLIC_SMOKE).toBe('1');
   expect(process.env.EXPO_PUBLIC_POSTHOG_KEY).toBeTruthy();
   expect(process.env.CLERK_TRACKING_DIR).toBeUndefined();
