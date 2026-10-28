@@ -5,6 +5,7 @@ pub mod agent;
 pub mod config;
 pub mod digest;
 pub mod eval;
+mod grounding;
 pub mod model;
 pub mod next_steps;
 pub mod quota;
