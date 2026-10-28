@@ -41,7 +41,7 @@ clips. Candidate 4 (Scribe) was not run. Numbers below the "Results" heading com
 | 3   | STT then text parse    | `openai/whisper-large-v3-turbo` + parse by candidate 1 | Fallback 2 (`stt_fallback = true`)                                               |
 | 4   | STT then text parse    | ElevenLabs Scribe + parse                              | Only if a trial key exists and names miss the bar                                |
 
-## Results
+## Results, round 1 (V1 at `1076855`, before the fixes)
 
 Run date: 2026-10-29 · backend: `epic/v1-voice-backend` @ `1076855`, debug build, local stack
 (`packages/eval/scripts/local-stack.sh` from the V1 checkout; Postgres 55432, Redis db 7) · clips: 52
@@ -101,7 +101,7 @@ lines marked `spoken`).
 
 Spoken prices are handled well by all three; the loss in columns 2 and 3 is the unpriced lines above.
 
-## Run notes
+### Round 1 run notes
 
 - Files: `voice-2026-10-29-<model>.{json,md}` are the raw full runs (52 clips, `concurrency 1`,
   `--posthog-cost`, one stack, one store). `results/rerun*/` hold re-runs of clips that failed with an
@@ -121,7 +121,7 @@ Spoken prices are handled well by all three; the loss in columns 2 and 3 is the 
 - Silence and noise-only clips (`39`, `40`): candidate 1 and 3 answer `none`; candidate 2 returns a
   3-line sale copied from the prompt's example (see below).
 
-## Failures
+### Round 1 failures
 
 Candidate 1 (`gemini-2.5-flash-lite`, final set):
 
@@ -146,36 +146,69 @@ Candidate 3: `01-single-coca` (Whisper returned an empty text, `no_speech`), `44
 `46-two-speakers-sale` (Whisper hallucinated "Hãy subscribe cho kênh Ghiền Mì Gõ" for the second
 speaker), WER 26.6 % (the worst), plus the price-source issue. `39` and `40` correctly `none`.
 
+## Results, round 2 (after the V1 fixes, `5daa12f`)
+
+Same procedure and stack as round 1 (local, debug build, 52 synthetic clips, `concurrency 1`,
+`--posthog-cost`), backend `epic/v1-voice-backend` @ `5daa12f`. Files are in `results/round2*/`; they
+are raw runs (no re-run merge, no `-final`). Spend for the round: about $0.18 (key total $0.33 of $1).
+
+| Metric                            | Bar       | A default chain (3.1, then 2.5) | B `--model` 2.5-flash-lite | C `--model` 3.1-flash-lite | D whisper, parse 2.5 |
+| --------------------------------- | --------- | ------------------------------- | -------------------------- | -------------------------- | -------------------- |
+| Line accuracy                     | >= 90 %   | **100 %**                       | 74.2 % (5 errors)          | **100 %**                  | 56.1 % (14 errors)   |
+| Price accuracy                    | >= 97 %   | **100 %**                       | 74.2 %                     | **100 %**                  | 57.6 %               |
+| Quantity accuracy                 |           | 100 %                           | 78.8 %                     | 100 %                      | 62.1 %               |
+| Intent accuracy                   |           | 96.2 %                          | 90.4 %                     | 96.2 %                     | 73.1 %               |
+| Payment accuracy                  |           | 100 %                           | 87.2 %                     | 100 %                      | 70.2 %               |
+| WER (kept / stripped)             |           | 9.6 % / 9.6 %                   | 13.0 % / 13.0 %            | 10.1 % / 10.1 %            | 29.4 % / 28.4 %      |
+| Latency p50 / p95 (client, local) | p95 < 3 s | 1.92 s / 2.79 s                 | 3.58 s / 4.98 s            | 1.91 s / 2.81 s            | 3.41 s / 5.75 s      |
+| Cost per utterance                | <= $0.002 | $0.00080 (40 priced)            | $0.00030 (38 priced)       | $0.00080 (41 priced)       | $0.00030 (31 priced) |
+| Errors                            | 0         | 0                               | 5 (all rate limits)        | 0                          | 14 (rate limits)     |
+| Cases not exactly right           |           | 2 (`39`, `40`)                  | 13                         | 2 (`39`, `40`)             | 20                   |
+
+A and C are the same model for all 52 clips (the chain never needed its second entry), so the
+price-provenance fix and the `price_spoken` rule work: line and price accuracy went from 30 % to 100 %
+and cost per utterance fell from $0.00127 to $0.00080. D is the STT path as originally planned: gpt-4.1-mini
+refuses audio, so Whisper transcribes (36 clips answered, `stt_fallback=true`) and gemini-2.5-flash-lite parses.
+
+Remaining failures:
+
+- A and C, `39-silence` and `40-noise-only`: still `201 intent=sale` with an invented 3-line sale
+  copied from the prompt example ("Cho mình lấy 2 lon bia Tiger, 1 gói mì Hảo Hảo tôm chua cay, với 1 chai
+  nước suối Lavie nhé", lines priced from the catalog). The silence guard did not stop 3.1. The same clips
+  return `no_speech` (422) with 2.5 and with Whisper. These two clips cost 6 hallucinated lines and
+  3.8 points of intent accuracy; they would put a made-up sale on a counter whenever the shop is quiet.
+- B (2.5 only): `voice_unavailable` on `11`, `12`, `42`, `43`, `44` (OpenRouter `rate_limited` after the
+  retry; 12 audio and 9 text 429s, one text timeout). With `--model` the chain has one entry, so the retry
+  is all there is. Wrong answers: `01-single-coca` ("hai lon ca"), `22-price-hai-tram` and `23-price-bare`
+  (spoken price dropped from the transcript), `26-price-line-total-mismatch` ("hảo hảo hảo hảo", extra line),
+  `32-credit-mai` (cash instead of credit), `45-ambiguous-bia` (invented "Hà Nội"), `46-two-speakers-sale`
+  and `48-two-speakers-sauce` (mis-heard product, extra line).
+- D: 14 `voice_unavailable` on `01`-`04`, `12`-`17`, `30`-`33` (the 2.5 parse model rate-limited in bursts,
+  no second parse model was set in this run), plus Whisper errors: `46` (hallucinated "Hãy subscribe cho
+  kênh Ghiền Mì Gõ"), `44`, `20`, `22`, `26`, `50` (numbers and brand names mis-heard).
+
 ## Decision
 
-- Default (`VOICE_MODELS[0]`): **`google/gemini-3.1-flash-lite`**, but only after V1 fixes the two backend
-  issues below. As deployed today it fails the scorer (30 % lines) and answers silence with an invented
-  sale; by value it meets the bars (95.5 % lines, 98.5 % price, $0.00127, p95 2.99 s locally).
-- If V1 cannot ship the fixes before the first Railway run: `google/gemini-2.5-flash-lite` first. It is
-  the only candidate that passes the strict price-source rule and handles silence, but it misses the
-  bars (89.4 % lines, 90.9 % price, p95 5.1 s locally) and rate-limits under sequential load.
-- Fallbacks in order: the other gemini slug, then STT (`openai/whisper-large-v3-turbo`) with the parse
-  slug. Keep both gemini slugs in the list so a 429 on one does not become `voice_unavailable`.
-- Railway variable to set: `VOICE_MODELS=google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite`
-  (after the V1 fixes; until then swap the order).
-- Not decided: ElevenLabs Scribe (no key); recorded clips (all 52 are synthetic, expect worse on a
-  phone at a counter).
+- Default (`VOICE_MODELS[0]`): **`google/gemini-3.1-flash-lite`**. After the V1 fixes it scores 100 % lines and
+  prices, $0.0008 per utterance, p50 1.9 s and p95 2.8 s from Vietnam, with no errors in two full runs.
+- Fallback: `google/gemini-2.5-flash-lite` (cheaper at $0.0003, but slower at p95 5 s locally, rate limits
+  under load, and 74 % lines on its own in round 2). Then STT (`openai/whisper-large-v3-turbo`) with
+  `VOICE_PARSE_MODELS`; Whisper is the weakest on names and numbers.
+- Railway variables: `VOICE_MODELS=google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite`,
+  `VOICE_PARSE_MODELS=google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite` (the V1 defaults).
+- **Open before ship:** the silence guard (`39-silence`, `40-noise-only` answered with an invented sale by
+  3.1). The line and price bars hold only because these two clips have no expected lines; the intent
+  failure is real.
+- Not decided: ElevenLabs Scribe (no key); recorded clips (all 52 are synthetic).
 
-## Backend issues (for V1, not changed here)
+## Backend issues (round 1, for V1)
 
-1. **Unpriced lines marked `spoken`** (`gemini-3.1-flash-lite` 45 of 47, `gpt-4.1-mini` 44 of 46 unpriced
-   lines). Example, `02-single-lavie` ("một chai nước suối lavie"): the model returned `unit_price`
-   5000 and the draft line is `{"price_source":"spoken","unit_price":5000,"status":"matched","quantity":1}`
-   while `gemini-2.5-flash-lite` returns `"price_source":"catalog"` for the same clip. The backend should
-   accept a model price only when the transcript contains a number or shorthand that explains it, or the
-   prompt should say "price only if spoken".
-2. **Silence and noise answered with the prompt example** (`gemini-3.1-flash-lite`, `39-silence`,
-   `40-noise-only`): `intent=sale`, transcript "Cho mình 2 lon bia Tiger, 1 gói mì Hảo Hảo tôm chua
-   cay...". The example in the system prompt leaks into the output when there is no speech. The backend
-   should not trust a sale whose audio is silent or reject it by `confidence`.
-3. **Model rate limit**: with one slug, OpenRouter 429s surface as `voice_unavailable` (7 of 52 clips for
-   `gemini-2.5-flash-lite` at sequential speed). A second audio slug or a retry-after would absorb it.
-4. **STT fallback parse uses the audio slugs** (design note): there is no separate `VOICE_PARSE_MODELS`, so
-   the fallback path cannot be pointed at a different parser than the audio models.
-5. Smaller: `X-Taphoa-Eval-Model` works (`--model` was honored for both gemini slugs); a 404-class refusal for
-   a text-only audio model reports as `unavailable`, which is right.
+Items 1 (price provenance) and 3 (rate limit retry/fallback) and 4 (parse model list) from round 1 are fixed
+in `5daa12f`. Item 2 (silence answered with the prompt example) is not: see round 2.
+
+1. Round 1, `gemini-3.1-flash-lite` and `gpt-4.1-mini` returned the catalog price as `unit_price` and the
+   backend labelled it `spoken` (45 of 47 and 44 of 46 unpriced lines, e.g. `02-single-lavie`). Fixed.
+2. Silence and noise answered with the prompt example: `39-silence`, `40-noise-only`. Still open.
+3. A single model list turned 429s into `voice_unavailable`. Retry and a second entry now absorb it when the
+   chain has two entries; with one entry (`--model`, or the parse list in run D) it still fails.
+4. The STT parse could not use a different model than the audio slugs. `VOICE_PARSE_MODELS` now exists.
