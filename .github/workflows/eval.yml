@@ -2,9 +2,9 @@ name: Eval
 
 # Nightly and on-demand evaluation of the assistant (epic X7) against a live stack inside
 # Actions: compose postgres + redis, taphoa-seed --profile eval, the backend built from this
-# ref with ASSISTANT_ALLOW_EVAL_HEADERS=1. The free OpenRouter quota (1,000 requests per UTC
-# day) is shared by everything, so the schedule starts at 00:30 UTC, just after the reset, and
-# a full run happens at most once a day (the guard job below; the harness refuses too).
+# ref with ASSISTANT_ALLOW_EVAL_HEADERS=1. The harness checks remaining USD credits for
+# paid models (free-request quota for :free overrides). A full run happens at most once
+# a day to bound spend (the guard job below; the harness refuses too).
 #
 #   gh workflow run eval.yml -f set=smoke
 #   gh workflow run eval.yml -f set=full -f model=<model id>
@@ -98,7 +98,7 @@ jobs:
     # A voice dispatch runs the voice job below instead.
     if: needs.guard.outputs.run == 'true' && (inputs.voice || 'none') == 'none'
     runs-on: ubuntu-latest
-    # A full run is about 650 free-tier requests at concurrency 1.
+    # A full run is about 650 small-model requests at concurrency 1.
     timeout-minutes: 120
     permissions:
       contents: read

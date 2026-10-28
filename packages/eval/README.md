@@ -53,9 +53,32 @@ Environment (values are never printed):
 | `EVAL_STORE_ID`                         | Optional: `X-Store-Id`, and the store the oracles read (default `e7a10e7a-0000-4000-8000-000000000000`).  |
 | `EVAL_DATABASE_URL`                     | Database the oracle SQL reads (the seeded eval store).                                                    |
 | `OPENROUTER_EVAL_API_KEY`               | Quota guard and judge.                                                                                    |
-| `EVAL_JUDGE_MODELS`                     | Ordered judge models (default two free models).                                                           |
+| `EVAL_JUDGE_MODELS`                     | Ordered judge models (default `google/gemini-2.5-flash`, calibrated at 90% agreement / MAE 0.5).          |
 | `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST` | Where `eval_*` events go (host default US cloud).                                                         |
 | `EVAL_TODAY`                            | Business date to pin (default `2026-10-20`).                                                              |
+
+The paid default is `z-ai/glm-5.3-flash`; `nvidia/nemotron-3.5-lightning:free` is a last resort.
+For paid-only model overrides, the preflight reads the key's finite USD limit and remaining
+credits from `/api/v1/key`, allowing $0.002 per estimated request plus $0.10 reserve.
+Free overrides retain the daily request quota check. Set `ASSISTANT_MODELS` in the harness
+environment to the same ordered list as the backend when using its default. The quota guard
+examines the first configured model; a free last resort does not block the paid primary.
+Usage costs in results come from each completed turn's OpenRouter accounting, including
+all tool-loop generations. Missing accounting is omitted; key usage delta also captures
+failed/cancelled requests and judge charges.
+
+The judge receives the unchanged rubric, user-message history, final answer and fixture
+context (business date, role, requested language, SQL assertions, proposed actions and the
+actual tool messages persisted for the final turn). Tool evidence is read from the eval
+database, scoped to its store and the newly created thread. Missing live evidence makes
+the case unjudged rather than silently grading with incomplete context. `calibrate` uses
+the same serializer; the original hand-labelled items have no user history or tool data,
+so their context contains only the pinned business date and timezone. Judge-input changes
+require a fresh passing calibration, without changing labels, rubrics or bars.
+
+English language detection excludes exact known entity names from resolved SQL facts,
+so answers can preserve Vietnamese product names while the surrounding prose must still
+pass the existing English heuristic. Unknown quoted text is not excluded.
 
 The backend must run with `ASSISTANT_ALLOW_EVAL_HEADERS=1`. The runner sends
 `X-Taphoa-Eval-Run` and `X-Taphoa-Today` on every request, and `X-Taphoa-Eval-Model` when
@@ -170,7 +193,7 @@ the local stack. It is manual only, never on a pull request or the nightly sched
 store in a database of the shared dev Postgres (`docker compose up -d` provides Postgres on
 55432 and Redis on 56379), and a backend with `ASSISTANT_ALLOW_EVAL_HEADERS=1` and the real
 OpenRouter provider (`ASSISTANT_MODEL_PROVIDER=openrouter`, `ASSISTANT_MODELS` from
-`.env.example`, Redis logical database 7).
+the environment override or `.env.example`, Redis logical database 7).
 
 ```sh
 packages/eval/scripts/local-stack.sh up       # build, create db, seed --reset, start, wait for /readyz
@@ -192,7 +215,7 @@ export EVAL_STORE_ID=e7a10e7a-0000-4000-8000-000000000000
 
 Then load the secrets for the harness (`set -a; source ~/.config/taphoa-mini/secrets.env; set +a`
 in bash or zsh) and run `pnpm --filter @taphoa/eval run smoke -- --concurrency 1`. Live runs
-spend the OpenRouter free quota; `smoke --stub` does not.
+spend OpenRouter credit (or free request quota for `:free` overrides); `smoke --stub` does not.
 
 Options (environment): `EVAL_STACK_PG_URL`, `EVAL_STACK_DB` (default `taphoa_eval_local`),
 `EVAL_STACK_REDIS_URL` (default `redis://localhost:56379/7`; `up` and `down` flush that
@@ -214,10 +237,9 @@ the harness as `OPENROUTER_EVAL_API_KEY`.
   (`smoke --concurrency 1 --no-posthog` against the local stack) when
   `apps/backend/crates/api/src/assistant/` and `members.clerk_user_id` exist in the checkout
   and the secrets are available, that is, not on a pull request from a fork. Otherwise it runs the dry run
-  (`smoke --stub`). A newer push cancels a running smoke job, which spares the shared free
-  OpenRouter quota. Results are the artifact `eval-smoke-results` and the job summary. Pull
+  (`smoke --stub`). A newer push cancels a running smoke job, which bounds shared OpenRouter spend. Results are the artifact `eval-smoke-results` and the job summary. Pull
   requests send nothing to PostHog.
-- **Nightly workflow** (`eval.yml`). Runs at 00:30 UTC, just after the OpenRouter quota resets,
+- **Nightly workflow** (`eval.yml`). Runs at 00:30 UTC,
   and on demand. A guard job skips a full run when another `eval full` run already succeeded
   or is running today (UTC), unless `force` is set, and skips the schedule until the assistant
   is on `main`. The run job builds the binaries, starts the stack, runs the set and sends the

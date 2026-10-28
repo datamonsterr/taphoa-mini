@@ -211,6 +211,7 @@ impl ChatModel for RuleModel {
             usage: Usage {
                 input_tokens: 8,
                 output_tokens: 4,
+                ..Usage::default()
             },
             http_status: 200,
         })

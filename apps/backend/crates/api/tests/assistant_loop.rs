@@ -203,11 +203,53 @@ fn terminal(frames: &[Value]) -> &Value {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn paid_turn_costs_sum_calls_but_stay_unknown_after_missing_usage() {
+    let accounted = Usage {
+        input_tokens: 10,
+        output_tokens: 5,
+        cost: Some(taphoa_api::assistant::model::UsageCost {
+            input_usd: Some(0.125),
+            output_usd: Some(0.25),
+            total_usd: 0.375,
+        }),
+    };
+    for missing_first in [false, true] {
+        let (w, _, _) = setup(
+            vec![
+                Step::tools([("a", json!({}))]).with_usage(if missing_first {
+                    Usage::default()
+                } else {
+                    accounted
+                }),
+                Step::text("Xong").with_usage(accounted),
+            ],
+            config(),
+        )
+        .await;
+        let id = thread(&w, false).await;
+        let f = turn(&w, &id, false, false).await;
+        let usage = &terminal(&f)["usage"];
+        if missing_first {
+            assert!(usage.get("cost").is_none());
+            assert_eq!(usage["input_tokens"], 10);
+        } else {
+            assert_eq!(
+                usage["cost"],
+                json!({"input_usd":0.25,"output_usd":0.5,"total_usd":0.75})
+            );
+            assert_eq!(usage["input_tokens"], 20);
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn text_streams_usage_and_persists_in_thread_detail() {
     let (w, model, _) = setup(
         vec![Step::chunks(["Xin ", "chào"]).with_usage(Usage {
             input_tokens: 7,
             output_tokens: 3,
+            ..Usage::default()
         })],
         config(),
     )
@@ -261,10 +303,12 @@ async fn parallel_tools_are_data_only_and_usage_is_summed() {
             Step::tools([("a", json!({})), ("b", json!({}))]).with_usage(Usage {
                 input_tokens: 10,
                 output_tokens: 4,
+                ..Usage::default()
             }),
             Step::text("Xong").with_usage(Usage {
                 input_tokens: 20,
                 output_tokens: 2,
+                ..Usage::default()
             }),
         ],
         config(),
@@ -646,6 +690,7 @@ async fn exhausted_timeouts_bad_json_and_partial_text_failure_are_terminal() {
             usage: Usage {
                 input_tokens: 2,
                 output_tokens: 1,
+                ..Usage::default()
             },
         };
         let (w, m, _) = setup(vec![bad, Step::text("Xong")], config()).await;
@@ -916,7 +961,7 @@ fn deltas(frames: &[Value]) -> String {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn an_ungrounded_figure_is_discarded_and_the_model_is_asked_again_with_auto_tool_choice() {
+async fn an_ungrounded_figure_is_discarded_and_the_retry_requires_missing_tool_data() {
     let (w, model, _) = setup(
         vec![
             Step::text("Hôm nay bán 0 ₫ (0 đơn)"),
@@ -931,7 +976,7 @@ async fn an_ungrounded_figure_is_discarded_and_the_model_is_asked_again_with_aut
     let requests = model.requests();
     assert_eq!(requests.len(), 3);
     assert_eq!(requests[0].tool_choice, None);
-    assert_eq!(requests[1].tool_choice, None);
+    assert_eq!(requests[1].tool_choice.as_deref(), Some("required"));
     assert_eq!(requests[2].tool_choice, None);
     let note = requests[1].messages.last().unwrap();
     assert_eq!(note.role, ChatRole::System);
@@ -1053,7 +1098,7 @@ async fn a_failed_grounding_retry_ends_with_the_fallback_not_model_unavailable()
     let id = thread(&w, false).await;
     let f = turn(&w, &id, false, false).await;
     assert_eq!(model.requests().len(), 2);
-    assert_eq!(model.requests()[1].tool_choice, None);
+    assert_eq!(model.requests()[1].tool_choice.as_deref(), Some("required"));
     assert_eq!(
         deltas(&f),
         "Mình chưa lấy được số liệu để trả lời chính xác. Bạn thử hỏi lại nhé."
@@ -1171,4 +1216,72 @@ async fn grounding_at_call_limit_uses_the_safe_fallback_without_another_attempt(
         deltas(&f),
         "Mình chưa lấy được số liệu để trả lời chính xác. Bạn thử hỏi lại nhé."
     );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn paid_policy_refuses_seller_day_close_without_model_or_tool_calls() {
+    let (w, model, _) = setup(vec![Step::text("Xong")], config()).await;
+    let id = thread(&w, true).await;
+    let denied = w
+        .call(
+            "POST",
+            &format!("/v1/assistant/threads/{id}/messages"),
+            &w.seller,
+            json!({"content":"Chị ơi hôm 14/10 quỹ hụt bao nhiêu vậy?","language":"vi"}),
+        )
+        .await;
+    let f = frames(&denied.raw);
+    assert!(deltas(&f).contains("chỉ chủ cửa hàng"));
+    assert!(model.requests().is_empty());
+    assert_eq!(terminal(&f)["usage"]["cost"]["total_usd"], 0.0);
+    let allowed = w
+        .call(
+            "POST",
+            &format!("/v1/assistant/threads/{id}/messages"),
+            &w.seller,
+            json!({"content":"Hôm nay doanh thu bao nhiêu?","language":"vi"}),
+        )
+        .await;
+    assert_eq!(deltas(&frames(&allowed.raw)), "Xong");
+    assert_eq!(model.requests().len(), 1);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn paid_grounding_recovery_requires_tools_when_no_current_data_exists() {
+    let (w, model, _) = setup(
+        vec![
+            Step::text("Doanh thu 9.999.999 ₫"),
+            Step::tool("a", json!({"fixture_numbers":true})),
+            Step::text("Doanh thu 1.234.000 ₫"),
+        ],
+        config(),
+    )
+    .await;
+    let id = thread(&w, false).await;
+    let f = turn(&w, &id, false, false).await;
+    let requests = model.requests();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].tool_choice, None);
+    assert_eq!(requests[1].tool_choice.as_deref(), Some("required"));
+    assert_eq!(requests[2].tool_choice, None);
+    assert_eq!(deltas(&f), "Doanh thu 1.234.000 ₫");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn paid_primary_is_not_blocked_by_remembered_free_quota_exhaustion() {
+    let mut cfg = config();
+    cfg.models = vec!["x/paid".into(), "last/free:free".into()];
+    let (mut w, model, _) = setup(vec![Step::text("Xong")], cfg).await;
+    // The exhausted flag is process-local here, so this test cannot affect a live local backend.
+    w.state.redis = None;
+    w.app = router(w.state.clone());
+    taphoa_api::assistant::quota::mark_openrouter_exhausted(&w.state).await;
+    let id = thread(&w, false).await;
+    let f = turn(&w, &id, false, false).await;
+    assert_eq!(terminal(&f)["model"], "x/paid");
+    assert_eq!(model.requests().len(), 1);
+    taphoa_api::assistant::quota::clear_openrouter_exhausted(&w.state).await;
 }

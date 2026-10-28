@@ -85,7 +85,7 @@ test('Vietnamese numeric rubric and environment sampling are explicit', () => {
     d.conditions.every(
       (c) =>
         c.properties[1].value[0] === 'openrouter' &&
-        c.properties[2].value.length === 5,
+        c.properties[2].value.length === 6,
     ),
   );
   for (const fragment of [
@@ -303,11 +303,7 @@ test('free judge selection follows preference order and accepts a catalog-backed
     judgeModel(f.client, { model: judgeModels[0] }),
     /does not advertise/,
   );
-  for (const model of [
-    'openai/paid',
-    'nvidia/nemotron-3-ultra-550b-a55b:free',
-    'secret-invalid',
-  ]) {
+  for (const model of ['openai/paid', 'z-ai/glm-5.3-flash', 'secret-invalid']) {
     await assert.rejects(
       judgeModel(f.client, { model }),
       /must be a free OpenRouter/,

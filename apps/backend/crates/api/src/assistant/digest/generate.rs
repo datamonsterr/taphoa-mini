@@ -129,7 +129,7 @@ async fn model_summary(
     };
     if config.model_provider == ModelProvider::Scripted
         || config.digest_model_max_per_day == 0
-        || quota::openrouter_exhausted(state).await
+        || config.free_quota_applies(None) && quota::openrouter_exhausted(state).await
     {
         return Ok(None);
     }

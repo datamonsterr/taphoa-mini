@@ -79,7 +79,7 @@ impl Tool for CatalogIssues {
         ToolKind::Read
     }
     fn description_vi(&self) -> &'static str {
-        "Dùng khi cần dọn danh mục: tên hoặc mã vạch trùng, thiếu nhóm, giá bằng 0, thiếu ảnh hoặc dưới 3 ảnh tham chiếu."
+        "Dùng khi cần dọn danh mục: tên hoặc mã vạch trùng, thiếu nhóm, giá bằng 0, thiếu ảnh hoặc chưa tới 3 tấm ảnh mẫu cho camera nhận ra (gồm cả 0 ảnh)."
     }
     fn parameters(&self) -> Value {
         super::ops::schema(json!({}), json!([]))

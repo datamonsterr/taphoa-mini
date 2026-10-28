@@ -89,10 +89,33 @@ pub struct ChatRequest {
     pub tool_choice: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    /// Actual account charge and upstream components from OpenRouter's final usage chunk.
+    /// Missing accounting stays unknown, never a fabricated zero for paid requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<UsageCost>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UsageCost {
+    pub input_usd: Option<f64>,
+    pub output_usd: Option<f64>,
+    pub total_usd: f64,
+}
+impl Usage {
+    /// Add a later response to the first response's usage; unknown accounting stays unknown.
+    pub fn accumulate(&mut self, next: Self) {
+        self.cost = self.cost.zip(next.cost).map(|(a, b)| UsageCost {
+            input_usd: a.input_usd.zip(b.input_usd).map(|(a, b)| a + b),
+            output_usd: a.output_usd.zip(b.output_usd).map(|(a, b)| a + b),
+            total_usd: a.total_usd + b.total_usd,
+        });
+        self.input_tokens = self.input_tokens.saturating_add(next.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(next.output_tokens);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -173,6 +196,37 @@ pub trait ChatModel: Send + Sync {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn aggregates_paid_generations_without_turning_unknown_costs_into_zero() {
+        let one = Usage {
+            input_tokens: 20,
+            output_tokens: 8,
+            cost: Some(UsageCost {
+                input_usd: Some(0.000002),
+                output_usd: Some(0.000004),
+                total_usd: 0.000006,
+            }),
+        };
+        let mut sum = one;
+        sum.accumulate(one);
+        assert_eq!(sum.input_tokens, 40);
+        assert_eq!(sum.cost.unwrap().total_usd, 0.000012);
+        sum.accumulate(Usage {
+            input_tokens: 1,
+            ..Usage::default()
+        });
+        assert!(sum.cost.is_none());
+        sum.accumulate(one);
+        assert!(sum.cost.is_none());
+        let mut missing_first = Usage::default();
+        missing_first.accumulate(Usage::default());
+        missing_first.accumulate(one);
+        assert!(
+            missing_first.cost.is_none(),
+            "missing token counts still mean unknown cost"
+        );
+    }
 
     #[test]
     fn retryable_follows_the_fallback_rule() {
@@ -277,5 +331,56 @@ mod tests {
         assert!(
             serde_json::from_value::<ChatMessage>(json!({"role":"robot","content":"x"})).is_err()
         );
+    }
+
+    #[test]
+    fn turn_costs_sum_all_model_calls_and_do_not_fill_missing_accounting() {
+        let call = Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+            cost: Some(UsageCost {
+                input_usd: Some(0.125),
+                output_usd: Some(0.25),
+                total_usd: 0.375,
+            }),
+        };
+        let mut turn = call;
+        turn.accumulate(call);
+        assert_eq!((turn.input_tokens, turn.output_tokens), (20, 10));
+        assert_eq!(
+            turn.cost.unwrap(),
+            UsageCost {
+                input_usd: Some(0.25),
+                output_usd: Some(0.5),
+                total_usd: 0.75,
+            }
+        );
+        turn.accumulate(Usage {
+            input_tokens: 1,
+            ..Usage::default()
+        });
+        assert!(turn.cost.is_none());
+        turn.accumulate(call);
+        assert!(
+            turn.cost.is_none(),
+            "later accounting cannot cover a missing call"
+        );
+    }
+
+    #[test]
+    fn known_total_survives_missing_upstream_components() {
+        let mut turn = Usage {
+            input_tokens: 1,
+            cost: Some(UsageCost {
+                input_usd: None,
+                output_usd: None,
+                total_usd: 0.125,
+            }),
+            ..Usage::default()
+        };
+        turn.accumulate(turn);
+        let cost = turn.cost.unwrap();
+        assert_eq!(cost.total_usd, 0.25);
+        assert!(cost.input_usd.is_none() && cost.output_usd.is_none());
     }
 }

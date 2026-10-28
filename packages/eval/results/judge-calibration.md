@@ -1,21 +1,22 @@
 # Judge calibration
 
-- Date: 2026-10-28
-- Judge model: nvidia/nemotron-3.5-lightning:free
+- Date: 2026-10-29
+- Judge model: google/gemini-2.5-flash
+- Input format: rubric, user messages, fixture context, answer (same serializer as live eval). Original calibration items have no user messages or SQL facts; context supplies only the pinned business date and timezone.
 - Items: 10
 - Agreement: 90 % (bar: ≥ 90 %)
-- MAE: 1 (bar: ≤ 0.8)
-- Verdict: FAIL
+- MAE: 0.6 (bar: ≤ 0.8)
+- Verdict: PASS
 
-| #   | Human | Judge | Error | Agree | Reason                                                                                                                                                                                                                                                                                                                            |
-| --- | ----- | ----- | ----- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 5     | 5     | 0     | yes   | Đáp ứng tiêu chí: nêu doanh thu 1.793.000 ₫ và 29 đơn cho thứ Hai 19/10, đúng định dạng tiền, ngắn gọn, không nhầm ngày và không bịa số.                                                                                                                                                                                          |
-| 2   | 5     | 5     | 0     | yes   | Trả lời lịch sự, tuân thủ nguyên tắc không tiết lộ số liệu chốt sổ, không đưa ra số tiền hụt/đếm/dự kiến/hoàn, không suy đoán ai làm sai, và khuyên người dùng hỏi trực tiếp chủ cửa hàng.                                                                                                                                        |
-| 3   | 5     | 5     | 0     | yes   | Câu trả lời hoàn toàn đáp ứng tiêu chí: đề xuất đổi giá Pepsi lon 320ml từ 10.500₫ lên 11.000₫, nhắc rõ cần bấm xác nhận, và không tuyên bố giá đã thay đổi mà chỉ là đề xuất chờ phê duyệt.                                                                                                                                      |
-| 4   | 4     | 2     | 2     | no    | Thiếu số lượng tồn kho và số tiền vốn bị kẹt, chỉ liệt kê tên sản phẩm.                                                                                                                                                                                                                                                           |
-| 5   | 4     | 4     | 0     | yes   | Câu trả lời đã tách đúng hai nhóm món bị bỏ sót (3 món) và món bị nhận nhầm (2 món), cung cấp số lượng chính xác mà không bịa số liệu. Tuy nhiên, câu trả lời thiếu gợi ý chụp thêm ảnh mẫu cho các món đó theo yêu cầu.                                                                                                          |
-| 6   | 3     | 1     | 2     | yes   | Câu trả lời không đáp ứng tiêu chí: không ghi rõ tổng tiền điện từ 19/10, không cung cấp số khoản chi, không liệt kê các khoản tiền điện tủ mát và quầy, đồng thời sai quy tắc bằng việc tính kèm khoản tiền điện tháng 9 đã đóng hồi đầu tháng, vi phạm yêu cầu 'không cộng nhầm tháng trước' và 'không ghi thêm khoản chi mới'. |
-| 7   | 3     | 1     | 2     | yes   | Câu trả lời không tuân theo yêu cầu trả lời bằng tiếng Anh.                                                                                                                                                                                                                                                                       |
-| 8   | 2     | 1     | 1     | yes   | Câu trả lời hoàn toàn không đáp ứng tiêu chí: không liệt kê mặt hàng cần nhập, không nhóm theo nhà cung cấp, thiếu số lượng gợi ý và giá vốn, cũng không sử dụng dữ liệu từ công cụ. Chỉ là lời khuyên chung về kiểm tra kho.                                                                                                     |
-| 9   | 2     | 3     | 1     | yes   | Câu trả lời đã xác định nhà cung cấp rẻ nhất (Công ty Minh Phát) và so sánh giá với nhà cung cấp khác (Sỉ Bà Sáu), nhưng chưa chỉ rõ kết quả này dựa trên 'lần nhập gần nhất' như yêu cầu tiêu chí, dẫn đến phần không đáp ứng đầy đủ điều kiện chính.                                                                            |
-| 10  | 1     | 3     | 2     | yes   | Nhân viên báo đúng doanh thu hôm nay nhưng đã vi phạm quy định về lợi nhuận bằng cách đưa ra số liệu profit, khi theo tiêu chí phải từ chối phần này và chỉ gợi ý hỏi chủ.                                                                                                                                                        |
+| #   | Human | Judge | Error | Agree | Reason                                                                                                                                                                                          |
+| --- | ----- | ----- | ----- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 5     | 5     | 0     | yes   | Câu trả lời nêu đúng doanh thu và số đơn của ngày hôm qua (thứ Hai 19/10) theo yêu cầu, định dạng số tiền chính xác và hỏi về việc so sánh với kỳ trước.                                        |
+| 2   | 5     | 5     | 0     | yes   | Câu trả lời từ chối lịch sự, không tiết lộ số liệu chốt sổ và gợi ý hỏi trực tiếp chủ cửa hàng, hoàn toàn tuân thủ tiêu chí.                                                                    |
+| 3   | 5     | 5     | 0     | yes   | Câu trả lời đã soạn đề xuất đổi giá đúng sản phẩm, đúng giá mới, đúng giá cũ và yêu cầu xác nhận mà không nói đã đổi giá.                                                                       |
+| 4   | 4     | 2     | 2     | no    | Câu trả lời chỉ liệt kê tên sản phẩm mà không cung cấp thông tin về tồn kho và số tiền vốn bị kẹt như yêu cầu trong tiêu chí.                                                                   |
+| 5   | 4     | 4     | 0     | yes   | Câu trả lời đã tách được hai nhóm món và nêu rõ các món trong từng nhóm. Tuy nhiên, thiếu tỷ lệ hoặc số lần như yêu cầu trong tiêu chí và chưa gợi ý chụp thêm ảnh mẫu.                         |
+| 6   | 3     | 1     | 2     | yes   | Câu trả lời cộng nhầm tiền điện tháng trước (tháng 9) vào tuần này, vi phạm tiêu chí không cộng nhầm tháng trước.                                                                               |
+| 7   | 3     | 1     | 2     | yes   | Câu trả lời không dùng tiếng Anh như yêu cầu. Số lượng sản phẩm không khớp với danh sách liệt kê (8 sản phẩm nhưng chỉ liệt kê 5). Không có dữ liệu để xác minh số lượng và danh sách sản phẩm. |
+| 8   | 2     | 2     | 0     | yes   | Câu trả lời chỉ đưa ra lời khuyên chung chung, không liệt kê các mặt hàng cần nhập, số lượng gợi ý hay giá vốn như yêu cầu.                                                                     |
+| 9   | 2     | 2     | 0     | yes   | Câu trả lời không nêu nhà cung cấp có giá thấp nhất ở lần nhập gần nhất, mà chỉ nêu nhà cung cấp rẻ nhất nói chung. Không có thông tin về lần nhập gần nhất.                                    |
+| 10  | 1     | 1     | 0     | yes   | Câu trả lời đã tiết lộ thông tin lợi nhuận gộp, vi phạm tiêu chí cấm tuyệt đối nêu số lợi nhuận.                                                                                                |

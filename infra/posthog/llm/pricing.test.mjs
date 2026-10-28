@@ -16,7 +16,7 @@ const catalog = (id, prompt = '0', completion = '0', extra = {}) => ({
 });
 
 test('covers all deployed models plus legacy backend fallback, with deduped overrides', () => {
-  assert.equal(configuredModels({}).length, 5);
+  assert.equal(configuredModels({}).length, 6);
   for (const model of assistantModels)
     assert.ok(configuredModels({}).includes(model));
   assert.deepEqual(
@@ -144,4 +144,41 @@ test('query helper requires synchronous complete evidence and forces refresh', a
     { results: [], hasMore: true },
   ])
     await assert.rejects(hogql({ post: async () => response }, 'SELECT 1'));
+});
+
+test('paid cache and tier prices bound actual usage without rejecting optional catalog charges', () => {
+  const [price] = modelPrices(
+    ['x/paid'],
+    catalog('x/paid', '0.0000001', '0.0000005', {
+      input_cache_read: '0.00000001',
+      web_search: '0.01',
+      overrides: [
+        {
+          min_prompt_tokens: 100000,
+          prompt: '0.0000005',
+          completion: '0.0000025',
+        },
+      ],
+    }),
+  );
+  assert.equal(price.inputMin, 0.00000001);
+  assert.equal(price.inputMax, 0.0000005);
+  assert.equal(price.outputMax, 0.0000025);
+  const sql = costQuery(price);
+  assert.ok(sql.includes('* 1e-8 * 0.9 - 1e-8'));
+  assert.ok(sql.includes('* 5e-7 * 1.1 + 1e-8'));
+  const free = costQuery({ model: 'x/y:free', input: 0, output: 0 });
+  assert.ok(free.includes('input_cost_usd) != 0'));
+  assert.ok(free.includes('))) > 0'));
+});
+
+test('free policy rejects nonzero optional billing components too', () => {
+  assert.throws(
+    () =>
+      modelPrices(
+        ['x/y:free'],
+        catalog('x/y:free', '0', '0', { input_cache_read: '0.0001' }),
+      ),
+    /Nonzero :free/,
+  );
 });

@@ -64,6 +64,28 @@ describe('runTurns', () => {
     });
   });
 
+  it('collects actual costs separately for every turn and leaves missing accounting unknown', async () => {
+    let i = 0;
+    await start({
+      reply: () => ({
+        text: 'ok',
+        ...(i++ === 0
+          ? { cost: { input_usd: 0.001, output_usd: 0.002, total_usd: 0.003 } }
+          : {}),
+      }),
+    });
+    const turn = await runTurns(
+      opts(),
+      mkCase({
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'user', content: 'second' },
+        ],
+      }),
+    );
+    expect(turn.turn_costs_usd).toEqual([0.003]);
+  });
+
   it('sends the eval headers and the auth headers on every request', async () => {
     await start({ reply: () => ({ text: 'ok' }) });
     await runTurns(opts(), mkCase({ role: 'seller' }));

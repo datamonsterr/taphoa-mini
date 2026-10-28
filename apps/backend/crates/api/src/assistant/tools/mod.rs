@@ -166,8 +166,48 @@ impl Registry {
                 "Tham số phải là một đối tượng JSON".into(),
             ));
         }
-        tool.run(ctx, args).await
+        let mut output = tool.run(ctx, args).await?;
+        if let Some(guidance) = answer_guidance(name, tool.kind()) {
+            output.data["answer_guidance"] = Value::String(guidance.into());
+        }
+        Ok(output)
     }
+}
+
+// Static, server-authored presentation guidance. Never interpolate store content here.
+fn answer_guidance(name: &str, kind: ToolKind) -> Option<&'static str> {
+    if kind == ToolKind::Propose {
+        return Some(
+            "Describe this as an unexecuted draft proposal awaiting the user's Confirm tap. State what the proposal contains; never claim the change was recorded, sent or applied. Do not offer further actions unless asked.",
+        );
+    }
+    Some(match name {
+        "get_restock_plan" => {
+            "For a restock list, group items by supplier. Include each item's suggested_quantity and last unit_cost_dong when available. Warn about negative stock separately. Do not replace the item costs with supplier totals. This is a recommendation, not an order sent to suppliers."
+        }
+        "get_supplier_prices" => {
+            "Answer the requested comparison only. For the latest purchase, use the newest dated row, not the cheapest historical purchase. For a supplier comparison use latest_by_supplier and its comparison fields; avoid reciting all history unless asked."
+        }
+        "get_dead_stock" => {
+            "For tied-up capital, state total_tied_up_dong and the largest tied_up_dong items. For an unsold-products list include all returned names and stock. If cost_visibility is owner_only, explain only the owner can view capital; do not claim costs are missing. Keep product names unchanged in English answers."
+        }
+        "forecast_demand" => {
+            "Explicitly call these figures a forecast from the app's forecasting tool, with uncertainty. Use expected_units for each product and total_expected_units for the group. daily_units aligns with calendar dates. Friday-through-Sunday demand is friday_sunday_expected_units. Never substitute restock quantities or invent per-product allocations. Mention a holiday only when calendar identifies one."
+        }
+        "get_receipt" => {
+            "For receipt review state supplier, line count and total, then unmatched or low-confidence lines. Ask which product to assign to an unmatched line, or whether to create a product. If asked to read every line, include each line's name, quantity and unit cost. Do not request confirmation unless the user asked to confirm."
+        }
+        "search_help" => {
+            "Answer using the returned help article's actual steps and screen name. Distinguish a missing article from missing permissions. Do not invent UI steps that the article does not contain."
+        }
+        "get_setup_checklist" => {
+            "Use members to name who has can_enroll permission, including the owner, and who lacks it. For a general checklist explicitly state member_count and pending_invite_count, then cover permissions, VietQR, threshold_missing_count and first day close. Missing per-product thresholds mean threshold setup is incomplete even if a store default exists. State unknown checks as unknown."
+        }
+        "get_catalog_issues" => {
+            "Issue groups overlap; never sum issue_counts into a unique product count. For missing reference photos suggest taking reference photos; for duplicates suggest asking the owner to review them; for missing categories suggest an appropriate category without changing data."
+        }
+        _ => return None,
+    })
 }
 
 pub fn all() -> Vec<Arc<dyn Tool>> {
