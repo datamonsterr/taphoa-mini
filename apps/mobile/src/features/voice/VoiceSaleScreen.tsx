@@ -604,6 +604,10 @@ export function VoiceSaleScreen() {
       </Sheet>
       {picker ? (
         <CustomerPicker
+          // An unmatched spoken name opens the create form with it filled in; the picker still
+          // lists existing customers, and a created or picked one becomes the debtor.
+          mode={!draft?.customer && draft?.spokenCustomer ? 'create' : 'select'}
+          initialName={draft?.customer ? '' : (draft?.spokenCustomer ?? '')}
           onClose={() => setPicker(false)}
           onSelect={(customer) => {
             dispatch({ type: 'customer', customer });

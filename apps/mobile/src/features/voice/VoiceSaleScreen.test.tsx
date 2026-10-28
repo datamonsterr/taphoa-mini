@@ -466,6 +466,39 @@ describe('confirm', () => {
     });
   });
 
+  test('an unmatched spoken customer opens the create form with the name filled in', async () => {
+    const real = createMockFetch();
+    setApiTransport(async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const response = await real(input, init);
+      if (!url.endsWith('/v1/voice/utterances')) return response;
+      const body = await response.json();
+      body.sale_draft.payment_method = 'credit';
+      body.sale_draft.customer = { status: 'none', spoken_name: 'chị Mai' };
+      return new Response(JSON.stringify(body), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    await speak('two-line-sale.m4a');
+    expect(screen.getByTestId('voice-customer')).toHaveTextContent(/chị Mai/);
+    await fireEvent.press(screen.getByTestId('voice-customer'));
+    expect(await screen.findByDisplayValue('chị Mai')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByLabelText(/^Tạo/));
+    await waitFor(() =>
+      expect(screen.getByTestId('voice-customer')).toHaveTextContent(
+        /Khách nợ: chị Mai/,
+      ),
+    );
+    expect(getMockDb().customers.map((c) => c.name)).toContain('chị Mai');
+    await fireEvent.press(screen.getByLabelText('Xác nhận bán'));
+    await screen.findByTestId('voice-done');
+    expect(getMockDb().sales.at(-1)).toMatchObject({
+      payment_method: 'credit',
+      credit_amount: 29000,
+    });
+  });
+
   test('closing the draft abandons it at stage draft and posts the outcome', async () => {
     await speak('two-line-sale.m4a');
     await fireEvent.press(screen.getByTestId('voice-close'));
