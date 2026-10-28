@@ -100,7 +100,7 @@ pub async fn record(
     .bind(body.outcome.as_str())
     .bind(body.stage.map(Stage::as_str))
     .bind(body.sale_id)
-    .bind(serde_json::to_value(&corrections_json(&corrections)).map_err(|_| ApiError::internal())?)
+    .bind(corrections_json(&corrections))
     .execute(&mut *tx)
     .await
     .map_err(db)?;

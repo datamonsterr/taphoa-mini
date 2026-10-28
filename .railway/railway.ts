@@ -107,6 +107,14 @@ export default defineRailway((ctx) => {
       ASSISTANT_FEEDBACK_QUESTION_ID: preserve(),
       // Optional per-environment survey comment question.
       ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID: preserve(),
+      // Voice always uses OpenRouter on Railway; never deploy the scripted provider.
+      VOICE_MODEL_PROVIDER: 'openrouter',
+      // Per-environment audio-native model order (default google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite).
+      VOICE_MODELS: preserve(),
+      VOICE_STT_MODEL: preserve(),
+      // Per-environment store utterance cap (default 300); lower it on test to exercise voice_quota.
+      VOICE_DAILY_UTTERANCES_PER_STORE: preserve(),
+      VOICE_REQUIRE_ZDR: preserve(),
       // Bucket credentials are not referencable from IaC; set once with
       // `railway bucket credentials` + `railway variable set` (docs/deploy.md).
       AWS_ENDPOINT_URL: preserve(),
