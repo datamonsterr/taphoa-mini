@@ -44,7 +44,7 @@ impl Tool for Sales {
     fn description_vi(&self) -> &'static str {
         match self {
             Self::Summary => {
-                "Xem doanh thu, số đơn, đơn hủy theo ngày, tuần hoặc thành viên và so với kỳ trước cùng độ dài. Lợi nhuận dùng giá vốn hiện tại như báo cáo ứng dụng; bỏ qua dòng chưa biết giá vốn, lược bỏ lợi nhuận nếu không có quyền đổi giá."
+                "Xem doanh thu, số đơn, đơn hủy theo ngày, tuần hoặc thành viên và so với kỳ trước cùng độ dài. Tóm tắt buổi sáng/hôm qua cần thêm get_restock_plan hoặc get_stock_levels; hỏi ai hủy nhiều nhất dùng get_member_activity. Lợi nhuận dùng giá vốn hiện tại như báo cáo ứng dụng; bỏ qua dòng chưa biết giá vốn, lược bỏ lợi nhuận nếu không có quyền đổi giá."
             }
             Self::Top => {
                 "Xem sản phẩm bán chạy theo số lượng đơn vị cơ sở hoặc doanh thu, kèm biểu đồ."
@@ -155,19 +155,17 @@ async fn summary(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
     let previous_from = shift(from, -((to - from).num_days() + 1))?;
     let previous_to = shift(from, -1)?;
     let db = pool(&ctx.state)?;
-    let sql = concat!(summary_base!(), totals!());
-    let mut totals: Value = sqlx::query_scalar(sql)
+    let totals_sql = concat!(summary_base!(), totals!());
+    let current_query = sqlx::query_scalar::<_, Value>(totals_sql)
         .bind(ctx.actor.store_id)
         .bind(from)
         .bind(to)
-        .fetch_one(db)
-        .await?;
-    let mut previous: Value = sqlx::query_scalar(sql)
+        .fetch_one(db);
+    let previous_query = sqlx::query_scalar::<_, Value>(totals_sql)
         .bind(ctx.actor.store_id)
         .bind(previous_from)
         .bind(previous_to)
-        .fetch_one(db)
-        .await?;
+        .fetch_one(db);
     let group_by = text(args, "group_by").unwrap_or("day");
     let sql = concat!(
         summary_base!(),
@@ -186,13 +184,16 @@ async fn summary(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
             FROM selected GROUP BY bucket,member_name ORDER BY bucket LIMIT 51
         ) r"#
     );
-    let groups: Vec<Value> = sqlx::query_scalar(sql)
+    let groups_query = sqlx::query_scalar::<_, Value>(sql)
         .bind(ctx.actor.store_id)
         .bind(from)
         .bind(to)
         .bind(group_by)
-        .fetch_all(db)
-        .await?;
+        .fetch_all(db);
+    // These read-only aggregates are independent. Preserve their existing semantics while
+    // paying one database round trip in the critical path instead of three.
+    let (mut totals, mut previous, groups) =
+        tokio::try_join!(current_query, previous_query, groups_query)?;
     let (mut groups, truncated) = capped(groups, 50);
     let can_cost = auth::can(&ctx.actor, Action::ChangePrice);
     if !can_cost {
@@ -372,5 +373,8 @@ async fn forecast(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErr
     out.data["history_from"] = json!(shift(ctx.today, -55)?);
     out.data["history_to"] = json!(ctx.today);
     out.data["heuristic"] = json!(true);
+    out.data["forecast_days"] = json!(count);
+    out.data["history_weeks"] = json!(8);
+    out.data["trend_days"] = json!(14);
     Ok(out)
 }
