@@ -1,9 +1,7 @@
 appId: com.datamonsterr.taphoamini
 ---
-# Sell on credit, repay, see zero balance. The product is added by hand (so the flow does not
-# depend on what recognition makes of the emulator's virtual camera): cart -> "Ghi nợ" with a
-# customer created in the picker -> the dashboard's debt card -> the debt book -> "Thu nợ" in
-# full -> the customer owes 0đ.
+# Add a profile from Sổ nợ without a sale, sell on credit to that customer,
+# then collect the balance. Reuses the shared setup/enrollment subflows.
 - runFlow: subflows/launch.yaml
 - runFlow: subflows/sign-in.yaml
 - runFlow:
@@ -11,6 +9,45 @@ appId: com.datamonsterr.taphoamini
     env:
       STORE_NAME: 'Tạp hóa Sổ nợ'
       OWNER_NAME: 'Cô Ba'
+# Create the customer away from checkout.
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- scrollUntilVisible:
+    element:
+      text: 'Sổ nợ, 0đ.*'
+    timeout: 30000
+- scroll
+- tapOn: 'Sổ nợ, 0đ.*'
+- extendedWaitUntil:
+    visible: 'Thêm khách hàng'
+    timeout: 20000
+- tapOn: 'Thêm khách hàng'
+- extendedWaitUntil:
+    visible: 'Tên khách hàng'
+    timeout: 10000
+- tapOn: 'Tên khách hàng'
+- inputText: 'Chị Lan'
+- pressKey: Enter
+- tapOn: 'Số điện thoại (không bắt buộc)'
+- inputText: '0912345678'
+# Enter blurs this single-line field without sending Android Back to the sheet.
+- pressKey: Enter
+- assertVisible: 'Tạo khách hàng'
+- takeScreenshot: debts-01-create-from-book
+- tapOn: 'Tạo khách hàng'
+- extendedWaitUntil:
+    visible: 'Hết nợ 0đ'
+    timeout: 20000
+- assertVisible: 'Chị Lan'
+- tapOn: 'Quay lại'
+- tapOn: 'Quay lại'
+- tapOn: 'Mở camera'
+- extendedWaitUntil:
+    visible: 'Chụp'
+    timeout: 15000
 - runFlow:
     file: subflows/enroll-product.yaml
     env:
@@ -21,28 +58,24 @@ appId: com.datamonsterr.taphoamini
     visible: 'Hiện mã QR thanh toán'
     timeout: 20000
 - tapOn: 'Hiện mã QR thanh toán'
-# "Ghi nợ" opens the customer picker; nobody is in the book yet, so create the customer inline
+# Select the profile created from Sổ nợ.
 - extendedWaitUntil:
     visible: 'Ghi nợ'
     timeout: 20000
 - tapOn: 'Ghi nợ'
 - extendedWaitUntil:
-    visible: 'Tạo khách hàng'
+    visible: 'Chị Lan, 0đ'
     timeout: 20000
-- tapOn: 'Tên khách hàng'
-- inputText: 'Chị Lan'
-# Enter blurs this single-line field without sending Android Back to the sheet.
-- pressKey: Enter
-- assertVisible: 'Tạo khách hàng'
-- takeScreenshot: debts-01-picker
-- tapOn: 'Tạo khách hàng'
+- assertVisible: 'Chọn khách ghi nợ'
+- assertVisible: '0912345678'
+- tapOn: 'Chị Lan, 0đ'
 # the picker closes and the pay screen shows who owes
 - extendedWaitUntil:
-    visible: 'Đổi khách hàng'
+    visible: '.*Đổi khách hàng'
     timeout: 20000
-- assertVisible: '15.000đ'
+- assertVisible: 'Nợ mới của khách 15.000đ'
 - takeScreenshot: debts-02-pay-credit
-- tapOn: 'Đã nhận tiền'
+- tapOn: 'Ghi nợ 15.000đ'
 # back at the camera with an empty cart
 - extendedWaitUntil:
     visible: 'Giỏ hàng trống'

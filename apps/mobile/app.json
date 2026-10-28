@@ -20,7 +20,11 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.datamonsterr.taphoamini",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "blockedPermissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ]
     },
     "web": {
       "output": "static",
@@ -61,6 +65,12 @@
           "icon": "./assets/images/notification-icon.png",
           "color": "#5a43e8",
           "defaultChannel": "digest"
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Tạp Hóa Mini dùng tên và số điện thoại của liên hệ bạn chọn để tạo khách hàng."
         }
       ]
     ],

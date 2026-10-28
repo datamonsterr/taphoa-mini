@@ -2,7 +2,14 @@ import { CustomerPicker } from '../debts/CustomerPicker';
 import { debtStrings } from '../debts/strings';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Check, ChevronLeft, Landmark, Undo2 } from 'lucide-react-native';
+import {
+  BookOpen,
+  Check,
+  ChevronLeft,
+  Landmark,
+  Undo2,
+  UserRound,
+} from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,6 +27,7 @@ import {
   CheckButton,
   CircleButton,
   Icon,
+  Keypad,
   MoneyText,
   PayToggle,
   PressableScale,
@@ -29,12 +37,14 @@ import type { PayMethod } from '@/components/ui';
 import { useCreateSale, useStore } from '@/lib/api';
 import type { CreateSaleRequest, Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { useLabels, useT } from '@/lib/i18n';
+import { fill, useLabels, useT } from '@/lib/i18n';
 import { newUuid, saleCode } from '@/lib/uuid';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
 import type { CartLine } from '@/stores/cart';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
+import { applyKey } from '@/components/ui/keypad';
+import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
@@ -118,6 +128,8 @@ export function PayScreen() {
   const sale = useCreateSale();
 
   const t = useT(debtStrings);
+  const payT = useT(payStrings);
+  const [customPaid, setCustomPaid] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [picker, setPicker] = useState(false);
   const [paidText, setPaidText] = useState('0');
@@ -153,7 +165,23 @@ export function PayScreen() {
   const cashGiven = tendered ?? total;
   const change = computeChange(total, cashGiven);
   const options = useMemo(() => quickCashOptions(total), [total]);
-  const short = method === 'cash' && cashGiven < total;
+  const roundStep = total >= 10000 ? 10000 : total >= 1000 ? 1000 : 100;
+  const roundPaid = Math.min(
+    total,
+    Math.max(roundStep, Math.floor(total / roundStep) * roundStep),
+  );
+  const creditAmount = Math.max(0, total - paidNow);
+  const confirmDisabled =
+    sale.isPending ||
+    done ||
+    lines.length === 0 ||
+    (method === 'cash' && cashGiven < total) ||
+    (method === 'credit' && (!customer || invalidPaid)) ||
+    picker ||
+    customPaid;
+  const creditLabel = fill(payT('credit.confirm'), {
+    amount: formatVnd(creditAmount),
+  });
 
   const back = useCallback(() => router.back(), [router]);
   const retryStore = useCallback(() => void store.refetch(), [store]);
@@ -250,15 +278,18 @@ export function PayScreen() {
           accessibilityLabel="Quay lại giỏ hàng"
           onPress={back}
         />
-        <PayToggle
-          value={method}
-          onChange={(next) => {
-            setMethod(next);
-            if (next === 'credit' && !customer) setPicker(true);
-          }}
-          labels={toggle}
-        />
+        <Text accessibilityRole="header" style={styles.title}>
+          {payT('title')}
+        </Text>
       </View>
+      <PayToggle
+        value={method}
+        onChange={(next) => {
+          setMethod(next);
+          if (next === 'credit' && !customer) setPicker(true);
+        }}
+        labels={toggle}
+      />
 
       <MoneyText amount={total} variant="total" style={styles.total} />
 
@@ -266,22 +297,78 @@ export function PayScreen() {
         <View style={styles.cashCard}>
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel={customer ? t('change') : t('choose')}
+            accessibilityLabel={
+              customer
+                ? `${customer.name}, ${fill(payT('credit.currentDebt'), { amount: formatVnd(customer.balance) })}${customer.phone ? `, ${customer.phone}` : ''}. ${t('change')}`
+                : t('choose')
+            }
             onPress={() => setPicker(true)}
-            style={styles.retry}
+            style={styles.customerRow}
           >
-            <Text style={styles.retryText}>
-              {customer ? `${customer.name} · ${t('change')}` : t('choose')}
-            </Text>
+            <Icon icon={UserRound} color={colors.accent} />
+            <View style={styles.customerText}>
+              <Text style={styles.customerName}>
+                {customer?.name ?? t('choose')}
+              </Text>
+              {customer ? (
+                <>
+                  <Text style={styles.caption}>
+                    {fill(payT('credit.currentDebt'), {
+                      amount: formatVnd(customer.balance),
+                    })}
+                  </Text>
+                  {customer.phone ? (
+                    <Text style={styles.caption}>{customer.phone}</Text>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+            {customer ? (
+              <Text style={styles.changeCustomer}>{payT('credit.change')}</Text>
+            ) : null}
           </PressableScale>
-          <Text>{t('paidNow')}</Text>
-          <TextInput
-            accessibilityLabel={t('paidNow')}
-            value={paidText}
-            onChangeText={setPaidText}
-            keyboardType="number-pad"
-            style={styles.paidInput}
-          />
+          <Text style={styles.customerName}>{t('paidNow')}</Text>
+          <View style={styles.paidChips}>
+            {[0, ...(roundPaid > 0 ? [roundPaid] : [])].map((amount) => (
+              <PressableScale
+                key={amount}
+                accessibilityRole="radio"
+                accessibilityLabel={formatVnd(amount)}
+                accessibilityState={{ checked: paidNow === amount }}
+                aria-checked={paidNow === amount}
+                onPress={() => setPaidText(String(amount))}
+                style={[styles.paidChip, paidNow === amount && styles.chipOn]}
+              >
+                <Text
+                  style={[
+                    styles.customerName,
+                    paidNow === amount && styles.chipTextOn,
+                  ]}
+                >
+                  {formatVnd(amount)}
+                </Text>
+              </PressableScale>
+            ))}
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={payT('credit.other')}
+              onPress={() => setCustomPaid(true)}
+              style={styles.paidChip}
+            >
+              <Text style={styles.customerName}>
+                {paidNow !== 0 && paidNow !== roundPaid
+                  ? formatVnd(paidNow)
+                  : payT('credit.other')}
+              </Text>
+            </PressableScale>
+          </View>
+          {customer && !invalidPaid ? (
+            <Text style={styles.newDebt}>
+              {fill(payT('credit.newDebt'), {
+                amount: formatVnd(customer.balance + creditAmount),
+              })}
+            </Text>
+          ) : null}
           {invalidPaid ? (
             <Text accessibilityRole="alert">{t('invalidPaid')}</Text>
           ) : null}
@@ -386,24 +473,66 @@ export function PayScreen() {
           Không lưu được đơn. Giỏ hàng vẫn còn, thử lại.
         </Text>
       ) : null}
-      <CheckButton
-        variant="success"
-        accessibilityLabel="Đã nhận tiền"
-        onPress={received}
-        disabled={
-          sale.isPending ||
-          done ||
-          lines.length === 0 ||
-          short ||
-          (method === 'credit' && (!customer || invalidPaid)) ||
-          picker
-        }
-        block
-        xl
-      />
+      {method === 'credit' ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={creditLabel}
+          onPress={received}
+          disabled={confirmDisabled}
+          accessibilityState={{ disabled: confirmDisabled }}
+          style={[styles.creditButton, confirmDisabled && styles.disabled]}
+        >
+          <Icon icon={BookOpen} size={28} color={colors.onInk} />
+          <Text style={styles.creditButtonText}>{creditLabel}</Text>
+        </PressableScale>
+      ) : (
+        <CheckButton
+          variant="success"
+          accessibilityLabel="Đã nhận tiền"
+          onPress={received}
+          disabled={confirmDisabled}
+          block
+          xl
+        />
+      )}
+      {customPaid ? (
+        <DebtSheet
+          title={t('paidNow')}
+          onClose={() => setCustomPaid(false)}
+          footer={
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={payT('credit.applyPaid')}
+              disabled={invalidPaid}
+              onPress={() => setCustomPaid(false)}
+              style={[styles.creditButton, invalidPaid && styles.disabled]}
+            >
+              <Text style={styles.creditButtonText}>
+                {payT('credit.applyPaid')}
+              </Text>
+            </PressableScale>
+          }
+        >
+          <TextInput
+            accessibilityLabel={t('paidNow')}
+            value={paidText}
+            onChangeText={setPaidText}
+            keyboardType="number-pad"
+            style={styles.paidInput}
+          />
+          {invalidPaid ? (
+            <Text accessibilityRole="alert">{t('invalidPaid')}</Text>
+          ) : null}
+          <Keypad
+            diameter={64}
+            onKey={(key) => setPaidText((value) => applyKey(value, key, 12))}
+          />
+        </DebtSheet>
+      ) : null}
 
       {picker ? (
         <CustomerPicker
+          createLabel={t('picker.creditCreate')}
           onClose={() => setPicker(false)}
           onSelect={(picked) => {
             setCustomer(picked);
@@ -429,10 +558,47 @@ export function PayScreen() {
 }
 
 const styles = StyleSheet.create({
+  title: { ...typography.heading, flex: 1, color: colors.ink },
+  customerRow: {
+    minHeight: size.tapLg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  customerText: { flex: 1, gap: space[1] },
+  customerName: { ...typography.label, color: colors.ink },
+  caption: { ...typography.caption, color: colors.inkMuted },
+  changeCustomer: { ...typography.caption, color: colors.accent },
+  paidChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  paidChip: {
+    flexGrow: 1,
+    minHeight: size.tapMin,
+    borderRadius: radius.full,
+    paddingHorizontal: space[3],
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
+  newDebt: { ...typography.label, color: colors.ink, textAlign: 'center' },
+  creditButton: {
+    minHeight: size.tapXl,
+    flexDirection: 'row',
+    gap: space[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.ink,
+    padding: space[3],
+  },
+  creditButtonText: { ...typography.heading, color: colors.onInk },
+  disabled: { opacity: 0.4 },
   paidInput: {
     ...typography.body,
     color: colors.ink,
-    minHeight: 48,
+    minHeight: size.tapMin,
     padding: space[3],
     borderRadius: radius.md,
     backgroundColor: colors.surface,
@@ -446,7 +612,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: space[3],
   },
   total: { textAlign: 'center' },
   qrCard: {
