@@ -12,7 +12,7 @@ import { catalogProduct, uuid7 } from '../src/stock-fixtures.js';
  * Clips missing from the checkout skip their case with a message instead of failing.
  */
 const dir = new URL('../fixtures/voice/', import.meta.url);
-const SAMPLES = Number(process.env.VOICE_LATENCY_SAMPLES ?? 10);
+const SAMPLES = Number(process.env.VOICE_LATENCY_SAMPLES ?? 20);
 const BUDGET_MS = Number(process.env.VOICE_P95_MS ?? 3000);
 // Set to the backend's VOICE_DAILY_UTTERANCES_PER_STORE when it is low enough to exhaust.
 const QUOTA_CAP = Number(process.env.VOICE_E2E_DAILY_CAP ?? 0);
