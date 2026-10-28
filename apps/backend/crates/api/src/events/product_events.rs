@@ -103,6 +103,8 @@ fn map_inner(envelope: &Value, members: &MemberLookup) -> Option<CaptureEvent> {
                 has_credit: defaulted::<i64>(data, "credit_amount", 0)? > 0
                     || payment_method == PaymentMethod::Credit,
                 manual_lines: defaulted(data, "manual_lines", 0)?,
+                // V1 wires the real count from the sale payload.
+                voice_lines: 0,
             }
         }
         "sale.voided" => ProductEvent::SaleVoided {

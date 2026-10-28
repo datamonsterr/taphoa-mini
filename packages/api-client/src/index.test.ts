@@ -149,7 +149,10 @@ describe('api client', () => {
       const { api, fetchMock } = setup(json(utterance, 201));
       const appended: unknown[][] = [];
       const real = FormData.prototype.append;
-      FormData.prototype.append = function (...args: unknown[]) {
+      FormData.prototype.append = function (
+        this: FormData,
+        ...args: unknown[]
+      ) {
         appended.push(args);
         return (real as (...a: unknown[]) => void).apply(this, [
           args[0],
