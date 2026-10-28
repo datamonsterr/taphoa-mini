@@ -28,12 +28,12 @@ export async function runOne(client, { dryRun = true } = {}) {
     };
   const rows = await hogql(
     client,
-    `SELECT toString(uuid), timestamp FROM events
+    `SELECT toString(uuid), timestamp FROM posthog.ai_events
     WHERE event = '$ai_generation' AND properties.environment = 'test'
-      AND properties.$ai_provider = 'openrouter'
-      AND properties.$ai_model IN (${[...assistantModels, ...legacyModels].map(sqlString).join(', ')})
-      AND properties.$ai_is_error = false
-      AND isNotNull(properties.$ai_input) AND isNotNull(properties.$ai_output_choices)
+      AND provider = 'openrouter'
+      AND model IN (${[...assistantModels, ...legacyModels].map(sqlString).join(', ')})
+      AND is_error = false
+      AND isNotNull(input) AND isNotNull(output_choices)
       AND timestamp >= now() - INTERVAL 30 DAY ORDER BY timestamp DESC LIMIT 1`,
   );
   if (!rows.length)

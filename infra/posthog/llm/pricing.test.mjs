@@ -123,7 +123,8 @@ test('cost query checks both token components and total, exact test/provider/mod
     'missing_costs',
     '* 0.1',
     '* 0.2',
-    '$ai_total_cost_usd',
+    'total_cost_usd',
+    'FROM posthog.ai_events',
   ])
     assert.ok(sql.includes(part), part);
 });
