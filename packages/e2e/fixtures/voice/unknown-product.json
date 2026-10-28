@@ -1,0 +1,17 @@
+{
+  "source": "synthetic",
+  "transcript": "một bao gạo ST25 giá ba mươi lăm nghìn",
+  "segments": ["một bao gạo ét ti hai lăm giá ba mươi lăm nghìn"],
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "gạo ST25",
+      "quantity": 1,
+      "status": "unknown",
+      "unit_price": 35000
+    }
+  ],
+  "requires_products": []
+}

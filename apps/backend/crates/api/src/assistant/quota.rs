@@ -113,7 +113,7 @@ async fn clear_exhausted_at(state: &AppState, now: DateTime<Utc>) {
     }
 }
 
-async fn incr(
+pub(crate) async fn incr(
     state: &AppState,
     key: &str,
     ttl_secs: i64,

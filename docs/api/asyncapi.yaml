@@ -441,6 +441,7 @@ components:
                   ]
                 properties:
                   manual_lines: { type: integer, minimum: 0 }
+                  voice_lines: { type: integer, minimum: 0 }
                   sale_id: { $ref: '#/components/schemas/Uuid' }
                   code: { type: string }
                   total: { $ref: '#/components/schemas/Money' }
