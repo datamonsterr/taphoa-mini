@@ -343,6 +343,8 @@ async fn catalog_setup_thresholds_and_anomalies() {
     sqlx::query("INSERT INTO price_history(store_id,product_id,field,old_value,new_value,source,changed_by,changed_at) VALUES($1,$2,'price',5000,7000,'manual',$3,'2026-10-20T12:00:00+07')").bind(f.ctx.actor.store_id).bind(p).bind(f.ctx.actor.member_id).execute(f.db()).await.unwrap();
     let issues = f.run("get_catalog_issues", json!({})).await;
     assert_eq!(issues.rows, 2);
+    assert_eq!(issues.data["returned_product_count"], 2);
+    assert_eq!(issues.data["issue_counts"]["possible_duplicate"], 2);
     assert!(
         issues.data["items"][0]["issues"]
             .as_array()
@@ -373,6 +375,8 @@ async fn catalog_setup_thresholds_and_anomalies() {
             json!({"from":"2026-10-01","to":"2026-10-25"}),
         )
         .await;
+    assert_eq!(anomalies.data["lookback_days"], 24);
+    assert_eq!(anomalies.data["price_change_threshold_pct"], 30);
     let kinds: Vec<_> = anomalies.data["items"]
         .as_array()
         .unwrap()
@@ -507,6 +511,9 @@ async fn recognition_health_uses_checkout_corrections_and_unknowns() {
         .iter()
         .find(|i| i["product_id"] == p.to_string())
         .unwrap();
+    assert_eq!(output.data["from"], "2026-10-01");
+    assert_eq!(output.data["to"], "2026-10-25");
+    assert_eq!(output.data["lookback_days"], 24);
     assert_eq!(item["corrected"], 1);
     assert_eq!(item["missed"], 1);
     assert_eq!(item["reference_count"], 0);

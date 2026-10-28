@@ -935,16 +935,23 @@ async fn an_ungrounded_figure_is_discarded_and_the_model_is_asked_again_with_aut
     assert_eq!(requests[2].tool_choice, None);
     let note = requests[1].messages.last().unwrap();
     assert_eq!(note.role, ChatRole::System);
-    assert_eq!(
-        note.content.as_deref(),
-        Some("Hãy gọi công cụ để lấy số liệu trước khi trả lời.")
-    );
+    let note = note.content.as_deref().unwrap();
+    assert!(note.contains("Hãy gọi công cụ để lấy số liệu trước khi trả lời."));
+    assert!(note.contains("[0.0, 0.0]"));
     assert!(
-        !requests[1]
+        requests[1]
             .messages
             .iter()
             .any(|m| m.content.as_deref() == Some("Hôm nay bán 0 ₫ (0 đơn)"))
     );
+    let persisted: Value = sqlx::query_scalar(
+        "SELECT transcript FROM assistant_messages WHERE thread_id=$1 AND role='assistant'",
+    )
+    .bind(id.parse::<Uuid>().unwrap())
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert!(!persisted.to_string().contains("Hôm nay bán 0 ₫ (0 đơn)"));
     assert_eq!(deltas(&f), "Đã xem số liệu.");
     assert_eq!(f.last().unwrap()["event"], "message.completed");
 }
@@ -1124,5 +1131,44 @@ async fn grounding_retry_reuses_current_tool_data() {
             .unwrap()
             .contains("Không lặp lại công cụ")
     );
+    assert!(
+        requests[2]
+            .messages
+            .iter()
+            .any(|m| m.role == ChatRole::Assistant
+                && m.content.as_deref() == Some("Doanh thu 9.999.999 ₫"))
+    );
+    assert!(
+        requests[2]
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("9999999")
+    );
     assert_eq!(deltas(&f), "Doanh thu 1.234.000 ₫");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn grounding_at_call_limit_uses_the_safe_fallback_without_another_attempt() {
+    let mut config = config();
+    config.max_model_calls = 2;
+    let (w, model, _) = setup(
+        vec![
+            Step::tool("a", json!({"fixture_numbers":true})),
+            Step::text("Doanh thu 9.999.999 ₫"),
+        ],
+        config,
+    )
+    .await;
+    let id = thread(&w, false).await;
+    let f = turn(&w, &id, false, false).await;
+    assert_eq!(model.requests().len(), 2);
+    assert_eq!(
+        deltas(&f),
+        "Mình chưa lấy được số liệu để trả lời chính xác. Bạn thử hỏi lại nhé."
+    );
 }

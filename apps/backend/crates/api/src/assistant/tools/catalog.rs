@@ -119,6 +119,20 @@ impl Tool for CatalogIssues {
         "#).bind(ctx.actor.store_id).fetch_all(pool(&ctx.state)?).await?;
         let mut out = super::ops::items(rows, 50, "Sản phẩm cần kiểm tra danh mục");
         out.data["minimum_reference_count"] = json!(3);
+        let items = out.data["items"].as_array().expect("catalog items");
+        let mut counts = std::collections::BTreeMap::<String, usize>::new();
+        for item in items {
+            for issue in item["issues"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                *counts.entry(issue.into()).or_default() += 1;
+            }
+        }
+        out.data["returned_product_count"] = json!(items.len());
+        out.data["issue_counts"] = json!(counts);
         out.data["note_vi"] = json!(
             "Giá luôn có trong dữ liệu; giá bằng 0 được đánh dấu cần kiểm tra, không khẳng định là sai."
         );

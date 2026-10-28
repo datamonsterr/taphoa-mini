@@ -51,6 +51,7 @@ const SCALES: &[(&str, f64)] = &[
     ("nghìn", 1e3),
     ("ngàn", 1e3),
     ("tr", 1e6),
+    ("m", 1e6),
     ("k", 1e3),
 ];
 
@@ -80,7 +81,19 @@ fn prose(text: &str) -> String {
     text.split_inclusive(char::is_whitespace)
         .map(|token| {
             let plain = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '/');
-            if token.contains("://")
+            let short_id = plain.split_once("-…").is_some_and(|(head, tail)| {
+                head.len() == 8
+                    && head.chars().all(|c| c.is_ascii_hexdigit())
+                    && !tail.is_empty()
+                    && tail.chars().all(|c| c.is_ascii_hexdigit())
+            }) || token.contains('`')
+                && token
+                    .trim_start_matches('`')
+                    .trim_end_matches(|c: char| !c.is_alphanumeric())
+                    .strip_prefix("...")
+                    .is_some_and(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit()));
+            if short_id
+                || token.contains("://")
                 || token.contains("/v1/")
                 || uuid::Uuid::parse_str(plain).is_ok()
                 || token.contains("version=")
@@ -111,6 +124,14 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
             i += 1;
             continue;
         }
+        let before: String = chars[..i]
+            .iter()
+            .rev()
+            .take(16)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         let mut end = i + run(i);
         // ISO dates, full Vietnamese dates and short day/month dates. A bare year following
         // "năm" is also a date, not a store total. Dates are validated by the tools separately.
@@ -135,7 +156,17 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
                 i = second_end + 1 + run(second_end + 1);
                 continue;
             }
-            if sep == '/' && (1..=31).contains(&first) && (1..=12).contains(&second) {
+            let month_context = before.ends_with("tháng ") || before.ends_with("month ");
+            if (sep == '/'
+                && ((1..=31).contains(&first) && (1..=12).contains(&second)
+                    || month_context
+                        && (1..=12).contains(&first)
+                        && (2000..=2100).contains(&second)))
+                || sep == '-'
+                    && month_context
+                    && (1..=12).contains(&first)
+                    && (1..=12).contains(&second)
+            {
                 i = second_end;
                 continue;
             }
@@ -157,14 +188,6 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
                 continue;
             }
         }
-        let before: String = chars[..i]
-            .iter()
-            .rev()
-            .take(16)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
         if end - i == 4 && (before.ends_with("năm ") || before.ends_with("year ")) {
             i = end;
             continue;
@@ -253,6 +276,7 @@ fn figures(text: &str, store_only: bool) -> Vec<Figure> {
             value *= factor;
             let signed = before.ends_with('-')
                 || before.ends_with('−')
+                || before.ends_with('‑')
                 || before.ends_with("âm ")
                 || before.ends_with("thiếu ")
                 || before.ends_with("hụt ")
@@ -362,6 +386,35 @@ impl Evidence {
             Value::Array(items) => {
                 self.numbers.push(items.len() as f64);
                 let mut columns: BTreeMap<&str, Vec<f64>> = BTreeMap::new();
+                let mut kinds = BTreeMap::<&str, usize>::new();
+                let mut issues = BTreeMap::<&str, usize>::new();
+                let mut few_with_photos = 0;
+                for item in items {
+                    if let Some(kind) = item["kind"].as_str() {
+                        *kinds.entry(kind).or_default() += 1;
+                    }
+                    for issue in item["issues"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                    {
+                        *issues.entry(issue).or_default() += 1;
+                        if issue == "few_references"
+                            && item["reference_count"].as_u64().is_some_and(|n| n > 0)
+                        {
+                            few_with_photos += 1;
+                        }
+                    }
+                }
+                self.numbers
+                    .extend(kinds.values().chain(issues.values()).map(|n| *n as f64));
+                if !kinds.is_empty() {
+                    self.numbers.push(kinds.len() as f64);
+                }
+                if !issues.is_empty() {
+                    self.numbers.push(few_with_photos as f64);
+                }
                 for item in items {
                     self.collect(item, key);
                     if let Some(map) = item.as_object() {
@@ -403,11 +456,11 @@ impl Evidence {
 
 /// Tool arguments chosen by the model are not evidence. Only user-supplied figures and
 /// successful current-turn tool data can back a claim. Do not reuse previous-turn values.
-pub(super) fn has_ungrounded_number<'a>(
+pub(super) fn unmatched_numbers<'a>(
     input: &str,
     tools: impl Iterator<Item = &'a str>,
     answer: &str,
-) -> bool {
+) -> Vec<f64> {
     let mut evidence = Evidence::default();
     evidence.text(input);
     for raw in tools {
@@ -418,14 +471,27 @@ pub(super) fn has_ungrounded_number<'a>(
             evidence.collect(&value, "");
         }
     }
-    figures(answer, true).into_iter().any(|claim| {
-        let values = if claim.percent {
-            &evidence.percents
-        } else {
-            &evidence.numbers
-        };
-        !values.iter().any(|n| claim.matches(*n))
-    })
+    figures(answer, true)
+        .into_iter()
+        .filter(|claim| {
+            let values = if claim.percent {
+                &evidence.percents
+            } else {
+                &evidence.numbers
+            };
+            !values.iter().any(|n| claim.matches(*n))
+        })
+        .map(|claim| claim.value)
+        .collect()
+}
+
+#[cfg(test)]
+pub(super) fn has_ungrounded_number<'a>(
+    input: &str,
+    tools: impl Iterator<Item = &'a str>,
+    answer: &str,
+) -> bool {
+    !unmatched_numbers(input, tools, answer).is_empty()
 }
 
 #[cfg(test)]
@@ -443,6 +509,44 @@ mod tests {
     fn blocked(data: Value, answer: &str) -> bool {
         let raw = data.to_string();
         has_ungrounded_number("", std::iter::once(raw.as_str()), answer)
+    }
+    #[test]
+    fn live_draft_replay() {
+        let cases: Value =
+            serde_json::from_str(include_str!("fixtures/main-smoke-live-drafts.json")).unwrap();
+        for case in cases.as_array().unwrap() {
+            let tools: Vec<_> = case["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t.as_str().unwrap())
+                .collect();
+            let unmatched = unmatched_numbers(
+                case["input"].as_str().unwrap(),
+                tools.into_iter(),
+                case["draft"].as_str().unwrap(),
+            );
+            let expected: Vec<f64> =
+                serde_json::from_value(case["unmatched_after"].clone()).unwrap();
+            assert_eq!(
+                unmatched, expected,
+                "{} draft {}",
+                case["case"], case["draft_index"]
+            );
+            let invented = format!(
+                "{}\nDoanh thu 9.876.543.210 ₫.",
+                case["draft"].as_str().unwrap()
+            );
+            assert!(has_ungrounded_number(
+                case["input"].as_str().unwrap(),
+                case["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|t| t.as_str().unwrap()),
+                &invented
+            ));
+        }
     }
     #[tokio::test]
     #[ignore = "requires DATABASE_URL; seeds the deterministic eval store"]
@@ -650,6 +754,21 @@ mod tests {
         assert!(blocked(json!({"member_count":3}), "4 thành viên"));
         assert!(blocked(json!({"pending_invite_count":1}), "5 lời mời"));
         assert!(!blocked(json!({"quantity":1.25}), "1,25 kg"));
+    }
+    #[test]
+    fn live_format_fixes_do_not_hide_new_claims() {
+        assert!(!blocked(json!({"cash_dong":1649000}), "1,649 M đồng"));
+        assert!(blocked(json!({"cash_dong":1649000}), "1,650 M đồng"));
+        assert!(!blocked(json!({"quantity":-120000}), "‑120 000 ₫"));
+        assert!(!blocked(
+            json!({}),
+            "tháng 9/2026, tháng 10-12, mã `...658`, e7a10e7a-…e900"
+        ));
+        assert!(blocked(json!({}), "tháng 9/2026: doanh thu 99999 ₫"));
+        assert!(blocked(json!({}), "mã `...658`, doanh thu 658 ₫"));
+        let kinds = json!({"items":[{"kind":"negative_stock","quantity":-3},{"kind":"negative_stock","quantity":-2},{"kind":"price_change"}]});
+        assert!(!blocked(kinds.clone(), "2 mặt hàng tồn âm"));
+        assert!(blocked(kinds, "4 mặt hàng tồn âm"));
     }
     #[test]
     fn dates_links_ids_and_list_indices_are_not_store_figures() {

@@ -265,6 +265,9 @@ async fn day_close(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolErr
     data["note_vi"] = json!(
         "Khi đã chốt, các khoản tiền là ảnh chụp tại lần chốt; khi chưa chốt, tiền đầu ngày mặc định 0 ₫. Doanh số bán chịu không tính vào tiền mặt; tiền trả nợ được tính theo phương thức thanh toán."
     );
+    data["cash_equation_vi"] = json!(
+        "Tiền mặt kỳ vọng = tiền đầu ngày + bán tiền mặt + trả nợ tiền mặt − hoàn tiền mặt − chi tiền mặt. Không cộng doanh thu chuyển khoản; chênh lệch = tiền đếm − tiền kỳ vọng. Công cụ không xác định được nguyên nhân hụt tiền."
+    );
     Ok(ToolOutput::new(data, "Đã kiểm tra số liệu chốt sổ."))
 }
 fn default_limit() -> usize {
@@ -378,6 +381,9 @@ async fn recognition(
     "#).bind(ctx.actor.store_id).bind(from).bind(to).fetch_all(pool(&ctx.state)?).await?;
     let mut out = items(rows, 50, "Sản phẩm cần cải thiện nhận diện");
     out.data["minimum_reference_count"] = json!(3);
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
+    out.data["lookback_days"] = json!((to - from).num_days());
     Ok(out)
 }
 async fn members(
@@ -440,6 +446,10 @@ async fn anomalies(
         ) SELECT value FROM findings ORDER BY kind,id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(from).bind(to).bind(ctx.today).fetch_all(pool(&ctx.state)?).await?;
     let mut out = items(rows, 50, "Các dấu hiệu cần kiểm tra");
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
+    out.data["lookback_days"] = json!((to - from).num_days());
+    out.data["price_change_threshold_pct"] = json!(30);
     out.data["note_vi"] = json!(
         "Tỷ lệ hủy so với 60 ngày trước khoảng yêu cầu; giờ ít gặp chiếm dưới 2% đơn hoàn tất trong 60 ngày tính đến ngày tham chiếu. Tồn kho là số hiện tại, không phải lịch sử."
     );

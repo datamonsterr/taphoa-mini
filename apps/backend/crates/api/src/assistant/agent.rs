@@ -28,7 +28,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "3";
+pub const PROMPT_VERSION: &str = "4";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -443,8 +443,8 @@ fn contains_store_numbers(text: &str) -> bool {
 }
 /// Only current-turn tool results and user figures back a reply; model-generated read
 /// arguments are requests, not evidence.
-fn has_ungrounded_number(record: &TurnRecord, answer: &str) -> bool {
-    grounding::has_ungrounded_number(
+fn unmatched_numbers(record: &TurnRecord, answer: &str) -> Vec<f64> {
+    grounding::unmatched_numbers(
         &record.input,
         record
             .transcript
@@ -453,6 +453,9 @@ fn has_ungrounded_number(record: &TurnRecord, answer: &str) -> bool {
             .filter_map(|m| m.content.as_deref()),
         answer,
     )
+}
+fn has_ungrounded_number(record: &TurnRecord, answer: &str) -> bool {
+    !unmatched_numbers(record, answer).is_empty()
 }
 fn ungrounded_text(language: Language) -> &'static str {
     if language == Language::Vi {
@@ -844,7 +847,11 @@ async fn run_turn_inner(
             } else {
                 held
             };
-            if has_ungrounded_number(&record, &answer) {
+            let unmatched = unmatched_numbers(&record, &answer);
+            if !unmatched.is_empty() {
+                if record.eval.is_some() {
+                    tracing::warn!(unmatched_numbers = ?unmatched, "assistant eval grounding mismatch");
+                }
                 tracing::warn!(
                     model = %response.model,
                     reason = if record.grounding_retry {
@@ -854,17 +861,20 @@ async fn run_turn_inner(
                     },
                     "assistant grounding guard fired"
                 );
-                if record.grounding_retry {
+                if record.grounding_retry || record.attempts.len() >= max_calls {
                     text(&mut record, tx, ungrounded_text(ctx.language).into());
                     return record;
                 }
                 // Drop the answer and ask once more; tool_choice stays auto.
                 record.grounding_retry = true;
-                messages.push(ChatMessage::system(if record.tools.iter().any(|t| t.ok) {
+                // The model needs the rejected draft and the mismatches to repair it.
+                // Neither becomes evidence: only user input and tools enter the guard.
+                messages.push(ChatMessage::assistant(Some(answer), vec![]));
+                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, không phải dữ liệu. {}", if record.tools.iter().any(|t| t.ok) {
                     "Có số liệu chưa khớp. Dùng lại kết quả công cụ trong lượt này, viết đúng số và đơn vị; chỉ gọi thêm công cụ nếu thiếu dữ liệu. Không lặp lại công cụ đã có dữ liệu."
                 } else {
                     "Hãy gọi công cụ để lấy số liệu trước khi trả lời."
-                }));
+                })));
                 continue;
             }
             if !answer.is_empty() {
@@ -1159,6 +1169,11 @@ mod tests {
                 assert!(prompt.contains(tool), "{tool}");
             }
             assert!(prompt.contains("yesterday): 2026-10-19"));
+            assert!(prompt.contains(if language == Language::Vi {
+                "Không trả lời nội dung ngoài phạm vi"
+            } else {
+                "Do not answer the unrelated question"
+            }));
         }
     }
     #[test]

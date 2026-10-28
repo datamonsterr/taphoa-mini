@@ -4,7 +4,7 @@ use anyhow::{Context, bail, ensure};
 use std::time::Duration;
 
 /// Ordered free tool-capable fallbacks; gated models can fall through on HTTP 403/404.
-pub const DEFAULT_MODELS: &str = "nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free";
+pub const DEFAULT_MODELS: &str = "nvidia/nemotron-3-ultra-550b-a55b:free,poolside/laguna-s-2.1:free,nvidia/nemotron-3.5-lightning:free,google/gemma-4-31b-it:free";
 /// `reasoning.effort` values OpenRouter documents (checked 2026-10-25).
 const REASONING_EFFORTS: [&str; 7] = ["max", "xhigh", "high", "medium", "low", "minimal", "none"];
 
@@ -156,8 +156,9 @@ mod tests {
             parsed.models,
             [
                 "nvidia/nemotron-3-ultra-550b-a55b:free",
-                "google/gemma-4-31b-it:free",
-                "nvidia/nemotron-3-super-120b-a12b:free"
+                "poolside/laguna-s-2.1:free",
+                "nvidia/nemotron-3.5-lightning:free",
+                "google/gemma-4-31b-it:free"
             ]
         );
         assert_eq!(parsed.daily_messages_per_store, 60);
