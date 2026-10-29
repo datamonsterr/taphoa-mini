@@ -1,0 +1,44 @@
+appId: com.datamonsterr.taphoamini
+---
+# The chat microphone without the microphone permission (#244). The CI install grants only the
+# camera, so the first press of the mic raises the system dialog; "Don't allow" must leave a
+# Vietnamese message with a button to the app settings instead of an unchanged button.
+# Like assistant.yaml, the assistant steps are skipped while the backend has no assistant routes.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Micro'
+      OWNER_NAME: 'Cô Năm'
+- runScript:
+    file: subflows/assistant-probe.js
+    env:
+      # runScript runs in the Maestro CLI on the host, not on the emulator: localhost, not 10.0.2.2
+      API_URL: 'http://localhost:8080'
+- runFlow:
+    when:
+      true: ${output.assistant}
+    commands:
+      - tapOn: 'Mở trợ lý'
+      - extendedWaitUntil:
+          visible:
+            id: 'assistant-screen'
+          timeout: 20000
+      - assertVisible: 'Giữ để nói'
+      # the first hold asks for the microphone
+      - tapOn:
+          id: 'voice-button'
+      - extendedWaitUntil:
+          visible: '(Don.t allow|Không cho phép).*'
+          timeout: 15000
+      - takeScreenshot: assistant-mic-01-permission-dialog
+      - tapOn: '(Don.t allow|Không cho phép).*'
+      - extendedWaitUntil:
+          visible:
+            id: 'voice-denied'
+          timeout: 10000
+      - assertVisible: 'Cần cho phép micro để nói.*'
+      - assertVisible:
+          id: 'voice-open-settings'
+      - takeScreenshot: assistant-mic-02-denied

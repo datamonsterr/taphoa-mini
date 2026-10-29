@@ -60,6 +60,8 @@ pub struct ToolRecord {
     pub ok: bool,
     pub denied: bool,
     pub rows: usize,
+    /// The tool ran fine and found nothing: no row and no figure other than zero.
+    pub empty: bool,
     pub latency: Duration,
     pub summary_vi: String,
 }
@@ -471,6 +473,41 @@ fn ungrounded_text(language: Language) -> &'static str {
         "I could not fetch the figures to answer accurately. Please ask again."
     }
 }
+/// True when a tool result holds nothing to report: no non-zero number and no non-empty text
+/// below the top level (dates and echoed arguments are text, so strings do not count).
+fn data_is_empty(value: &Value) -> bool {
+    match value {
+        Value::Number(n) => n.as_f64().is_none_or(|v| v == 0.0),
+        Value::Array(items) => items.iter().all(data_is_empty),
+        Value::Object(map) => map.values().all(data_is_empty),
+        _ => true,
+    }
+}
+/// Every read tool of the turn ran fine and found nothing (a missing product, a period without
+/// sales): the answer is "no data", not a failure the seller should retry.
+fn found_nothing(record: &TurnRecord) -> bool {
+    let mut reads = record
+        .tools
+        .iter()
+        .filter(|t| t.ok && t.kind == Some(ToolKind::Read))
+        .peekable();
+    reads.peek().is_some() && reads.all(|t| t.empty)
+}
+fn no_data_text(language: Language) -> &'static str {
+    if language == Language::Vi {
+        "Cửa hàng của bạn chưa có số liệu cho yêu cầu này. Mình chỉ xem được dữ liệu của cửa hàng này. Bạn thử kỳ khác hoặc tên khác nhé."
+    } else {
+        "Your store has no data for this request. I can only see this store's data. Try another period or name."
+    }
+}
+/// The closing text when the grounding guard drops the model's answer.
+fn guard_text(record: &TurnRecord, language: Language) -> &'static str {
+    if found_nothing(record) {
+        no_data_text(language)
+    } else {
+        ungrounded_text(language)
+    }
+}
 /// A successful propose call ends the guard: the turn is about that action, not store figures.
 fn has_proposal(record: &TurnRecord) -> bool {
     record
@@ -822,7 +859,8 @@ async fn run_turn_inner(
                             reason = "retry_failed",
                             "assistant grounding retry failed"
                         );
-                        text(&mut record, tx, ungrounded_text(ctx.language).into());
+                        let fallback = guard_text(&record, ctx.language);
+                        text(&mut record, tx, fallback.into());
                         return record;
                     }
                     if !buffering && !held.is_empty() {
@@ -892,7 +930,8 @@ async fn run_turn_inner(
                     "assistant grounding guard fired"
                 );
                 if record.grounding_retry || record.attempts.len() >= max_calls {
-                    text(&mut record, tx, ungrounded_text(ctx.language).into());
+                    let fallback = guard_text(&record, ctx.language);
+                    text(&mut record, tx, fallback.into());
                     return record;
                 }
                 // Drop the answer and ask once more; tool_choice stays auto.
@@ -1070,6 +1109,7 @@ async fn run_tool_inner(
     span.record("taphoa.tool.ok", ok);
     span.record("taphoa.tool.rows", rows as i64);
     span.record("taphoa.tool.denied", denied);
+    let empty = ok && data_is_empty(&data);
     let record = ToolRecord {
         span_id: telemetry::span_id(&span).unwrap_or_else(|| Uuid::new_v4().simple().to_string()),
         name: call.name.clone(),
@@ -1079,6 +1119,7 @@ async fn run_tool_inner(
         ok,
         denied,
         rows,
+        empty,
         latency: started.elapsed(),
         summary_vi: summary_vi.clone(),
     };
@@ -1205,6 +1246,73 @@ mod tests {
                 "Do not answer the unrelated question"
             }));
         }
+    }
+    fn tool_record(kind: ToolKind, ok: bool, data: &Value) -> ToolRecord {
+        ToolRecord {
+            span_id: String::new(),
+            name: "t".into(),
+            call_id: "c".into(),
+            kind: Some(kind),
+            args: Value::Null,
+            ok,
+            denied: false,
+            rows: 0,
+            empty: ok && data_is_empty(data),
+            latency: Duration::ZERO,
+            summary_vi: String::new(),
+        }
+    }
+    #[test]
+    fn data_without_rows_or_nonzero_figures_is_empty() {
+        assert!(data_is_empty(&json!({"items":[]})));
+        assert!(data_is_empty(
+            &json!({"from":"2026-10-26","totals":{"revenue_dong":0,"sale_count":0},"groups":[]})
+        ));
+        assert!(!data_is_empty(
+            &json!({"items":[{"name":"Mì","price_dong":7000}]})
+        ));
+        assert!(!data_is_empty(&json!({"totals":{"revenue_dong":15000}})));
+    }
+    #[test]
+    fn a_dropped_answer_after_empty_reads_says_there_is_no_data() {
+        let mut r = record_with("Giá món X?", vec![]);
+        r.tools = vec![tool_record(ToolKind::Read, true, &json!({"items":[]}))];
+        assert_eq!(guard_text(&r, Language::Vi), no_data_text(Language::Vi));
+        assert_eq!(guard_text(&r, Language::En), no_data_text(Language::En));
+        assert!(!no_data_text(Language::Vi).contains("thử hỏi lại"));
+    }
+    #[test]
+    fn a_dropped_answer_keeps_the_retry_text_for_real_failures_and_real_data() {
+        let none = record_with("Doanh thu?", vec![]);
+        assert_eq!(
+            guard_text(&none, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+        let mut failed = record_with("Doanh thu?", vec![]);
+        failed.tools = vec![tool_record(ToolKind::Read, false, &Value::Null)];
+        assert_eq!(
+            guard_text(&failed, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+        let mut found = record_with("Doanh thu?", vec![]);
+        found.tools = vec![
+            tool_record(ToolKind::Read, true, &json!({"items":[]})),
+            tool_record(
+                ToolKind::Read,
+                true,
+                &json!({"totals":{"revenue_dong":15000}}),
+            ),
+        ];
+        assert_eq!(
+            guard_text(&found, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+        let mut propose = record_with("Đổi giá", vec![]);
+        propose.tools = vec![tool_record(ToolKind::Propose, true, &json!({}))];
+        assert_eq!(
+            guard_text(&propose, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
     }
     #[test]
     fn invented_read_arguments_do_not_validate_the_reply() {

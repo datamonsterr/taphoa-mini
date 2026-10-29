@@ -198,6 +198,25 @@ describe('Android with the native module', () => {
       ).not.toBeChecked();
     });
 
+    test('coming back without the permission says why and offers to try again (#161)', async () => {
+      setup();
+      await renderWithProviders(<VoiceSetupSection />);
+      expect(screen.queryByTestId('voice-overlay-denied')).toBeNull();
+      await fireEvent.press(
+        screen.getByRole('switch', { name: 'Hiện nút nói trên màn hình' }),
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Mở cài đặt' }));
+      await act(async () => appState('active'));
+      expect(
+        screen.getByText(
+          'Chưa cấp quyền Hiện trên ứng dụng khác nên chưa bật được nút nói.',
+        ),
+      ).toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole('button', { name: 'Thử lại' }));
+      expect(screen.queryByTestId('voice-overlay-denied')).toBeNull();
+      expect(screen.getByTestId('voice-overlay-explainer')).toBeOnTheScreen();
+    });
+
     test('an app state change without a Settings trip does nothing', async () => {
       const bubble = setup();
       await renderWithProviders(<VoiceSetupSection />);

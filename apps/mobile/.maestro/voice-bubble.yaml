@@ -70,3 +70,12 @@ appId: com.datamonsterr.taphoamini
     timeout: 20000
 - assertNotVisible:
     id: 'voice-overlay-explainer'
+# 4. the way back says why it stayed off (#161) and offers to try again
+- scrollUntilVisible:
+    element:
+      id: 'voice-overlay-denied'
+    centerElement: true
+- assertVisible: 'Chưa cấp quyền Hiện trên ứng dụng khác.*'
+- assertVisible:
+    id: 'voice-overlay-retry'
+- takeScreenshot: voice-bubble-03-denied

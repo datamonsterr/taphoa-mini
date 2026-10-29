@@ -238,6 +238,32 @@ describe('EnrollScreen save', () => {
     expect(useCartStore.getState().lines).toHaveLength(1);
   });
 
+  it('tells a seller without the enroll right that they may not add products (#230)', async () => {
+    jest
+      .spyOn(productsApi, 'createProduct')
+      .mockRejectedValueOnce(new ApiError(403, { error: 'forbidden' }));
+    await renderWithProviders(<EnrollScreen />);
+    await typePrice('7', '000');
+    await fireEvent.press(save());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Bạn chưa có quyền thêm hàng. Nhờ chủ tiệm cấp quyền.',
+    );
+    expect(screen.queryByText(/Không lưu được/)).toBeNull();
+  });
+
+  it('tells the seller a photo is too large when the upload answers 413 (#230)', async () => {
+    (imagesApi.uploadImage as jest.Mock).mockRejectedValueOnce(
+      new ApiError(413, { error: 'Payload Too Large' }),
+    );
+    await renderWithProviders(<EnrollScreen />);
+    await typePrice('7', '000');
+    await fireEvent.press(save());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Ảnh quá lớn. Chụp lại ảnh khác rồi lưu.',
+    );
+    expect(screen.getByLabelText('Giá bán')).toHaveTextContent('7.000đ');
+  });
+
   it('does not upload twice on retry after the product call fails', async () => {
     const upload = imagesApi.uploadImage as jest.Mock;
     jest

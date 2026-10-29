@@ -436,3 +436,43 @@ test('retry after a mid-stream error keeps the stored turn, so a reload shows th
   expect(shape(reload.result.current.messages)).toEqual(shape(local));
   setApiTransport(createMockFetch());
 });
+
+describe('an HTTP error on the messages request (#158)', () => {
+  afterEach(() => setApiTransport(createMockFetch()));
+
+  async function sendWithStatus(status: number) {
+    const inner = createMockFetch();
+    setApiTransport(async (input, init) => {
+      const req = input as Request;
+      if (req.method === 'POST' && req.url.endsWith('/messages'))
+        return new Response(JSON.stringify({ error: 'edge' }), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      return inner(input, init);
+    });
+    const hook = await setup(await newThread());
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    await act(async () => {
+      hook.result.current.send('Xin chào', { input: 'text' });
+    });
+    await waitFor(() => expect(hook.result.current.streaming).toBe(false));
+    return lastAssistant(hook.result.current.messages);
+  }
+
+  test('429 is the quota, not the network', async () => {
+    expect((await sendWithStatus(429)).error).toEqual({ code: 'quota' });
+    expect(sink.capture).toHaveBeenCalledWith(
+      'assistant_reply_received',
+      expect.objectContaining({ error_code: 'quota' }),
+    );
+  });
+
+  test.each([502, 503, 504])('%i is a busy server', async (status) => {
+    expect((await sendWithStatus(status)).error).toEqual({ code: 'busy' });
+  });
+
+  test('500 is a generic fault', async () => {
+    expect((await sendWithStatus(500)).error).toEqual({ code: 'internal' });
+  });
+});

@@ -16,6 +16,8 @@ const BubbleRow = memo(function BubbleRow() {
   const [on, setOn] = useState(false);
   const [failed, setFailed] = useState(false);
   const [explaining, setExplaining] = useState(false);
+  /** The user came back from system Settings without allowing "Hiện trên ứng dụng khác". */
+  const [denied, setDenied] = useState(false);
   /** The user went to system Settings; when the app comes back, finish turning the bubble on. */
   const awaitingSettings = useRef(false);
   useEffect(() => {
@@ -48,12 +50,14 @@ const BubbleRow = memo(function BubbleRow() {
       if (state !== 'active' || !awaitingSettings.current) return;
       awaitingSettings.current = false;
       if (voiceBubble.canDrawOverlays()) enable();
+      else setDenied(true);
     });
     return () => subscription.remove();
   }, [enable]);
   const toggle = useCallback(
     (next: boolean) => {
       setFailed(false);
+      setDenied(false);
       if (!next) {
         setExplaining(false);
         voiceBubble.setEnabled(false).then(
@@ -67,6 +71,7 @@ const BubbleRow = memo(function BubbleRow() {
   );
   const goToSettings = useCallback(() => {
     setExplaining(false);
+    setDenied(false);
     awaitingSettings.current = true;
     voiceBubble.openOverlaySettings();
   }, []);
@@ -84,6 +89,33 @@ const BubbleRow = memo(function BubbleRow() {
             >
               {t('quick.error')}
             </ScaledText>
+          ) : null}
+          {denied ? (
+            <>
+              <ScaledText
+                testID="voice-overlay-denied"
+                variant="caption"
+                accessibilityRole="alert"
+                style={styles.error}
+              >
+                {t('quick.overlayDenied')}
+              </ScaledText>
+              <PressableScale
+                testID="voice-overlay-retry"
+                accessibilityRole="button"
+                accessibilityLabel={t('quick.overlayRetry')}
+                pressedScale={0.97}
+                onPress={() => {
+                  setDenied(false);
+                  setExplaining(true);
+                }}
+                style={styles.retry}
+              >
+                <ScaledText variant="label">
+                  {t('quick.overlayRetry')}
+                </ScaledText>
+              </PressableScale>
+            </>
           ) : null}
         </View>
         <Switch
@@ -269,4 +301,5 @@ const styles = StyleSheet.create({
   rowRight16: { paddingRight: space[4] },
   hint: { color: colors.inkMuted },
   error: { color: colors.danger },
+  retry: { minHeight: 48, justifyContent: 'center' },
 });

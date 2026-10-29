@@ -26,6 +26,11 @@ import { ProductForm, type ProductValues } from './ProductForm';
 import { barcodeConflict } from './barcodeConflict';
 
 import { cropPhoto } from './cropPhoto';
+import {
+  enrollFailure,
+  enrollFailureText,
+  type EnrollFailure,
+} from './enrollError';
 import { toLocalPhoto } from './localPhoto';
 
 const MAX_PHOTOS = 5;
@@ -163,7 +168,7 @@ export function EnrollScreen() {
   const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [barcodeError, setBarcodeError] = useState('');
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<EnrollFailure | null>(null);
   // The server found a look-alike: the person decides to merge the photos or to create anyway.
   const [duplicate, setDuplicate] = useState<Candidate | null>(null);
   const productId = useRef(newUuid()).current;
@@ -181,7 +186,7 @@ export function EnrollScreen() {
     async (mode: 'check' | 'force' | 'merge' = 'check') => {
       const { name, price, barcode } = values.current;
       setSaving(true);
-      setFailed(false);
+      setFailed(null);
       setBarcodeError('');
       try {
         const imageIds: string[] = [];
@@ -253,7 +258,7 @@ export function EnrollScreen() {
         if (candidate) {
           setDuplicate(candidate);
         } else {
-          setFailed(true);
+          setFailed(enrollFailure(error));
         }
       } finally {
         setSaving(false);
@@ -335,7 +340,7 @@ export function EnrollScreen() {
           ) : null}
           {failed ? (
             <Text accessibilityRole="alert" style={styles.error}>
-              Không lưu được. Bạn đã nhập vẫn còn, thử lại.
+              {enrollFailureText[failed]}
             </Text>
           ) : null}
         </View>
