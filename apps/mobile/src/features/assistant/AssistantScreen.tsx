@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CircleButton } from '@/components/ui/CircleButton';
+import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Text } from '@/components/ui/ScaledText';
 import { capture } from '@/lib/analytics';
 import { fill, useT } from '@/lib/i18n';
@@ -276,45 +277,48 @@ export function AssistantScreen() {
               scroller.current?.scrollToEnd({ animated: false })
             }
           >
-            {showList ? (
-              <ThreadList
-                activeId={threadId}
-                onOpen={openThread}
-                onNew={() => openThread(undefined)}
-                onDeleted={(id) => {
-                  if (id === threadId) openThread(undefined);
-                }}
-              />
-            ) : loading ? (
-              <ActivityIndicator accessibilityLabel={t('loading')} />
-            ) : (
-              <>
-                {chat.messages.length === 0 ? (
-                  <Text testID="assistant-empty" style={styles.empty}>
-                    {t('emptyChat')}
-                  </Text>
-                ) : null}
-                {chat.messages.map((message) =>
-                  message.kind === 'user' ? (
-                    <UserBubble key={message.id} message={message} />
-                  ) : (
-                    <AssistantMessageView
-                      key={message.id}
-                      message={message}
-                      {...messageProps}
+            {/* Replies and thread titles name customers and show phone numbers: never record them. */}
+            <PostHogMaskView>
+              {showList ? (
+                <ThreadList
+                  activeId={threadId}
+                  onOpen={openThread}
+                  onNew={() => openThread(undefined)}
+                  onDeleted={(id) => {
+                    if (id === threadId) openThread(undefined);
+                  }}
+                />
+              ) : loading ? (
+                <ActivityIndicator accessibilityLabel={t('loading')} />
+              ) : (
+                <>
+                  {chat.messages.length === 0 ? (
+                    <Text testID="assistant-empty" style={styles.empty}>
+                      {t('emptyChat')}
+                    </Text>
+                  ) : null}
+                  {chat.messages.map((message) =>
+                    message.kind === 'user' ? (
+                      <UserBubble key={message.id} message={message} />
+                    ) : (
+                      <AssistantMessageView
+                        key={message.id}
+                        message={message}
+                        {...messageProps}
+                      />
+                    ),
+                  )}
+                  {startFailed ? (
+                    <ErrorNotice
+                      error={{ code: 'network' }}
+                      onRetry={() => {
+                        if (lastTurn.current) startTurn(lastTurn.current);
+                      }}
                     />
-                  ),
-                )}
-                {startFailed ? (
-                  <ErrorNotice
-                    error={{ code: 'network' }}
-                    onRetry={() => {
-                      if (lastTurn.current) startTurn(lastTurn.current);
-                    }}
-                  />
-                ) : null}
-              </>
-            )}
+                  ) : null}
+                </>
+              )}
+            </PostHogMaskView>
           </ScrollView>
           {showList ? null : (
             <Composer

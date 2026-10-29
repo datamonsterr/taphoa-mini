@@ -646,3 +646,88 @@ async fn action_confirm_replay_expiry_failure_and_legacy_rows() {
         );
     }
 }
+
+/// #150: customer names, phones and emails never reach PostHog, even when the model repeats them.
+struct DebtTool;
+#[async_trait]
+impl Tool for DebtTool {
+    fn name(&self) -> &'static str {
+        "get_debts"
+    }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+    fn description_vi(&self) -> &'static str {
+        "Công cụ thử"
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object"})
+    }
+    fn requires(&self) -> Option<taphoa_api::auth::Action> {
+        None
+    }
+    fn label_vi(&self) -> &'static str {
+        "Đang thử"
+    }
+    async fn run(&self, _: &ToolContext, _: Value) -> Result<ToolOutput, ToolError> {
+        let mut output = ToolOutput::new(
+            json!({"customers":[{"customer_id":"11111111-1111-7111-8111-111111111111","name":"Nguyễn Thị Lan Anh","phone":"090 123 4567","note":"hay quên","balance":50000}]}),
+            "1 khách nợ: Nguyễn Thị Lan Anh",
+        );
+        output.rows = 1;
+        Ok(output)
+    }
+}
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "requires Postgres"]
+async fn customer_pii_is_stripped_from_assistant_events() {
+    let _serial = SERIAL.lock().await;
+    let (mut w, recorder) = setup(
+        vec![
+            Step::tools([("get_debts", json!({"customer_query":"Lan Anh"}))]),
+            Step::text(
+                "Nguyễn Thị Lan Anh nợ 50.000, gọi 090 123 4567 hoặc mail lananh@example.com. Chị lan anh hay quên.",
+            ),
+        ],
+        false,
+        60,
+    )
+    .await;
+    let mut tools = taphoa_api::assistant::tools::all();
+    tools.retain(|t| t.name() != "get_debts");
+    tools.push(Arc::new(DebtTool));
+    w.state.assistant.registry = Arc::new(Registry::new(tools));
+    w.app = router(w.state.clone());
+    let id = thread(&w, false).await;
+    turn(&w, &id, false, false).await;
+    recorder.events("$ai_trace", 1).await;
+    recorder.events("$ai_generation", 2).await;
+    recorder.events("$ai_span", 1).await;
+    let all = serde_json::to_string(
+        &recorder
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.properties.clone())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
+    .to_lowercase();
+    for secret in [
+        "lan anh",
+        "090 123 4567",
+        "0901234567",
+        "lananh@example.com",
+        "hay quên",
+    ] {
+        assert!(
+            !all.contains(&secret.to_lowercase()),
+            "leaked {secret}: {all}"
+        );
+    }
+    assert!(
+        all.contains("50.000") || all.contains("50000"),
+        "numbers survive"
+    );
+}

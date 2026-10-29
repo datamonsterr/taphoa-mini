@@ -571,6 +571,13 @@ export interface paths {
          *     cover the paid part (`total − credit.amount`); `change_given` uses that paid part.
          *     Unknown customer returns 404. Archived customers still accept credit sales, and
          *     credit limits never block. The sale and its credit_sale entry commit together.
+         *     `sold_at` is bounded by the server. It is trusted only from 72 hours in the past to 5
+         *     minutes in the future of server time, so an offline queue still syncs. Outside that
+         *     window the sale is booked at server time (a phone with a wrong clock keeps selling, and
+         *     nobody can pick the day). A seller's sale for a past business day the Lead already
+         *     closed is booked at server time too, so closed figures do not change. The stored
+         *     `sold_at` and `business_date` in the response show what was booked. A sale on today's
+         *     date after an early close is a normal sale.
          */
         post: operations["createSale"];
         delete?: never;
@@ -4305,7 +4312,7 @@ export interface operations {
                     reason: string;
                     /**
                      * Format: date-time
-                     * @description Device time; defaults to server time.
+                     * @description Ignored. The server stamps the void with its own time.
                      */
                     voided_at?: string;
                 };

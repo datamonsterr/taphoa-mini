@@ -607,3 +607,126 @@ async fn concurrent_identical_creates_store_one_sale() {
     assert_eq!(s, [200, 201]);
     assert_eq!(w.events("sale.created").await, 1);
 }
+
+/// #176: a client cannot pick the day of a sale or a void.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sold_at_is_bounded_and_void_time_is_server_set() {
+    use chrono::{DateTime, Duration, Utc};
+    let w = World::new().await;
+    let p = w.product("Kẹo", 1000, None).await;
+    // Production defaults: 72 hour offline window, 5 minute future skew.
+    let mut state = w.state.clone();
+    state.sale_window = taphoa_api::time::SaleWindow::default();
+    let app = taphoa_api::router(state);
+    let post = |token: &str, at: String| {
+        let body = sale_body(Uuid::now_v7(), &at, "cash", &[(p, 1, 1000)]);
+        let app = app.clone();
+        let token = token.to_owned();
+        async move { common::world::send(&app, "POST", "/v1/sales", Some(&token), body).await }
+    };
+    let ago = |d: Duration| (Utc::now() - d).to_rfc3339();
+    let ahead = |d: Duration| (Utc::now() + d).to_rfc3339();
+    let booked = |r: &common::world::Reply| -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(r.body["sold_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&Utc)
+    };
+    // Outside the window the sale is still recorded, but at server time: no day can be chosen.
+    for (name, at) in [
+        ("back-dated a year", ago(Duration::days(365))),
+        ("just past the offline window", ago(Duration::hours(73))),
+        ("far future", ahead(Duration::days(30))),
+        ("beyond the skew", ahead(Duration::minutes(30))),
+    ] {
+        let r = post(&w.seller, at).await;
+        assert_eq!(r.status, StatusCode::CREATED, "{name}: {}", r.body);
+        assert!(
+            (Utc::now() - booked(&r)).num_seconds().abs() < 120,
+            "{name}"
+        );
+        assert_eq!(
+            r.body["business_date"],
+            taphoa_api::time::business_date(Utc::now()).to_string(),
+            "{name}"
+        );
+    }
+    // Offline queue: a day old, and a phone clock a minute fast, keep their own time.
+    let day_old = ago(Duration::hours(24));
+    let r = post(&w.seller, day_old.clone()).await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    assert_eq!(
+        booked(&r).timestamp_micros(),
+        day_old.parse::<DateTime<Utc>>().unwrap().timestamp_micros()
+    );
+    let fast = ahead(Duration::minutes(1));
+    let r = post(&w.seller, fast.clone()).await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    assert_eq!(
+        booked(&r).timestamp_micros(),
+        fast.parse::<DateTime<Utc>>().unwrap().timestamp_micros()
+    );
+
+    // Void: the client voided_at is ignored.
+    let id = Uuid::now_v7();
+    w.checked(
+        "POST",
+        "/v1/sales",
+        "/v1/sales",
+        &w.seller,
+        sale_body(id, &now_iso(), "cash", &[(p, 1, 1000)]),
+        StatusCode::CREATED,
+    )
+    .await;
+    let voided = w
+        .call(
+            "POST",
+            &format!("/v1/sales/{id}/void"),
+            &w.lead,
+            json!({"reason": "test", "voided_at": "2020-01-01T00:00:00Z"}),
+        )
+        .await;
+    assert_eq!(voided.status, StatusCode::OK, "{}", voided.body);
+    let at =
+        DateTime::parse_from_rfc3339(voided.body["void"]["voided_at"].as_str().unwrap()).unwrap();
+    assert!(
+        (Utc::now() - at.with_timezone(&Utc)).num_seconds().abs() < 120,
+        "voided_at {at}"
+    );
+
+    // Closed days. Yesterday is closed: a seller's offline sale from yesterday lands today so the
+    // closed figures stay put, while the Lead keeps the date they entered.
+    let yesterday = Utc::now() - Duration::hours(24);
+    let day = taphoa_api::time::business_date(yesterday);
+    let closed = w
+        .call(
+            "PUT",
+            &format!("/v1/day-closes/{day}"),
+            &w.lead,
+            json!({"counted_cash": 0}),
+        )
+        .await;
+    assert_eq!(closed.status, StatusCode::OK, "{}", closed.body);
+    let seller = post(&w.seller, yesterday.to_rfc3339()).await;
+    assert_eq!(seller.status, StatusCode::CREATED, "{}", seller.body);
+    assert_eq!(
+        seller.body["business_date"],
+        taphoa_api::time::business_date(Utc::now()).to_string()
+    );
+    let lead = post(&w.lead, yesterday.to_rfc3339()).await;
+    assert_eq!(lead.body["business_date"], day.to_string());
+    // Closing today early does not stop the shop selling: that is a normal sale.
+    let today = taphoa_api::time::business_date(Utc::now());
+    let close_today = w
+        .call(
+            "PUT",
+            &format!("/v1/day-closes/{today}"),
+            &w.lead,
+            json!({"counted_cash": 0}),
+        )
+        .await;
+    assert_eq!(close_today.status, StatusCode::OK);
+    let after = post(&w.seller, now_iso()).await;
+    assert_eq!(after.status, StatusCode::CREATED, "{}", after.body);
+    assert_eq!(after.body["business_date"], today.to_string());
+}

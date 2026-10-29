@@ -205,6 +205,38 @@ async fn product_exists(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiRe
         Err(ApiError::not_found())
     }
 }
+/// The time a sale is booked at. The client `sold_at` is only trusted inside a window around
+/// server time: a phone with a wrong clock keeps selling (its sale lands "now"), and nobody can
+/// pick the day. A seller's sale for a business day the Lead already closed lands on today's
+/// books instead of changing the closed figures. A sale after an early close on today's own date
+/// is a normal sale and stays. Replays are not affected: the stored time is returned.
+async fn bounded_sold_at(
+    tx: &mut sqlx::PgConnection,
+    state: &AppState,
+    actor: &Actor,
+    sold_at: DateTime<Utc>,
+) -> ApiResult<DateTime<Utc>> {
+    let now = state.clock.now();
+    if !state.sale_window.contains(sold_at, now) {
+        tracing::warn!(%sold_at, %now, "sold_at outside the accepted window, booked at server time");
+        return Ok(now);
+    }
+    let date = business_date(sold_at);
+    if actor.role != crate::auth::Role::Lead && date != business_date(now) {
+        let closed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM day_closes WHERE store_id=$1 AND business_date=$2)",
+        )
+        .bind(actor.store_id)
+        .bind(date)
+        .fetch_one(tx)
+        .await?;
+        if closed {
+            tracing::warn!(%sold_at, %date, "sale for a closed business day, booked at server time");
+            return Ok(now);
+        }
+    }
+    Ok(sold_at)
+}
 async fn create(
     State(state): State<AppState>,
     actor: Actor,
@@ -231,9 +263,10 @@ async fn create(
         check(&stored, &hash)?;
         return Ok(Idempotent::Replay(sale(&mut tx, actor.store_id, id).await?));
     }
-    let input: SaleInput =
+    let mut input: SaleInput =
         serde_json::from_value(raw).map_err(|e| ApiError::validation_failed(e.to_string()))?;
     input.validate()?;
+    input.sold_at = bounded_sold_at(&mut tx, &state, &actor, input.sold_at).await?;
     let date = business_date(input.sold_at);
     let code = money::sale_code(input.id);
     // Lock order (deadlock rule): products, then the customer row, then the store row, which
@@ -480,7 +513,9 @@ async fn list(
 #[derive(Deserialize)]
 struct VoidInput {
     reason: String,
-    voided_at: Option<DateTime<Utc>>,
+    /// Accepted for older clients but ignored: the server stamps the void.
+    #[serde(rename = "voided_at")]
+    _voided_at: Option<DateTime<Utc>>,
 }
 async fn void(
     State(state): State<AppState>,
@@ -526,7 +561,8 @@ async fn void(
             )
             .await?;
         }
-        let voided_at = input.voided_at.unwrap_or_else(|| state.clock.now());
+        // Server time only: a client-supplied `voided_at` could move the void (and its debt entry) to another day.
+        let voided_at = state.clock.now();
         sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(voided_at).execute(&mut *tx).await?;
         event(
             &mut tx,
