@@ -761,12 +761,7 @@ export function CameraScreen() {
       </View>
 
       <View style={styles.stripSlot}>
-        {quickActive ? (
-          <Text style={styles.quickHint}>
-            Thêm hàng nhanh · {acceptedCount}/{MIN_SHOTS}
-          </Text>
-        ) : null}
-        {quickActive && acceptedCount < MIN_SHOTS ? (
+        {quickActive && !currentShot && acceptedCount < MIN_SHOTS ? (
           <Text style={styles.quickHint}>Xoay sản phẩm</Text>
         ) : null}
         {notice ? (

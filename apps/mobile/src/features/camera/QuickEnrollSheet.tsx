@@ -81,6 +81,7 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
   return (
     <ProductForm
       testID="quick-enroll-sheet"
+      title={`Thêm hàng nhanh · ${accepted.length}/${MIN_SHOTS}`}
       photos={accepted.map((shot) => ({ id: shot.id, uri: shot.uri }))}
       maxPhotos={MAX_SHOTS}
       minPhotos={MIN_SHOTS}

@@ -23,12 +23,15 @@ import { validBarcode } from '@/features/camera/barcode';
 
 const PHOTO = 72;
 const MAX_DIGITS = 9;
+export const ENROLL_SHEET_HEIGHT = 740;
+export const QUICK_ENROLL_SHEET_HEIGHT = 880;
 export type ProductValues = { name: string; price: number; barcode?: string };
 export type ProductPhoto = { id: string; uri: string };
 type Props = {
   photos: ProductPhoto[];
   maxPhotos: number;
   minPhotos?: number;
+  title?: string;
   onAddPhoto: () => void;
   onRemovePhoto?: (id: string) => void;
   onSave: (values: ProductValues) => void;
@@ -71,6 +74,7 @@ export function ProductForm({
   photos,
   maxPhotos,
   minPhotos = 1,
+  title,
   onAddPhoto,
   onRemovePhoto,
   onSave,
@@ -103,7 +107,7 @@ export function ProductForm({
     (!barcode || validBarcode(barcode));
   return (
     <Sheet
-      height={740}
+      height={title ? QUICK_ENROLL_SHEET_HEIGHT : ENROLL_SHEET_HEIGHT}
       onClose={onClose}
       testID={testID}
       footer={
@@ -125,6 +129,11 @@ export function ProductForm({
         </View>
       }
     >
+      {title ? (
+        <Text accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
+      ) : null}
       <View style={styles.header}>
         <CircleButton icon={X} accessibilityLabel="Đóng" onPress={onClose} />
         <ScrollView
@@ -219,6 +228,11 @@ export function ProductForm({
 }
 
 const styles = StyleSheet.create({
+  title: {
+    ...typography.heading,
+    color: colors.ink,
+    textAlign: 'center',
+  },
   header: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   photos: { flex: 1 },
   photosContent: {

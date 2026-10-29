@@ -1,6 +1,6 @@
 # Quick enroll: multi-angle references with point-prompted SAM
 
-Status: Done · Merge: [#25](https://github.com/datamonsterr/taphoa-mini/pull/25) · Date: 2026-10-24 · Scope: camera screen, catalog, recognition (E2/E3 follow-up)
+Status: Done · Merge: [#25](https://github.com/datamonsterr/taphoa-mini/pull/25), [#137](https://github.com/datamonsterr/taphoa-mini/pull/137) (sheet header, Maestro checkout match) · Date: 2026-10-24 · Scope: camera screen, catalog, recognition (E2/E3 follow-up)
 
 ## Goal
 

@@ -148,7 +148,7 @@ the iOS Control Center control, Action Button and Siri, long-press on the chat b
    `voice_sale` once the voice program lands).
 7. **`+`** adds all selected boxes; its badge shows the batch count. **Cart pill** opens the
    cart. **Swipe-up handle** opens the shop (08). **Chat button** opens the assistant (17);
-   long-press opens the voice sale (15).
+   long-press opens the voice sale (15). The chat button uses the Sparkles icon (owner decision 2026-10-29).
 
 ## 5. Flows
 
