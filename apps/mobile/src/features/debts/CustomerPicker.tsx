@@ -205,11 +205,13 @@ export function CustomerPicker({
                 onPress={() => void customers.refetch()}
                 style={styles.row}
               >
-                <Text>{t('retry')}</Text>
+                <Text style={styles.label}>{t('retry')}</Text>
               </PressableScale>
             </View>
           ) : null}
-          {customers.data?.length === 0 ? <Text>{t('empty')}</Text> : null}
+          {customers.data?.length === 0 ? (
+            <Text style={styles.label}>{t('empty')}</Text>
+          ) : null}
           {customers.data?.map((customer) => customerRow(customer))}
           {customers.hasNextPage ? (
             <PressableScale
@@ -219,7 +221,7 @@ export function CustomerPicker({
               disabled={customers.isFetchingNextPage}
               style={styles.row}
             >
-              <Text>{t('more')}</Text>
+              <Text style={styles.label}>{t('more')}</Text>
             </PressableScale>
           ) : null}
         </>
@@ -288,7 +290,7 @@ export function CustomerPicker({
             disabled={busy}
             style={styles.row}
           >
-            <Text>{t('picker.createAnyway')}</Text>
+            <Text style={styles.label}>{t('picker.createAnyway')}</Text>
           </PressableScale>
         </View>
       ) : null}

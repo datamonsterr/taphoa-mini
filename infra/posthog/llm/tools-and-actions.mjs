@@ -1,10 +1,10 @@
 import { event, funnel, property } from '../definitions/helpers.mjs';
-import { chart, dashboard, toolWhere, where } from './helpers.mjs';
+import { chart, dashboard, toolWhere, assistantWhere } from './helpers.mjs';
 const result = dashboard('Tools and actions', [
   [
     'Tool calls per day by tool',
     chart(
-      `SELECT toStartOfDay(timestamp) AS day, span_name AS tool, count() AS calls FROM posthog.ai_events WHERE ${where} AND ${toolWhere} GROUP BY day, tool ORDER BY day`,
+      `SELECT toStartOfDay(timestamp) AS day, span_name AS tool, count() AS calls FROM posthog.ai_events WHERE ${assistantWhere} AND ${toolWhere} GROUP BY day, tool ORDER BY day`,
       'ActionsStackedBar',
       'day',
       ['calls'],
@@ -15,7 +15,7 @@ const result = dashboard('Tools and actions', [
   [
     'Tool error and denied rate by tool',
     chart(
-      `SELECT span_name AS tool, 100.0 * countIf(is_error = true) / nullIf(count(), 0) AS error_percent, 100.0 * countIf(toString(properties.denied) = 'true') / nullIf(count(), 0) AS denied_percent FROM posthog.ai_events WHERE ${where} AND ${toolWhere} GROUP BY tool ORDER BY error_percent DESC`,
+      `SELECT span_name AS tool, 100.0 * countIf(is_error = true) / nullIf(count(), 0) AS error_percent, 100.0 * countIf(toString(properties.denied) = 'true') / nullIf(count(), 0) AS denied_percent FROM posthog.ai_events WHERE ${assistantWhere} AND ${toolWhere} GROUP BY tool ORDER BY error_percent DESC`,
       'ActionsUnstackedBar',
       'tool',
       ['error_percent', 'denied_percent'],
@@ -25,7 +25,7 @@ const result = dashboard('Tools and actions', [
   [
     'Tool latency p95 by tool',
     chart(
-      `SELECT span_name AS tool, quantile(0.95)(latency) AS p95_seconds FROM posthog.ai_events WHERE ${where} AND ${toolWhere} AND latency IS NOT NULL GROUP BY tool ORDER BY p95_seconds DESC`,
+      `SELECT span_name AS tool, quantile(0.95)(latency) AS p95_seconds FROM posthog.ai_events WHERE ${assistantWhere} AND ${toolWhere} AND latency IS NOT NULL GROUP BY tool ORDER BY p95_seconds DESC`,
       'ActionsUnstackedBar',
       'tool',
       ['p95_seconds'],
@@ -35,7 +35,7 @@ const result = dashboard('Tools and actions', [
   [
     'Use-case mix',
     chart(
-      `SELECT use_case, count() AS turns FROM (SELECT arrayJoin(JSONExtractArrayRaw(toString(properties.use_cases))) AS raw_use_case, trim(BOTH '"' FROM raw_use_case) AS use_case FROM posthog.ai_events WHERE ${where} AND event = '$ai_trace') GROUP BY use_case ORDER BY turns DESC`,
+      `SELECT use_case, count() AS turns FROM (SELECT arrayJoin(JSONExtractArrayRaw(toString(properties.use_cases))) AS raw_use_case, trim(BOTH '"' FROM raw_use_case) AS use_case FROM posthog.ai_events WHERE ${assistantWhere} AND event = '$ai_trace') GROUP BY use_case ORDER BY turns DESC`,
       'ActionsPie',
       'use_case',
       ['turns'],
@@ -45,7 +45,7 @@ const result = dashboard('Tools and actions', [
   [
     'Proposed action outcomes by kind',
     chart(
-      `SELECT properties.kind AS kind, properties.decision AS decision, count() AS actions FROM events WHERE ${where} AND event = 'assistant_action_decided' GROUP BY kind, decision ORDER BY kind, decision`,
+      `SELECT properties.kind AS kind, properties.decision AS decision, count() AS actions FROM events WHERE ${assistantWhere} AND event = 'assistant_action_decided' GROUP BY kind, decision ORDER BY kind, decision`,
       'ActionsStackedBar',
       'kind',
       ['actions'],
@@ -56,7 +56,7 @@ const result = dashboard('Tools and actions', [
   [
     'Next-step turns by kind',
     chart(
-      `SELECT properties.next_step_kind AS kind, count() AS turns FROM posthog.ai_events WHERE ${where} AND event = '$ai_trace' AND properties.next_step_kind IS NOT NULL GROUP BY kind ORDER BY turns DESC`,
+      `SELECT properties.next_step_kind AS kind, count() AS turns FROM posthog.ai_events WHERE ${assistantWhere} AND event = '$ai_trace' AND properties.next_step_kind IS NOT NULL GROUP BY kind ORDER BY turns DESC`,
       'ActionsUnstackedBar',
       'kind',
       ['turns'],

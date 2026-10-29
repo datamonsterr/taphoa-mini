@@ -50,6 +50,7 @@
         }
       ],
       "expo-asset",
+      "./modules/voice-bubble/app.plugin.js",
       "expo-secure-store",
       "expo-localization",
       [

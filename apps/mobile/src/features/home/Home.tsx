@@ -2,6 +2,7 @@ import { router, useIsFocused } from 'expo-router';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { CameraScreen } from '@/features/camera/CameraScreen';
+import { SyncStatus } from './SyncStatus';
 import { useSettingsStore } from '@/stores/settings';
 
 /** Whether the app already chose its start screen since launch. */
@@ -46,5 +47,10 @@ export function Home() {
 
   if (mode === 'pending') return null;
   if (mode === 'grid' && !(cameFromGrid && focused)) return null;
-  return <CameraScreen />;
+  return (
+    <>
+      <CameraScreen />
+      <SyncStatus />
+    </>
+  );
 }

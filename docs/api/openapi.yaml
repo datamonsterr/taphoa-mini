@@ -648,7 +648,7 @@ paths:
       tags: [Catalog]
       operationId: listProducts
       summary: Price list / grid (C6, S3)
-      description: Phones normally read the catalog from local SQLite fed by `/v1/sync/changes`; this route serves search and first load.
+      description: Phones normally read the catalog from their persisted query cache (ADR 0009), refreshed from `/v1/sync/changes`; this route serves search and first load.
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: q

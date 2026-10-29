@@ -16,7 +16,13 @@ import {
   configureNotificationHandler,
   useNotificationObserver,
 } from '@/lib/notifications';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { OfflineSync } from '@/lib/offline/OfflineSync';
+import {
+  createAppQueryClient,
+  persistOptions,
+  revalidateRestoredMe,
+} from '@/lib/offline/persist';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -120,7 +126,7 @@ function NavigationTree({
 }
 
 export default function RootLayout() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(createAppQueryClient);
   const [fontsLoaded, fontError] = useFonts({
     BeVietnamPro_400Regular,
     BeVietnamPro_500Medium,
@@ -142,7 +148,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={persistOptions}
+          onSuccess={() => void revalidateRestoredMe(queryClient)}
+        >
           {!publishableKey ? (
             <ConfigurationError />
           ) : (
@@ -156,7 +166,10 @@ export default function RootLayout() {
                   {({ signedIn, hasMembership }) => (
                     <>
                       {hasMembership ? (
-                        <AnalyticsIdentity />
+                        <>
+                          <AnalyticsIdentity />
+                          <OfflineSync />
+                        </>
                       ) : (
                         <AnalyticsSignedOut />
                       )}
@@ -171,7 +184,7 @@ export default function RootLayout() {
               </AnalyticsProvider>
             </ClerkProvider>
           )}
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

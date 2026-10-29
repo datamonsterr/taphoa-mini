@@ -1,10 +1,16 @@
 /**
- * Capability checks for the system entry points. V2 ships the interfaces with "unsupported"
- * defaults; V3 replaces them with the native module (Android bubble and Quick Settings tile).
+ * Capability checks for the system entry points. The defaults are backed by the Android native
+ * module (modules/voice-bubble) and report "unsupported" wherever it is missing (iOS, web, Expo Go).
  */
+import { nativeQuickAccess } from './nativeQuickAccess';
+
 export type VoiceBubble = {
   isSupported: () => boolean;
   isEnabled: () => Promise<boolean>;
+  /** Whether "Hiện trên ứng dụng khác" is granted. */
+  canDrawOverlays: () => boolean;
+  /** Opens the system screen for "Hiện trên ứng dụng khác". */
+  openOverlaySettings: () => void;
   /** Turns the floating button on or off; resolves with the state it ended in. */
   setEnabled: (on: boolean) => Promise<boolean>;
 };
@@ -15,23 +21,15 @@ export type VoiceTile = {
   requestAdd: () => Promise<boolean>;
 };
 
-const unsupportedBubble: VoiceBubble = {
-  isSupported: () => false,
-  isEnabled: async () => false,
-  setEnabled: async () => false,
-};
-const unsupportedTile: VoiceTile = {
-  isSupported: () => false,
-  requestAdd: async () => false,
-};
+const native = nativeQuickAccess();
 
-export let voiceBubble: VoiceBubble = unsupportedBubble;
-export let voiceTile: VoiceTile = unsupportedTile;
+export let voiceBubble: VoiceBubble = native.bubble;
+export let voiceTile: VoiceTile = native.tile;
 
-/** V3 hook point; pass nothing to restore the unsupported defaults. */
+/** Test hook; pass nothing to restore the native-backed defaults. */
 export function setVoiceQuickAccess(
   next: { bubble?: VoiceBubble; tile?: VoiceTile } = {},
 ) {
-  voiceBubble = next.bubble ?? unsupportedBubble;
-  voiceTile = next.tile ?? unsupportedTile;
+  voiceBubble = next.bubble ?? native.bubble;
+  voiceTile = next.tile ?? native.tile;
 }

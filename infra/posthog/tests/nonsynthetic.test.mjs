@@ -99,10 +99,10 @@ test('read-only verifier filters denominator probes, keeps quota global, and rep
       },
     },
   });
-  assert.equal(result.insights.length, 59);
+  assert.equal(result.insights.length, 67);
   assert.equal(result.ok, false);
   assert.ok(result.insights.every((row) => row.data === false));
-  assert.ok(calls.length > 59); // formula denominator evidence is filtered too
+  assert.ok(calls.length > 67); // formula denominator evidence is filtered too
   const quota = calls.find((c) => c.name?.includes('Requests vs.'));
   assert.ok(quota.query.query.includes(nonSynthetic));
   assert.ok(!quota.query.query.includes("properties.environment = 'test'"));
@@ -151,7 +151,7 @@ test('non-synthetic verification composes with both store filters on every manag
         },
       },
     });
-    assert.equal(result.insights.length, 59);
+    assert.equal(result.insights.length, 67);
     assert.ok(result.insights.every((row) => !row.error));
     for (const { query, name } of calls) {
       const global = /1,000\/day|Online judge/.test(name ?? '');

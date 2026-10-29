@@ -17,7 +17,7 @@ export const TARGETS = [
     name: 'android (hbc, raw)',
     dir: 'dist/_expo/static/js/android',
     gzip: false,
-    budget: 10_750_000, // measured 9_341_973 after Clerk integration (SDK 58.0.19)
+    budget: 12_380_000, // measured 10_765_824 after voice V2 and the offline outbox (#87)
   },
   {
     name: 'web (js, gzip)',

@@ -14,6 +14,8 @@ import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 
 import { newUuid } from '@/lib/uuid';
+import { localProducts } from '@/lib/offline/catalog';
+import { useOnline } from '@/lib/online';
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -144,10 +146,15 @@ const productsQuery = (params: Omit<ListProductsParams, 'cursor'>) => ({
 
 /** Products matching `params` (e.g. `{ q }`), flattened across cursor pages. */
 export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
+  const qc = useQueryClient();
+  const online = useOnline();
   return useInfiniteQuery({
     ...productsQuery(params),
-    // Typing a search keeps the previous grid on screen until the new page arrives.
-    placeholderData: keepPreviousData,
+    // Typing a search keeps the previous grid on screen until the new page arrives. Offline, a
+    // search nobody cached is answered from the catalog snapshot.
+    placeholderData: (previous) =>
+      (!online ? localProducts(qc, params) : null) ??
+      keepPreviousData(previous),
     select: (data) => data.pages.flatMap((page) => page.items),
   });
 }
