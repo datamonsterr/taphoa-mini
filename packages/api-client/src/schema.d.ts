@@ -385,7 +385,7 @@ export interface paths {
         };
         /**
          * Price list / grid (C6, S3)
-         * @description Phones normally read the catalog from local SQLite fed by `/v1/sync/changes`; this route serves search and first load.
+         * @description Phones normally read the catalog from their persisted query cache (ADR 0009), refreshed from `/v1/sync/changes`; this route serves search and first load.
          */
         get: operations["listProducts"];
         put?: never;

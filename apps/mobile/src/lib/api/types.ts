@@ -87,3 +87,5 @@ export type Digest = Schemas['Digest'];
 export type AssistantRestockItem = Schemas['AssistantRestockItem'];
 export type RegisterDevice = Schemas['RegisterDevice'];
 export type Device = Schemas['Device'];
+export type ChangeFeed = Schemas['ChangeFeed'];
+export type Change = Schemas['Change'];

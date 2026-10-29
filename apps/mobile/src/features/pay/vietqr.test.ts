@@ -109,3 +109,18 @@ describe('buildVietQr', () => {
     );
   });
 });
+
+test('builds the payload on the device with no network call', () => {
+  const fetchSpy = jest.spyOn(globalThis, 'fetch');
+  const xhr = jest.fn();
+  const original = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = xhr as never;
+  try {
+    expect(buildVietQr(input)).toMatch(/^000201/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xhr).not.toHaveBeenCalled();
+  } finally {
+    globalThis.XMLHttpRequest = original;
+    fetchSpy.mockRestore();
+  }
+});

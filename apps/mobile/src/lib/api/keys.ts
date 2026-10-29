@@ -34,6 +34,10 @@ export const keys = {
       ? ([...keys.all, 'me', userId] as const)
       : ([...keys.all, 'me'] as const),
   store: () => [...keys.all, 'store'] as const,
+  /** Offline catalog: the product snapshot and the `/v1/sync/changes` cursor. */
+  catalog: () => [...keys.all, 'catalog'] as const,
+  /** Which person and store the persisted cache belongs to. */
+  cacheIdentity: () => [...keys.all, 'cache-identity'] as const,
   members: () => [...keys.all, 'members'] as const,
   categories: () => [...keys.all, 'categories'] as const,
   product: (id: string) => [...keys.all, 'products', 'detail', id] as const,

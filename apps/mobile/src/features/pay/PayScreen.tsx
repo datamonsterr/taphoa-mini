@@ -34,7 +34,9 @@ import {
   Text,
 } from '@/components/ui';
 import type { PayMethod } from '@/components/ui';
-import { useCreateSale, useStore } from '@/lib/api';
+import { useStore } from '@/lib/api';
+import { enqueueSale } from '@/lib/outbox';
+import { useQueryClient } from '@tanstack/react-query';
 import type { CreateSaleRequest, Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { fill, useLabels, useT } from '@/lib/i18n';
@@ -128,7 +130,9 @@ export function PayScreen() {
   const total = useCartStore(selectTotal);
   const clearCart = useCartStore((s) => s.clear);
   const store = useStore();
-  const sale = useCreateSale();
+  const qc = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   const t = useT(debtStrings);
   const payT = useT(payStrings);
@@ -181,7 +185,7 @@ export function PayScreen() {
   });
   const creditAmount = Math.max(0, total - paidNow);
   const confirmDisabled =
-    sale.isPending ||
+    saving ||
     done ||
     lines.length === 0 ||
     (method === 'cash' && cashGiven < total) ||
@@ -249,15 +253,23 @@ export function PayScreen() {
       }),
       ...(scanIds.length > 0 ? { scan_ids: scanIds } : {}),
     };
-    sale.mutate(body, {
-      onSuccess: () => {
+    // Recorded on the device first: the sale is safe even with no network, and the outbox sends
+    // it (idempotent on `saleId`) as soon as the server answers.
+    setSaving(true);
+    setSaveError(false);
+    enqueueSale(qc, body).then(
+      () => {
         void Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         );
         clearCart();
         setDone(true);
       },
-    });
+      () => {
+        setSaving(false);
+        setSaveError(true);
+      },
+    );
   }, [
     saleId,
     method,
@@ -266,7 +278,7 @@ export function PayScreen() {
     memo,
     lines,
     lineIds,
-    sale,
+    qc,
     clearCart,
     customer,
     paidNow,
@@ -481,7 +493,7 @@ export function PayScreen() {
         ))}
       </ScrollView>
 
-      {sale.isError ? (
+      {saveError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           Không lưu được đơn. Giỏ hàng vẫn còn, thử lại.
         </Text>
