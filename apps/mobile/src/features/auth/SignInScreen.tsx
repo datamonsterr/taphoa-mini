@@ -1,4 +1,5 @@
 import { useSessionList, useSignIn, useSignUp, useSSO } from '@clerk/expo';
+import { onlineManager } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { makeRedirectUri } from 'expo-auth-session';
@@ -20,7 +21,13 @@ import {
 import { flowPaths, useCancelAddPerson, type AuthFlow } from './addPerson';
 import { signedInSessions } from './deviceSessions';
 import { useEmailFlow } from './emailFlow';
-import { authErrorKey, clerkErrorCode } from './errors';
+import {
+  authErrorKey,
+  authFailureKey,
+  clerkErrorCode,
+  codeExpiry,
+  codeWasSent,
+} from './errors';
 import { strings } from './strings';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -54,22 +61,43 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
       setError(t('invalidEmail'));
       return;
     }
+    if (!onlineManager.isOnline()) {
+      setError(t('network'));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const address = email.trim();
       const result = await signIn.create({ identifier: address });
       let mode: 'signIn' | 'signUp' = 'signIn';
+      let sendFailure: string | undefined;
       if (clerkErrorCode(result.error) === 'form_identifier_not_found') {
         mode = 'signUp';
         const created = await signUp.create({ emailAddress: address });
         if (created.error) throw created.error;
+        const expiry = codeExpiry(signUp, 'signUp');
         const sent = await signUp.verifications.sendEmailCode();
         if (sent.error) throw sent.error;
+        sendFailure =
+          authFailureKey(sent, signUp, onlineManager.isOnline()) ??
+          (codeWasSent(signUp, 'signUp', expiry) ? undefined : 'network');
       } else {
         if (result.error) throw result.error;
+        // An offline phone makes `create` resolve quietly without starting the sign-in.
+        if (signIn.status === 'needs_identifier')
+          throw new TypeError('offline');
+        const expiry = codeExpiry(signIn, 'signIn');
         const sent = await signIn.emailCode.sendCode({ emailAddress: address });
         if (sent.error) throw sent.error;
+        sendFailure =
+          authFailureKey(sent, signIn, onlineManager.isOnline()) ??
+          (codeWasSent(signIn, 'signIn', expiry) ? undefined : 'network');
+      }
+      // Clerk does not always report a failed send in `sent.error` (an offline phone, a rate limit).
+      if (sendFailure) {
+        setError(t(sendFailure));
+        return;
       }
       useEmailFlow.getState().begin(address, mode);
       router.push(paths.code);

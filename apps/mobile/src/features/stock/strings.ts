@@ -10,6 +10,8 @@ export const strings: Dict = {
     ok: 'Còn hàng',
     empty: 'Chưa có sản phẩm theo dõi tồn kho',
     error: 'Không tải được tồn kho',
+    offline:
+      'Không tải được tồn kho. Không có mạng, danh sách sẽ tải khi có mạng.',
     retry: 'Thử lại',
     loading: 'Đang tải',
     unnamed: 'Sản phẩm chưa đặt tên',
@@ -24,6 +26,8 @@ export const strings: Dict = {
     ok: 'In stock',
     empty: 'No tracked products yet',
     error: 'Could not load stock',
+    offline:
+      'Could not load stock. No network; the list loads when it returns.',
     retry: 'Try again',
     loading: 'Loading',
     unnamed: 'Unnamed product',

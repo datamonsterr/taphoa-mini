@@ -39,8 +39,12 @@ export async function uploadUtterance(
   );
 }
 
+/**
+ * `networkMode: 'always'`: offline the upload must fail so the sheet can fall back to on-device
+ * recognition; with the default it waits for the network and "Đang hiểu…" never ends.
+ */
 export const useVoiceUtterance = () =>
-  useMutation({ mutationFn: uploadUtterance });
+  useMutation({ mutationFn: uploadUtterance, networkMode: 'always' });
 
 /** POST /v1/voice/utterances/{id}/outcome. Best effort: the sale never waits for it. */
 export async function postOutcome(

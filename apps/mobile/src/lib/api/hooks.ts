@@ -399,6 +399,8 @@ export function useConfirmReceipt(id: string) {
   const qc = useQueryClient();
   const operationKey = useOperationKey();
   return useMutation({
+    // Offline the request must fail, not wait: a paused confirm leaves only a spinner.
+    networkMode: 'always',
     mutationFn: (input: Idempotent<ReceiptConfirm>) => {
       const { idempotencyKey: _key, ...body } = input;
       return confirmReceipt(id, body, operationKey(input));
@@ -420,6 +422,7 @@ export function useConfirmReceipt(id: string) {
 export function useDiscardReceipt(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    networkMode: 'always',
     mutationFn: () => discardReceipt(id),
     onSuccess: () => invalidate(qc, keys.receipts.all()),
   });
@@ -580,6 +583,8 @@ export function useDismissAlert() {
 export function useCreateDayClose() {
   const qc = useQueryClient();
   return useMutation({
+    // A close records the count taken now: offline it must fail, never wait and send later.
+    networkMode: 'always',
     mutationFn: (input: {
       date: string;
       counted_cash: number;
@@ -736,6 +741,8 @@ export function useUpdateCustomer(id: string) {
 export function useCreateRepayment(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    // Offline the request must fail (and the sheet say so), not wait in a paused state.
+    networkMode: 'always',
     mutationFn: ({
       idempotencyKey,
       ...body

@@ -17,6 +17,7 @@ import {
   bridgeUserId,
   serverBridgeUserId,
 } from '@/lib/api/clerkBridge';
+import { isApiError } from '@/lib/api/errors';
 import { useMe } from '@/lib/api/hooks';
 import { keys } from '@/lib/api/keys';
 import type { Me } from '@/lib/api/store';
@@ -185,7 +186,15 @@ export function AuthGate({
     return (
       <Frame title={t('title')} back={false}>
         <FormError
-          message={signOut.failed ? t('signOutError') : t('loadError')}
+          message={
+            signOut.failed
+              ? t('signOutError')
+              : t(
+                  isApiError(me.error) && me.error.status >= 500
+                    ? 'loadServerError'
+                    : 'loadError',
+                )
+          }
         />
         <ActionButton
           label={t('retry')}

@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { Share } from 'react-native';
@@ -33,7 +34,10 @@ jest.mock('expo-router', () => ({
   },
 }));
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  onlineManager.setOnline(true);
+  jest.restoreAllMocks();
+});
 
 const press = (name: string) =>
   fireEvent.press(screen.getByRole('button', { name }));
@@ -302,6 +306,49 @@ describe('Thu nợ', () => {
     expect(
       screen.getByRole('button', { name: 'Xác nhận thu nợ' }),
     ).toBeDisabled();
+  });
+
+  test('collecting offline says so at once, keeps the amount and never drops the payment (#205)', async () => {
+    const lan = await renderLan();
+    const create = jest.spyOn(debtsApi, 'createRepayment');
+    await press('Thu nợ');
+    await type('Số tiền thu', '1000');
+    await act(async () => onlineManager.setOnline(false));
+    await press('Xác nhận thu nợ');
+    expect(
+      await screen.findByText(
+        'Không có mạng nên chưa ghi được khoản thu. Số tiền vẫn còn, thử lại khi có mạng.',
+      ),
+    ).toBeOnTheScreen();
+    expect(create).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'Xác nhận thu nợ' }),
+    ).toBeEnabled();
+    expect(screen.getByLabelText('Số tiền thu')).toHaveDisplayValue('1000');
+    expect(screen.getByRole('header', { name: 'Thu nợ' })).toBeOnTheScreen();
+    // back online, the same sheet records it once
+    await act(async () => onlineManager.setOnline(true));
+    await press('Xác nhận thu nợ');
+    await sheetClosed('Thu nợ');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(
+      lan.id,
+      { amount: 1000, method: 'cash' },
+      expect.any(String),
+    );
+  });
+
+  test('a payment that fails because the connection dropped says there is no network', async () => {
+    await renderLan();
+    jest.spyOn(debtsApi, 'createRepayment').mockImplementationOnce(async () => {
+      onlineManager.setOnline(false);
+      throw new TypeError('Network request failed');
+    });
+    await press('Thu nợ');
+    await press('Xác nhận thu nợ');
+    expect(
+      await screen.findByText(/^Không có mạng nên chưa ghi được khoản thu/),
+    ).toBeOnTheScreen();
   });
 
   test('a lost response is retried with the same Idempotency-Key and the payment lands once', async () => {

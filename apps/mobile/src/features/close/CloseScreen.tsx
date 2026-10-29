@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { Banknote, Calculator, X } from 'lucide-react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -70,7 +71,7 @@ export function CloseScreen() {
   const create = useCreateDayClose();
   const { mutateAsync: createAsync } = create;
   const [digits, setDigits] = useState('');
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<'save' | 'offline' | null>(null);
 
   const closed = dayClose.data ?? null;
   const expected = closed?.expected_cash ?? report.data?.expected_cash;
@@ -95,11 +96,17 @@ export function CloseScreen() {
   }, [report, dayClose]);
 
   const submit = useCallback(async () => {
-    setFailed(false);
+    setFailed(null);
+    // The close records the cash counted now. Offline it is refused, not queued: sent minutes
+    // later it would carry a different count, and the seller must know it is not recorded.
+    if (!onlineManager.isOnline()) {
+      setFailed('offline');
+      return;
+    }
     try {
       await createAsync({ date, counted_cash: countedFromDigits(digits) });
     } catch {
-      setFailed(true);
+      setFailed(onlineManager.isOnline() ? 'save' : 'offline');
       return;
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -118,7 +125,7 @@ export function CloseScreen() {
           <View style={styles.footer}>
             {failed ? (
               <Text accessibilityRole="alert" style={styles.saveError}>
-                {t('saveError')}
+                {t(failed === 'offline' ? 'offlineError' : 'saveError')}
               </Text>
             ) : null}
             <CheckButton

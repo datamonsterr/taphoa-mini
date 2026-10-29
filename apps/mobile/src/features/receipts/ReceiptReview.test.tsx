@@ -1,6 +1,8 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
+import { onlineManager } from '@tanstack/react-query';
 import { Alert, Platform } from 'react-native';
+import { ApiError } from '@/lib/api/errors';
 import { createReceipt, uploadImage, type Receipt } from '@/lib/api';
 import * as receipts from '@/lib/api/receipts';
 import { getMockDb } from '@/test/mock';
@@ -22,7 +24,10 @@ beforeEach(async () => {
   );
   receipt = await createReceipt({ image_id: image.id });
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  onlineManager.setOnline(true);
+  jest.restoreAllMocks();
+});
 const button = (name: string) => screen.getByRole('button', { name });
 const open = async () => {
   await renderWithProviders(<ReceiptReviewScreen id={receipt.id} />);
@@ -290,7 +295,7 @@ test('discard requires confirmation and deletes the draft', async () => {
 test('confirmation failure keeps edits visible and allows retry', async () => {
   jest
     .spyOn(receipts, 'confirmReceipt')
-    .mockRejectedValueOnce(new Error('offline'));
+    .mockRejectedValueOnce(new ApiError(500, { error: 'down' }));
   await open();
   await dropUnmatched();
   await reviewSummary();
@@ -298,6 +303,39 @@ test('confirmation failure keeps edits visible and allows retry', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Chưa lưu được hóa đơn. Thử lại.',
   );
+  expect(button('Xác nhận nhập kho')).toBeEnabled();
+});
+
+const OFFLINE =
+  'Không có mạng nên chưa nhập kho được. Bản nháp vẫn còn, thử lại khi có mạng.';
+
+test('confirming offline says so at once, keeps the draft and confirms after reconnecting (#243)', async () => {
+  const confirm = jest.spyOn(receipts, 'confirmReceipt');
+  await open();
+  await dropUnmatched();
+  await reviewSummary();
+  await act(async () => onlineManager.setOnline(false));
+  await fireEvent.press(button('Xác nhận nhập kho'));
+  expect(await screen.findByRole('alert')).toHaveTextContent(OFFLINE);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(button('Xác nhận nhập kho')).toBeEnabled();
+  expect(screen.queryByText('Chưa lưu được hóa đơn. Thử lại.')).toBeNull();
+  await act(async () => onlineManager.setOnline(true));
+  await fireEvent.press(button('Xác nhận nhập kho'));
+  await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+  expect(confirm).toHaveBeenCalledTimes(1);
+});
+
+test('a connection that drops during the confirm request gets the offline message, not a spinner', async () => {
+  jest.spyOn(receipts, 'confirmReceipt').mockImplementationOnce(async () => {
+    onlineManager.setOnline(false);
+    throw new TypeError('Network request failed');
+  });
+  await open();
+  await dropUnmatched();
+  await reviewSummary();
+  await fireEvent.press(button('Xác nhận nhập kho'));
+  expect(await screen.findByRole('alert')).toHaveTextContent(OFFLINE);
   expect(button('Xác nhận nhập kho')).toBeEnabled();
 });
 

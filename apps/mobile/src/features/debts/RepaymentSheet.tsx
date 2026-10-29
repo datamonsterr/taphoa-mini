@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { onlineManager } from '@tanstack/react-query';
 import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 
@@ -41,10 +42,19 @@ export function RepaymentSheet({
   const valid = Number.isSafeInteger(amount) && amount > 0;
   const edited = () => {
     setKey(newUuid());
+    setOffline(false);
     repay.reset();
   };
 
-  const submit = () =>
+  const [offline, setOffline] = useState(false);
+  const submit = () => {
+    // Offline the repayment is refused with a message, never left waiting: leaving the screen
+    // would drop it while the cash is already in hand. The sheet keeps the amount for a retry.
+    if (!onlineManager.isOnline()) {
+      setOffline(true);
+      return;
+    }
+    setOffline(false);
     repay.mutate(
       { amount, method, idempotencyKey: key },
       {
@@ -54,8 +64,10 @@ export function RepaymentSheet({
           );
           onClose();
         },
+        onError: () => setOffline(!onlineManager.isOnline()),
       },
     );
+  };
 
   return (
     <DebtSheet
@@ -100,7 +112,11 @@ export function RepaymentSheet({
           {t('repay.over')}
         </Text>
       ) : null}
-      {repay.isError ? (
+      {offline ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {t('repay.offline')}
+        </Text>
+      ) : repay.isError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {t('repay.error')}
         </Text>
