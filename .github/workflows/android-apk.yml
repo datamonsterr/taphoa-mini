@@ -7,6 +7,9 @@ name: Android APK
 # install: uninstall that app first.
 
 on:
+  # TEMPORARY: lets this branch build once before the workflow is on main. Removed before merge.
+  push:
+    branches: [claude/android-apk-workflow]
   workflow_dispatch:
     inputs:
       backend:
@@ -48,7 +51,7 @@ jobs:
       # Same URLs as the preview and production profiles in apps/mobile/eas.json.
       - name: Pick backend
         env:
-          BACKEND: ${{ inputs.backend }}
+          BACKEND: ${{ inputs.backend || 'test' }}
         run: |
           if [ "$BACKEND" = production ]; then
             echo "EXPO_PUBLIC_API_URL=https://backend-production-5f5c.up.railway.app" >> "$GITHUB_ENV"
@@ -79,7 +82,7 @@ jobs:
 
       - name: Name APK
         env:
-          BACKEND: ${{ inputs.backend }}
+          BACKEND: ${{ inputs.backend || 'test' }}
         run: |
           mkdir -p dist
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
@@ -89,7 +92,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: taphoa-mini-${{ inputs.backend }}-apk
+          name: taphoa-mini-${{ inputs.backend || 'test' }}-apk
           path: dist/*.apk
           retention-days: 14
           compression-level: 0
