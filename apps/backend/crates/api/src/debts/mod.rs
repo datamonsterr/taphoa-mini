@@ -173,6 +173,12 @@ async fn entry(
         if input.amount < 1 || !matches!(input.method.as_str(), "cash" | "transfer") {
             return Err(invalid("invalid repayment"));
         }
+        if input.amount > crate::money::MAX_AMOUNT {
+            return Err(invalid(format!(
+                "repayment must be at most {} VND",
+                crate::money::MAX_AMOUNT
+            )));
+        }
         (-input.amount, Some(input.method), None, input.paid_at)
     } else {
         let input: Adjustment =

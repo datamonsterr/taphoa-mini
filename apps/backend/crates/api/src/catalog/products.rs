@@ -720,7 +720,11 @@ pub(crate) async fn patch_product(
     updates.push_bind(id);
     updates.push(" AND store_id = ");
     updates.push_bind(actor.store_id);
-    updates.build().execute(&mut *tx).await?;
+    updates
+        .build()
+        .execute(&mut *tx)
+        .await
+        .map_err(unique_violation)?;
 
     for op in &plan.unit_ops {
         match op {
@@ -756,7 +760,8 @@ pub(crate) async fn patch_product(
                 .bind(unit.barcode.clone())
                 .bind(actor.store_id)
                 .execute(&mut *tx)
-                .await?;
+                .await
+                .map_err(unique_violation)?;
                 if let Some((old, new)) = price_changed {
                     history_row(
                         &mut tx,

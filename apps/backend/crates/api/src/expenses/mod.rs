@@ -83,6 +83,12 @@ impl CreateExpense {
         if self.amount <= 0 {
             return Err(invalid("amount must be positive"));
         }
+        if self.amount > crate::money::MAX_AMOUNT {
+            return Err(invalid(&format!(
+                "amount must be at most {} VND",
+                crate::money::MAX_AMOUNT
+            )));
+        }
         category(&self.category)?;
         note(self.note.as_deref())?;
         if !["cash_box", "other"].contains(&self.paid_with.as_str()) {

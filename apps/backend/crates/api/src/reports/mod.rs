@@ -106,12 +106,25 @@ async fn today(
         .bind(date)
         .fetch_one(pool(&state)?)
         .await?;
+    // Amounts are bounded on write, so these only fail on rows stored before the bounds existed.
+    let net = r.revenue.checked_sub(r.expenses);
+    let expected = money::expected_cash(
+        r.opening_float,
+        r.cash_revenue,
+        0,
+        r.cash_repayments,
+        r.cash_expenses,
+    );
+    let (Some(net), Some(expected)) = (net, expected) else {
+        tracing::error!(%date, "daily report amounts exceed the i64 range");
+        return Err(ApiError::internal());
+    };
     Ok(Json(
         json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
         "voided_count":r.voided_count,"cash_revenue":r.cash_revenue,"transfer_revenue":r.transfer_revenue,
         "cash_repayments":r.cash_repayments,"credit_sales":r.credit_sales,
-        "expenses":r.expenses,"net":r.revenue-r.expenses,
-        "expected_cash":money::expected_cash(r.opening_float,r.cash_revenue,0,r.cash_repayments,r.cash_expenses),
+        "expenses":r.expenses,"net":net,
+        "expected_cash":expected,
         "manual_lines_open":r.manual_lines_open,"day_close":r.day_close}),
     ))
 }
