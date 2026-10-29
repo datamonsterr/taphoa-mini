@@ -19,9 +19,10 @@ test('LLM scope covers every requested chart and three shared trace filters', ()
       'Cost and tokens': 4,
       'Tools and actions': 7,
       Quality: 4,
+      Voice: 8,
     },
   );
-  assert.equal(new Set(definitions.map((i) => i.name)).size, 24);
+  assert.equal(new Set(definitions.map((i) => i.name)).size, 32);
   assert.deepEqual(
     traceFilters.map((i) => i.name),
     [
@@ -39,14 +40,54 @@ test('LLM scope covers every requested chart and three shared trace filters', ()
   assert.match(queries, /decision = 'rejected'/);
   assert.match(queries, /countIf\(event = '\$ai_trace'\) > 0/);
   assert.match(queries, /permission_leak/);
+  for (const d of llmDashboards.filter((d) =>
+    ['Assistant health', 'Cost and tokens', 'Tools and actions'].includes(
+      d.name,
+    ),
+  ))
+    for (const i of d.insights.filter(
+      (i) => i.query.source.kind === 'HogQLQuery',
+    ))
+      assert.match(
+        i.query.source.query,
+        /properties.voice_call IS NULL/,
+        i.name,
+      );
+  assert.doesNotMatch(
+    definitions.map((i) => JSON.stringify(i.query)).join('\n'),
+    /\$ai_trace_id IS NOT NULL/,
+  );
+  const voice = llmDashboards.find((d) => d.name === 'Voice').insights;
+  const voiceQueries = voice.map((i) => JSON.stringify(i.query)).join('\n');
+  for (const name of [
+    'voice_sale_started',
+    'voice_sale_drafted',
+    'voice_sale_confirmed',
+    'voice_sale_abandoned',
+    'voice_input_used',
+  ])
+    assert.match(voiceQueries, new RegExp(name));
+  assert.match(voiceQueries, /voice_call IS NOT NULL/);
+  assert.match(voiceQueries, /\$ai_session_id/);
+  assert.match(voiceQueries, /quantile\(0.95\)/);
+  assert.match(voiceQueries, /stt_fallback/);
+  assert.match(voiceQueries, /FROM posthog\.ai_events/);
+  assert.match(voiceQueries, /"breakdown":"stage"/);
+  assert.match(voiceQueries, /"breakdown":"engine"/);
+  assert.equal(
+    voice.find((i) => i.name === 'Voice · Utterance funnel').query.source.series
+      .length,
+    3,
+  );
   const quota = definitions.find((i) => i.scope === 'all');
   assert.equal(quota.query.chartSettings.goalLines[0].value, 1000);
   assert.equal(
     quota.name,
     'Cost and tokens · Requests vs. 1,000/day free quota',
   );
-  const funnel = definitions.find((i) => i.query.source.kind === 'FunnelsQuery')
-    .query.source;
+  const funnel = definitions.find(
+    (i) => i.query.source.kind === 'FunnelsQuery' && i.name.startsWith('Tools'),
+  ).query.source;
   assert.equal(funnel.funnelsFilter.funnelWindowInterval, 30);
   assert.equal(funnel.funnelsFilter.funnelWindowIntervalUnit, 'minute');
   assert.equal(funnel.funnelsFilter.breakdownAttributionValue, 0);
@@ -69,13 +110,13 @@ test('LLM apply is isolated, renders all templates, preserves objects and re-app
     patch: async () => assert.fail('An unchanged re-apply must not PATCH'),
   };
   const first = await apply({ client, only: 'llm', print: () => {} });
-  assert.equal(first.length, 28);
+  assert.equal(first.length, 37);
   assert.ok(first.every((op) => op.action === 'create'));
-  assert.equal(objects.size, 28);
+  assert.equal(objects.size, 37);
   assert.equal([...objects.values()].filter((o) => o.favorited).length, 3);
   const ids = [...objects.keys()];
   const second = await apply({ client, only: 'llm', print: () => {} });
-  assert.equal(writes, 28);
+  assert.equal(writes, 37);
   assert.deepEqual([...objects.keys()], ids);
   assert.ok(second.every((op) => op.status === 'unchanged'));
 });
@@ -122,7 +163,7 @@ test('LLM verification keeps empty distinct from data, scopes every query except
     days: 30,
   });
   assert.equal(result.ok, true);
-  assert.equal(result.insights.length, 24);
+  assert.equal(result.insights.length, 32);
   assert.ok(
     result.insights.every(
       (i) => i.ok && !i.data && i.note === 'empty (allowed)',

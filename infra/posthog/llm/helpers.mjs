@@ -1,5 +1,7 @@
 export const where =
   'timestamp >= now() - INTERVAL {{days}} DAY AND {{environment}}';
+// Voice model calls carry `voice_call` (string kind); assistant charts must not count them.
+export const assistantWhere = `${where} AND properties.voice_call IS NULL`;
 export const number = (key) => `toFloat64OrNull(toString(properties.${key}))`;
 export const tokens = 'coalesce(input_tokens, 0) + coalesce(output_tokens, 0)';
 // Direct property access can hit an empty materialized column on non-AI events.
