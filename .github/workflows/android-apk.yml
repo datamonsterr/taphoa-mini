@@ -1,0 +1,95 @@
+name: Android APK
+
+# Manual fallback for an installable Android APK when EAS Build is unavailable (the Free plan's
+# monthly Android builds are used up). Builds a release APK on the runner, the same way the apk job
+# in android-e2e.yml does, but for real phones: ARM ABIs and a real backend over HTTPS.
+# The APK is signed with the Expo template's debug keystore, so it does not upgrade an EAS-built
+# install: uninstall that app first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: Backend the app talks to
+        type: choice
+        options:
+          - test
+          - production
+        default: test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: namespace-profile-linux-xl
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+          standalone: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: pnpm install --frozen-lockfile
+
+      # Same URLs as the preview and production profiles in apps/mobile/eas.json.
+      - name: Pick backend
+        env:
+          BACKEND: ${{ inputs.backend }}
+        run: |
+          if [ "$BACKEND" = production ]; then
+            echo "EXPO_PUBLIC_API_URL=https://backend-production-5f5c.up.railway.app" >> "$GITHUB_ENV"
+            echo "EXPO_PUBLIC_ENVIRONMENT=production" >> "$GITHUB_ENV"
+          else
+            echo "EXPO_PUBLIC_API_URL=https://backend-test-70c2.up.railway.app" >> "$GITHUB_ENV"
+            echo "EXPO_PUBLIC_ENVIRONMENT=test" >> "$GITHUB_ENV"
+          fi
+
+      # The runner has no committed android/ project (CNG): generate it from app.config.ts.
+      - name: Expo prebuild (android)
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      # assembleRelease bundles the JS (Hermes) into the APK, so it boots without Metro.
+      # The EXPO_PUBLIC_* values are inlined into that bundle here.
+      - name: Build release APK
+        env:
+          # Public by design; the bundle embeds it so ClerkProvider talks to the same instance.
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+        working-directory: apps/mobile/android
+        run: >-
+          ./gradlew assembleRelease
+          -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+          -Pandroid.enableMinifyInReleaseBuilds=false
+
+      - name: Name APK
+        env:
+          BACKEND: ${{ inputs.backend }}
+        run: |
+          mkdir -p dist
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "dist/taphoa-mini-${BACKEND}-${GITHUB_SHA::7}.apk"
+
+      # APKs are already compressed, so skip zip compression.
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: taphoa-mini-${{ inputs.backend }}-apk
+          path: dist/*.apk
+          retention-days: 14
+          compression-level: 0

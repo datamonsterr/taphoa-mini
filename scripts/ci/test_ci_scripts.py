@@ -464,6 +464,8 @@ class SmokeServer:
                 if (method, path) in (("GET", "/healthz"), ("GET", "/readyz")):
                     return self.reply(200, b"ok", "text/plain")
                 if (method, path) == ("POST", "/v1/segment"):
+                    if not user_auth:
+                        return self.reply(401, b'{"errors":[{"code":"unauthorized"}]}')
                     return self.reply(200, b'{"detections":[]}')
                 if path.startswith("/v1/users") or path.startswith("/v1/sessions"):
                     if not clerk_auth:
@@ -538,6 +540,7 @@ class BackendSmoke(unittest.TestCase):
                 ("POST", "/v1/sessions"),
                 ("POST", "/v1/sessions/sess_smoke1/tokens"),
                 ("POST", "/v1/stores"),
+                ("POST", "/v1/segment"),
                 ("POST", "/v1/images"),
                 ("GET", "/v1/images/img1"),
                 ("GET", "/blob/sample.png"),
