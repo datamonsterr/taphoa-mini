@@ -1,6 +1,6 @@
 import { isApiError } from '@/lib/api/errors';
 
-import { fetchSessionMe, verifySessionPin } from './sessionApi';
+import { fetchSessionMe, lockSession, verifySessionPin } from './sessionApi';
 
 type Token = jest.Mock<Promise<string | null>, [{ skipCache?: boolean }?]>;
 const session = (token: string | null = 'token_a') => ({
@@ -119,4 +119,19 @@ test('exposes the lockout wait from Retry-After', async () => {
   await expect(
     verifySessionPin(session(), 'store_a', '0000'),
   ).rejects.toMatchObject({ status: 429, retryAfterMs: 120_000 });
+});
+
+test('locks a session with its own token and no store header', async () => {
+  network.mockResolvedValue(new Response(null, { status: 204 }));
+  await expect(lockSession(session('token_old'))).resolves.toBeUndefined();
+  const [request] = seen(network);
+  expect(request.method).toBe('POST');
+  expect(new URL(request.url).pathname).toBe('/v1/me/pin/lock');
+  expect(request.headers.get('authorization')).toBe('Bearer token_old');
+  expect(request.headers.get('x-store-id')).toBeNull();
+});
+
+test('a failed lock never throws: the switch must go on', async () => {
+  network.mockRejectedValue(new Error('offline'));
+  await expect(lockSession(session())).resolves.toBeUndefined();
 });

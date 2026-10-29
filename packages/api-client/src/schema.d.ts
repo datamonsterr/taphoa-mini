@@ -126,8 +126,39 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify the caller's PIN lock */
+        /**
+         * Verify the caller's PIN lock
+         * @description A right PIN unlocks the calling Clerk session on the server. Until then, every store
+         *     route answers 403 `pin_required` for a person who has a PIN on any membership (see
+         *     `POST /v1/me/pin/lock`). A member without a PIN answers 204 and unlocks nothing.
+         */
         post: operations["verifyPin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/pin/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lock the calling session until its PIN is verified again
+         * @description On a shared phone every signed-in person keeps a live Clerk session, so a session token
+         *     proves nothing about who holds the phone. A person who has a PIN is served only while
+         *     their session is unlocked. A session first seen by the API starts unlocked, and so does
+         *     one that just set a PIN or verified it (`POST /v1/me/pin/verify`). The app calls this
+         *     route for the person who stops being the active one. A locked session gets 403
+         *     `pin_required` on every store route; `GET /v1/me`, this route and the verify route stay
+         *     open. An unlocked session that is idle for 12 hours locks again. Needs no store.
+         */
+        post: operations["lockSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3309,7 +3340,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description PIN matches, or the member has no PIN. */
+            /** @description PIN matches (session unlocked), or the member has no PIN. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3328,6 +3359,25 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    lockSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session locked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getStore: {
