@@ -1,0 +1,86 @@
+>> select id, name, price, cost_price, stock_quantity, low_stock_threshold, barcode, archived from products where store_id='953ec1c1-3578-42a0-afb3-0749bc4271e3' o
+id | name | price | cost_price | stock_quantity | low_stock_threshold | barcode | archived
+01a186a3-e4aa-7c21-ad4c-65a56a2ad5e4 | Sting đỏ 330ml | 12000 | None | 28 | None | 8934588012228 | False
+01a186a3-ed06-72d3-a5aa-9fac5aca3a18 | Aquafina 500ml | 2147483648 | 5000 | 48 | None | None | False
+01a186a3-f7c6-7d2d-a32c-d7b3370e38ab | Hảo Hảo tôm chua cay | 4500 | 4200 | 33 | None | None | False
+01a186a4-0045-7503-9948-dc71c505ea39 | Sữa hộp Vinamilk | 8000 | 6500 | 0 | None | None | False
+01a186a4-0ce3-7970-b73d-c5b7d8d56610 | Bánh bi | 15000 | 0 | 11 | None | None | False
+01a186aa-5f2b-7357-b491-ae27dca2a298 | Sting đỏ 330ml | 10000 | None | None | None | None | False
+01a186aa-6344-7460-bfea-5793de680831 | Giá lỗi | 0 | None | None | None | None | False
+01a186aa-64f3-74aa-b2e7-781f96a04f36 | Giá lỗi | 10000000000 | None | None | None | None | False
+>> select u.name, u.quantity_in_base, u.price, p.name product from product_units u join products p on p.id=u.product_id where p.store_id='953ec1c1-3578-42a0-afb3-0
+name | quantity_in_base | price | product
+thùng | 24 | 1 | Aquafina 500ml
+>> select p.name, h.field, h.old_value, h.new_value, h.source, h.changed_at from price_history h join products p on p.id=h.product_id where p.store_id='953ec1c1-35
+name | field | old_value | new_value | source | changed_at
+Sting đỏ 330ml | price | None | 10000 | manual | 2026-10-29 07:50:50.447178+00:00
+Sting đỏ 330ml | cost_price | None | 8000 | manual | 2026-10-29 07:50:50.447178+00:00
+Aquafina 500ml | cost_price | None | 3500 | manual | 2026-10-29 07:50:52.560633+00:00
+Aquafina 500ml | price | None | 5000 | manual | 2026-10-29 07:50:52.560633+00:00
+Hảo Hảo tôm chua cay | price | None | 4500 | manual | 2026-10-29 07:50:55.468819+00:00
+Hảo Hảo tôm chua cay | cost_price | None | 3500 | manual | 2026-10-29 07:50:55.468819+00:00
+Sữa hộp Vinamilk | price | None | 8000 | manual | 2026-10-29 07:50:57.494193+00:00
+Sữa hộp Vinamilk | cost_price | None | 6500 | manual | 2026-10-29 07:50:57.494193+00:00
+Bánh bi | cost_price | None | 11000 | manual | 2026-10-29 07:51:00.726989+00:00
+Bánh bi | price | None | 15000 | manual | 2026-10-29 07:51:00.726989+00:00
+Hảo Hảo tôm chua cay | cost_price | 3500 | 3500 | purchase | 2026-10-29 07:51:02.433003+00:00
+Aquafina 500ml | cost_price | 3500 | 3500 | purchase | 2026-10-29 07:51:02.433003+00:00
+Sữa hộp Vinamilk | cost_price | 6500 | 6500 | purchase | 2026-10-29 07:51:02.433003+00:00
+Sting đỏ 330ml | cost_price | 8000 | 8000 | purchase | 2026-10-29 07:51:02.433003+00:00
+Aquafina 500ml | cost_price | 3500 | 5000 | purchase | 2026-10-29 07:56:48.778831+00:00
+Hảo Hảo tôm chua cay | cost_price | 3500 | 4200 | purchase | 2026-10-29 07:56:48.778831+00:00
+Sting đỏ 330ml | cost_price | 8000 | 8500 | purchase | 2026-10-29 07:56:48.778831+00:00
+Bánh bi | cost_price | 11000 | 13200 | purchase | 2026-10-29 07:56:48.778831+00:00
+Sting đỏ 330ml | price | None | 10000 | manual | 2026-10-29 07:57:55.094977+00:00
+Giá lỗi | price | None | 0 | manual | 2026-10-29 07:57:56.042429+00:00
+Giá lỗi | price | None | 10000000000 | manual | 2026-10-29 07:57:56.465130+00:00
+Aquafina 500ml | price | 5000 | 0 | manual | 2026-10-29 07:57:57.050138+00:00
+Aquafina 500ml | price | 0 | 2147483648 | manual | 2026-10-29 07:57:57.274654+00:00
+Sting đỏ 330ml | price | 10000 | 12000 | manual | 2026-10-29 07:58:04.508999+00:00
+Bánh bi | cost_price | 13200 | 0 | purchase | 2026-10-29 07:58:29.835613+00:00
+>> select id, object_key, content_type, byte_size, purpose from images where store_id='953ec1c1-3578-42a0-afb3-0749bc4271e3' order by created_at desc limit 5
+id | object_key | content_type | byte_size | purpose
+694eba66-1579-42f9-8dfb-d7da28571aae | images/2026/10/694eba66-1579-42f9-8dfb-d7da28571aae.png | image/png | 42234 | other
+207a50ce-c37d-4770-9a08-c8829176cc15 | images/2026/10/207a50ce-c37d-4770-9a08-c8829176cc15.jpg | image/jpeg | 81020 | enrollment
+ede66a2a-4c0a-409a-bb75-9ec8bb380014 | images/2026/10/ede66a2a-4c0a-409a-bb75-9ec8bb380014.jpg | image/jpeg | 81020 | enrollment
+343c0e59-bc66-43b6-a9b6-2a1799d49ed3 | images/2026/10/343c0e59-bc66-43b6-a9b6-2a1799d49ed3.png | image/png | 240210 | other
+19903400-e70e-43ce-9bb9-805591f7b781 | images/2026/10/19903400-e70e-43ce-9bb9-805591f7b781.png | image/png | 240210 | other
+>> select p.name, m.delta, m.quantity_after, m.reason, m.note, m.created_at from stock_movements m join products p on p.id=m.product_id where p.store_id='953ec1c1-
+name | delta | quantity_after | reason | note | created_at
+Sting đỏ 330ml | 4 | 4 | adjustment | kiểm kho đầu | 2026-10-29 07:52:25.006584+00:00
+Aquafina 500ml | 36 | 36 | adjustment | kiểm kho đầu | 2026-10-29 07:52:25.215706+00:00
+Hảo Hảo tôm chua cay | 3 | 3 | adjustment | kiểm kho đầu | 2026-10-29 07:52:25.483546+00:00
+Sữa hộp Vinamilk | 0 | 0 | adjustment | kiểm kho đầu | 2026-10-29 07:52:25.685241+00:00
+Bánh bi | 5 | 5 | adjustment | kiểm kho đầu | 2026-10-29 07:52:25.888927+00:00
+Sting đỏ 330ml | 24 | 28 | receipt | None | 2026-10-29 07:56:48.837085+00:00
+Hảo Hảo tôm chua cay | 30 | 33 | receipt | None | 2026-10-29 07:56:48.850197+00:00
+Aquafina 500ml | 12 | 48 | receipt | None | 2026-10-29 07:56:48.862045+00:00
+Bánh bi | 5 | 10 | receipt | None | 2026-10-29 07:56:48.877450+00:00
+Bánh bi | 1 | 11 | receipt | None | 2026-10-29 07:58:29.883602+00:00
+>> select id, status, total, parser, model, expense_id, confirmed_at from receipts where store_id='953ec1c1-3578-42a0-afb3-0749bc4271e3' order by created_at
+id | status | total | parser | model | expense_id | confirmed_at
+01a186a8-568c-7397-8489-5d92cad35b98 | confirmed | 0 | fallback | inception/mercury-decide:free | 01a186aa-e7c9-7699-a563-9b566f3978dc | 2026-10-29 07:58:29.894804+00:00
+01a186a9-258d-70f8-9f62-95cc91aaf8db | confirmed | 456000 | fallback | inception/mercury-decide:free | 01a186a9-5d07-733d-97fb-dba994eb0435 | 2026-10-29 07:56:48.885022+00:00
+>> select r.status, l.product_name, l.quantity, l.cost, l.product_id is not null mapped, l.match_confidence from receipt_lines l join receipts r on r.id=l.receipt_
+status | product_name | quantity | cost | mapped | match_confidence
+confirmed | Bánh bi | 1 | 0 | True | None
+confirmed | Coca Cola Ion 330ml | 24 | 204000 | True | None
+confirmed | Mì Hảo Hảo tôm chua cay | 30 | 126000 | True | 1.0
+confirmed | Nước suối Aquatina 500ml | 12 | 60000 | True | 0.6666667
+confirmed | Bánh Chocopie hập | 5 | 66000 | True | 0.71428573
+>> select id, category, amount, paid_with, image_id from expenses where store_id='953ec1c1-3578-42a0-afb3-0749bc4271e3' order by created_at
+id | category | amount | paid_with | image_id
+01a186a4-13ce-73eb-b4ae-30f004a13f8e | nhap_hang | 354500 | cash_box | None
+01a186a9-5d07-733d-97fb-dba994eb0435 | nhap_hang | 456000 | cash_box | 343c0e59-bc66-43b6-a9b6-2a1799d49ed3
+01a186aa-e7c9-7699-a563-9b566f3978dc | nhap_hang | 0 | other | 19903400-e70e-43ce-9bb9-805591f7b781
+>> select e.amount, pl.quantity, pl.unit_cost, p.name from purchase_lines pl join expenses e on e.id=pl.expense_id join products p on p.id=pl.product_id where e.st
+amount | quantity | unit_cost | name
+354500 | 24 | 8000 | Sting đỏ 330ml
+354500 | 36 | 3500 | Aquafina 500ml
+354500 | 3 | 3500 | Hảo Hảo tôm chua cay
+354500 | 4 | 6500 | Sữa hộp Vinamilk
+456000 | 24 | 8500 | Sting đỏ 330ml
+456000 | 30 | 4200 | Hảo Hảo tôm chua cay
+456000 | 12 | 5000 | Aquafina 500ml
+456000 | 5 | 13200 | Bánh bi
+0 | 1 | 0 | Bánh bi

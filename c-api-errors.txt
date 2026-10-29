@@ -1,0 +1,45 @@
+dup product same photo -> 409 {"code":"duplicate_suspected","details":{"candidates":[{"default_unit_id":null,"name":"Sting đỏ 330ml","price":10000,"product_id":"01a186a3-e4aa-7c21-ad4c-65a56a2ad5e4","similarity":1},{"default_unit_id":null,"name":"Aquafina 500ml","price":5000,"product_id":"
+dup product same name force_new -> 201 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186aa-5f2b-7357-b491-ae27dca2a298","images":[{"image_id":"ede66a2a-4c0a-409a-bb75-9ec8bb380014","position":0,"u
+create price -1 -> 400 {"code":"validation_failed","error":"price must not be negative"}
+create price 0 -> 201 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186aa-6344-7460-bfea-5793de680831","images":[{"image_id":"207a50ce-c37d-4770-9a08-c8829176cc15","position":0,"u
+create price 1.5 -> 400 {"code":"validation_failed","error":"invalid type: floating point `1.5`, expected i64"}
+create price 10000000000 -> 201 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186aa-64f3-74aa-b2e7-781f96a04f36","images":[{"image_id":"207a50ce-c37d-4770-9a08-c8829176cc15","position":0,"u
+create price 10000 -> 400 {"code":"validation_failed","error":"invalid type: string \"10000\", expected i64"}
+patch price -5 -> 400 {"code":"validation_failed","error":"price must not be negative"}
+patch price 0 -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":5000,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-ed06-72d3-a5aa-9fac5aca3a18","images":[{"image_id":"f71a423f-bf5c-472c-9a9d-fe2d5eaaac58","position":0,"u
+patch price 2147483648 -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":5000,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-ed06-72d3-a5aa-9fac5aca3a18","images":[{"image_id":"f71a423f-bf5c-472c-9a9d-fe2d5eaaac58","position":0,"u
+patch name 500 chars -> 400 {"code":"validation_failed","error":"name is too long"}
+adjust {"count":-1} -> 422 {"code":"validation_failed","error":"provide exactly one of count or delta"}
+adjust {"delta":0} -> 422 {"code":"validation_failed","error":"provide exactly one of count or delta"}
+adjust {"count":1,"delta":1} -> 422 {"code":"validation_failed","error":"provide exactly one of count or delta"}
+adjust {"delta":3000000000} -> 422 {"code":"validation_failed","error":"invalid value: integer `3000000000`, expected i32"}
+upload 11MB random -> 413 "length limit exceeded"
+upload big.jpg -> 413 "length limit exceeded"
+upload text as jpeg -> 415 {"code":"unsupported_media_type","error":"expected JPEG, PNG or WebP magic bytes"}
+blank upload -> 400 {"code":"validation_failed","error":"expected one image, optional store_id UUID and optional purpose"}
+receipt blank -> 422 {"code":"validation_failed","error":"invalid receipt"}
+receipt unknown image -> 404 {"code":"not_found","error":"record not found"}
+seller patch price -> 403 {"code":"forbidden","error":"permission denied"}
+seller patch cost -> 403 {"code":"forbidden","error":"permission denied"}
+seller patch name -> 403 {"code":"forbidden","error":"permission denied"}
+seller patch threshold -> 403 {"code":"forbidden","error":"permission denied"}
+seller adjust stock -> 403 {"code":"forbidden","error":"permission denied"}
+seller GET product cost -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-e4aa-7c21-ad4c-65a56a2ad5e4","images":[{"image_id":"9fe3e130-2aaf-4895-b95c-e1baacfe6ef9","position":0,"u
+seller price-history -> 200 {"items":[{"changed_at":"2026-10-29T07:50:50.447178Z","changed_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","field":"price","id":"928214bc-f1de-4e3c-bd57-749a4f461161","new_value":10000,"old_value":null,"source":"manual","unit_id":null}],"next_cursor":null}
+seller receipts list -> 403 {"code":"forbidden","error":"permission denied"}
+seller create product -> 403 {"code":"forbidden","error":"permission denied"}
+seller archive -> 403 {"code":"forbidden","error":"permission denied"}
+seller add unit (audit #1) -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-ed06-72d3-a5aa-9fac5aca3a18","images":[{"image_id":"f71a423f-bf5c-472c-9a9d-fe2d5eaaac58","position":0,"u
+lead GET aqua after -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":5000,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-ed06-72d3-a5aa-9fac5aca3a18","images":[{"image_id":"f71a423f-bf5c-472c-9a9d-fe2d5eaaac58","position":0,"u
+other GET my product -> 404 {"code":"not_found","error":"record not found"}
+other GET my image -> 404 {"code":"not_found","error":"image not found"}
+other expense with my product -> 404 {"code":"not_found","error":"record not found"}
+lead X-Store-Id other store -> 403 {"code":"forbidden","error":"permission denied"}
+lead cost null -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-e4aa-7c21-ad4c-65a56a2ad5e4","images":[{"image_id":"9fe3e130-2aaf-4895-b95c-e1baacfe6ef9","position":0,"u
+lead price 12000 -> 200 {"archived":false,"barcode":null,"base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-e4aa-7c21-ad4c-65a56a2ad5e4","images":[{"image_id":"9fe3e130-2aaf-4895-b95c-e1baacfe6ef9","position":0,"u
+price-history -> 200 {"items":[{"changed_at":"2026-10-29T07:58:04.508999Z","changed_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","field":"price","id":"6becee1f-21ed-4a84-b0c6-f36bb3ab8607","new_value":12000,"old_value":10000,"source":"manual","unit_id":null},{"changed_at":"2026-10-2
+barcode set sting -> 200 {"archived":false,"barcode":"8934588012228","base_unit":"cái","category_id":null,"cost_price":null,"created_by":"cba237ee-8c5a-44b9-b753-17f0db945e65","id":"01a186a3-e4aa-7c21-ad4c-65a56a2ad5e4","images":[{"image_id":"9fe3e130-2aaf-4895-b95c-e1baacfe6ef9","pos
+barcode dup on aqua -> 500 {"code":"internal","error":"internal server error"}
+expense amount 0 -> 400 {"code":"validation_failed","error":"amount must be positive"}
+expense amount -100 -> 400 {"code":"validation_failed","error":"amount must be positive"}
+expense amount 1.5 -> 400 {"code":"validation_failed","error":"invalid expense"}
