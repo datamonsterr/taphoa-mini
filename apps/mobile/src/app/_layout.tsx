@@ -35,6 +35,9 @@ void SplashScreen.preventAutoHideAsync();
 
 configureNotificationHandler();
 
+/** A route chunk that fails to load must not leave a blank page: see RouteErrorBoundary. */
+export { RouteErrorBoundary as ErrorBoundary } from '@/features/errors/RouteErrorBoundary';
+
 export const unstable_settings = { anchor: 'index' };
 
 function NavigationTree({

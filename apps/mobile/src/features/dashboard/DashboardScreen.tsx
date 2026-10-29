@@ -97,9 +97,15 @@ export function DashboardScreen() {
           </View>
         ) : null}
 
-        {data.status === 'error' ? (
-          <View accessibilityRole="alert" style={styles.error}>
-            <Text style={styles.errorText}>{t('error')}</Text>
+        {data.status === 'error' || data.status === 'offline' ? (
+          <View
+            testID={`dashboard-${data.status}`}
+            accessibilityRole="alert"
+            style={styles.error}
+          >
+            <Text style={styles.errorText}>
+              {t(data.status === 'offline' ? 'offline' : 'error')}
+            </Text>
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel={t('retry')}

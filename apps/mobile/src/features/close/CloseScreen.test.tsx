@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 
@@ -30,7 +31,10 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  onlineManager.setOnline(true);
+  jest.restoreAllMocks();
+});
 
 const date = () => businessDate();
 const press = (name: string) =>
@@ -274,4 +278,46 @@ describe('debts', () => {
     ).toBeOnTheScreen();
     expect(screen.getByLabelText('Credit sales 30.000đ')).toBeOnTheScreen();
   });
+});
+
+const OFFLINE =
+  'Không có mạng nên chưa chốt được sổ. Tiền đếm được vẫn còn, thử lại khi có mạng.';
+
+test('closing the day offline says so at once, sends nothing and keeps the count (#205)', async () => {
+  const create = jest.spyOn(ledger, 'createDayClose');
+  await renderWithProviders(<CloseScreen />);
+  await screen.findByLabelText(/^Tiền mặt dự kiến/);
+  await typeAmount(30000);
+  await act(async () => onlineManager.setOnline(false));
+  await fireEvent.press(save());
+  expect(await screen.findByText(OFFLINE)).toBeOnTheScreen();
+  expect(create).not.toHaveBeenCalled();
+  expect(save()).toBeEnabled();
+  expect(router.back).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Tiền đếm được')).toHaveTextContent(
+    formatVnd(30000),
+  );
+  // the close is not left waiting: reconnecting sends nothing by itself
+  await act(async () => onlineManager.setOnline(true));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  expect(create).not.toHaveBeenCalled();
+  await expect(ledger.getDayClose(date())).rejects.toMatchObject({
+    status: 404,
+  });
+  // and the seller can close once the network is back
+  await fireEvent.press(save());
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  expect(create).toHaveBeenCalledTimes(1);
+});
+
+test('a close that fails because the connection dropped says there is no network', async () => {
+  jest.spyOn(ledger, 'createDayClose').mockImplementationOnce(async () => {
+    onlineManager.setOnline(false);
+    throw new TypeError('Network request failed');
+  });
+  await renderWithProviders(<CloseScreen />);
+  await screen.findByLabelText(/^Tiền mặt dự kiến/);
+  await press('5');
+  await fireEvent.press(save());
+  expect(await screen.findByText(OFFLINE)).toBeOnTheScreen();
 });

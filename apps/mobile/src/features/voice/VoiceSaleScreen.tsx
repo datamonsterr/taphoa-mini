@@ -1,5 +1,6 @@
 import type { VoiceUtterance } from '@taphoa/api-client';
 import * as Haptics from 'expo-haptics';
+import { onlineManager } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -199,6 +200,11 @@ export function VoiceSaleScreen() {
       const mine = ++attempt.current;
       setError(null);
       if (!draftRef.current) setPhase('understanding');
+      // Offline there is nothing to wait for: go straight to on-device recognition.
+      if (!onlineManager.isOnline()) {
+        handleError(mine, new TypeError('Network request failed'));
+        return;
+      }
       uploadClip(
         {
           clip,

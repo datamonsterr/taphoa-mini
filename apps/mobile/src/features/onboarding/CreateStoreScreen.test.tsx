@@ -106,8 +106,9 @@ test('validates required names and a partial optional bank account before postin
 });
 test.each([
   [400, 'Thông tin chưa hợp lệ.'],
-  [401, 'Có lỗi xảy ra. Thử lại.'],
-  [403, 'Có lỗi xảy ra. Thử lại.'],
+  [401, 'Phiên đăng nhập đã hết hạn. Hãy đăng xuất rồi đăng nhập lại.'],
+  [403, 'Tài khoản này không có quyền làm việc này.'],
+  [409, 'Có lỗi xảy ra. Thử lại.'],
   [429, 'Thử quá nhiều lần. Đợi một lúc rồi thử lại.'],
   [503, 'Máy chủ đang bận. Thử lại sau.'],
 ])(

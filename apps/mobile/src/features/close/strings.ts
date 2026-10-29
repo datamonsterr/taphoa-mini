@@ -12,6 +12,8 @@ export const closeStrings: Dict = {
     closed: 'Đã chốt sổ',
     error: 'Không tải được số liệu',
     saveError: 'Không chốt được sổ. Thử lại.',
+    offlineError:
+      'Không có mạng nên chưa chốt được sổ. Tiền đếm được vẫn còn, thử lại khi có mạng.',
     'diff.match': 'Khớp',
     'diff.short': 'Thiếu',
     'diff.extra': 'Dư',
@@ -30,6 +32,8 @@ export const closeStrings: Dict = {
     closed: 'Day closed',
     error: 'Could not load the figures',
     saveError: 'Could not close the day. Try again.',
+    offlineError:
+      'No network, so the day was not closed. The counted cash is kept; try again when you are online.',
     'diff.match': 'Matches',
     'diff.short': 'Short',
     'diff.extra': 'Over',

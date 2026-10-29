@@ -44,6 +44,8 @@ export const strings: Dict = {
     discardMessage: 'Hóa đơn chưa xác nhận sẽ không được nhập kho.',
     cancel: 'Giữ lại',
     saveError: 'Chưa lưu được hóa đơn. Thử lại.',
+    offlineError:
+      'Không có mạng nên chưa nhập kho được. Bản nháp vẫn còn, thử lại khi có mạng.',
     saving: 'Đang lưu…',
     linkedExpense: 'Khoản chi liên kết',
     success: 'Đã nhập kho {count} sản phẩm',
@@ -99,6 +101,8 @@ export const strings: Dict = {
     discardMessage: 'This unconfirmed receipt will not add stock.',
     cancel: 'Keep draft',
     saveError: 'Could not save receipt. Try again.',
+    offlineError:
+      'No network, so the receipt was not added to stock. The draft is kept; try again when you are online.',
     saving: 'Saving…',
     linkedExpense: 'Linked expense',
     success: 'Imported {count} products',

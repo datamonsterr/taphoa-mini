@@ -11,6 +11,7 @@ import {
   X,
   ZoomIn,
 } from 'lucide-react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -59,6 +60,9 @@ type EditableLine = {
 };
 // The API stores line amounts. Preserve their precision when deriving a unit price,
 // and round the derived amount once to whole đồng for confirmation.
+/** A request that failed while the phone is offline says so instead of "try again". */
+const failureKind = (): 'save' | 'offline' =>
+  onlineManager.isOnline() ? 'save' : 'offline';
 const lineTotal = (line: EditableLine) =>
   Math.round(line.quantity * line.unitPrice);
 const valid = (line: EditableLine) =>
@@ -166,7 +170,7 @@ function Review({ receipt }: { receipt: Receipt }) {
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [summary, setSummary] = useState(receipt.status !== 'draft');
   const [photo, setPhoto] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<'save' | 'offline' | null>(null);
   const confirm = useConfirmReceipt(receipt.id);
   const discard = useDiscardReceipt(receipt.id);
   const busyRef = useRef(false);
@@ -195,8 +199,13 @@ function Review({ receipt }: { receipt: Receipt }) {
     );
   const save = async () => {
     if (!canConfirm || busyRef.current) return;
+    setError(null);
+    // Offline the request would only wait: say so at once and keep the draft as it is.
+    if (!onlineManager.isOnline()) {
+      setError('offline');
+      return;
+    }
     busyRef.current = true;
-    setError(false);
     const body: ReceiptConfirm = {
       lines: lines.map((line) => ({
         ...(line.line ? { line_id: line.line.id } : {}),
@@ -213,7 +222,7 @@ function Review({ receipt }: { receipt: Receipt }) {
       useReceiptNotice.setState({ count: saved.lines.length });
       router.dismissTo('/');
     } catch {
-      setError(true);
+      setError(failureKind());
     } finally {
       busyRef.current = false;
     }
@@ -221,12 +230,12 @@ function Review({ receipt }: { receipt: Receipt }) {
   const discardConfirmed = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
-    setError(false);
+    setError(null);
     try {
       await discard.mutateAsync();
       router.dismissTo('/');
     } catch {
-      setError(true);
+      setError(failureKind());
     } finally {
       busyRef.current = false;
     }
@@ -431,7 +440,7 @@ function Review({ receipt }: { receipt: Receipt }) {
             </View>
             {error ? (
               <Text accessibilityRole="alert" style={styles.error}>
-                {t('saveError')}
+                {t(error === 'offline' ? 'offlineError' : 'saveError')}
               </Text>
             ) : null}
             {!readonly && !summary ? (

@@ -83,3 +83,43 @@ test('an expired invite is explained and retains the form for retry', async () =
   ).toBeOnTheScreen();
   expect(screen.getByTestId('join-store-submit')).toBeEnabled();
 });
+
+test.each([
+  [401, 'Phiên đăng nhập đã hết hạn. Hãy đăng xuất rồi đăng nhập lại.'],
+  [403, 'Tài khoản này không có quyền làm việc này.'],
+])(
+  'join after HTTP %s explains it and keeps the form',
+  async (status, text) => {
+    jest
+      .spyOn(storeApi, 'joinStore')
+      .mockRejectedValueOnce(new ApiError(status, { error: 'no' }));
+    await renderWithProviders(<JoinStoreScreen />);
+    await fireEvent.press(screen.getByTestId('join-store-submit'));
+    expect(await screen.findByText(text)).toBeOnTheScreen();
+    expect(screen.queryByText('Có lỗi xảy ra. Thử lại.')).toBeNull();
+    expect(screen.getByTestId('join-store-submit')).toBeEnabled();
+  },
+);
+test('already a member says so and reloads the account so the store opens', async () => {
+  let meCalls = 0;
+  setApiTransport((async (r: Request) => {
+    if (r.method === 'POST')
+      return Response.json(
+        { error: 'already a member', code: 'already_member' },
+        { status: 409 },
+      );
+    meCalls += 1;
+    return Response.json({
+      clerk_user_id: 'user_test',
+      profile: { display_name: 'Mẹ', email: null },
+      memberships: meCalls > 1 ? [testSession()] : [],
+    });
+  }) as typeof fetch);
+  await renderWithProviders(<JoinStoreScreen />);
+  await waitFor(() => expect(meCalls).toBe(1));
+  await fireEvent.press(screen.getByTestId('join-store-submit'));
+  expect(
+    await screen.findByText('Bạn đã là thành viên của cửa hàng này.'),
+  ).toBeOnTheScreen();
+  await waitFor(() => expect(meCalls).toBe(2));
+});

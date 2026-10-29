@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { AppState, Linking } from 'react-native';
 
 import { setAnalyticsSink } from '@/lib/analytics';
@@ -56,6 +57,7 @@ beforeEach(() => {
   uploadClipsAsBlobs();
 });
 afterEach(() => {
+  onlineManager.setOnline(true);
   jest.restoreAllMocks();
   setAnalyticsSink(null);
   setVoiceExit(null);
@@ -652,6 +654,34 @@ describe('errors and fallbacks', () => {
     expect(screen.getByText('Đã thêm vào giỏ (1)')).toBeOnTheScreen();
     await fireEvent.press(screen.getByTestId('voice-open-cart'));
     expect(mockRouter.replace).toHaveBeenCalledWith('/cart');
+  });
+
+  test('offline at Xong falls back to on-device recognition instead of waiting forever (#156)', async () => {
+    const sent: string[] = [];
+    const real = createMockFetch();
+    setApiTransport(async (input, init) => {
+      sent.push(new Request(input as RequestInfo, init).url);
+      return real(input, init);
+    });
+    mockParams = { entry: 'longpress', fixture: 'two-line-sale.m4a' };
+    await renderWithProviders(<VoiceSaleScreen />);
+    await screen.findByTestId('voice-listening');
+    await act(async () => onlineManager.setOnline(false));
+    await fireEvent.press(screen.getByLabelText('Xong, hiểu lời vừa nói'));
+    await screen.findByTestId('voice-fallback');
+    expect(screen.getByText('Chưa gửi được lên máy chủ')).toBeOnTheScreen();
+    expect(screen.queryByText('Đang hiểu…')).toBeNull();
+    expect(sent.filter((url) => url.endsWith('/v1/voice/utterances'))).toEqual(
+      [],
+    );
+    // on-device recognition still works and leads to the catalog
+    await fireEvent(screen.getByTestId('voice-device-mic'), 'pressIn');
+    await act(async () => speechMock.emitStart());
+    await act(async () => speechMock.emitResult('hai lon coca', true));
+    await fireEvent(screen.getByTestId('voice-device-mic'), 'pressOut');
+    await act(async () => speechMock.emitEnd());
+    await fireEvent.press(screen.getByTestId('voice-add-to-cart'));
+    await screen.findByTestId('voice-search-pane');
   });
 
   test('being offline (the request never answers) falls back the same way', async () => {

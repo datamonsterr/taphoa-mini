@@ -171,17 +171,21 @@ function SkeletonGrid() {
 }
 
 function Message({
+  testID,
   text,
   actionLabel,
   onAction,
 }: {
+  testID?: string;
   text: string;
   actionLabel?: string;
   onAction?: () => void;
 }) {
   return (
-    <View style={styles.message}>
-      <Text style={styles.messageText}>{text}</Text>
+    <View testID={testID} style={styles.message}>
+      <Text accessibilityRole="alert" style={styles.messageText}>
+        {text}
+      </Text>
       {actionLabel ? (
         <PressableScale
           accessibilityRole="button"
@@ -225,6 +229,7 @@ export function InventoryScreen() {
   const {
     data,
     isError,
+    fetchStatus,
     refetch,
     hasNextPage,
     isFetchingNextPage,
@@ -274,6 +279,16 @@ export function InventoryScreen() {
   } else if (isError) {
     body = (
       <Message text={t('error')} actionLabel={t('retry')} onAction={retry} />
+    );
+  } else if (fetchStatus === 'paused') {
+    // Offline with nothing cached: the query waits for the network instead of failing.
+    body = (
+      <Message
+        testID="inventory-offline"
+        text={t('offline')}
+        actionLabel={t('retry')}
+        onAction={retry}
+      />
     );
   } else {
     body = <SkeletonGrid />;

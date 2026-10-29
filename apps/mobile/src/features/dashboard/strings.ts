@@ -38,6 +38,8 @@ export const dashboardStrings: Dict = {
     'period.week': 'Tuần',
     'period.month': 'Tháng',
     error: 'Không tải được báo cáo',
+    offline:
+      'Không tải được báo cáo. Không có mạng, số liệu sẽ cập nhật khi có mạng.',
     alertsError: 'Không tải được cảnh báo',
     retry: 'Thử lại',
     loading: 'Đang tải',
@@ -79,6 +81,8 @@ export const dashboardStrings: Dict = {
     'period.week': 'Week',
     'period.month': 'Month',
     error: 'Could not load the report',
+    offline:
+      'Could not load the report. No network; the figures load when it returns.',
     alertsError: 'Could not load alerts',
     retry: 'Retry',
     loading: 'Loading',

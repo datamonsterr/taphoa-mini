@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import {
@@ -15,6 +16,7 @@ import {
 import * as productsApi from '@/lib/api/products';
 import { holdNext } from '@/test/hold';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
+import { renderOffline, restoreOnline } from '@/test/offline';
 import { renderWithProviders } from '@/test/render';
 import { useCartStore } from '@/stores/cart';
 import { useSettingsStore } from '@/stores/settings';
@@ -49,6 +51,7 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 afterEach(() => {
+  restoreOnline();
   jest.useRealTimers();
   jest.restoreAllMocks();
 });
@@ -313,4 +316,24 @@ test('products segment is selected and stock segment opens the stock route', asy
   await fireEvent.press(screen.getByRole('radio', { name: 'Tồn kho' }));
   expect(router.push).toHaveBeenCalledWith('/stock');
   expect(screen.getByLabelText('Tồn kho 20, Còn hàng')).toBeOnTheScreen();
+});
+
+test('offline with nothing cached says so with a retry instead of a skeleton (#246)', async () => {
+  await renderOffline(<InventoryScreen />);
+  expect(await screen.findByTestId('inventory-offline')).toBeOnTheScreen();
+  expect(
+    screen.getByText(
+      'Không tải được sản phẩm. Không có mạng, danh sách sẽ tải khi có mạng.',
+    ),
+  ).toBeOnTheScreen();
+  expect(screen.queryByTestId('inventory-skeleton')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Thử lại' })).toBeOnTheScreen();
+});
+
+test('the offline message gives way to the grid once the network returns (#246)', async () => {
+  await renderOffline(<InventoryScreen />);
+  await screen.findByTestId('inventory-offline');
+  await act(async () => onlineManager.setOnline(true));
+  expect(await screen.findByRole('button', { name: COCA })).toBeOnTheScreen();
+  expect(screen.queryByTestId('inventory-offline')).toBeNull();
 });

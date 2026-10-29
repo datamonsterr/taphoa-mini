@@ -73,6 +73,8 @@ export const debtStrings: Dict = {
       'Số tiền lớn hơn số đang nợ. Phần dư được ghi là khách trả dư.',
     'repay.confirm': 'Xác nhận thu nợ',
     'repay.error': 'Không ghi được khoản thu. Thử lại.',
+    'repay.offline':
+      'Không có mạng nên chưa ghi được khoản thu. Số tiền vẫn còn, thử lại khi có mạng.',
     'adjust.title': 'Điều chỉnh sổ nợ',
     'adjust.direction': 'Chiều điều chỉnh',
     'adjust.increase': 'Tăng nợ',
@@ -162,6 +164,8 @@ export const debtStrings: Dict = {
       'This is more than the customer owes. The extra is recorded as customer credit.',
     'repay.confirm': 'Confirm payment',
     'repay.error': 'Could not record the payment. Try again.',
+    'repay.offline':
+      'No network, so the payment was not recorded. The amount is kept; try again when you are online.',
     'adjust.title': 'Adjust the debt',
     'adjust.direction': 'Direction',
     'adjust.increase': 'Increase debt',

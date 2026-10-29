@@ -62,9 +62,14 @@ export function StockScreen() {
           </PressableScale>
         ))}
       </View>
-      {stock.isError ? (
-        <View style={styles.message}>
-          <Text accessibilityRole="alert">{t('error')}</Text>
+      {stock.isError || (!stock.data && stock.fetchStatus === 'paused') ? (
+        <View
+          testID={stock.isError ? 'stock-error' : 'stock-offline'}
+          style={styles.message}
+        >
+          <Text accessibilityRole="alert">
+            {t(stock.isError ? 'error' : 'offline')}
+          </Text>
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={t('retry')}
@@ -133,7 +138,7 @@ export function StockScreen() {
             </PressableScale>
           )}
         />
-      ) : !stock.isError ? (
+      ) : !stock.isError && stock.fetchStatus !== 'paused' ? (
         <ActivityIndicator accessibilityLabel={t('loading')} />
       ) : null}
     </View>
