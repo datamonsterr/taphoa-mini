@@ -2325,3 +2325,91 @@ async fn patch_duplicate_barcode_returns_conflict_not_500() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(got["barcode"], "8934588012228");
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sellers_cannot_add_change_or_delete_product_units() {
+    let w = world().await;
+    let p = create_product(&w, &w.lead, "Aquafina", 5000, "aqua", json!({})).await;
+    let path = format!("/v1/products/{}", p["id"].as_str().unwrap());
+    let unit_id = Uuid::now_v7();
+    let unit = json!({"id": unit_id, "name": "thùng", "quantity_in_base": 24, "price": 100000});
+    // the Lead adds the unit
+    let with_unit = ok(
+        &w.app,
+        "PATCH",
+        &path,
+        "/v1/products/{productId}",
+        &w.lead,
+        json!({"units": [unit.clone()]}),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(with_unit["units"].as_array().unwrap().len(), 1);
+    let mut cheaper = unit.clone();
+    cheaper["price"] = json!(1);
+    let mut bigger = unit.clone();
+    bigger["quantity_in_base"] = json!(48);
+    let extra = json!({"id": Uuid::now_v7(), "name": "lố", "quantity_in_base": 6, "price": 1});
+    // neither a plain seller nor a seller who may enroll can add, update, resize or delete units
+    for token in [&w.seller, &w.enroller] {
+        for units in [
+            json!([unit.clone(), extra.clone()]), // insert
+            json!([cheaper.clone()]),             // price change
+            json!([bigger.clone()]),              // quantity change
+            json!([]),                            // delete
+        ] {
+            let body = expect_code(
+                &w.app,
+                "PATCH",
+                &path,
+                Some(token),
+                json!({"units": units}),
+                StatusCode::FORBIDDEN,
+                "forbidden",
+            )
+            .await;
+            assert!(
+                body["error"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("store owner"))
+            );
+        }
+    }
+    // nothing changed
+    let after = ok(
+        &w.app,
+        "GET",
+        &path,
+        "/v1/products/{productId}",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(after["units"], with_unit["units"]);
+    assert_eq!(after["version"], with_unit["version"]);
+    // re-sending the stored units is a no-op, so it stays allowed for a seller
+    ok(
+        &w.app,
+        "PATCH",
+        &path,
+        "/v1/products/{productId}",
+        &w.seller,
+        json!({"units": [unit.clone()]}),
+        StatusCode::OK,
+    )
+    .await;
+    // the Lead still deletes a unit
+    let removed = ok(
+        &w.app,
+        "PATCH",
+        &path,
+        "/v1/products/{productId}",
+        &w.lead,
+        json!({"units": []}),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(removed["units"].as_array().unwrap().is_empty());
+}

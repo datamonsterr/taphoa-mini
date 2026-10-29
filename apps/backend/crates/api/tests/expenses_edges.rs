@@ -90,7 +90,7 @@ async fn purchase_auto_dismisses_and_corrections_preserve_purchase_cost() {
             "POST",
             "/v1/expenses",
             "/v1/expenses",
-            &w.seller,
+            &w.lead,
             body,
             StatusCode::CREATED,
         )
@@ -104,9 +104,7 @@ async fn purchase_auto_dismisses_and_corrections_preserve_purchase_cost() {
         json!({"purchase_lines":[]}),
     ] {
         assert_eq!(
-            w.call("PATCH", &expense_path, &w.seller, patch)
-                .await
-                .status,
+            w.call("PATCH", &expense_path, &w.lead, patch).await.status,
             StatusCode::BAD_REQUEST
         );
     }

@@ -176,7 +176,9 @@ describe('createExpense', () => {
     const after = getDailyReport(today());
     expect(after.expenses).toBe(before.expenses + 50000);
     expect(after.net).toBe(before.net - 50000);
-    expect(after.expected_cash).toBe(Math.max(0, before.expected_cash - 50000));
+    expect(after.expected_cash).toBe(
+      Math.max(0, before.expected_cash! - 50000),
+    );
     expect(
       listExpenses({ category: 'khac', from: today() }).some(
         (e) => e.id === req.id,

@@ -4,7 +4,7 @@ mod export;
 
 use crate::{
     ApiError, ApiResult, AppState,
-    auth::{Action, Actor, data::pool},
+    auth::{Action, Actor, can, data::pool},
     money,
 };
 use axum::{
@@ -119,14 +119,17 @@ async fn today(
         tracing::error!(%date, "daily report amounts exceed the i64 range");
         return Err(ApiError::internal());
     };
-    Ok(Json(
-        json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
+    let mut report = json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
         "voided_count":r.voided_count,"cash_revenue":r.cash_revenue,"transfer_revenue":r.transfer_revenue,
         "cash_repayments":r.cash_repayments,"credit_sales":r.credit_sales,
         "expenses":r.expenses,"net":net,
-        "expected_cash":expected,
-        "manual_lines_open":r.manual_lines_open,"day_close":r.day_close}),
-    ))
+        "manual_lines_open":r.manual_lines_open});
+    // Cash reconciliation is Lead-only, like closing the day: sellers get neither field.
+    if can(&actor, Action::DayClose) {
+        report["expected_cash"] = json!(expected);
+        report["day_close"] = json!(r.day_close);
+    }
+    Ok(Json(report))
 }
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -248,6 +251,20 @@ async fn top_products(
         ) r
     "#).bind(actor.store_id).bind(p.range.from).bind(p.range.to).bind(quantity_sort).bind(limit)
         .fetch_all(pool(&state)?).await?;
+    // Margin reveals the buying cost, which only the Lead may see (as on the catalog).
+    let items: Vec<Value> = if can(&actor, Action::ChangePrice) {
+        items
+    } else {
+        items
+            .into_iter()
+            .map(|mut item| {
+                if let Some(fields) = item.as_object_mut() {
+                    fields.remove("gross_margin");
+                }
+                item
+            })
+            .collect()
+    };
     Ok(Json(json!({"items":items})))
 }
 async fn recognition(

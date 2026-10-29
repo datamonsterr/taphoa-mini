@@ -19,6 +19,7 @@ import {
   Text,
 } from '@/components/ui';
 import { useCreateDayClose, useDayClose, useTodayReport } from '@/lib/api';
+import { useIsLead } from '@/features/auth/useMembership';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
@@ -60,7 +61,7 @@ function DebtLine({ label, amount }: { label: string; amount: number }) {
   );
 }
 
-export function CloseScreen() {
+function CloseBoard() {
   const t = useT(closeStrings);
   const diffLabels = useLabels(closeStrings, differenceLabels);
   const padLabels = useLabels(closeStrings, keypadLabels);
@@ -295,3 +296,32 @@ const styles = StyleSheet.create({
   },
   retryText: { ...typography.label, color: colors.ink },
 });
+
+/** Only the Lead sees or closes the day's cash; the server answers 403 to a Seller. */
+function CloseForbidden() {
+  const t = useT(closeStrings);
+  return (
+    <Sheet height={SHEET_HEIGHT} onClose={dismissSheet}>
+      <View style={styles.body}>
+        <View style={styles.topRow}>
+          <CircleButton
+            icon={X}
+            accessibilityLabel={t('close')}
+            onPress={dismissSheet}
+            testID="close-close"
+          />
+          <Text accessibilityRole="header" style={styles.title}>
+            {t('screen')}
+          </Text>
+        </View>
+        <View accessibilityRole="alert" style={styles.error}>
+          <Text style={styles.errorText}>{t('forbidden')}</Text>
+        </View>
+      </View>
+    </Sheet>
+  );
+}
+
+export function CloseScreen() {
+  return useIsLead() ? <CloseBoard /> : <CloseForbidden />;
+}

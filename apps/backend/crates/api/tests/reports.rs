@@ -78,7 +78,7 @@ async fn today_report_figures() {
             "GET",
             &format!("/v1/reports/today?date={DAY}"),
             "/v1/reports/today",
-            &w.seller,
+            &w.lead,
             json!(null),
             StatusCode::OK,
         )
@@ -236,7 +236,7 @@ async fn top_products_ranking_and_margin() {
             "GET",
             &q(""),
             "/v1/reports/top-products",
-            &w.seller,
+            &w.lead,
             json!(null),
             StatusCode::OK,
         )
@@ -416,7 +416,7 @@ async fn day_close_expected_cash_overwrite_and_late_sales() {
             "GET",
             "/v1/day-closes",
             "/v1/day-closes",
-            &w.seller,
+            &w.lead,
             json!(null),
             StatusCode::OK,
         )

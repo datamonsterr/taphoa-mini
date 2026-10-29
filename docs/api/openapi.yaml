@@ -1806,7 +1806,8 @@ paths:
         transfer sales. `cash_repayments` sums cash repayments of that business date and
         `credit_sales` sums credit_amount of completed sales of that date, so the day close
         screen can show both before the day is closed. `expected_cash` includes
-        `cash_repayments`.
+        `cash_repayments`. `expected_cash` and `day_close` are Lead-only: they are omitted
+        for sellers.
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: date
@@ -1927,7 +1928,7 @@ paths:
     get:
       tags: [Day close]
       operationId: listDayCloses
-      summary: Past end-of-day closes
+      summary: Past end-of-day closes (Lead only)
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/From'
@@ -1956,7 +1957,7 @@ paths:
     get:
       tags: [Day close]
       operationId: getDayClose
-      summary: One day's close
+      summary: One day's close (Lead only)
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
       responses:
@@ -3989,6 +3990,7 @@ components:
         note: { type: string, maxLength: 500 }
         purchase_lines:
           type: array
+          description: Buying costs are Lead-only, so responses to sellers carry an empty list.
           items: { $ref: '#/components/schemas/PurchaseLine' }
     Expense:
       allOf:
@@ -4043,7 +4045,6 @@ components:
           transfer_revenue,
           expenses,
           net,
-          expected_cash,
           cash_repayments,
           credit_sales,
         ]
@@ -4063,9 +4064,13 @@ components:
             format: int64,
             description: Revenue minus expenses; may be negative.,
           }
-        expected_cash: { $ref: '#/components/schemas/Money' }
+        expected_cash:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+          description: Lead only; omitted for sellers.
         manual_lines_open: { type: integer }
         day_close:
+          description: Lead only; omitted for sellers.
           oneOf:
             - $ref: '#/components/schemas/DayClose'
             - type: 'null'
@@ -4090,7 +4095,9 @@ components:
         gross_margin:
           type: [integer, 'null']
           format: int64
-          description: Revenue minus quantity × current cost; null when cost unknown.
+          description: >-
+            Revenue minus quantity × current cost; null when cost unknown. Omitted for
+            sellers, because it would reveal the cost.
     RecognitionReport:
       type: object
       required: [detections, confirmed_top1, confirmed_top3, corrected, unknown]

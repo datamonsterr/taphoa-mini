@@ -12,6 +12,7 @@ import { resetMockDb } from '@/test/mock';
 import { useSettingsStore } from '@/stores/settings';
 import { seedCustomer } from '@/test/debts';
 import { renderWithProviders } from '@/test/render';
+import { setTestMembership, testSession } from '@/test/session';
 import { newUuid } from '@/lib/uuid';
 
 import { CloseScreen } from './CloseScreen';
@@ -42,7 +43,7 @@ const press = (name: string) =>
 const typeAmount = async (amount: number) => {
   for (const digit of String(amount)) await press(digit);
 };
-const expectedCash = async () => (await ledger.getTodayReport()).expected_cash;
+const expectedCash = async () => (await ledger.getTodayReport()).expected_cash!;
 const save = () => screen.getByRole('button', { name: 'Chốt sổ hôm nay' });
 
 test('shows a skeleton while loading', async () => {
@@ -320,4 +321,22 @@ test('a close that fails because the connection dropped says there is no network
   await press('5');
   await fireEvent.press(save());
   expect(await screen.findByText(OFFLINE)).toBeOnTheScreen();
+});
+
+test('a Seller gets a Vietnamese message and no cash figures or requests', async () => {
+  const session = testSession();
+  setTestMembership({
+    ...session!,
+    member: { ...session!.member, role: 'seller' },
+  });
+  const report = jest.spyOn(ledger, 'getTodayReport');
+  const close = jest.spyOn(ledger, 'getDayClose');
+  await renderWithProviders(<CloseScreen />);
+  expect(
+    await screen.findByText('Chỉ chủ tiệm mới xem và chốt sổ được.'),
+  ).toBeOnTheScreen();
+  expect(screen.queryByLabelText(/^Tiền mặt dự kiến/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Chốt sổ hôm nay' })).toBeNull();
+  expect(report).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
 });

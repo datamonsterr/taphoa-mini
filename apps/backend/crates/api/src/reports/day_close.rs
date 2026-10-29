@@ -59,6 +59,7 @@ pub(super) async fn list(
     actor: Actor,
     params: Result<Query<Filters>, QueryRejection>,
 ) -> ApiResult<Json<Value>> {
+    actor.require(Action::DayClose)?;
     let p = query(params)?;
     if p.from.zip(p.to).is_some_and(|(from, to)| from > to) {
         return Err(ApiError::validation_failed("from must not follow to"));
@@ -76,6 +77,7 @@ pub(super) async fn get(
     actor: Actor,
     Path(raw): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    actor.require(Action::DayClose)?;
     let day = date(&raw)?;
     let row: Close = sqlx::query_as(SELECT)
         .bind(actor.store_id)

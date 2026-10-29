@@ -11,6 +11,7 @@ export const closeStrings: Dict = {
     save: 'Chốt sổ hôm nay',
     closed: 'Đã chốt sổ',
     error: 'Không tải được số liệu',
+    forbidden: 'Chỉ chủ tiệm mới xem và chốt sổ được.',
     saveError: 'Không chốt được sổ. Thử lại.',
     offlineError:
       'Không có mạng nên chưa chốt được sổ. Tiền đếm được vẫn còn, thử lại khi có mạng.',
@@ -31,6 +32,7 @@ export const closeStrings: Dict = {
     save: 'Close today',
     closed: 'Day closed',
     error: 'Could not load the figures',
+    forbidden: 'Only the store owner can view and close the day.',
     saveError: 'Could not close the day. Try again.',
     offlineError:
       'No network, so the day was not closed. The counted cash is kept; try again when you are online.',
