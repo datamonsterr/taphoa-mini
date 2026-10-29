@@ -23,6 +23,8 @@ import { validBarcode } from '@/features/camera/barcode';
 
 const PHOTO = 72;
 const MAX_DIGITS = 9;
+export const ENROLL_SHEET_HEIGHT = 740;
+export const QUICK_ENROLL_SHEET_HEIGHT = 880;
 export type ProductValues = { name: string; price: number; barcode?: string };
 export type ProductPhoto = { id: string; uri: string };
 type Props = {
@@ -105,7 +107,7 @@ export function ProductForm({
     (!barcode || validBarcode(barcode));
   return (
     <Sheet
-      height={740}
+      height={title ? QUICK_ENROLL_SHEET_HEIGHT : ENROLL_SHEET_HEIGHT}
       onClose={onClose}
       testID={testID}
       footer={
