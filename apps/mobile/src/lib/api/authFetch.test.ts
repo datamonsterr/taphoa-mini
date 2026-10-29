@@ -163,3 +163,23 @@ test('a 403 other than membership_required is returned without invalidation', as
   ).toBe(403);
   expect(invalidate).not.toHaveBeenCalled();
 });
+
+test('a 403 pin_required sends the app back to the PIN picker', async () => {
+  const pinRequired = jest.fn();
+  registerAuthBridge({
+    getToken: async () => 'token',
+    getStoreId: () => 'store',
+    membershipRequired: jest.fn(),
+    pinRequired,
+  });
+  const send = jest.fn(async () =>
+    Response.json({ error: 'PIN', code: 'pin_required' }, { status: 403 }),
+  );
+  const response = await createAuthFetch({
+    baseUrl: 'http://api.test',
+    fetch: send,
+  })('http://api.test/v1/store');
+  expect(response.status).toBe(403);
+  expect(pinRequired).toHaveBeenCalledTimes(1);
+  expect(send).toHaveBeenCalledTimes(1);
+});

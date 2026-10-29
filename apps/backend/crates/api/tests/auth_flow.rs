@@ -601,3 +601,80 @@ async fn persisted_images_are_owned_by_token_store_and_uploader() {
         Contract::load().assert_conforms("/v1/images/{imageId}", "get", r.status, &r.body);
     }
 }
+
+/// #208: on a shared phone a locked session is refused by the server until its PIN is verified.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn locked_session_is_refused_until_its_pin_is_verified() {
+    let w = World::new().await;
+    let invite = |token: String| {
+        let w = &w;
+        async move { w.call("POST", "/v1/invites", &token, json!({})).await }
+    };
+    // Without a PIN there is nothing to guard: locking changes nothing.
+    assert_eq!(
+        w.call("POST", "/v1/me/pin/lock", &w.lead, json!(null))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(invite(w.lead.clone()).await.status, StatusCode::CREATED);
+    // Setting a PIN keeps the person who chose it signed in.
+    assert_eq!(
+        w.call("PUT", "/v1/me/pin", &w.lead, json!({"pin":"2468"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(invite(w.lead.clone()).await.status, StatusCode::CREATED);
+    // The app locks the person who stops being the active one.
+    assert_eq!(
+        w.call("POST", "/v1/me/pin/lock", &w.lead, json!(null))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    let blocked = invite(w.lead.clone()).await;
+    assert_eq!(blocked.status, StatusCode::FORBIDDEN, "{}", blocked.body);
+    assert_eq!(blocked.body["code"], "pin_required");
+    // Every store route is refused, and the PIN can not be stripped from a locked session.
+    for (method, path) in [("GET", "/v1/store"), ("GET", "/v1/members")] {
+        let r = w.call(method, path, &w.lead, json!(null)).await;
+        assert_eq!(r.body["code"], "pin_required", "{path}");
+    }
+    let strip = w
+        .call("PUT", "/v1/me/pin", &w.lead, json!({"pin":null}))
+        .await;
+    assert_eq!(strip.body["code"], "pin_required");
+    // The app can still ask who is on the phone, and someone else's session is unaffected.
+    assert_eq!(
+        w.call("GET", "/v1/me", &w.lead, json!(null)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        w.call("GET", "/v1/store", &w.seller, json!(null))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    // A wrong PIN neither unlocks nor stops the right one.
+    let wrong = w
+        .call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"1379"}))
+        .await;
+    assert_eq!(wrong.body["code"], "invalid_pin");
+    assert_eq!(invite(w.lead.clone()).await.body["code"], "pin_required");
+    assert_eq!(
+        w.call("POST", "/v1/me/pin/verify", &w.lead, json!({"pin":"2468"}))
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(invite(w.lead.clone()).await.status, StatusCode::CREATED);
+    // An unlocked session that sat idle for too long locks itself.
+    sqlx::query("UPDATE session_pin_state SET touched_at=now()-interval '13 hours' WHERE clerk_user_id=(SELECT clerk_user_id FROM members WHERE id=$1)")
+        .bind(w.lead_id)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(invite(w.lead.clone()).await.body["code"], "pin_required");
+}

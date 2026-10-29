@@ -32,6 +32,7 @@ import {
   resetStoreScopedState,
 } from './resetClientState';
 import { strings } from './strings';
+import { useLockOutgoingSession } from './useLockOutgoingSession';
 
 type GateState = { signedIn: boolean; hasMembership: boolean };
 
@@ -57,6 +58,7 @@ export function AuthGate({
   const restoring = useIsRestoring();
   const t = useT(strings);
   const signOut = useCurrentSessionSignOut();
+  useLockOutgoingSession();
   const { token: incomingToken } = useGlobalSearchParams<{
     token?: string | string[];
   }>();
@@ -100,6 +102,8 @@ export function AuthGate({
       membershipRequired: () => {
         void qc.invalidateQueries({ queryKey: keys.me(userId) });
       },
+      // The server locked this session: back to the person picker, which asks for the PIN.
+      pinRequired: () => useDeviceLock.getState().lock(),
     });
     return unregister;
   }, [getToken, locked, userId, qc]);
