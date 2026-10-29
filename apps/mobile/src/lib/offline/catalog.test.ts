@@ -14,6 +14,11 @@ import {
 import { decrementLocalStock } from './localStock';
 import { shouldPersistQuery } from './persist';
 
+const mockPrefetch = jest.fn();
+jest.mock('./thumbnails', () => ({
+  prefetchThumbnails: (products: unknown) => mockPrefetch(products),
+}));
+
 const product = (id: string, over: Partial<Product> = {}): Product => ({
   id,
   name: `Hàng ${id}`,
@@ -62,6 +67,23 @@ function feedTransport(script: (since: string | null) => Feed | number) {
   }) as typeof fetch);
   return sinces;
 }
+
+describe('syncCatalog thumbnails', () => {
+  it('prefetches the photos of the products the feed brought', async () => {
+    const qc = createTestQueryClient();
+    const a = product('a', {
+      images: [{ url: 'https://cdn/a.jpg?s=1' }] as never,
+    });
+    feedTransport(() => ({
+      changes: [upsert(a)],
+      cursor: 'c1',
+      has_more: false,
+    }));
+    mockPrefetch.mockClear();
+    await syncCatalog(qc);
+    expect(mockPrefetch).toHaveBeenCalledWith([a]);
+  });
+});
 
 describe('syncCatalog', () => {
   it('pulls a full snapshot across pages, then only the delta', async () => {

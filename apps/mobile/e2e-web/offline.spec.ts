@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import {
   button,
   cartPill,
@@ -5,7 +7,9 @@ import {
   expectDashboardShows,
   formatVnd,
   goOffline,
+  openCamera,
   openShop,
+  shutter,
   test,
   uuid7,
   waitForApi,
@@ -91,5 +95,36 @@ test.describe('offline sale', () => {
     const product = await store.api.get(`/v1/products/${coca.id}`);
     expect(product.stock_quantity).toBe(8);
     expect(posts).toHaveLength(1);
+  });
+
+  test('network off: the camera strip hides the server suggestion chips; network on: they return', async ({
+    page,
+    store,
+  }, testInfo) => {
+    const coca = await store.api.createProduct(COCA);
+    // a count at the low-stock threshold makes the server suggest "restock"
+    await store.api.post(
+      `/v1/products/${coca.id}/stock-adjustments`,
+      { count: 1 },
+      { 'Idempotency-Key': uuid7() },
+    );
+    await openCamera(page);
+    const restock = page.getByTestId('next-step-chip-restock');
+    await expect(restock).toBeVisible({ timeout: 15_000 });
+
+    await goOffline(page);
+    await expect(restock).toHaveCount(0);
+    // the scanner itself stays up
+    await expect(shutter(page)).toBeEnabled();
+    const dir = process.env.E2E_EVIDENCE_DIR ?? testInfo.outputDir;
+    const file = path.join(dir, 'offline-camera-strip.png');
+    await page.screenshot({ path: file });
+    await testInfo.attach('offline-camera-strip', {
+      path: file,
+      contentType: 'image/png',
+    });
+
+    await page.context().setOffline(false);
+    await expect(restock).toBeVisible();
   });
 });

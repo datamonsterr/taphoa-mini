@@ -5,6 +5,7 @@ import type { NextStepChipData } from '@/components/assistant/chip';
 import { strings } from '@/components/assistant/strings';
 import { capture } from '@/lib/analytics';
 import { t } from '@/lib/i18n';
+import { useOnline } from '@/lib/online';
 import { useSettingsStore } from '@/stores/settings';
 import { useVoiceSettings } from '@/features/voice/voiceSettings';
 import { showVoiceSaleChip } from '@/features/voice/chipRule';
@@ -39,6 +40,7 @@ export function useNextStepChips({
   const voiceSales = useVoiceSettings((s) => s.voiceSales);
   const language = useSettingsStore((s) => s.language);
   const focused = useIsFocused();
+  const online = useOnline();
   const { data } = useNextSteps(
     { screen, documentDetected, unknownProduct },
     { enabled: enabled && focused },
@@ -89,7 +91,8 @@ export function useNextStepChips({
         source: 'app',
         action: { type: 'voice' },
       });
-    for (const item of data?.items ?? []) {
+    // server suggestions need the network: tapping one offline fails, so none show
+    for (const item of online ? (data?.items ?? []) : []) {
       if (list.some((chip) => chip.kind === item.kind)) continue;
       const english = language === 'en' && strings.en[`kind.${item.kind}`];
       list.push({
@@ -108,6 +111,7 @@ export function useNextStepChips({
     unknownProduct,
     canEnroll,
     data,
+    online,
     language,
     joinedAt,
     voiceSales,
