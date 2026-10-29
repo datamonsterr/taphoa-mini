@@ -205,33 +205,37 @@ async fn product_exists(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiRe
         Err(ApiError::not_found())
     }
 }
-/// Bounds the client `sold_at`: inside the offline window, and not after the Lead closed that day.
-/// A sale taken before the close but synced after it stays valid (it counts as a late sale).
-async fn check_sold_at(
+/// The time a sale is booked at. The client `sold_at` is only trusted inside a window around
+/// server time: a phone with a wrong clock keeps selling (its sale lands "now"), and nobody can
+/// pick the day. A seller's sale for a business day the Lead already closed lands on today's
+/// books instead of changing the closed figures. A sale after an early close on today's own date
+/// is a normal sale and stays. Replays are not affected: the stored time is returned.
+async fn bounded_sold_at(
     tx: &mut sqlx::PgConnection,
     state: &AppState,
-    store: Uuid,
+    actor: &Actor,
     sold_at: DateTime<Utc>,
-) -> ApiResult<()> {
-    if !state.sale_window.contains(sold_at, state.clock.now()) {
-        return Err(ApiError::validation_failed(
-            "sold_at is outside the accepted window: not in the future and not older than the offline limit",
-        ));
+) -> ApiResult<DateTime<Utc>> {
+    let now = state.clock.now();
+    if !state.sale_window.contains(sold_at, now) {
+        tracing::warn!(%sold_at, %now, "sold_at outside the accepted window, booked at server time");
+        return Ok(now);
     }
-    let closed_at: Option<DateTime<Utc>> = sqlx::query_scalar(
-        "SELECT closed_at FROM day_closes WHERE store_id=$1 AND business_date=$2",
-    )
-    .bind(store)
-    .bind(business_date(sold_at))
-    .fetch_optional(tx)
-    .await?;
-    if closed_at.is_some_and(|closed| sold_at >= closed) {
-        return Err(ApiError::conflict(
-            "day_closed",
-            "that business day is already closed",
-        ));
+    let date = business_date(sold_at);
+    if actor.role != crate::auth::Role::Lead && date != business_date(now) {
+        let closed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM day_closes WHERE store_id=$1 AND business_date=$2)",
+        )
+        .bind(actor.store_id)
+        .bind(date)
+        .fetch_one(tx)
+        .await?;
+        if closed {
+            tracing::warn!(%sold_at, %date, "sale for a closed business day, booked at server time");
+            return Ok(now);
+        }
     }
-    Ok(())
+    Ok(sold_at)
 }
 async fn create(
     State(state): State<AppState>,
@@ -259,10 +263,10 @@ async fn create(
         check(&stored, &hash)?;
         return Ok(Idempotent::Replay(sale(&mut tx, actor.store_id, id).await?));
     }
-    let input: SaleInput =
+    let mut input: SaleInput =
         serde_json::from_value(raw).map_err(|e| ApiError::validation_failed(e.to_string()))?;
     input.validate()?;
-    check_sold_at(&mut tx, &state, actor.store_id, input.sold_at).await?;
+    input.sold_at = bounded_sold_at(&mut tx, &state, &actor, input.sold_at).await?;
     let date = business_date(input.sold_at);
     let code = money::sale_code(input.id);
     // Lock order (deadlock rule): products, then the customer row, then the store row, which

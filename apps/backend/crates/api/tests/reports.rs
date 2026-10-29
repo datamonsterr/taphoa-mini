@@ -383,9 +383,10 @@ async fn day_close_expected_cash_overwrite_and_late_sales() {
         )
         .await;
     assert_eq!(t.body["day_close"]["counted_cash"], 200_000);
-    // a sale synced after the close is late
+    // a sale synced after the close is late. The Lead's keeps its date; a seller's sale for a
+    // closed past day is booked today instead (see sales.rs, #176).
     let p = w.product("Muộn", 1000, None).await;
-    sell(&w, &w.seller, "cash", &[(p, 1, 1000)], AT).await;
+    sell(&w, &w.lead, "cash", &[(p, 1, 1000)], AT).await;
     let g = w
         .checked(
             "GET",
