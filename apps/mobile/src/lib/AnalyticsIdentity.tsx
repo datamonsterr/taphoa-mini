@@ -1,4 +1,4 @@
-import { useAuth, useUser } from '@clerk/expo';
+import { useAuth } from '@clerk/expo';
 
 import { useMembership } from '@/features/auth/useMembership';
 import { useAnalyticsIdentity } from './analyticsPostHog';
@@ -9,14 +9,11 @@ import { useAnalyticsIdentity } from './analyticsPostHog';
  */
 export function AnalyticsIdentity() {
   const { userId, isSignedIn } = useAuth();
-  const { user } = useUser();
   const membership = useMembership();
   useAnalyticsIdentity(
     isSignedIn && userId
       ? {
           userId,
-          email: user?.primaryEmailAddress?.emailAddress ?? null,
-          name: user?.fullName ?? null,
           storeId: membership?.store.id ?? null,
           storeName: membership?.store.name ?? null,
           memberId: membership?.member.id ?? null,

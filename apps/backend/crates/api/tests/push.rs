@@ -450,3 +450,59 @@ async fn send_does_not_retry_transport_failure_after_server_received_body() {
         "received POST must not be replayed"
     );
 }
+
+/// #146: a removed member's phone gets nothing, and the token is dropped when they are removed.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn removed_member_devices_are_dropped_and_never_selected() {
+    let w = World::new().await;
+    let lead_token = devices(&w, 1).await.remove(0);
+    let seller_token = format!("ExpoPushToken[{}]", Uuid::new_v4());
+    let other_seller = format!("ExpoPushToken[{}]", Uuid::new_v4());
+    for (token, member) in [(&seller_token, w.seller_id), (&other_seller, w.seller_id)] {
+        sqlx::query("INSERT INTO devices(token,store_id,member_id,platform,app_version,language) VALUES($1,$2,$3,'android','1','vi')")
+            .bind(token).bind(w.store_id).bind(member).execute(w.pool()).await.unwrap();
+    }
+    let removed = w
+        .call(
+            "DELETE",
+            &format!("/v1/members/{}", w.seller_id),
+            &w.lead,
+            json!(null),
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.body);
+    let left: Vec<String> = sqlx::query_scalar("SELECT token FROM devices WHERE store_id=$1")
+        .bind(w.store_id)
+        .fetch_all(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        left,
+        vec![lead_token.clone()],
+        "removal deletes the member's devices"
+    );
+    // Defence in depth: a token that survives (race, stale row) is still skipped while inactive.
+    sqlx::query("INSERT INTO devices(token,store_id,member_id,platform,app_version,language) VALUES($1,$2,$3,'android','1','vi')")
+        .bind(&seller_token).bind(w.store_id).bind(w.seller_id).execute(w.pool()).await.unwrap();
+    let mock = MockExpo::new(vec![]).await;
+    let report = send_to_devices(
+        w.pool(),
+        &mock.api(None),
+        w.store_id,
+        Utc::now().date_naive(),
+        message,
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.sent, 1);
+    let requests = mock.state.requests.lock().unwrap().clone();
+    let sent: Vec<&str> = requests[0]
+        .2
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["to"].as_str().unwrap())
+        .collect();
+    assert_eq!(sent, vec![lead_token.as_str()]);
+}

@@ -205,6 +205,34 @@ async fn product_exists(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiRe
         Err(ApiError::not_found())
     }
 }
+/// Bounds the client `sold_at`: inside the offline window, and not after the Lead closed that day.
+/// A sale taken before the close but synced after it stays valid (it counts as a late sale).
+async fn check_sold_at(
+    tx: &mut sqlx::PgConnection,
+    state: &AppState,
+    store: Uuid,
+    sold_at: DateTime<Utc>,
+) -> ApiResult<()> {
+    if !state.sale_window.contains(sold_at, state.clock.now()) {
+        return Err(ApiError::validation_failed(
+            "sold_at is outside the accepted window: not in the future and not older than the offline limit",
+        ));
+    }
+    let closed_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT closed_at FROM day_closes WHERE store_id=$1 AND business_date=$2",
+    )
+    .bind(store)
+    .bind(business_date(sold_at))
+    .fetch_optional(tx)
+    .await?;
+    if closed_at.is_some_and(|closed| sold_at >= closed) {
+        return Err(ApiError::conflict(
+            "day_closed",
+            "that business day is already closed",
+        ));
+    }
+    Ok(())
+}
 async fn create(
     State(state): State<AppState>,
     actor: Actor,
@@ -234,6 +262,7 @@ async fn create(
     let input: SaleInput =
         serde_json::from_value(raw).map_err(|e| ApiError::validation_failed(e.to_string()))?;
     input.validate()?;
+    check_sold_at(&mut tx, &state, actor.store_id, input.sold_at).await?;
     let date = business_date(input.sold_at);
     let code = money::sale_code(input.id);
     // Lock order (deadlock rule): products, then the customer row, then the store row, which
@@ -480,7 +509,9 @@ async fn list(
 #[derive(Deserialize)]
 struct VoidInput {
     reason: String,
-    voided_at: Option<DateTime<Utc>>,
+    /// Accepted for older clients but ignored: the server stamps the void.
+    #[serde(rename = "voided_at")]
+    _voided_at: Option<DateTime<Utc>>,
 }
 async fn void(
     State(state): State<AppState>,
@@ -526,7 +557,8 @@ async fn void(
             )
             .await?;
         }
-        let voided_at = input.voided_at.unwrap_or_else(|| state.clock.now());
+        // Server time only: a client-supplied `voided_at` could move the void (and its debt entry) to another day.
+        let voided_at = state.clock.now();
         sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(voided_at).execute(&mut *tx).await?;
         event(
             &mut tx,

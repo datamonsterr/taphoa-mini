@@ -571,6 +571,11 @@ export interface paths {
          *     cover the paid part (`total − credit.amount`); `change_given` uses that paid part.
          *     Unknown customer returns 404. Archived customers still accept credit sales, and
          *     credit limits never block. The sale and its credit_sale entry commit together.
+         *     `sold_at` is bounded by the server: at most 5 minutes in the future and at most 72 hours
+         *     old (400 `validation_failed`), so an offline queue still syncs but a client cannot pick
+         *     any day. A sale whose `sold_at` falls on a day the Lead already closed, at or after the
+         *     close time, is rejected with 409 `day_closed`. A sale taken before the close but synced
+         *     after it is accepted and counted as a late sale.
          */
         post: operations["createSale"];
         delete?: never;
@@ -4305,7 +4310,7 @@ export interface operations {
                     reason: string;
                     /**
                      * Format: date-time
-                     * @description Device time; defaults to server time.
+                     * @description Ignored. The server stamps the void with its own time.
                      */
                     voided_at?: string;
                 };

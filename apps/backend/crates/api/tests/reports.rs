@@ -520,3 +520,36 @@ async fn transactions_export_csv_and_xlsx() {
         StatusCode::BAD_REQUEST
     );
 }
+
+/// #149: a member name that looks like a formula must not run when the Lead opens the CSV.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn transactions_export_csv_neutralizes_formula_names() {
+    let w = World::new().await;
+    sqlx::query("UPDATE members SET display_name=$2 WHERE id=$1")
+        .bind(w.seller_id)
+        .bind("=HYPERLINK(\"http://evil.test\",\"x\")")
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let p = w.product("Coca", 10000, None).await;
+    sell(&w, &w.seller, "cash", &[(p, 1, 10000)], AT).await;
+    let csv = w
+        .call(
+            "GET",
+            &format!("/v1/exports/transactions?from={DAY}&to={DAY}&format=csv"),
+            &w.lead,
+            json!(null),
+        )
+        .await;
+    assert_eq!(csv.status, StatusCode::OK);
+    let text = String::from_utf8(csv.raw).unwrap();
+    assert!(
+        text.contains("\"'=HYPERLINK(\"\"http://evil.test\"\",\"\"x\"\")\""),
+        "{text}"
+    );
+    assert!(
+        !text.contains(",=HYPERLINK") && !text.contains(",\"=HYPERLINK"),
+        "{text}"
+    );
+}

@@ -63,6 +63,28 @@ impl Clock {
     }
 }
 
+/// How far a client `sold_at` may differ from server time. Offline queues deliver old sales,
+/// so the past bound is generous; a small future skew covers phone clocks that run fast.
+#[derive(Clone, Copy, Debug)]
+pub struct SaleWindow {
+    pub max_age: chrono::Duration,
+    pub max_future: chrono::Duration,
+}
+impl Default for SaleWindow {
+    fn default() -> Self {
+        Self {
+            max_age: chrono::Duration::hours(72),
+            max_future: chrono::Duration::minutes(5),
+        }
+    }
+}
+impl SaleWindow {
+    /// True when `at` lies inside `[now - max_age, now + max_future]`.
+    pub fn contains(self, at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+        at >= now - self.max_age && at <= now + self.max_future
+    }
+}
+
 pub const STORE_TZ: chrono_tz::Tz = chrono_tz::Asia::Ho_Chi_Minh;
 pub fn business_date(at: DateTime<Utc>) -> NaiveDate {
     at.with_timezone(&STORE_TZ).date_naive()

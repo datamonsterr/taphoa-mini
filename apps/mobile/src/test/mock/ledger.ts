@@ -455,8 +455,8 @@ export function voidSale(id: string, body: Record<string, unknown>): Sale {
   if (sale.status === 'voided') return sale;
   if (typeof body.reason !== 'string' || !body.reason.trim())
     throw badRequest('reason required');
-  const at = body.voided_at === undefined ? nowIso() : String(body.voided_at);
-  if (Number.isNaN(Date.parse(at))) throw badRequest('Invalid voided_at');
+  // The server stamps the void with its own time and ignores a client voided_at.
+  const at = nowIso();
   sale.status = 'voided';
   sale.void = {
     reason: body.reason,

@@ -17,6 +17,7 @@ import {
   type AppEventProps,
 } from './analytics';
 import { setAnalyticsClient, useAnalyticsClient } from './analyticsBridge';
+import { scrubProps } from './analyticsPrivacy';
 import { useSettingsStore } from '@/stores/settings';
 
 /** Super properties every app event carries; registered on mount, language change and after a reset. */
@@ -34,7 +35,7 @@ export function commonProperties(language: string) {
 export class PostHogSink implements AnalyticsSink {
   constructor(private readonly posthog: Pick<PostHog, 'capture'>) {}
   capture<E extends AppEventName>(event: E, props: AppEventProps[E]): void {
-    this.posthog.capture(event, props);
+    this.posthog.capture(event, scrubProps(props));
   }
 }
 
@@ -84,8 +85,6 @@ export function AnalyticsProvider({ children }: PropsWithChildren) {
 
 export interface AnalyticsIdentity {
   userId: string | null;
-  email?: string | null;
-  name?: string | null;
   storeId?: string | null;
   storeName?: string | null;
   memberId?: string | null;
@@ -96,8 +95,7 @@ export interface AnalyticsIdentity {
 export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
   const posthog = useAnalyticsClient();
   const previous = useRef<string | null>(null);
-  const { userId, email, name, storeId, storeName, memberId, role } =
-    identity ?? {};
+  const { userId, storeId, storeName, memberId, role } = identity ?? {};
   const signedOut = identity === null;
   useEffect(() => {
     if (!posthog) return;
@@ -115,19 +113,10 @@ export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
       return;
     }
     if (!userId || !storeId) return;
-    const key = JSON.stringify([
-      userId,
-      email,
-      name,
-      storeId,
-      storeName,
-      memberId,
-      role,
-    ]);
+    const key = JSON.stringify([userId, storeId, storeName, memberId, role]);
     if (previous.current === key) return;
+    // The Clerk id is the identity. Email and display name stay out of analytics.
     posthog.identify(userId, {
-      ...(email != null ? { email } : {}),
-      ...(name != null ? { name } : {}),
       ...(role != null ? { role } : {}),
     });
     posthog.group(
@@ -140,17 +129,7 @@ export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
       ...(role != null ? { role } : {}),
     });
     previous.current = key;
-  }, [
-    posthog,
-    signedOut,
-    userId,
-    email,
-    name,
-    storeId,
-    storeName,
-    memberId,
-    role,
-  ]);
+  }, [posthog, signedOut, userId, storeId, storeName, memberId, role]);
 }
 
 /**

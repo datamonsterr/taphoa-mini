@@ -607,3 +607,101 @@ async fn concurrent_identical_creates_store_one_sale() {
     assert_eq!(s, [200, 201]);
     assert_eq!(w.events("sale.created").await, 1);
 }
+
+/// #176: a client cannot pick the day of a sale or a void.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sold_at_is_bounded_and_void_time_is_server_set() {
+    use chrono::{Duration, Utc};
+    let w = World::new().await;
+    let p = w.product("Kẹo", 1000, None).await;
+    // Production defaults: 72 hour offline window, 5 minute future skew.
+    let mut state = w.state.clone();
+    state.sale_window = taphoa_api::time::SaleWindow::default();
+    let app = taphoa_api::router(state);
+    let post = |at: String| {
+        let body = sale_body(Uuid::now_v7(), &at, "cash", &[(p, 1, 1000)]);
+        let app = app.clone();
+        let token = w.seller.clone();
+        async move { common::world::send(&app, "POST", "/v1/sales", Some(&token), body).await }
+    };
+    let ago = |d: Duration| (Utc::now() - d).to_rfc3339();
+    let ahead = |d: Duration| (Utc::now() + d).to_rfc3339();
+    for (name, at) in [
+        ("back-dated a year", ago(Duration::days(365))),
+        ("just past the offline window", ago(Duration::hours(73))),
+        ("far future", ahead(Duration::days(30))),
+        ("beyond the skew", ahead(Duration::minutes(30))),
+    ] {
+        let r = post(at).await;
+        assert_eq!(r.status, StatusCode::BAD_REQUEST, "{name}: {}", r.body);
+        assert_eq!(r.body["code"], "validation_failed", "{name}");
+    }
+    // Offline queue: a day old, and a phone clock a minute fast, still sync.
+    assert_eq!(
+        post(ago(Duration::hours(24))).await.status,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post(ahead(Duration::minutes(1))).await.status,
+        StatusCode::CREATED
+    );
+
+    // Void: the client voided_at is ignored.
+    let id = Uuid::now_v7();
+    w.checked(
+        "POST",
+        "/v1/sales",
+        "/v1/sales",
+        &w.seller,
+        sale_body(id, &now_iso(), "cash", &[(p, 1, 1000)]),
+        StatusCode::CREATED,
+    )
+    .await;
+    let voided = w
+        .call(
+            "POST",
+            &format!("/v1/sales/{id}/void"),
+            &w.lead,
+            json!({"reason": "test", "voided_at": "2020-01-01T00:00:00Z"}),
+        )
+        .await;
+    assert_eq!(voided.status, StatusCode::OK, "{}", voided.body);
+    let at =
+        chrono::DateTime::parse_from_rfc3339(voided.body["void"]["voided_at"].as_str().unwrap())
+            .unwrap();
+    assert!(
+        (Utc::now() - at.with_timezone(&Utc)).num_seconds().abs() < 120,
+        "voided_at {at}"
+    );
+
+    // Closed day: a sale stamped after the close is refused, one taken before it still syncs late.
+    let before_close = Utc::now() - Duration::minutes(10);
+    let day = taphoa_api::time::business_date(before_close);
+    let closed = w
+        .call(
+            "PUT",
+            &format!("/v1/day-closes/{day}"),
+            &w.lead,
+            json!({"counted_cash": 0}),
+        )
+        .await;
+    assert_eq!(closed.status, StatusCode::OK, "{}", closed.body);
+    sqlx::query("UPDATE day_closes SET closed_at=$3 WHERE store_id=$1 AND business_date=$2")
+        .bind(w.store_id)
+        .bind(day)
+        .bind(Utc::now() - Duration::minutes(5))
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let late = post((Utc::now() - Duration::minutes(8)).to_rfc3339()).await;
+    assert_eq!(
+        late.status,
+        StatusCode::CREATED,
+        "offline sale before close: {}",
+        late.body
+    );
+    let after = post((Utc::now() - Duration::minutes(1)).to_rfc3339()).await;
+    assert_eq!(after.status, StatusCode::CONFLICT, "{}", after.body);
+    assert_eq!(after.body["code"], "day_closed");
+}

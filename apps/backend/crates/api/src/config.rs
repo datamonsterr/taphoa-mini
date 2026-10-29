@@ -77,6 +77,7 @@ impl ClerkSettings {
 #[derive(Clone)]
 pub struct Config {
     pub clock: crate::time::Clock,
+    pub sale_window: crate::time::SaleWindow,
     pub port: u16,
     pub database_url: Option<String>,
     pub redis_url: Option<String>,
@@ -163,8 +164,20 @@ impl Config {
             &get("CLIENT_IP_SOURCE").unwrap_or_else(|| "peer".into()),
             hops,
         )?;
+        let window_defaults = crate::time::SaleWindow::default();
+        let sale_window = crate::time::SaleWindow {
+            max_age: chrono::Duration::hours(positive(
+                "SALE_MAX_AGE_HOURS",
+                window_defaults.max_age.num_hours() as u32,
+            )? as i64),
+            max_future: chrono::Duration::seconds(positive(
+                "SALE_MAX_FUTURE_SECONDS",
+                window_defaults.max_future.num_seconds() as u32,
+            )? as i64),
+        };
         Ok(Self {
             clock: crate::time::Clock::from_lookup(&get)?,
+            sale_window,
             ocr_det,
             ocr_encoder,
             ocr_decoder,

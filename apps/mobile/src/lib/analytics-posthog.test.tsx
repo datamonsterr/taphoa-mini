@@ -295,19 +295,14 @@ test('identity is idempotent, omits absent person properties and resets on sign-
     storeName: 'Shop',
     memberId: 'member',
     role: 'lead' as const,
-    email: 'owner@example.test',
-    name: 'Owner',
   };
   const hook = await renderHook(
     ({ value }: { value: Parameters<typeof useAnalyticsIdentity>[0] }) =>
       useAnalyticsIdentity(value),
     { initialProps: { value: identity }, wrapper: AnalyticsProvider },
   );
-  expect(posthog.identify).toHaveBeenCalledWith('user', {
-    email: identity.email,
-    name: 'Owner',
-    role: 'lead',
-  });
+  // Only the Clerk id and role: no email or display name reaches PostHog.
+  expect(posthog.identify).toHaveBeenCalledWith('user', { role: 'lead' });
   expect(posthog.group).toHaveBeenCalledWith('store', 'store', {
     name: 'Shop',
   });
@@ -339,7 +334,7 @@ test('incomplete identity is ignored and absent properties are omitted', async (
     },
   );
   expect(posthog.identify).not.toHaveBeenCalled();
-  await hook.rerender({ value: { userId: 'u', storeId: 's', email: null } });
+  await hook.rerender({ value: { userId: 'u', storeId: 's' } });
   expect(posthog.identify).toHaveBeenCalledWith('u', {});
   expect(posthog.group).toHaveBeenCalledWith('store', 's', {});
   expect(posthog.register).toHaveBeenCalledWith({});
@@ -423,4 +418,17 @@ test('uses configured host and environment, with no native build version', async
 test('identity has no effect when analytics is off', async () => {
   await renderHook(() => useAnalyticsIdentity({ userId: 'u', storeId: 's' }));
   expect(posthog.identify).not.toHaveBeenCalled();
+});
+
+test('the PostHog sink strips personal data a caller passes by mistake', () => {
+  setAnalyticsSink(new PostHogSink(posthog));
+  const risky = {
+    entry: 'button',
+    customer_name: 'Lan',
+    note: 'call 090 123 4567',
+  } as unknown as AppEventProps['assistant_opened'];
+  capture('assistant_opened', risky);
+  expect(posthog.capture).toHaveBeenCalledWith('assistant_opened', {
+    entry: 'button',
+  });
 });
