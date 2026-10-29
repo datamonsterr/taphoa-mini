@@ -74,7 +74,14 @@ function assertFrame(frame: AssistantStreamEvent) {
       break;
     case 'message.completed':
       fields(data, { message_id: 'uuid', model: 'string', usage: 'object' });
-      fields(data.usage, { input_tokens: 'integer', output_tokens: 'integer' });
+      // `cost` is optional: OpenRouter usage accounting for paid models (absent when unknown).
+      fields(data.usage, {
+        input_tokens: 'integer',
+        output_tokens: 'integer',
+        ...('cost' in data.usage ? { cost: 'object' } : {}),
+      });
+      if (data.usage.cost)
+        expect(data.usage.cost.total_usd).toBeGreaterThanOrEqual(0);
       expect(data.usage.input_tokens).toBeGreaterThanOrEqual(0);
       expect(data.usage.output_tokens).toBeGreaterThanOrEqual(0);
       break;
@@ -249,7 +256,8 @@ describe(
       expect(terminal.event, JSON.stringify(frames)).toBe('message.completed');
       if (terminal.event !== 'message.completed')
         throw new Error(JSON.stringify(frames));
-      expect(terminal.data.model).toMatch(/.+:free$/);
+      // ASSISTANT_MODELS may be paid (z-ai/glm-5.3-flash) or free; any OpenRouter id.
+      expect(terminal.data.model).toMatch(/^[\w.-]+\/[\w.:-]+$/);
       expect(frames[0]).toEqual({
         event: 'message.created',
         data: { message_id: terminal.data.message_id, thread_id: thread.id },
