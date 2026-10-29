@@ -22,6 +22,10 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: 'Nút nói nhanh'
 - assertVisible: 'Thêm ô cài đặt nhanh'
 # 1. the explainer comes before any Settings jump; "Để sau" closes it
+- scrollUntilVisible:
+    element:
+      id: 'voice-bubble-switch'
+    centerElement: true
 - tapOn:
     id: 'voice-bubble-switch'
 - extendedWaitUntil:
@@ -31,13 +35,27 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: 'Hiện trên ứng dụng khác'
 - assertVisible: '.*không tự ghi âm.*'
 - takeScreenshot: voice-bubble-01-explainer
+# the floating bottom bar covers the lower screen: bring the button to the middle first
+- scrollUntilVisible:
+    element:
+      id: 'voice-overlay-later'
+    centerElement: true
 - tapOn:
     id: 'voice-overlay-later'
 - assertNotVisible:
     id: 'voice-overlay-explainer'
 # 2. "Mở cài đặt" opens the system screen for the permission
+- scrollUntilVisible:
+    element:
+      id: 'voice-bubble-switch'
+    centerElement: true
 - tapOn:
     id: 'voice-bubble-switch'
+# the floating bottom bar covers the lower screen: bring the button to the middle first
+- scrollUntilVisible:
+    element:
+      id: 'voice-overlay-continue'
+    centerElement: true
 - tapOn:
     id: 'voice-overlay-continue'
 - extendedWaitUntil:
