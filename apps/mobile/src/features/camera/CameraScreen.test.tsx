@@ -317,14 +317,14 @@ describe('idle', () => {
     await fireEvent.press(tag);
     expect(tag).toBeSelected();
     expect(tag).toHaveStyle({ backgroundColor: colors.accent });
-    expect(screen.getByText('Thêm hàng nhanh · 0/3')).toHaveStyle({
+    expect(screen.getByText('Xoay sản phẩm')).toHaveStyle({
       color: colors.accent,
     });
     expect(useQuickEnrollStore.getState().active).toBe(true);
     expect(mockPush).not.toHaveBeenCalled();
     await fireEvent.press(tag);
     expect(tag).not.toBeSelected();
-    expect(screen.queryByText('Thêm hàng nhanh · 0/3')).toBeNull();
+    expect(screen.queryByText('Xoay sản phẩm')).toBeNull();
     expect(alert).not.toHaveBeenCalled();
   });
 
@@ -925,7 +925,7 @@ describe('quick enroll capture', () => {
     expect(getMockDb().images.has(shot.imageId!)).toBe(true);
     expect(getMockDb().scans.size).toBe(0);
     expect(shutter()).toBeDisabled();
-    expect(screen.getByText('Thêm hàng nhanh · 0/3')).toBeOnTheScreen();
+    expect(screen.getByText('Xoay sản phẩm')).toBeOnTheScreen();
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -1351,7 +1351,7 @@ describe('assistant entry points', () => {
       screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
     );
     expect(screen.queryByTestId('next-step-strip')).toBeNull();
-    expect(screen.getByText(/Thêm hàng nhanh/)).toBeOnTheScreen();
+    expect(screen.getByText('Xoay sản phẩm')).toBeOnTheScreen();
   });
 
   it('asks the server only while the screen is focused', async () => {

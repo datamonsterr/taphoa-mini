@@ -29,6 +29,7 @@ type Props = {
   photos: ProductPhoto[];
   maxPhotos: number;
   minPhotos?: number;
+  title?: string;
   onAddPhoto: () => void;
   onRemovePhoto?: (id: string) => void;
   onSave: (values: ProductValues) => void;
@@ -71,6 +72,7 @@ export function ProductForm({
   photos,
   maxPhotos,
   minPhotos = 1,
+  title,
   onAddPhoto,
   onRemovePhoto,
   onSave,
@@ -125,6 +127,11 @@ export function ProductForm({
         </View>
       }
     >
+      {title ? (
+        <Text accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
+      ) : null}
       <View style={styles.header}>
         <CircleButton icon={X} accessibilityLabel="Đóng" onPress={onClose} />
         <ScrollView
@@ -219,6 +226,11 @@ export function ProductForm({
 }
 
 const styles = StyleSheet.create({
+  title: {
+    ...typography.heading,
+    color: colors.ink,
+    textAlign: 'center',
+  },
   header: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   photos: { flex: 1 },
   photosContent: {

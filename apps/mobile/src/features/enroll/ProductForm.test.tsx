@@ -75,3 +75,20 @@ it('hides the camera tile at capacity and blocks save while saving', async () =>
   await fireEvent.press(screen.getByLabelText('Lưu vào kho và thêm vào giỏ'));
   expect(onSave).not.toHaveBeenCalled();
 });
+
+it('renders optional header title with header accessibility role', async () => {
+  await renderWithProviders(
+    <ProductForm
+      photos={[{ id: 'one', uri: 'file:///one.jpg' }]}
+      maxPhotos={5}
+      title="Thêm hàng nhanh · 3/3"
+      onAddPhoto={jest.fn()}
+      onSave={jest.fn()}
+      saving={false}
+      onClose={jest.fn()}
+    />,
+  );
+  expect(
+    screen.getByRole('header', { name: 'Thêm hàng nhanh · 3/3' }),
+  ).toBeOnTheScreen();
+});
