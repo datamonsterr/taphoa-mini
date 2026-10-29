@@ -5,6 +5,10 @@ name: Android APK
 # in android-e2e.yml does, but for real phones: ARM ABIs and a real backend over HTTPS.
 # The APK is signed with the Expo template's debug keystore, so it does not upgrade an EAS-built
 # install: uninstall that app first.
+# Each build gets versionCode = run number (newer builds install over older ones) and a version
+# name like 1.0.0-test.42+e502744. Test builds are also published as a GitHub prerelease
+# (tag apk-test-<run>) with the APK attached, so a phone downloads it without a GitHub login.
+# Production builds stay workflow artifacts and are never published.
 
 on:
   workflow_dispatch:
@@ -28,6 +32,9 @@ jobs:
   apk:
     runs-on: namespace-profile-linux-xl
     timeout-minutes: 30
+    permissions:
+      # gh release create for test builds.
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -58,6 +65,21 @@ jobs:
             echo "EXPO_PUBLIC_ENVIRONMENT=test" >> "$GITHUB_ENV"
           fi
 
+      # Read by app.config.ts, so prebuild writes them into android/app/build.gradle.
+      - name: Stamp version
+        env:
+          BACKEND: ${{ inputs.backend }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          base="$(jq -r .expo.version apps/mobile/app.json)"
+          name="${base}-${BACKEND}.${RUN_NUMBER}+${GITHUB_SHA::7}"
+          {
+            echo "APP_VERSION_CODE=${RUN_NUMBER}"
+            echo "APP_VERSION_NAME=${name}"
+            echo "APK_NAME=taphoa-mini-${name%%+*}.apk"
+          } >> "$GITHUB_ENV"
+          echo "::notice title=APK version::${name} (versionCode ${RUN_NUMBER})"
+
       # The runner has no committed android/ project (CNG): generate it from app.config.ts.
       - name: Expo prebuild (android)
         working-directory: apps/mobile
@@ -78,12 +100,9 @@ jobs:
           -Pandroid.enableMinifyInReleaseBuilds=false
 
       - name: Name APK
-        env:
-          BACKEND: ${{ inputs.backend }}
         run: |
           mkdir -p dist
-          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
-            "dist/taphoa-mini-${BACKEND}-${GITHUB_SHA::7}.apk"
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "dist/${APK_NAME}"
 
       # APKs are already compressed, so skip zip compression.
       - name: Upload APK
@@ -93,3 +112,41 @@ jobs:
           path: dist/*.apk
           retention-days: 14
           compression-level: 0
+
+      # The QR encodes the APK's direct download URL: scan it with the phone camera to install.
+      - name: Publish test prerelease
+        if: inputs.backend == 'test'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASES: ${{ github.server_url }}/${{ github.repository }}/releases/download
+        run: |
+          tag="apk-test-${RUN_NUMBER}"
+          apk_url="${RELEASES}/${tag}/${APK_NAME}"
+          # Outside the pnpm workspace, so npm resolves the pinned package on its own.
+          (cd "$RUNNER_TEMP" && npm exec --yes --package=qrcode@1.5.4 -- qrcode --width 480 --output "$GITHUB_WORKSPACE/dist/install-qr.png" "$apk_url")
+          cat > dist/notes.md <<NOTES
+          Release APK built from ${GITHUB_SHA::7} against the Railway test backend (versionCode ${RUN_NUMBER}).
+
+          **Install:** scan with the phone camera, or open [${APK_NAME}](${apk_url}) on the phone.
+
+          ![Install QR](${RELEASES}/${tag}/install-qr.png)
+
+          Signed with the debug keystore: uninstall an EAS-built app before installing. Builds from this workflow install over each other.
+
+          Build log: ${RUN_URL}
+          NOTES
+          sed -i 's/^          //' dist/notes.md
+          gh release create "$tag" "dist/${APK_NAME}" dist/install-qr.png \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Android test APK ${APP_VERSION_NAME}" \
+            --notes-file dist/notes.md
+          release_url="$(gh release view "$tag" --json url -q .url)"
+          echo "::notice title=Prerelease::${release_url}"
+          {
+            echo "## Android test APK ${APP_VERSION_NAME}"
+            echo "[Release page](${release_url}) · [Direct APK](${apk_url})"
+            echo
+            echo "![Install QR](${RELEASES}/${tag}/install-qr.png)"
+          } >> "$GITHUB_STEP_SUMMARY"
