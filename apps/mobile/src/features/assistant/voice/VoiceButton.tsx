@@ -3,6 +3,7 @@ import { Mic } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
+  Linking,
   Platform,
   StyleSheet,
   View,
@@ -50,6 +51,8 @@ type Engine = {
   listening: boolean;
   /** Recorded and waiting for the transcript. */
   transcribing?: boolean;
+  /** Why the last hold produced nothing. `unavailable` is handled by the fallback notice. */
+  error?: 'permission' | 'failed' | 'unavailable' | null;
   start: () => Promise<void>;
   stop: () => void;
   cancel: () => void;
@@ -177,6 +180,23 @@ function VoiceButtonView({
     return () => clearTimeout(timer);
   }, [noticeOpen]);
 
+  const errorKind =
+    engine.error === 'permission' || engine.error === 'failed'
+      ? engine.error
+      : null;
+  const [faded, setFaded] = useState(false);
+  useEffect(() => {
+    // A failure fades after a while; the permission message stays until the next hold.
+    if (errorKind !== 'failed') return undefined;
+    const timer = setTimeout(() => setFaded(true), HINT_MS);
+    return () => {
+      clearTimeout(timer);
+      setFaded(false);
+    };
+  }, [errorKind]);
+  const errorOpen =
+    errorKind === 'permission' || (errorKind === 'failed' && !faded);
+
   const [hint, setHint] = useState(false);
   useEffect(() => {
     if (!hint) return;
@@ -250,7 +270,34 @@ function VoiceButtonView({
 
   return (
     <View style={styles.anchor}>
-      {notice && noticeOpen ? (
+      {errorOpen ? (
+        <View
+          testID={errorKind === 'permission' ? 'voice-denied' : 'voice-failed'}
+          accessibilityLiveRegion="polite"
+          style={styles.hint}
+        >
+          <Text style={styles.hintText}>
+            {t(
+              voiceStrings,
+              errorKind === 'permission' ? 'micDenied' : 'failed',
+              language,
+            )}
+          </Text>
+          {errorKind === 'permission' ? (
+            <PressableScale
+              testID="voice-open-settings"
+              accessibilityRole="button"
+              accessibilityLabel={t(voiceStrings, 'openSettings', language)}
+              onPress={() => void Linking.openSettings()}
+              style={styles.hintAction}
+            >
+              <Text style={styles.hintActionText}>
+                {t(voiceStrings, 'openSettings', language)}
+              </Text>
+            </PressableScale>
+          ) : null}
+        </View>
+      ) : notice && noticeOpen ? (
         <View
           testID="voice-fallback-notice"
           accessibilityLiveRegion="polite"
@@ -306,6 +353,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink,
   },
   hintText: { ...typography.caption, color: colors.onInk },
+  hintAction: {
+    minHeight: size.tapMin,
+    justifyContent: 'center',
+    marginTop: space[1],
+  },
+  hintActionText: {
+    ...typography.caption,
+    color: colors.onInk,
+    fontWeight: '700',
+  },
   base: {
     width: size.tapMin,
     height: size.tapMin,

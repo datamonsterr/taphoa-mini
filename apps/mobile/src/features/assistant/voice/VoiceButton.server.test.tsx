@@ -1,5 +1,5 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { setApiTransport } from '@/lib/api/client';
 import { AnalyticsProvider } from '@/lib/analyticsPostHog';
@@ -154,4 +154,16 @@ test('keeps the hold-to-talk label and a screen reader tap still toggles', async
   expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(
     'Giữ để nói',
   );
+});
+
+test('a denied microphone shows the message and opens the app settings (#244)', async () => {
+  const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue();
+  audioMock.setPermission('denied');
+  await renderButton();
+  await fireEvent(screen.getByTestId('voice-button'), 'pressIn');
+  await act(async () => {});
+  expect(screen.getByTestId('voice-denied')).toBeTruthy();
+  expect(screen.getByText(/Cần cho phép micro để nói/)).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('voice-open-settings'));
+  expect(open).toHaveBeenCalledTimes(1);
 });

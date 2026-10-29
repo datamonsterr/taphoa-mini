@@ -174,7 +174,7 @@ jobs:
           - shard: a
             flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/voice.yaml .maestro/smoke.yaml .maestro/receipts.yaml .maestro/grid-sale.yaml
           - shard: b
-            flows: .maestro/quick-enroll.yaml .maestro/inventory.yaml .maestro/debts.yaml .maestro/checkout.yaml .maestro/barcode.yaml .maestro/voice-bubble.yaml
+            flows: .maestro/quick-enroll.yaml .maestro/inventory.yaml .maestro/debts.yaml .maestro/checkout.yaml .maestro/barcode.yaml .maestro/voice-bubble.yaml .maestro/assistant-mic-denied.yaml
     env:
       MAESTRO_VERSION: 2.11.0
       # Opt out of Maestro telemetry and the update/analyze banners in CI logs.

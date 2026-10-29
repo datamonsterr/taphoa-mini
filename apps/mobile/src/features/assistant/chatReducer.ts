@@ -8,8 +8,9 @@ import type {
 type Schemas = components['schemas'];
 export type AssistantAttachment = Schemas['AssistantAttachment'];
 export type AssistantStreamErrorCode = Schemas['AssistantStreamError']['code'];
+/** `busy`: the server answered 502, 503 or 504 (a deploy or an overloaded edge). */
 export type ChatErrorCode =
-  AssistantStreamErrorCode | 'network' | 'interrupted';
+  AssistantStreamErrorCode | 'network' | 'interrupted' | 'busy';
 export type ChatError = { code: ChatErrorCode; message?: string };
 export type FeedbackRating = 'up' | 'down';
 

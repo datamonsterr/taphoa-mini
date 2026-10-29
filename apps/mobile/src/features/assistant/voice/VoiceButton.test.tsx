@@ -1,6 +1,6 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
-import { AccessibilityInfo, Platform } from 'react-native';
+import { AccessibilityInfo, Linking, Platform } from 'react-native';
 
 import { renderWithProviders } from '@/test/render';
 import { speechMock } from '@/test/speech';
@@ -151,6 +151,32 @@ test('streams partials and fills onFinal on release', async () => {
   expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(
     'Giữ để nói',
   );
+});
+
+test('a denied microphone shows the message with a button to the app settings (#244)', async () => {
+  const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue();
+  speechMock.setPermission(false);
+  await renderButton();
+  await fireEvent(screen.getByTestId('voice-button'), 'pressIn');
+  await act(async () => {});
+  expect(screen.getByTestId('voice-denied')).toBeTruthy();
+  expect(screen.getByText(/Cần cho phép micro để nói/)).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('voice-open-settings'));
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+test('the denied message goes away on the next hold once allowed (#244)', async () => {
+  speechMock.setPermission(false);
+  await renderButton();
+  const button = screen.getByTestId('voice-button');
+  await fireEvent(button, 'pressIn');
+  await act(async () => {});
+  expect(screen.getByTestId('voice-denied')).toBeTruthy();
+  await fireEvent(button, 'pressOut');
+  speechMock.setPermission(true);
+  await fireEvent(button, 'pressIn');
+  await act(async () => {});
+  expect(screen.queryByTestId('voice-denied')).toBeNull();
 });
 
 test('disabled never starts', async () => {
