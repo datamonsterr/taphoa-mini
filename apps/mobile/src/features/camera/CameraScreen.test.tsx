@@ -756,6 +756,22 @@ describe('errors', () => {
     expect(screen.queryByText('Chưa nhận diện được')).toBeNull();
   });
 
+  it('says to slow down when the scan answers 429', async () => {
+    setMockScenario('match');
+    jest
+      .spyOn(images, 'createScan')
+      .mockRejectedValueOnce(
+        new ApiError(429, { error: 'rate limit', code: 'too_many_requests' }),
+      );
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+    expect(
+      await screen.findByText(
+        'Bạn thao tác quá nhanh. Đợi một lát rồi thử lại.',
+      ),
+    ).toBeOnTheScreen();
+  });
+
   it('tapping the frozen photo abandons a failed scan', async () => {
     jest.spyOn(images, 'createScan').mockRejectedValue(new Error('503'));
     await renderWithProviders(<CameraScreen />);
@@ -1095,6 +1111,10 @@ describe('import receipt document', () => {
     [
       new ApiError(403, { error: 'forbidden', code: 'forbidden' }),
       'Bạn không có quyền nhập hóa đơn',
+    ],
+    [
+      new ApiError(429, { error: 'too many', code: 'too_many_requests' }),
+      'Đọc hóa đơn quá nhiều lần. Đợi một lát rồi thử lại.',
     ],
     [new Error('offline'), 'Chưa đọc được hóa đơn. Thử lại.'],
   ])('shows an actionable error toast (%s)', async (error, message) => {

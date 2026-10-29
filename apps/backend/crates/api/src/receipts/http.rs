@@ -159,6 +159,23 @@ async fn create(
         return Ok((StatusCode::CREATED, Json(value)));
     }
     let input: Create = serde_json::from_value(raw).map_err(|_| invalid("invalid receipt"))?;
+    // Replays above never reach here, so retries do not spend the budget.
+    crate::ratelimit::enforce(
+        &state,
+        &format!("receipt:{}:{}", actor.store_id, actor.member_id),
+        state.rate_limits.receipt_per_minute,
+        std::time::Duration::from_secs(60),
+        "receipt scans",
+    )
+    .await?;
+    crate::ratelimit::enforce(
+        &state,
+        &format!("receipt-day:{}", actor.store_id),
+        state.rate_limits.receipt_store_per_day,
+        std::time::Duration::from_secs(86_400),
+        "receipt scans for this store today",
+    )
+    .await?;
     let ocr = state.receipt_ocr.clone().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,

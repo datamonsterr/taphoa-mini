@@ -345,6 +345,14 @@ async fn create_scan(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult<(StatusCode, Json<pipeline::ScanResponse>)> {
     let wall = Instant::now();
+    crate::ratelimit::enforce(
+        &state,
+        &format!("scan:{}:{}", actor.store_id, actor.member_id),
+        state.rate_limits.scan_per_minute,
+        std::time::Duration::from_secs(60),
+        "scans",
+    )
+    .await?;
     // Cheap early rejection while the slot is taken; the permit itself is only held around
     // the blocking segment + embed work below, so storage and database I/O of other scans
     // is never serialized behind it (architecture 5.3).

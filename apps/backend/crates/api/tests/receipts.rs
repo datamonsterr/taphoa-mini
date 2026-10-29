@@ -741,3 +741,48 @@ async fn decisions_cannot_persist_the_receipt_total_as_an_item() {
     assert_eq!(receipt["total"], 456000);
     assert_eq!(receipt["lines"].as_array().unwrap().len(), 4);
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
+async fn create_is_rate_limited_per_member_and_replays_are_free() {
+    let (mut w, photo, _, _) = setup(true).await;
+    w.state.rate_limits.receipt_per_minute = 2;
+    w.app = taphoa_api::router(w.state.clone());
+    let first = create(&w, photo, "limit-1").await;
+    create(&w, photo, "limit-2").await;
+    // A replay of a finished request never reaches OCR, so it spends nothing.
+    let replay = create(&w, photo, "limit-1").await;
+    assert_eq!(replay["id"], first["id"]);
+    let denied = request(
+        &w,
+        "POST",
+        "/v1/receipts",
+        &w.lead,
+        "limit-3",
+        json!({"image_id":photo}),
+        StatusCode::TOO_MANY_REQUESTS,
+    )
+    .await;
+    assert_eq!(denied["code"], "too_many_requests");
+    assert!(denied["error"].as_str().unwrap().contains("receipt scans"));
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
+async fn create_is_rate_limited_per_store_per_day() {
+    let (mut w, photo, _, _) = setup(true).await;
+    w.state.rate_limits.receipt_store_per_day = 1;
+    w.app = taphoa_api::router(w.state.clone());
+    create(&w, photo, "day-1").await;
+    let denied = request(
+        &w,
+        "POST",
+        "/v1/receipts",
+        &w.lead,
+        "day-2",
+        json!({"image_id":photo}),
+        StatusCode::TOO_MANY_REQUESTS,
+    )
+    .await;
+    assert_eq!(denied["code"], "too_many_requests");
+}

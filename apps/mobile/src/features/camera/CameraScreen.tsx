@@ -45,7 +45,9 @@ import { Icon } from '@/components/ui/Icon';
 import { CircleButton } from '@/components/ui';
 import {
   useCreateReceipt,
+  RATE_LIMIT_MESSAGE,
   isApiError,
+  isRateLimited,
   useProduct,
   useLookupBarcode,
   useSegmentPoints,
@@ -276,9 +278,11 @@ export function CameraScreen() {
         t(
           isApiError(error) && error.status === 403
             ? 'receiptPermission'
-            : isApiError(error) && error.code === 'no_text'
-              ? 'receiptNoText'
-              : 'receiptRetry',
+            : isRateLimited(error)
+              ? 'receiptRateLimited'
+              : isApiError(error) && error.code === 'no_text'
+                ? 'receiptNoText'
+                : 'receiptRetry',
         ),
       );
     } finally {
@@ -486,7 +490,11 @@ export function CameraScreen() {
       dispatch({
         type: 'failed',
         id: shot.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: isRateLimited(error)
+          ? RATE_LIMIT_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : String(error),
       });
     }
   }, [dispatch, segmentPoints]);
@@ -752,7 +760,11 @@ export function CameraScreen() {
           {barcodeResult ? <BarcodeIndicator {...barcodeResult} /> : null}
           {phase === 'error' ? (
             <ScanError
-              message={t('scanError')}
+              message={
+                state.error === RATE_LIMIT_MESSAGE
+                  ? RATE_LIMIT_MESSAGE
+                  : t('scanError')
+              }
               retryLabel={t('retry')}
               onRetry={onRetry}
             />

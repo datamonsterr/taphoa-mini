@@ -52,3 +52,11 @@ export async function unwrap<T>(request: Promise<Result<T>>): Promise<T> {
   }
   return data as T;
 }
+
+/** What the user reads when the backend answers 429 on a scan, point tap or receipt read. */
+export const RATE_LIMIT_MESSAGE =
+  'Bạn thao tác quá nhanh. Đợi một lát rồi thử lại.';
+
+/** True for HTTP 429 `too_many_requests`: wait and try again, nothing is broken. */
+export const isRateLimited = (error: unknown): boolean =>
+  isApiError(error) && error.status === 429;

@@ -144,6 +144,19 @@ impl Config {
             )?,
             join_per_hour: positive("RATE_LIMIT_JOIN_PER_HOUR", defaults.join_per_hour)?,
             pin_attempts: positive("RATE_LIMIT_PIN_ATTEMPTS", defaults.pin_attempts)?,
+            scan_per_minute: positive("RATE_LIMIT_SCAN_PER_MINUTE", defaults.scan_per_minute)?,
+            segment_per_minute: positive(
+                "RATE_LIMIT_SEGMENT_PER_MINUTE",
+                defaults.segment_per_minute,
+            )?,
+            receipt_per_minute: positive(
+                "RATE_LIMIT_RECEIPT_PER_MINUTE",
+                defaults.receipt_per_minute,
+            )?,
+            receipt_store_per_day: positive(
+                "RATE_LIMIT_RECEIPT_STORE_PER_DAY",
+                defaults.receipt_store_per_day,
+            )?,
         };
         let hops = positive("TRUSTED_PROXY_HOPS", 1)? as usize;
         let client_ip = ClientIpSource::parse(

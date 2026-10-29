@@ -151,6 +151,14 @@ pub async fn segment_points(
 
     // Permission check: Lead or seller with can_enroll
     actor.require(Action::EnrollProduct)?;
+    crate::ratelimit::enforce(
+        &state,
+        &format!("segment:{}:{}", actor.store_id, actor.member_id),
+        state.rate_limits.segment_per_minute,
+        std::time::Duration::from_secs(60),
+        "segmentation requests",
+    )
+    .await?;
 
     // Early validation of points count and labels before storage or inference
     if request.points.is_empty() || request.points.len() > 2 {
