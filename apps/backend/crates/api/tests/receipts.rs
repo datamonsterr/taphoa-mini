@@ -559,6 +559,21 @@ async fn confirm_validation_drops_lines_adds_lines_and_enroller_permission() {
     assert_eq!(result["lines"].as_array().unwrap().len(), 1);
     assert_eq!(result["lines"][0]["quantity"], 3);
     assert_eq!(result["total"], 100);
+    // Only the Lead changes cost: the enroller's confirmation must leave it alone.
+    let cost: Option<i64> = sqlx::query_scalar("SELECT cost_price FROM products WHERE id=$1")
+        .bind(products[0])
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(cost, None);
+    let history: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM price_history WHERE product_id=$1 AND field='cost_price'",
+    )
+    .bind(products[0])
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert_eq!(history, 0);
     assert_ne!(result["lines"][0]["id"], a["lines"][0]["id"]);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM receipt_lines WHERE receipt_id=$1")
         .bind(a["id"].as_str().unwrap().parse::<Uuid>().unwrap())

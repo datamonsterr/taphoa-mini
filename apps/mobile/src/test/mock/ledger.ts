@@ -233,7 +233,10 @@ export function createExpense(req: CreateExpenseRequest): {
 
   const expenseId = req.id;
   const alerts: MarginAlert[] = [];
+  const isLead = getCurrentMember().role === 'lead';
   for (const { line, factor } of purchases) {
+    // Only the Lead changes cost price; seller purchases leave it untouched.
+    if (!isLead) continue;
     const record = findProductRecord(line.product_id);
     record.product = {
       ...record.product,

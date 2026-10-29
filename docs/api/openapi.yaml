@@ -1465,7 +1465,9 @@ paths:
       operationId: createExpense
       summary: Record an expense or a stock purchase (E1, E2)
       description: |
-        `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`.
+        `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`
+        when the caller is the Lead. A seller's purchase lines are recorded with the
+        expense but never change cost price, price history or margin alerts.
         When the new cost leaves margin below the store threshold, the server creates a
         margin alert (E3) and publishes `alert.created`. When lines are present, `amount`
         must equal the line sum. Idempotent on `id`.
@@ -1731,7 +1733,9 @@ paths:
         All retained lines must map to known products; map or drop unmatched lines (422).
         Creates one nhap_hang expense with amount = sum(cost), the receipt image and purchase
         lines with unit_cost = ceil(cost / quantity). Adds stock, writes movements with
-        reason receipt, runs margin alerts, and emits events in the same transaction.
+        reason receipt, and emits events in the same transaction. Only the Lead's
+        confirmation updates product cost prices and runs margin alerts; a `can_enroll`
+        seller's confirmation records stock and the expense but leaves cost unchanged.
         Returns the confirmed receipt with expense_id. The same Idempotency-Key replays
         the same result; another attempt to confirm returns 409 already_confirmed.
       parameters:
