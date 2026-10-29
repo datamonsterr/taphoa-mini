@@ -12,10 +12,13 @@ allowBuilds:
 
 # Security advisories (issue #162). Each pins only the vulnerable range to its patched release.
 # Left open on purpose: @faker-js/faker (dev-only prism mock, the patched 10.x drops the
-# `faker.address` API that postman-collection calls) and deepmerge (no patched release published).
+# `faker.address` API that postman-collection calls), deepmerge (no patched release published) and
+# zod (GHSA-mrhx-c7xc-m3w5: only reachable by validating attacker-sized arrays with a zod array
+# schema; here zod sits inside the wallet libraries that clerk-js bundles and the app never feeds
+# it request data. Forcing zod 4 into the clerk-js web bundle coincided with the web e2e offline test
+# (OfflineGridSale) failing on main, so the override was dropped).
 overrides:
   'node-forge@<=1.4.0': '>=1.4.1'
-  'zod@<4.6.6': '>=4.6.6 <5'
   'body-parser@>=2.0.0 <2.4.0': '>=2.4.0 <3'
   'lodash@<=4.17.23': '>=4.17.24 <5'
   'uuid@<11.1.1': '>=11.1.1 <12'
