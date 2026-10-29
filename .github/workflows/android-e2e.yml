@@ -155,7 +155,7 @@ jobs:
 
   # Two emulator shards. Baseline durations from the last green run (flows run in this order):
   #   a: multi-session 312 s + onboarding 127 s + assistant 99 s + smoke 68 s = 606 s
-  #      + receipts (new, budget ~140 s) ≈ 746 s; measure after its first CI run.
+  #      + receipts (new, budget ~140 s) + grid-sale (new, ~150 s) ≈ 896 s; measure after the first CI run.
   #   b: quick-enroll 225 s + inventory 201 s + debts 173 s + checkout 149 s = 748 s
   # Rebalance by moving a flow between the `flows` lists. Paths are relative to apps/mobile and must
   # not contain spaces: the list is word-split by the shell in the emulator step.
@@ -170,7 +170,7 @@ jobs:
       matrix:
         include:
           - shard: a
-            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/smoke.yaml .maestro/receipts.yaml
+            flows: .maestro/multi-session.yaml .maestro/onboarding.yaml .maestro/assistant.yaml .maestro/smoke.yaml .maestro/receipts.yaml .maestro/grid-sale.yaml
           - shard: b
             flows: .maestro/quick-enroll.yaml .maestro/inventory.yaml .maestro/debts.yaml .maestro/checkout.yaml .maestro/barcode.yaml
     env:

@@ -12,6 +12,8 @@ type Props = {
   /** Running total in đồng. */
   total: number;
   onPress: () => void;
+  /** Dark pill for light screens (the sell grid); the default is the glass pill over the camera. */
+  light?: boolean;
 };
 
 /** Bottom-left cart shortcut: count badge and running total. */
@@ -19,6 +21,7 @@ export const CartPill = memo(function CartPill({
   count,
   total,
   onPress,
+  light = false,
 }: Props) {
   const money = formatVnd(total);
   const empty = count === 0;
@@ -30,7 +33,7 @@ export const CartPill = memo(function CartPill({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={styles.pill}
+      style={[styles.pill, light && styles.pillLight]}
     >
       {empty ? (
         <>
@@ -57,6 +60,7 @@ export const CartPill = memo(function CartPill({
 });
 
 const styles = StyleSheet.create({
+  pillLight: { backgroundColor: colors.ink },
   pill: {
     height: size.tapMin,
     flexDirection: 'row',

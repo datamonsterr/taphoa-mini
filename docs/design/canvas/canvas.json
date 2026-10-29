@@ -299,7 +299,7 @@
       "title": "28 Sale detail + refund",
       "w": 390,
       "x": 0,
-      "y": 4900
+      "y": 6732
     },
     "RecentSales.dc.html": {
       "h": 844,
@@ -308,7 +308,7 @@
       "title": "28a Recent sales",
       "w": 390,
       "x": 470,
-      "y": 4900
+      "y": 6732
     },
     "Export.dc.html": {
       "h": 844,
@@ -317,7 +317,7 @@
       "title": "29 Transaction export",
       "w": 390,
       "x": 940,
-      "y": 4900
+      "y": 6732
     },
     "ProductUnits.dc.html": {
       "h": 844,
@@ -326,7 +326,34 @@
       "title": "09b Product units editor",
       "w": 390,
       "x": 1410,
-      "y": 4900
+      "y": 6732
+    },
+    "InventorySell.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "08b Inventory: sell from the grid",
+      "w": 390,
+      "x": 3290,
+      "y": 1244
+    },
+    "InventoryElder.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "08c Inventory: elder mode",
+      "w": 390,
+      "x": 3760,
+      "y": 1244
+    },
+    "PayElder.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "07d Pay: elder mode, spoken total",
+      "w": 390,
+      "x": 4230,
+      "y": 1244
     }
   },
   "createdOnFiles": {
@@ -356,8 +383,8 @@
     },
     "rowB": {
       "kind": "title1",
-      "maxW": 3210,
-      "text": "Shop — inventory, product, dashboard, expense, account, close, stock",
+      "maxW": 4620,
+      "text": "Shop — inventory, product, dashboard, expense, account, close, stock — grid sale and elder mode",
       "w": 240,
       "x": 0,
       "y": 944
@@ -405,6 +432,9 @@
     "Account.dc.html",
     "Close.dc.html",
     "Stock.dc.html",
+    "InventorySell.dc.html",
+    "InventoryElder.dc.html",
+    "PayElder.dc.html",
     "Assistant.dc.html",
     "ChatVoice.dc.html",
     "Digest.dc.html",

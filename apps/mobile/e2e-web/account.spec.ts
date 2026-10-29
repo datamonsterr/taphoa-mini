@@ -301,6 +301,8 @@ test.describe('settings on this phone', () => {
 
     await page.reload();
     await expect(page.getByRole('tablist')).toBeVisible();
+    // elder mode opens the app on the sell grid (Stock), not on the route it was reloaded on
+    await page.getByRole('tab', { name: 'Account', exact: true }).click();
     await expect(page.getByRole('radio', { name: 'EN' })).toBeChecked();
     await expect(elderSwitch(page, 'Elder mode')).toBeChecked();
     await expect(scaleText(page)).toHaveText('150%');
