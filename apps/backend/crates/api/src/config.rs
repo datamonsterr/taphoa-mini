@@ -453,12 +453,19 @@ mod tests {
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),
                 "TRUSTED_PROXY_HOPS" => "2".into(),
                 "TAPHOA_TEST_NOW" => return None,
+                "SALE_MAX_AGE_HOURS" => "48".into(),
+                "SALE_MAX_FUTURE_SECONDS" => "120".into(),
                 n if n.starts_with("RATE_LIMIT_") => "7".into(),
                 _ => name.into(),
             })
         })
         .unwrap();
         assert_eq!(config.port, 9000);
+        assert_eq!(config.sale_window.max_age, chrono::Duration::hours(48));
+        assert_eq!(
+            config.sale_window.max_future,
+            chrono::Duration::seconds(120)
+        );
         assert_eq!(config.db_max_connections, 24);
         assert_eq!(config.document_probe_concurrency, 2);
         assert_eq!(config.rate_limits.pin_attempts, 3);
