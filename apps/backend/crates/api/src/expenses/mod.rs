@@ -5,7 +5,7 @@ mod tests;
 
 use crate::{
     ApiError, ApiResult, AppState,
-    auth::{Action, Actor},
+    auth::{Action, Actor, can},
     error::ValidJson,
     events::{Event, emit},
     idempotency::{self, Idempotent, request_hash},
@@ -163,11 +163,20 @@ async fn response(
 ) -> ApiResult<Value> {
     let lines: Vec<PurchaseLine> = sqlx::query_as("SELECT product_id,unit_id,quantity,unit_cost FROM purchase_lines WHERE store_id=$1 AND expense_id=$2 ORDER BY id")
         .bind(actor.store_id).bind(row.id).fetch_all(&mut *conn).await?;
-    let raised = alerts::for_expense(conn, actor.store_id, row.id).await?;
+    // Purchase costs and margin alerts are Lead-only, like the catalog cost price.
+    let lead = can(actor, Action::ChangePrice);
+    let raised = if lead {
+        alerts::for_expense(conn, actor.store_id, row.id).await?
+    } else {
+        Vec::new()
+    };
     let mut result = json!({"id":row.id,"spent_at":row.spent_at,"amount":row.amount,
         "category":row.category,"paid_with":row.paid_with,"business_date":row.business_date,
         "member_id":row.member_id,"created_at":row.created_at,"purchase_lines":lines,"alerts":raised,"image":null});
     // The inherited CreateExpenseRequest schema permits omission, but not null, for these fields.
+    if !lead {
+        result["purchase_lines"] = json!([]);
+    }
     if let Some(note) = row.note {
         result["note"] = json!(note);
     }

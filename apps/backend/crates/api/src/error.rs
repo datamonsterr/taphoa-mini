@@ -43,6 +43,10 @@ impl ApiError {
     pub fn forbidden() -> Self {
         Self::new(StatusCode::FORBIDDEN, "forbidden", "permission denied")
     }
+    /// A 403 that tells the caller what only the Lead may do.
+    pub fn forbidden_with(msg: &'static str) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", msg)
+    }
     pub fn not_found() -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", "record not found")
     }

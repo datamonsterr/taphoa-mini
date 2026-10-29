@@ -1075,7 +1075,8 @@ export interface paths {
          *     transfer sales. `cash_repayments` sums cash repayments of that business date and
          *     `credit_sales` sums credit_amount of completed sales of that date, so the day close
          *     screen can show both before the day is closed. `expected_cash` includes
-         *     `cash_repayments`.
+         *     `cash_repayments`. `expected_cash` and `day_close` are Lead-only: they are omitted
+         *     for sellers.
          */
         get: operations["getDailyReport"];
         put?: never;
@@ -1161,7 +1162,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Past end-of-day closes */
+        /** Past end-of-day closes (Lead only) */
         get: operations["listDayCloses"];
         put?: never;
         post?: never;
@@ -1180,7 +1181,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** One day's close */
+        /** One day's close (Lead only) */
         get: operations["getDayClose"];
         /**
          * Enter counted cash; returns expected cash and difference (R2, F5)
@@ -2480,6 +2481,7 @@ export interface components {
             /** Format: uuid */
             image_id?: string;
             note?: string;
+            /** @description Buying costs are Lead-only, so responses to sellers carry an empty list. */
             purchase_lines?: components["schemas"]["PurchaseLine"][];
         };
         Expense: components["schemas"]["CreateExpenseRequest"] & {
@@ -2527,8 +2529,10 @@ export interface components {
              * @description Revenue minus expenses; may be negative.
              */
             net: number;
-            expected_cash: components["schemas"]["Money"];
+            /** @description Lead only; omitted for sellers. */
+            expected_cash?: components["schemas"]["Money"];
             manual_lines_open?: number;
+            /** @description Lead only; omitted for sellers. */
             day_close?: components["schemas"]["DayClose"] | null;
         };
         SummaryBucket: {
@@ -2551,7 +2555,7 @@ export interface components {
             revenue: components["schemas"]["Money"];
             /**
              * Format: int64
-             * @description Revenue minus quantity × current cost; null when cost unknown.
+             * @description Revenue minus quantity × current cost; null when cost unknown. Omitted for sellers, because it would reveal the cost.
              */
             gross_margin?: number | null;
         };

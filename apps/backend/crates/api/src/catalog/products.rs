@@ -503,15 +503,9 @@ fn plan_required_action(plan: &model::PatchPlan) -> Option<crate::auth::Action> 
     let price_changed = plan.price.is_some()
         || plan.cost_price.is_some()
         || plan.cost_clear
-        || plan.unit_ops.iter().any(|op| {
-            matches!(
-                op,
-                model::UnitOp::Update {
-                    price_changed: Some(_),
-                    ..
-                }
-            )
-        });
+        // Units carry the prices customers pay, so every insert, update and delete is a
+        // price change, not only an update whose price differs.
+        || !plan.unit_ops.is_empty();
     if price_changed {
         Some(Action::ChangePrice)
     } else if plan.archived.is_some() {

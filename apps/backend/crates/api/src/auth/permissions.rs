@@ -37,7 +37,15 @@ impl Actor {
         if can(self, action) {
             Ok(())
         } else {
-            Err(ApiError::forbidden())
+            Err(match action {
+                Action::ChangePrice => ApiError::forbidden_with(
+                    "only the store owner can change prices, costs and product units",
+                ),
+                Action::DayClose => ApiError::forbidden_with(
+                    "only the store owner can view or close the day's cash",
+                ),
+                _ => ApiError::forbidden(),
+            })
         }
     }
 }

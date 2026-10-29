@@ -337,7 +337,7 @@ async fn margin_alert_lifecycle_accept_dismiss() {
             "POST",
             "/v1/expenses",
             "/v1/expenses",
-            &w.seller,
+            &w.lead,
             b,
             StatusCode::CREATED,
         )
