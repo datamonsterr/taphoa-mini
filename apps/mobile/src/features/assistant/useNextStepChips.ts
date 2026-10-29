@@ -6,6 +6,8 @@ import { strings } from '@/components/assistant/strings';
 import { capture } from '@/lib/analytics';
 import { t } from '@/lib/i18n';
 import { useSettingsStore } from '@/stores/settings';
+import { useVoiceSettings } from '@/features/voice/voiceSettings';
+import { showVoiceSaleChip } from '@/features/voice/chipRule';
 
 import { useNextSteps } from './api';
 
@@ -17,6 +19,8 @@ export type UseNextStepChipsOptions = {
   canEnroll: boolean;
   /** The assistant flag; off hides assistant suggestions, keeping direct receipt review. */
   enabled: boolean;
+  /** When the member joined (ISO); the `voice_sale` chip shows for their first 14 days. */
+  joinedAt?: string;
 };
 
 /**
@@ -30,7 +34,9 @@ export function useNextStepChips({
   unknownProduct,
   canEnroll,
   enabled,
+  joinedAt,
 }: UseNextStepChipsOptions) {
+  const voiceSales = useVoiceSettings((s) => s.voiceSales);
   const language = useSettingsStore((s) => s.language);
   const focused = useIsFocused();
   const { data } = useNextSteps(
@@ -74,6 +80,15 @@ export function useNextStepChips({
       });
 
     if (unknownProduct && canEnroll) device('unknown_product');
+    if (showVoiceSaleChip({ joinedAt, voiceSales }))
+      list.push({
+        id: 'voice_sale',
+        kind: 'voice_sale',
+        title: t(strings, 'kind.voice_sale', language),
+        subtitle: t(strings, 'sub.voice_sale', language),
+        source: 'app',
+        action: { type: 'voice' },
+      });
     for (const item of data?.items ?? []) {
       if (list.some((chip) => chip.kind === item.kind)) continue;
       const english = language === 'en' && strings.en[`kind.${item.kind}`];
@@ -87,7 +102,16 @@ export function useNextStepChips({
       });
     }
     return list;
-  }, [enabled, documentDetected, unknownProduct, canEnroll, data, language]);
+  }, [
+    enabled,
+    documentDetected,
+    unknownProduct,
+    canEnroll,
+    data,
+    language,
+    joinedAt,
+    voiceSales,
+  ]);
 
   const shown = useRef(new Set<string>());
   useEffect(() => {

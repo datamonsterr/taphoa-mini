@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories must require lazily */
 import 'react-native-gesture-handler/jestSetup';
 
+// The chat microphone defaults to server transcription in the app; suites that exercise the
+// on-device recognizer keep the old mode, and the server-mode suites switch it on themselves.
+process.env.EXPO_PUBLIC_VOICE_SERVER_CHAT = '0';
+
 // Reanimated's own jest mock needs native worklets; this one applies final values synchronously.
 // expo-router/testing-library swaps it for an empty object; see renderApp in ./router.
 // expo-router/testing-library would otherwise replace Reanimated (and expo-linking) with its own

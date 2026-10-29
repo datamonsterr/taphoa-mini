@@ -45,7 +45,7 @@
         "expo-camera",
         {
           "cameraPermission": "Tạp Hóa Mini cần dùng máy ảnh để nhận diện hàng hóa và chụp ảnh sản phẩm.",
-          "microphonePermission": "Tạp Hóa Mini cần dùng micro để bạn nói chuyện với trợ lý.",
+          "microphonePermission": "Tạp Hóa Mini cần dùng micro để ghi bán hàng bằng giọng nói và nói chuyện với trợ lý. / Tạp Hóa Mini uses the microphone to record sales by voice and talk to the assistant.",
           "recordAudioAndroid": false
         }
       ],
@@ -55,7 +55,7 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Tạp Hóa Mini cần dùng micro để bạn nói chuyện với trợ lý.",
+          "microphonePermission": "Tạp Hóa Mini cần dùng micro để ghi bán hàng bằng giọng nói và nói chuyện với trợ lý. / Tạp Hóa Mini uses the microphone to record sales by voice and talk to the assistant.",
           "speechRecognitionPermission": "Tạp Hóa Mini cần nhận dạng giọng nói để chuyển lời bạn nói thành chữ cho trợ lý."
         }
       ],
@@ -71,6 +71,13 @@
         "expo-contacts",
         {
           "contactsPermission": "Tạp Hóa Mini dùng tên và số điện thoại của liên hệ bạn chọn để tạo khách hàng."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Tạp Hóa Mini cần dùng micro để ghi bán hàng bằng giọng nói và nói chuyện với trợ lý. / Tạp Hóa Mini uses the microphone to record sales by voice and talk to the assistant.",
+          "recordAudioAndroid": true
         }
       ],
       "expo-sharing"

@@ -464,6 +464,8 @@ jobs:
           EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
           EXPO_PUBLIC_ENVIRONMENT: test
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          # voice.spec.ts opens /voice?fixture=<clip>: the e2e export honours the fixture param.
+          EXPO_PUBLIC_VOICE_FIXTURES: '1'
         run: pnpm --filter @taphoa/mobile ${{ matrix.script }}
       - uses: actions/upload-artifact@v7
         if: matrix.dist != ''

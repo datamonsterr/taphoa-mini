@@ -3,6 +3,7 @@ import { memo, useRef, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
+import { Text } from '@/components/ui/ScaledText';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { useT } from '@/lib/i18n';
 import { useSettingsStore } from '@/stores/settings';
@@ -27,6 +28,8 @@ export type ComposerProps = {
   prefill?: { id: number; text: string };
 };
 
+const DOTS = '• • •';
+
 const join = (a: string, b: string) => [a, b].filter(Boolean).join(' ');
 
 /** Multiline input with Send and hold-to-talk. Voice only fills the input; it never sends. */
@@ -39,6 +42,8 @@ export const Composer = memo(function Composer({
   const language = useSettingsStore((s) => s.language);
   const scale = useFontScale();
   const [text, setText] = useState('');
+  /** A recording is being transcribed on the server: the input shows three dots. */
+  const [pending, setPending] = useState(false);
   const [seenPrefill, setSeenPrefill] = useState(prefill?.id);
   /** Text typed before the current hold; null between holds. */
   const heldBase = useRef<string | null>(null);
@@ -76,31 +81,46 @@ export const Composer = memo(function Composer({
 
   return (
     <View style={styles.row}>
-      <TextInput
-        testID="assistant-input"
-        accessibilityLabel={t('inputPlaceholder')}
-        placeholder={t('inputPlaceholder')}
-        placeholderTextColor={colors.inkMuted}
-        multiline
-        // Enter sends and closes the keyboard (the sheet does not lift the composer above it).
-        submitBehavior="blurAndSubmit"
-        returnKeyType="send"
-        onSubmitEditing={send}
-        value={text}
-        onChangeText={(next) => {
-          heldBase.current = null;
-          setText(next);
-        }}
-        style={[
-          styles.input,
-          scaleText({ fontSize: 18, lineHeight: 24 }, scale),
-        ]}
-      />
+      <View style={styles.field}>
+        <TextInput
+          testID="assistant-input"
+          accessibilityLabel={t('inputPlaceholder')}
+          accessibilityHint={pending ? t('transcribing') : undefined}
+          placeholder={pending ? DOTS : t('inputPlaceholder')}
+          placeholderTextColor={colors.inkMuted}
+          multiline
+          // Enter sends and closes the keyboard (the sheet does not lift the composer above it).
+          submitBehavior="blurAndSubmit"
+          returnKeyType="send"
+          onSubmitEditing={send}
+          value={text}
+          onChangeText={(next) => {
+            heldBase.current = null;
+            setText(next);
+          }}
+          style={[
+            styles.input,
+            scaleText({ fontSize: 18, lineHeight: 24 }, scale),
+          ]}
+        />
+        {pending ? (
+          <Text
+            testID="assistant-transcribing"
+            accessibilityRole="progressbar"
+            accessibilityLabel={t('transcribing')}
+            accessibilityLiveRegion="polite"
+            style={styles.dots}
+          >
+            {DOTS}
+          </Text>
+        ) : null}
+      </View>
       <VoiceButton
         language={language}
         onPartial={onPartial}
         onFinal={onFinal}
         disabled={streaming}
+        onPendingChange={setPending}
       />
       <PressableScale
         testID="assistant-send"
@@ -119,9 +139,15 @@ export const Composer = memo(function Composer({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: space[2] },
+  field: { flex: 1, justifyContent: 'center' },
+  dots: {
+    ...typography.body,
+    position: 'absolute',
+    right: space[4],
+    color: colors.inkMuted,
+  },
   input: {
     ...typography.body,
-    flex: 1,
     minHeight: size.tapMin,
     maxHeight: 140,
     paddingHorizontal: space[4],

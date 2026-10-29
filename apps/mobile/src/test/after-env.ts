@@ -21,6 +21,10 @@ beforeEach(() => {
   const { useCartStore } = require('@/stores/cart');
   const { useLowStockAlerts } = require('@/stores/lowStockAlerts');
   const { initialSettings, useSettingsStore } = require('@/stores/settings');
+  const {
+    initialVoiceSettings,
+    useVoiceSettings,
+  } = require('@/features/voice/voiceSettings');
   resetMockDb();
   require('./clerk').resetClerkMock();
   require('@/features/auth/emailFlow').useEmailFlow.getState().reset();
@@ -58,6 +62,7 @@ beforeEach(() => {
     count: null,
   });
   useSettingsStore.setState(initialSettings);
+  useVoiceSettings.setState(initialVoiceSettings);
 });
 
 afterEach(() => {

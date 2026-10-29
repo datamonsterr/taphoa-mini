@@ -456,3 +456,12 @@ test('sign-out proceeds even if unregisterPush fails', async () => {
   });
   expect(clerkMock.signOut).toHaveBeenCalledWith({ sessionId: 'sess_test' });
 });
+
+test('has the opt-in voice switch below the language row, and no system rows without the module', async () => {
+  await open();
+  expect(
+    screen.getByRole('switch', { name: 'Góp giọng nói để cải thiện' }),
+  ).not.toBeChecked();
+  expect(screen.queryByTestId('voice-bubble-row')).toBeNull();
+  expect(screen.queryByTestId('voice-tile-row')).toBeNull();
+});

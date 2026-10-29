@@ -70,6 +70,8 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V2 · Voice mobile core
 
+Status: done on 2026-10-29, PR #116
+
 - **Branch:** `epic/v2-voice-mobile` · **Depends:** V0 · **Wave:** 2
 - **Spec:** voice.md "Mobile UI", "Entry points" (in-app rows only), DESIGN.md screens 15-16.
 - **Owns:** `apps/mobile/src/features/voice/**` (recorder hook on `expo-audio`, sheet,

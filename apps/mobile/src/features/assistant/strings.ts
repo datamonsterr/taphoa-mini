@@ -8,6 +8,7 @@ export const dict: Dict = {
     threadsEmpty: 'Chưa có cuộc trò chuyện nào.',
     inputPlaceholder: 'Hỏi trợ lý về cửa hàng…',
     send: 'Gửi',
+    transcribing: 'Đang chuyển lời nói thành chữ',
     retry: 'Thử lại',
     quotaFallback: 'Bạn đã hết lượt trợ lý hôm nay. Hãy quay lại vào ngày mai.',
     networkError: 'Không kết nối được. Kiểm tra mạng rồi thử lại.',
@@ -64,6 +65,7 @@ export const dict: Dict = {
     threadsEmpty: 'No chats yet.',
     inputPlaceholder: 'Ask the assistant about your shop…',
     send: 'Send',
+    transcribing: 'Turning your speech into text',
     retry: 'Retry',
     quotaFallback:
       "You've used today's assistant messages. Come back tomorrow.",

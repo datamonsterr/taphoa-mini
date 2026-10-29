@@ -80,7 +80,21 @@ const samples = {
   next_step_shown: { kind: 'setup', position: 0 },
   next_step_tapped: { kind: 'restock', position: 1 },
   digest_opened: { entry: 'card' },
-  voice_input_used: { duration_ms: 1000, language: 'vi-VN', ok: true },
+  voice_input_used: {
+    duration_ms: 1000,
+    language: 'vi-VN',
+    ok: true,
+    engine: 'server',
+  },
+  voice_setup_completed: { platform: 'android', kind: 'bubble' },
+  voice_sale_started: { entry: 'longpress' },
+  voice_sale_confirmed: {
+    edited: false,
+    line_count: 2,
+    payment_method: 'cash',
+    total: 24500,
+  },
+  voice_sale_abandoned: { stage: 'draft' },
 } satisfies AppEventProps;
 const requiredKeys: Record<keyof AppEventProps, string[]> = {
   $screen: ['$screen_name'],
@@ -94,7 +108,11 @@ const requiredKeys: Record<keyof AppEventProps, string[]> = {
   next_step_shown: ['kind', 'position'],
   next_step_tapped: ['kind', 'position'],
   digest_opened: ['entry'],
-  voice_input_used: ['duration_ms', 'language', 'ok'],
+  voice_input_used: ['duration_ms', 'language', 'ok', 'engine'],
+  voice_setup_completed: ['platform', 'kind'],
+  voice_sale_started: ['entry'],
+  voice_sale_confirmed: ['edited', 'line_count', 'payment_method', 'total'],
+  voice_sale_abandoned: ['stage'],
 };
 // $screen_name is the contract's reserved screen property, not a person's name.
 function assertSafe(value: unknown) {

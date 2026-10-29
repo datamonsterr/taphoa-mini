@@ -104,6 +104,8 @@ export default defineConfig({
         process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
       EXPO_PUBLIC_ENVIRONMENT: process.env.EXPO_PUBLIC_ENVIRONMENT ?? 'test',
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: CLERK_PUBLISHABLE_KEY,
+      // voice.spec.ts opens /voice?fixture=<clip> instead of recording.
+      EXPO_PUBLIC_VOICE_FIXTURES: '1',
     },
   },
 });

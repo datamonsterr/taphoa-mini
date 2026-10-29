@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react-native';
+import * as Haptics from 'expo-haptics';
 
 import { useAssistantEnabled } from '@/features/assistant/flags';
 import { useSettingsStore } from '@/stores/settings';
@@ -54,4 +55,41 @@ test('renders nothing while the assistant is off', async () => {
   jest.mocked(useAssistantEnabled).mockReturnValue(false);
   await renderWithProviders(<ChatButton screen="camera" />);
   expect(screen.queryByTestId('chat-button')).toBeNull();
+});
+
+test.each(['inventory', 'camera'] as const)(
+  'a long press on %s opens the voice sale sheet with a haptic',
+  async (name) => {
+    await renderWithProviders(<ChatButton screen={name} />);
+    await fireEvent(screen.getByTestId('chat-button'), 'longPress');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/voice',
+      params: { entry: 'longpress' },
+    });
+    expect(Haptics.impactAsync).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  },
+);
+
+test('screen readers get the long press as an action with a hint', async () => {
+  await renderWithProviders(<ChatButton screen="camera" />);
+  const button = screen.getByTestId('chat-button');
+  expect(button.props.accessibilityHint).toBe('Giữ để bán bằng giọng nói');
+  expect(button.props.accessibilityActions).toEqual([
+    { name: 'longpress', label: 'Giữ để bán bằng giọng nói' },
+  ]);
+  await fireEvent(button, 'accessibilityAction', {
+    nativeEvent: { actionName: 'longpress' },
+  });
+  expect(mockPush).toHaveBeenCalledWith(
+    expect.objectContaining({ pathname: '/voice' }),
+  );
+});
+
+test('the hint follows the language', async () => {
+  useSettingsStore.setState({ language: 'en' });
+  await renderWithProviders(<ChatButton screen="camera" />);
+  expect(screen.getByTestId('chat-button').props.accessibilityHint).toBe(
+    'Hold to sell by voice',
+  );
 });
