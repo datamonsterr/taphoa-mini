@@ -4759,6 +4759,22 @@ components:
             output_tokens:
               type: integer
               minimum: 0
+            cost:
+              description: Actual OpenRouter usage costs in USD; absent when accounting is unavailable.
+              type: object
+              additionalProperties: false
+              required: [input_usd, output_usd, total_usd]
+              properties:
+                input_usd:
+                  type: [number, 'null']
+                  minimum: 0
+                output_usd:
+                  type: [number, 'null']
+                  minimum: 0
+                total_usd:
+                  type: number
+                  minimum: 0
+
     AssistantStreamError:
       type: object
       additionalProperties: false

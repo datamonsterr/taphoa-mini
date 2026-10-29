@@ -91,6 +91,15 @@ test('elder-mode switch updates the settings store', async () => {
   expect(useSettingsStore.getState().elderMode).toBe(false);
 });
 
+test('read-aloud switch updates the settings store', async () => {
+  await open();
+  const toggle = screen.getByRole('switch', { name: 'Đọc to số tiền' });
+  await fireEvent.press(toggle);
+  expect(useSettingsStore.getState().speakTotal).toBe(true);
+  await fireEvent.press(screen.getByRole('switch', { name: 'Đọc to số tiền' }));
+  expect(useSettingsStore.getState().speakTotal).toBe(false);
+});
+
 test('text size steps 100 to 200 % and scales this screen', async () => {
   await open();
   const title = screen.getByRole('header', { name: 'Tạp hóa Cô Ba' });

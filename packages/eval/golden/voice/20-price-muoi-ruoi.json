@@ -1,0 +1,17 @@
+{
+  "id": "20-price-muoi-ruoi",
+  "source": "synthetic",
+  "transcript": "một gói bánh quy cosy mười rưỡi",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "bánh quy cosy",
+      "product": "Bánh quy Cosy vani 140g",
+      "quantity": 1,
+      "unit_price": 10500
+    }
+  ],
+  "tags": ["price-shorthand", "price-ruoi"]
+}

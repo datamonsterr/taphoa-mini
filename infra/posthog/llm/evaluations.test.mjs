@@ -85,7 +85,7 @@ test('Vietnamese numeric rubric and environment sampling are explicit', () => {
     d.conditions.every(
       (c) =>
         c.properties[1].value[0] === 'openrouter' &&
-        c.properties[2].value.length === 5,
+        c.properties[2].value.length === 6,
     ),
   );
   for (const fragment of [
@@ -226,6 +226,7 @@ test('verification requires a real score linked to test generation; disabled/dri
     '$ai_target_event_id',
     '$ai_evaluation_skipped',
     "provider = 'openrouter'",
+    'FROM posthog.ai_events',
   ])
     assert.ok(resultsQuery('managed-id').includes(text));
 });
@@ -243,10 +244,11 @@ test('missing captured input/output blocks a run before enqueueing', async () =>
     if (path === 'query/' && body.query.query.includes('ORDER BY timestamp')) {
       for (const fragment of [
         "properties.environment = 'test'",
-        "properties.$ai_provider = 'openrouter'",
-        'properties.$ai_is_error = false',
-        'isNotNull(properties.$ai_input)',
-        'isNotNull(properties.$ai_output_choices)',
+        "provider = 'openrouter'",
+        'is_error = false',
+        'isNotNull(input)',
+        'isNotNull(output_choices)',
+        'FROM posthog.ai_events',
       ])
         assert.ok(body.query.query.includes(fragment));
       return { results: [] };
@@ -301,11 +303,7 @@ test('free judge selection follows preference order and accepts a catalog-backed
     judgeModel(f.client, { model: judgeModels[0] }),
     /does not advertise/,
   );
-  for (const model of [
-    'openai/paid',
-    'nvidia/nemotron-3-ultra-550b-a55b:free',
-    'secret-invalid',
-  ]) {
+  for (const model of ['openai/paid', 'z-ai/glm-5.3-flash', 'secret-invalid']) {
     await assert.rejects(
       judgeModel(f.client, { model }),
       /must be a free OpenRouter/,

@@ -72,16 +72,16 @@ mobile SDK's responsibility; project settings alone cannot prove replay masking.
 `verify.mjs` unwraps and runs every insight's source through `POST query/` with
 `refresh: force_blocking`. Each event series or retention entity gets an event property
 filter `environment = <name>`. HogQL templates scope events by
-`properties.environment` and logs by
+`properties.environment` in both `events` and `posthog.ai_events`, and logs by
 `resource_attributes['deployment.environment.name']`; `--days` applies to all
 queries. Applied insights cover all environments, without an environment filter.
 The table/JSON reports each insight's returned row count, `data` yes/no and `ok`.
 `verify-nonsynthetic.mjs` reuses these queries, excludes
-`coalesce(properties.synthetic, false)` and distinct ID `synthetic-x6-validation`
-at every event scan, and adds the same HogQL predicate to every native event/entity
+`coalesce(toBool(properties.synthetic), false)` and distinct ID `synthetic-x6-validation`
+at every `events` and `posthog.ai_events` scan, and adds the same HogQL predicate to every native event/entity
 (including retention and formula denominator probes). It emits JSON and preserves
 the global quota scope. Log queries stay unchanged because event synthetic flags
-do not apply to the logs table. Unsupported event SQL shapes fail closed. This is
+do not apply to the logs table. Unsupported event SQL shapes (including aliased AI scans) fail closed. This is
 a query-time exclusion; no events or saved insights are modified.
 Empty product insights fail unless allowed with `--allow-empty`. Empty LLM
 insights succeed with `data=no` and `empty (allowed)` because traffic is still
@@ -199,7 +199,7 @@ not an automatically discovered provider limit. The error chart uses generation
 errors / generation calls and unique quota-hit trace ids / completed trace ids.
 Multiple quota scopes cannot double count a turn. Fallback share means calls
 with `fallback_index > 0` / calls to that model. Tool errors include denied calls,
-as the emitter records them. Costs use the total USD property or the sum of
+as the emitter records them. Costs use the total USD column or the sum of
 input/output USD costs; missing prices remain missing. Pricing configuration is
 owned by #63.
 
@@ -211,8 +211,7 @@ owned by #63.
   dashboard spec's generic “LLM feedback event” does not name this source.
 - Tool span names are `tool:<name>`; metrics filter that prefix rather than
   including arbitrary `$ai_span` events. Latency is in seconds; TTFT uses the
-  emitted `time_to_first_token_ms` (the backend also sends the standard seconds
-  property `$ai_time_to_first_token`). `use_cases` is an array, exploded for the
+  `time_to_first_token` column in seconds, multiplied by 1,000 for the chart. `use_cases` is an array, exploded for the
   pie, so multi-case turns contribute to each case.
 - Eval events come from `packages/eval/src/posthog.ts` with `environment=eval`.
   Run/model/scorer charts and the judge chart can therefore be empty for test
@@ -224,10 +223,27 @@ owned by #63.
   permission leak <0.5, binary scores >=0.5. Latency has a run-level p95 bar,
   so it is excluded from the per-case pass-rate table. Scores are raw units,
   including milliseconds for latency, so compare within a scorer.
-- No backend property renames were needed. Historical test traffic observed
-  during validation lacks `$ai_trace_id` and `next_step_kind`; current
-  `apps/backend/crates/api/src/assistant/telemetry.rs` emits both. Consequently
-  grouped trace charts/filters can stay empty until current traffic arrives.
+- AI metrics and error trace filters read `posthog.ai_events`: `trace_id`,
+  `model`, token/cost columns, `latency`, `time_to_first_token`, `span_name` and
+  `is_error`. Live queries confirmed that its `properties` still contains
+  `environment`, `fallback_index`, `use_cases`, `denied` and `eval_run_id`.
+  `next_step_kind` is readable there too; it was absent from test traffic and
+  present in new production traffic. No UUID join is necessary; the existing
+  `{{environment}}` injection is valid on each AI scan without changing
+  `scopeQuery`. Every scan retains `{{days}}` and environment templating.
+- In this project, direct `events.properties.$ai_trace_id` access returns null
+  even though the raw event JSON contains the ID. Quota-hit, action-decision
+  and feedback events retain it in raw JSON. Non-AI trace filters and the quota
+  numerator therefore use `nullIf(JSONExtractString(toString(properties), '$ai_trace_id'), '')`. Feedback counts stay on `events` without trace grouping.
+  The error/quota chart unions two bounded scans before aggregation; per-turn
+  metrics group one AI scan by `trace_id`. There are no event self-joins.
+- [PostHog retention docs](https://posthog.com/docs/ai-observability/data-retention)
+  describe a full `ai_events` copy and a trimmed `events` copy, with the full
+  copy retained for 30 days. Although the docs say metadata remains available
+  historically, this project's direct event-property lookups do not supply the
+  trace fields. These AI queries use the live-verified table and are limited to
+  its available retention window; extending `--days` cannot restore expired AI
+  rows. No backend property renames were needed.
 
 **Shared saved trace filters:** `llm/trace-filters.mjs` manages three favorited
 saved insights named `Assistant traces · Errors`, `Assistant traces · Quota hits`
@@ -271,3 +287,77 @@ then run the tests and offline plan before controller verification.
 The tests inject fake fetch at the HTTP boundary. CI runs only tests and the
 offline plan, with no PostHog credentials or requests. `tests/package.json` and
 `tests/index.mjs` let Node 24 resolve the explicitly requested test directory.
+
+## Masked replay smoke
+
+The Expo web app uses `posthog-js`; native `posthog-react-native` replay does not support
+web or Expo Go. Android APKs need the linked plugin and public PostHog key at bundle time.
+CI uses the existing `POSTHOG_PROJECT_TOKEN` secret and `POSTHOG_HOST` variable for both
+web exports and `assembleRelease`, with `EXPO_PUBLIC_ENVIRONMENT=test`. Setting these only
+when launching a prebuilt APK/export cannot enable analytics retroactively. Missing keys
+leave the app's analytics disabled. EAS builds obtain their public key from EAS environment
+variables independently; the `test`/`e2e` profiles supply the test label.
+
+For a cheap replay proof without an emulator, load the configured credentials in a shell
+without shell tracing, leave `E2E_WEB_EXPORT_READY` unset so the export embeds the values,
+and run:
+
+```sh
+set -a
+. ~/.config/taphoa-mini/secrets.env
+set +a
+EXPO_PUBLIC_POSTHOG_KEY="$POSTHOG_PROJECT_TOKEN" \
+EXPO_PUBLIC_POSTHOG_HOST="${POSTHOG_INGEST_HOST:-https://us.i.posthog.com}" \
+EXPO_PUBLIC_ENVIRONMENT=test \
+EXPO_PUBLIC_API_URL=https://backend-test-70c2.up.railway.app \
+POSTHOG_REPLAY_SMOKE=1 \
+pnpm --filter @taphoa/mobile test:e2e:web replay.spec.ts --project chromium --workers 1
+```
+
+This signs nobody in, submits no form, and never opens the assistant. It interacts with
+the sign-in input for more than 10 seconds, verifies successful snapshot ingestion, masked
+input values, blocked media canaries, and an `environment=test` product event with the
+same session id. Browser automation is captured deliberately only in test. It emits a safe
+`masked-replay-evidence` attachment containing the session id and assertion results.
+
+List `GET /api/projects/<id>/session_recordings/` with the personal key in the Authorization
+header to verify that id after ingestion. For environment scoping, pass event properties
+`[{"key":"environment","value":["test"],"operator":"exact","type":"event"}]` in the
+URL-encoded `properties` parameter. A read-only HogQL query of the matching `$session_id`
+can independently confirm its `environment=test` `$screen` event. Browser `$snapshot`
+envelopes deliberately omit super properties, so environment comes from the correlated
+product event, not the snapshot envelope. Project settings alone never prove masking.
+
+## Production smoke and dashboard PNG exports
+
+The opt-in `production-smoke` Playwright project uses one persistent `+clerk_test`
+user and one store named **Smoke test (X9) - do not use**. It is excluded from normal
+projects. See the [production smoke proof](../../docs/specs/assistant/dod/traffic-proof.md#production-smoke)
+for the run command, store ID and exact coverage. App events from a web export built
+with `EXPO_PUBLIC_SMOKE=1` carry `smoke=true`. Backend events retain their ordinary
+store group; no synthetic captures or production backend configuration changes are needed.
+
+Both verification CLIs accept `--only-store <UUID>` or `--exclude-store <UUID>`.
+They filter every event scan/entity and log store attribute, including formula
+denominator probes. They fail closed on unsupported query shapes. Global provider
+quota and online-judge charts keep their existing all-environment scope; a store
+filter does not turn those into store-attributed evidence. Rows without a store
+are preserved by exclusion and omitted by inclusion.
+
+```sh
+node infra/posthog/verify.mjs --environment production --days 1 --only-store <UUID> --json
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 1 --exclude-store <UUID>
+node infra/posthog/export-dashboards.mjs
+# Optional alternate local output directory:
+node infra/posthog/export-dashboards.mjs --output-dir docs/specs/assistant/dod/screenshots
+```
+
+The exporter matches the 11 managed dashboards by exact name, creates each PNG
+through `POST exports/`, polls until `has_content`, then downloads `content/`.
+Only the initial API request carries Authorization; the signed HTTPS redirect
+receives no API credential. PNG signatures are checked before saving. A timestamped
+JSON manifest records dashboard/export IDs and filenames without signed URLs.
+Exports use the **saved all-environment dashboard queries**; they do not temporarily
+mutate dashboards or prove production traffic on their own. Pair these visual
+snapshots with the environment-scoped verification report. Exports require
+`export:write` and `export:read` API scopes ([API reference](https://posthog.com/docs/api/exports)).

@@ -3,7 +3,7 @@ use super::{
     Language,
     eval::{self, EvalContext},
     grounding,
-    model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage},
+    model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage, UsageCost},
     quota::{self, QuotaOutcome},
     stream::{self, Sender, StreamEvent},
     telemetry, threads,
@@ -28,7 +28,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "4";
+pub const PROMPT_VERSION: &str = "8";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -353,6 +353,13 @@ fn render_prompt(
     if let Some(yesterday) = today.pred_opt() {
         out.push_str(&format!("\nHôm qua (yesterday): {yesterday}."));
     }
+    for days in [30, 60] {
+        if let Some(from) = today.checked_sub_days(chrono::Days::new(days - 1)) {
+            out.push_str(&format!(
+                "\n{days} ngày gần nhất / last {days} days (inclusive): {from}..{today}."
+            ));
+        }
+    }
     for key in ["receipt_id", "image_id"] {
         if let Some(id) = context.and_then(|c| c[key].as_str()) {
             let label = if key == "image_id" {
@@ -622,7 +629,30 @@ async fn run_turn_inner(
         error: None,
         grounding_retry: false,
     };
-    let openrouter_exhausted = quota::openrouter_exhausted(state).await;
+    if super::policy::seller_day_close(ctx.actor.role, &record.input) {
+        let reply = match ctx.language {
+            Language::Vi => {
+                "Số liệu chốt sổ, tiền kiểm quỹ và chênh lệch quỹ chỉ chủ cửa hàng được xem. Em hỏi trực tiếp chủ cửa hàng nhé."
+            }
+            Language::En => {
+                "Only the store owner can view day-close and cash reconciliation figures. Please ask the owner."
+            }
+        };
+        record.model = Some("policy".into());
+        record.usage.cost = Some(UsageCost {
+            input_usd: Some(0.0),
+            output_usd: Some(0.0),
+            total_usd: 0.0,
+        });
+        record
+            .transcript
+            .push(ChatMessage::assistant(Some(reply.into()), vec![]));
+        text(&mut record, tx, reply.into());
+        return record;
+    }
+    let openrouter_exhausted = config
+        .free_quota_applies(record.eval.as_ref().and_then(|e| e.model.as_deref()))
+        && quota::openrouter_exhausted(state).await;
     let quota = if openrouter_exhausted {
         Ok(QuotaOutcome::Exceeded)
     } else if record.eval.is_some() {
@@ -675,6 +705,7 @@ async fn run_turn_inner(
     }
     let max_calls = config.max_model_calls.min(6);
     let mut first_model_index = 0;
+    let mut received_response = false;
     while record.attempts.len() < max_calls {
         let mut answer = None;
         let mut all_timeouts = true;
@@ -691,7 +722,8 @@ async fn run_turn_inner(
                 tools: state.assistant.registry.specs_for(&ctx.actor),
                 max_tokens: 2048,
                 reasoning_effort: Some(config.reasoning_effort.clone()),
-                tool_choice: None,
+                tool_choice: (record.grounding_retry && !record.tools.iter().any(|t| t.ok))
+                    .then(|| "required".into()),
             };
             let (deltas, mut rx) = mpsc::unbounded_channel();
             let started = Instant::now();
@@ -744,14 +776,12 @@ async fn run_turn_inner(
                 attempt.usage = response.usage;
                 attempt.time_to_first_token = response.time_to_first_token.or(first_token);
                 attempt.finish_reason = Some(response.finish_reason.clone());
-                record.usage.input_tokens = record
-                    .usage
-                    .input_tokens
-                    .saturating_add(response.usage.input_tokens);
-                record.usage.output_tokens = record
-                    .usage
-                    .output_tokens
-                    .saturating_add(response.usage.output_tokens);
+                if received_response {
+                    record.usage.accumulate(response.usage);
+                } else {
+                    record.usage = response.usage;
+                    received_response = true;
+                }
             }
             let result = result.and_then(|response| {
                 if response
@@ -870,7 +900,7 @@ async fn run_turn_inner(
                 // The model needs the rejected draft and the mismatches to repair it.
                 // Neither becomes evidence: only user input and tools enter the guard.
                 messages.push(ChatMessage::assistant(Some(answer), vec![]));
-                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, không phải dữ liệu. {}", if record.tools.iter().any(|t| t.ok) {
+                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, chưa gửi cho người dùng, không phải dữ liệu. Viết lại toàn bộ câu trả lời cuối để trả lời câu hỏi ban đầu; không nói câu trên đã đúng hay giải thích việc sửa bản nháp. {}", if record.tools.iter().any(|t| t.ok) {
                     "Có số liệu chưa khớp. Dùng lại kết quả công cụ trong lượt này, viết đúng số và đơn vị; chỉ gọi thêm công cụ nếu thiếu dữ liệu. Không lặp lại công cụ đã có dữ liệu."
                 } else {
                     "Hãy gọi công cụ để lấy số liệu trước khi trả lời."

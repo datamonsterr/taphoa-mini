@@ -39,8 +39,10 @@ import type { CreateSaleRequest, Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { fill, useLabels, useT } from '@/lib/i18n';
 import { newUuid, saleCode } from '@/lib/uuid';
+import { useSettingsStore } from '@/stores/settings';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
-import type { CartLine } from '@/stores/cart';
+import { cartLineKey, type CartLine } from '@/stores/cart';
+import { UnitChooser } from '@/features/checkout/UnitChooser';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { applyKey } from '@/components/ui/keypad';
@@ -48,6 +50,7 @@ import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
+import { useSpokenTotal } from './speak';
 import { buildVietQr } from './vietqr';
 
 /** How long the green "received" state shows before returning to the camera. */
@@ -170,6 +173,12 @@ export function PayScreen() {
     total,
     Math.max(roundStep, Math.floor(total / roundStep) * roundStep),
   );
+  const speakTotal = useSettingsStore((s) => s.speakTotal);
+  useSpokenTotal({
+    enabled: speakTotal,
+    total,
+    change: method === 'cash' && tendered !== null ? change : 0,
+  });
   const creditAmount = Math.max(0, total - paidNow);
   const confirmDisabled =
     sale.isPending ||
@@ -219,14 +228,15 @@ export function PayScreen() {
           ? { cash_received: cashGiven }
           : { vietqr_memo: memo }),
       lines: lines.map((line) => {
-        let id = lineIds.get(line.productId);
+        let id = lineIds.get(cartLineKey(line));
         if (!id) {
           id = newUuid();
-          lineIds.set(line.productId, id);
+          lineIds.set(cartLineKey(line), id);
         }
         return {
           id,
           product_id: line.productId,
+          ...(line.unitId ? { unit_id: line.unitId } : {}),
           source: line.manual ? 'manual' : (line.source ?? 'camera'),
           quantity: line.qty,
           unit_price: line.price,
@@ -464,7 +474,10 @@ export function PayScreen() {
         contentContainerStyle={styles.itemsContent}
       >
         {lines.map((line) => (
-          <OrderItem key={line.productId} line={line} />
+          <View key={cartLineKey(line)}>
+            <OrderItem line={line} />
+            <UnitChooser line={line} />
+          </View>
         ))}
       </ScrollView>
 

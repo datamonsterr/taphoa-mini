@@ -53,9 +53,32 @@ Environment (values are never printed):
 | `EVAL_STORE_ID`                         | Optional: `X-Store-Id`, and the store the oracles read (default `e7a10e7a-0000-4000-8000-000000000000`).  |
 | `EVAL_DATABASE_URL`                     | Database the oracle SQL reads (the seeded eval store).                                                    |
 | `OPENROUTER_EVAL_API_KEY`               | Quota guard and judge.                                                                                    |
-| `EVAL_JUDGE_MODELS`                     | Ordered judge models (default two free models).                                                           |
+| `EVAL_JUDGE_MODELS`                     | Ordered judge models (default `google/gemini-2.5-flash`, calibrated at 90% agreement / MAE 0.5).          |
 | `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST` | Where `eval_*` events go (host default US cloud).                                                         |
 | `EVAL_TODAY`                            | Business date to pin (default `2026-10-20`).                                                              |
+
+The paid default is `z-ai/glm-5.3-flash`; `nvidia/nemotron-3.5-lightning:free` is a last resort.
+For paid-only model overrides, the preflight reads the key's finite USD limit and remaining
+credits from `/api/v1/key`, allowing $0.002 per estimated request plus $0.10 reserve.
+Free overrides retain the daily request quota check. Set `ASSISTANT_MODELS` in the harness
+environment to the same ordered list as the backend when using its default. The quota guard
+examines the first configured model; a free last resort does not block the paid primary.
+Usage costs in results come from each completed turn's OpenRouter accounting, including
+all tool-loop generations. Missing accounting is omitted; key usage delta also captures
+failed/cancelled requests and judge charges.
+
+The judge receives the unchanged rubric, user-message history, final answer and fixture
+context (business date, role, requested language, SQL assertions, proposed actions and the
+actual tool messages persisted for the final turn). Tool evidence is read from the eval
+database, scoped to its store and the newly created thread. Missing live evidence makes
+the case unjudged rather than silently grading with incomplete context. `calibrate` uses
+the same serializer; the original hand-labelled items have no user history or tool data,
+so their context contains only the pinned business date and timezone. Judge-input changes
+require a fresh passing calibration, without changing labels, rubrics or bars.
+
+English language detection excludes exact known entity names from resolved SQL facts,
+so answers can preserve Vietnamese product names while the surrounding prose must still
+pass the existing English heuristic. Unknown quoted text is not excluded.
 
 The backend must run with `ASSISTANT_ALLOW_EVAL_HEADERS=1`. The runner sends
 `X-Taphoa-Eval-Run` and `X-Taphoa-Today` on every request, and `X-Taphoa-Eval-Model` when
@@ -90,13 +113,87 @@ the tokens last about 60 s. Pass `CLERK_SECRET_KEY` instead.
 Without `CLERK_SECRET_KEY` the seed creates no Clerk users and `identities` fails with the
 missing email.
 
+## Voice golden set (epic V5)
+
+Audio cases for the voice sale (`POST /v1/voice/utterances`, `mode=sale`). Spec:
+`docs/specs/voice/voice.md`. Code: `src/voice/`.
+
+| Path                            | What                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `golden/voice/<id>.m4a`         | The clip: AAC, 16 kHz mono, 32 kbps.                                                                    |
+| `golden/voice/<id>.json`        | Sidecar: expected `transcript`, `lines`, `payment_method`, `customer_name`, `intent`, `tags`, `source`. |
+| `scripts/voice-synth.ts`        | Makes the synthetic clips from the sidecars.                                                            |
+| `src/voice/run.ts`              | The runner (`pnpm --filter @taphoa/eval run voice`).                                                    |
+| `results/voice-model-choice.md` | Method, candidates and the table the controller fills after the real run.                               |
+
+A sidecar line is `{ spoken, product, quantity, unit_price }`. `product` is the exact eval store
+name (`STORE.md`) or null for a deliberate unknown; `status` (`matched`, `ambiguous`, `unknown`)
+defaults from it. `unit_price` is the **expected price in dong** when the seller says one (after
+the shorthand rules: "hai chục" is 20000) and null when none is spoken, which means the line must
+not carry a price from speech. For "ba chai ... mười lăm nghìn" with a catalog price of 5000 the
+expected unit price is 5000. A line counts as right when product, quantity and price are all
+right; lines match by product name (or `product_id`), so order does not matter. Tags: `smoke`
+(exactly 10), `single-line`, `multi-line`, `price-*`, `line-total`, `credit`, `transfer`, `chat`,
+`silence`, `unknown`, `ambiguous`, `two-speakers`, `noise`. `intent: none` is a clip with nothing
+to hear: the right answer is a 422 `no_speech`. The 52 committed clips are all
+`"source": "synthetic"` (about 1 MB).
+
+### Synthetic clips
+
+```sh
+node scripts/voice-synth.ts            # clips that do not exist yet
+node scripts/voice-synth.ts --force --only 01-single-coca
+```
+
+Needs `ffmpeg` and `OPENROUTER_EVAL_API_KEY` (environment, else
+`~/.config/taphoa-mini/secrets.env`; never printed). It calls OpenRouter
+`POST /api/v1/audio/speech` with `microsoft/mai-voice-2.1-flash`, alternating the voices
+`vi-VN-Harper` and `vi-VN-Grant` (two-speaker clips use `segments`, one voice each), mixes pink
+noise for `"noise": true`, and writes 3 s of silence for an empty transcript. A full set costs
+cents.
+
+### Recorded clips
+
+Owner and family recordings join or replace the synthetic ones: record on the phone, export as
+m4a (`audio/mp4`, at most 30 s, 1 MB), save it as `golden/voice/<id>.m4a` next to a sidecar with
+`"source": "recorded"`, and run `pnpm --filter @taphoa/eval test` (it checks that every sidecar
+parses, has a clip and names real store products). To replace a synthetic clip keep its id and
+flip `source`. The script never overwrites an existing clip unless `--force` is given, so flip
+`source` first and do not pass `--force` for it.
+
+### Running
+
+```sh
+pnpm --filter @taphoa/eval run voice -- --subset smoke      # the 10 smoke clips
+pnpm --filter @taphoa/eval run voice                        # every clip
+pnpm --filter @taphoa/eval run voice -- --model <slug> --posthog-cost
+```
+
+The runner posts each clip as the eval store's lead (`BACKEND_URL`, `EVAL_LEAD_TOKEN` or
+`CLERK_SECRET_KEY`, `EVAL_STORE_ID`, as in "Live runs"), one at a time, with `X-Taphoa-Eval-Run`
+and `X-Taphoa-Today`. The quota guard stops before the store's daily cap
+(`VOICE_DAILY_UTTERANCES_PER_STORE`, default 300, or `--daily-cap`) minus `--reserve` (10) minus
+`--used-today`, and at `--max-cases` (100); a 429 `voice_quota` aborts the run. `--model` sends
+`X-Taphoa-Eval-Model`; the voice backend does not read it yet (TODO in V1), so until then set
+`VOICE_MODELS` on the backend instead. Output: `results/voice-<date>-<model>[-smoke].json` and
+`.md`, plus `eval_voice_case_scored` and `eval_voice_run_completed` events in PostHog when
+`POSTHOG_PROJECT_TOKEN` is set. Exit code 0 when line accuracy is at least 90 % and price
+accuracy at least 97 %, 1 otherwise or when aborted, 2 for bad usage.
+
+Cost per utterance comes from the response if it carries one, else `--posthog-cost` sums
+`$ai_total_cost_usd` of `$ai_generation` events by `$ai_session_id` = utterance id
+(`POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID`, `POSTHOG_API_HOST`).
+
+CI: `gh workflow run eval.yml -f voice=smoke` (or `full`) runs the `voice` job of `eval.yml` on
+the local stack. It is manual only, never on a pull request or the nightly schedule.
+
 ## Local stack
 
 `scripts/local-stack.sh` brings up a throwaway stack on your machine for live runs: the eval
 store in a database of the shared dev Postgres (`docker compose up -d` provides Postgres on
 55432 and Redis on 56379), and a backend with `ASSISTANT_ALLOW_EVAL_HEADERS=1` and the real
 OpenRouter provider (`ASSISTANT_MODEL_PROVIDER=openrouter`, `ASSISTANT_MODELS` from
-`.env.example`, Redis logical database 7).
+the environment override or `.env.example`, Redis logical database 7).
 
 ```sh
 packages/eval/scripts/local-stack.sh up       # build, create db, seed --reset, start, wait for /readyz
@@ -118,7 +215,7 @@ export EVAL_STORE_ID=e7a10e7a-0000-4000-8000-000000000000
 
 Then load the secrets for the harness (`set -a; source ~/.config/taphoa-mini/secrets.env; set +a`
 in bash or zsh) and run `pnpm --filter @taphoa/eval run smoke -- --concurrency 1`. Live runs
-spend the OpenRouter free quota; `smoke --stub` does not.
+spend OpenRouter credit (or free request quota for `:free` overrides); `smoke --stub` does not.
 
 Options (environment): `EVAL_STACK_PG_URL`, `EVAL_STACK_DB` (default `taphoa_eval_local`),
 `EVAL_STACK_REDIS_URL` (default `redis://localhost:56379/7`; `up` and `down` flush that
@@ -140,10 +237,9 @@ the harness as `OPENROUTER_EVAL_API_KEY`.
   (`smoke --concurrency 1 --no-posthog` against the local stack) when
   `apps/backend/crates/api/src/assistant/` and `members.clerk_user_id` exist in the checkout
   and the secrets are available, that is, not on a pull request from a fork. Otherwise it runs the dry run
-  (`smoke --stub`). A newer push cancels a running smoke job, which spares the shared free
-  OpenRouter quota. Results are the artifact `eval-smoke-results` and the job summary. Pull
+  (`smoke --stub`). A newer push cancels a running smoke job, which bounds shared OpenRouter spend. Results are the artifact `eval-smoke-results` and the job summary. Pull
   requests send nothing to PostHog.
-- **Nightly workflow** (`eval.yml`). Runs at 00:30 UTC, just after the OpenRouter quota resets,
+- **Nightly workflow** (`eval.yml`). Runs at 00:30 UTC,
   and on demand. A guard job skips a full run when another `eval full` run already succeeded
   or is running today (UTC), unless `force` is set, and skips the schedule until the assistant
   is on `main`. The run job builds the binaries, starts the stack, runs the set and sends the

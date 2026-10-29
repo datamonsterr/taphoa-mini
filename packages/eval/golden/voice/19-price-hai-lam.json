@@ -1,0 +1,17 @@
+{
+  "id": "19-price-hai-lam",
+  "source": "synthetic",
+  "transcript": "một chai nước rửa chén sunlight hai lăm",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "nước rửa chén sunlight",
+      "product": "Nước rửa chén Sunlight 750g",
+      "quantity": 1,
+      "unit_price": 25000
+    }
+  ],
+  "tags": ["price-shorthand", "price-bare"]
+}

@@ -1,8 +1,10 @@
-# Traffic proof — issue #66, Phase A
+# Traffic proof — issue #66
 
-Status: **incomplete**. This report records real API reads and deployed test traffic;
-it does not claim that every chart has data. All timestamps are UTC. Screenshots
-are reserved for the controller under this directory; no PostHog UI login was attempted.
+Status: **incomplete DoD**. The Phase A sections below are historical. The later
+[Production smoke](#production-smoke) section records the owner-authorized production
+flow and current evidence. A populated chart is not proof of mature retention or
+production judge sampling. All timestamps are UTC; screenshots come from the
+PostHog exports API. No PostHog UI login was attempted.
 
 ## Scope and execution
 
@@ -562,3 +564,342 @@ must remain because its branch is unmerged; no cleanup of other worktrees is
 appropriate for this task. `git worktree list` reported 40
 registered worktrees; this branch/worktree remains among them, and none was
 removed.
+
+## Production smoke
+
+Owner decision: issue #66's latest owner comment authorizes real production use in
+one dedicated test store. This section supersedes Phase A's production read-only
+restriction and screenshot reservation. It does **not** mark all dashboard DoD rows
+complete.
+
+### Identity, isolation and timing
+
+- Backend: `https://backend-production-5f5c.up.railway.app`, confirmed with
+  `RAILWAY_TOKEN="$RAILWAY_TOKEN_PRODUCTION" railway status --json`.
+- Active successful deployment at readback: `f768357b-932a-4c01-9a2a-a753c7a246a3`,
+  commit `c043856131b437a33477066b0ddbb653ca89947f`. A stopped/building deployment was
+  also listed; no deploy or configuration change was performed here.
+- Local source rebased onto `origin/main`: `1608886` (includes PR #123). This is not a claim that the
+  deployed backend runs that revision.
+- Dedicated Clerk user: `user_3LK…BnUQ`; masked email
+  `smoke-prod-x9+…@example.com`. The fixed development-instance `+clerk_test`
+  identity is reused, never deleted by Playwright teardown.
+- Store: **Smoke test (X9) - do not use**,
+  `318e7cdf-8132-47a1-b902-cc806ec59121`.
+- Lead member: `48771b76-d16e-4e62-b4f4-e153662f5b98`.
+- Provisioning began **2026-10-28T19:29:01Z**; product flow completed through day
+  close in **19:34:47Z–19:37:08Z**; assistant recovery completed in
+  **19:38:47Z–19:41:36Z**. All dates/times here are UTC (the store's business date
+  was **2026-10-29**).
+
+The script refuses a fixed user with any membership outside the single named smoke
+store. Browser writes are intercepted and refused unless `X-Store-Id` is that store;
+initial onboarding alone may create the named store. Node-side writes use the same
+validated membership and scoped API client. **Zero blocked/out-of-scope writes**
+were observed. No other store/user was edited, no PostHog event was fabricated or
+deleted, and no production rate limit, model provider, eval header, flag, dashboard
+or backend variable was changed.
+
+### Flow and recovery evidence
+
+The flow exercised real email/code sign-in, first-run onboarding, three product
+enrollments, fake-webcam capture through real production recognition, a UI cash
+checkout, a manual-line sale and void, a credit sale, UI debt repayment, inventory
+and stock screens, day/week reports, receipt OCR and confirmation, digest-card
+entry, and day close. Product creation, credit-sale seeding, stock adjustments and
+receipt confirmation use the real scoped API; camera checkout, repayment and day
+close use the UI. Nothing mocks production responses. The receipt fixture's
+retained lines were explicitly mapped to the smoke product and paid from `other`.
+The digest screen was opened; no push delivery or generated digest content is claimed.
+
+Exactly **four real assistant messages** were sent across two threads. The first
+three requests were short Vietnamese questions about sales, low stock and a
+1,000đ electricity-expense proposal. The fourth came from the **restock next-step
+chip**. All four persisted replies identify
+`nvidia/nemotron-3-ultra-550b-a55b:free`. A thumbs-up was stored on the first reply;
+the proposed expense was **rejected**, so it made no expense write.
+
+- Main thread: `01a18403-dd2a-759f-9382-40fe5ec94699` (three replies).
+- Chip thread: `01a18406-dca2-75ba-b290-0614e7f970d7` (one reply).
+- Rejected expense action: `01a18406-9bb2-7365-9b6f-c2629de69fc6`.
+- Receipt: `01a18403-4916-7460-b6c6-2c62a67b4323`, confirmed.
+- Final readback at **19:43:58Z**: one membership, three products, one smoke
+  customer with **0đ balance**, four persisted assistant replies, thumbs-up, and
+  the expense action in `rejected` status. No pending assistant actions remained.
+
+The first complete attempt was recovered in stages because of harness mistakes:
+request-body assertions depended on fixtures intentionally excluded from this
+project; the void request initially omitted its required reason; direct navigation
+to a dynamic customer URL returned static-host 404; Chromium could not retrieve a
+completed SSE body. These were corrected to observe response data, supply the
+reason, navigate through the debt list, and assert rendered completion plus the
+persisted backend reply. Earlier attempts produced tagged product activity within
+the smoke store. The fourth attempt completed all product steps and the first LLM
+reply. The final **resumed Playwright run passed (1/1, 2.9 minutes)**, reused that
+reply and sent only the remaining three messages. A fresh uninterrupted default
+run after those repairs was not repeated, to preserve the four-message budget.
+The optional `E2E_SMOKE_RESUME_THREAD` mode explicitly skips already-covered product
+steps and requires the supplied smoke-store thread to contain that first exchange.
+
+Machine-readable run evidence and all 59 rows for each verification scope are in
+[production-smoke-results.json](production-smoke-results.json). It contains masked
+identity, IDs, model names, counts and outcomes, without tokens or reply content.
+
+### Reproduce
+
+Use Node 24 and pnpm 11.5.0 from the repository root. The regular Chromium/perf
+projects exclude this spec; the opt-in environment selects only `production-smoke`.
+Never use the normal fresh-store fixtures on production.
+
+```bash
+pnpm install --frozen-lockfile
+apps/mobile/e2e-web/fixtures/make-video.sh
+set -a
+source ~/.config/taphoa-mini/secrets.env
+set +a
+export EXPO_PUBLIC_API_URL=https://backend-production-5f5c.up.railway.app
+export EXPO_PUBLIC_ENVIRONMENT=production
+export EXPO_PUBLIC_SMOKE=1
+export EXPO_PUBLIC_POSTHOG_KEY="$POSTHOG_PROJECT_TOKEN"
+export EXPO_PUBLIC_POSTHOG_HOST="$POSTHOG_INGEST_HOST"
+export E2E_PRODUCTION_SMOKE=1
+export E2E_WEB_PORT=8106
+CI=1 pnpm --filter @taphoa/mobile exec playwright test \
+  --project=production-smoke --workers=1
+# E2E_WEB_EXPORT_READY=1 can reuse only this same production/smoke export.
+# Recovery only, after checking the persisted first exchange:
+# E2E_WEB_EXPORT_READY=1 E2E_SMOKE_RESUME_THREAD=<thread UUID> CI=1 \
+#   pnpm --filter @taphoa/mobile exec playwright test --project=production-smoke --workers=1
+
+node infra/posthog/verify.mjs --environment production --days 2 --json
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 1
+node infra/posthog/verify.mjs --environment production --days 2 \
+  --only-store 318e7cdf-8132-47a1-b902-cc806ec59121 --json
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 1 \
+  --exclude-store 318e7cdf-8132-47a1-b902-cc806ec59121
+node infra/posthog/export-dashboards.mjs
+```
+
+### Verification
+
+Refreshed after integrating PR #123 and the AI store filter on **2026-10-28 UTC**:
+production all-events completed **20:10:29Z** and smoke-store-only **20:10:18Z**.
+Both use `--days 2`, query **59/59 insights**, and have **zero query errors and zero
+Unsupported rows**. Both exit **1** because the two activation insights and backend
+error-log insight have no input. Empty LLM rows remain allowed by existing verifier
+behavior; no allow-empty override was used.
+
+| Scope                                | Insights with input / 59 | Query errors | Unsupported rows | Exit |
+| ------------------------------------ | -----------------------: | -----------: | ---------------: | ---: |
+| Production, all events, 2 days       |                       52 |            0 |                0 |    1 |
+| Production, smoke store only, 2 days |                       52 |            0 |                0 |    1 |
+
+The earlier one-day non-synthetic and test snapshots remain in the JSON evidence
+with their original `days: 1`; they were not refreshed here. The original pre-smoke
+production snapshot had input in 4/59 insights.
+
+The shared quota and online-judge charts intentionally span **all environments**.
+Their rows remain global even with `--only-store`; they are not proof of production
+quota consumption or this smoke's 10% judge sampling. Thus 52 includes two global
+charts; **50 populated insights are environment/store-scoped**. Cells below show
+**data yes/no (result rows)**, not event counts, completed funnels or retention.
+
+| Insight                                                   | Production, all events (2 days) | Smoke store only (2 days) |
+| --------------------------------------------------------- | ------------------------------- | ------------------------- |
+| Product overview · DAU / WAU / MAU                        | yes (3)                         | yes (3)                   |
+| Product overview · Active stores                          | yes (1)                         | yes (1)                   |
+| Product overview · New stores per week                    | yes (1)                         | yes (1)                   |
+| Product overview · Week-1 and week-4 retention            | yes (1)                         | yes (1)                   |
+| Product overview · Stickiness                             | yes (1)                         | yes (1)                   |
+| Product overview · Sales per active store per day         | yes (1)                         | yes (1)                   |
+| Product overview · Revenue per day                        | yes (1)                         | yes (1)                   |
+| Product overview · Payment method mix including credit    | yes (2)                         | yes (2)                   |
+| Activation funnel · Conversion by sign-in method          | no (0)                          | no (0)                    |
+| Activation funnel · Time to convert by sign-in method     | no (0)                          | no (0)                    |
+| Checkout and recognition · Scans by match class           | yes (1)                         | yes (1)                   |
+| Checkout and recognition · Unknown rate                   | yes (1)                         | yes (1)                   |
+| Checkout and recognition · Scan latency p95               | yes (1)                         | yes (1)                   |
+| Checkout and recognition · Sales with manual lines share  | yes (1)                         | yes (1)                   |
+| Checkout and recognition · Voids per 100 sales            | yes (1)                         | yes (1)                   |
+| Receipts and stock · Scan to confirmation by via          | yes (1)                         | yes (1)                   |
+| Receipts and stock · Receipt lines matched share          | yes (1)                         | yes (1)                   |
+| Receipts and stock · Stock adjustments by reason and via  | yes (1)                         | yes (1)                   |
+| Assistant adoption · Opens by entry                       | yes (2)                         | yes (2)                   |
+| Assistant adoption · Weekly users sending a message       | yes (1)                         | yes (1)                   |
+| Assistant adoption · Messages per user                    | yes (1)                         | yes (1)                   |
+| Assistant adoption · Action confirm rate by kind          | yes (1)                         | yes (1)                   |
+| Assistant adoption · Feedback ratio                       | yes (1)                         | yes (1)                   |
+| Assistant adoption · Next-step CTR by kind and position   | yes (5)                         | yes (5)                   |
+| Assistant adoption · Voice input share and success        | yes (1)                         | yes (1)                   |
+| Assistant adoption · Digest open rate (card vs push)      | yes (1)                         | yes (1)                   |
+| Debt book · Credit sales share                            | yes (1)                         | yes (1)                   |
+| Debt book · Debts recorded vs repaid per week             | yes (2)                         | yes (2)                   |
+| Debt book · Customers created                             | yes (1)                         | yes (1)                   |
+| Debt book · Overdue reminder shares                       | yes (1)                         | yes (1)                   |
+| Reliability · Exceptions trend                            | yes (1)                         | yes (1)                   |
+| Reliability · Crash-free sessions                         | yes (1)                         | yes (1)                   |
+| Reliability · Backend error logs per route                | no (0)                          | no (0)                    |
+| Reliability · API p95 per route                           | yes (32)                        | yes (27)                  |
+| Reliability · 5xx rate                                    | yes (32)                        | yes (27)                  |
+| Assistant health · Turns per day by environment           | yes (1)                         | yes (1)                   |
+| Assistant health · Turn latency p50 / p95                 | yes (1)                         | yes (1)                   |
+| Assistant health · Time to first token p50 / p95 by model | yes (1)                         | yes (1)                   |
+| Assistant health · Model calls per turn                   | yes (2)                         | yes (2)                   |
+| Assistant health · Error and quota rate                   | yes (1)                         | yes (1)                   |
+| Assistant health · Fallback rate by model                 | yes (1)                         | yes (1)                   |
+| Cost and tokens · Input / output tokens per day by model  | yes (1)                         | yes (1)                   |
+| Cost and tokens · Tokens per turn p50 / p95               | yes (1)                         | yes (1)                   |
+| Cost and tokens · Cost per day by model                   | yes (1)                         | yes (1)                   |
+| Cost and tokens · Requests vs. 1,000/day free quota       | yes (2)                         | yes (2)                   |
+| Tools and actions · Tool calls per day by tool            | yes (4)                         | yes (4)                   |
+| Tools and actions · Tool error and denied rate by tool    | yes (4)                         | yes (4)                   |
+| Tools and actions · Tool latency p95 by tool              | yes (4)                         | yes (4)                   |
+| Tools and actions · Use-case mix                          | yes (4)                         | yes (4)                   |
+| Tools and actions · Proposed action outcomes by kind      | yes (1)                         | yes (1)                   |
+| Tools and actions · Next-step turns by kind               | yes (1)                         | yes (1)                   |
+| Tools and actions · Next-step chip to turn                | yes (1)                         | yes (1)                   |
+| Quality · User feedback (thumbs) over time                | yes (1)                         | yes (1)                   |
+| Quality · Eval scores per run by model                    | no (0)                          | no (0)                    |
+| Quality · Eval pass rate by use case                      | no (0)                          | no (0)                    |
+| Quality · Online judge score on production sample         | yes (1)                         | yes (1)                   |
+| Assistant traces · Errors                                 | no (0)                          | no (0)                    |
+| Assistant traces · Quota hits                             | no (0)                          | no (0)                    |
+| Assistant traces · Rejected actions                       | yes (1)                         | yes (1)                   |
+
+The corrected trace queries now return **2 rows** for model calls per turn,
+**1 row** for tokens per turn, and **1 rejected-action trace** in each production
+scope. The four real assistant turns needed no additional model traffic.
+
+### Empty charts and practical limits
+
+| Insight / group                        | Reason and next step                                                                                                                                                                                                                                | Cheap flow addition?                                                                                                                                              |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Activation conversion; time to convert | No `signed_in` event is emitted by current mobile source (`signed_in` appears only in the analytics contract type outside tests). Real email/code login was exercised repeatedly. The time chart also needs an ordered completed activation funnel. | A producer fix is needed; replaying UI login cannot supply an absent emitter. Do not fabricate sign-ins or create another production store to inflate conversion. |
+| Backend error logs per route           | No qualifying backend error-level log input. Successful access logs populate p95 and 5xx-rate charts.                                                                                                                                               | No deliberate production fault was introduced.                                                                                                                    |
+| Error / quota trace filters            | The refreshed AI-column queries run successfully but find no assistant error or quota hit in this bounded successful flow.                                                                                                                          | No intentional quota exhaustion or failing turn was added.                                                                                                        |
+| Eval scores; eval pass rate            | Harness events correctly use `environment=eval`. A production app session emits no eval-case scores.                                                                                                                                                | Do not relabel eval results as production.                                                                                                                        |
+
+Cheap coverage additions were already included: three enrollments, a manual sale
+and void, credit/repayment, stock adjustments, receipt scan/confirmation, digest
+screen opening, and a real restock chip. No further rerun can cheaply fill the
+remaining missing producers/eval inputs. The final verifier confirms
+those additions have scoped input.
+
+Retention has a new real sales cohort, **not observed week-1/week-4 return
+retention**. Voice input share is a valid **0%** with message-denominator evidence;
+there were no `voice_input_used` events and no Android/iOS voice or push run.
+Digest evidence is the card entry's real `digest_opened`, not a push receipt or a
+true exposure-to-open rate. Real app `$exception` events were received during the
+web runs; this is traffic proof, not a claim of an exception-free application.
+No new replay-masking acceptance or missing Users-and-stores dashboard provisioning
+is claimed by this task.
+
+### Tagging and cleanup decision
+
+**Retain and tag**, so the same user/store can be reused. The store and products
+are explicitly named smoke fixtures; the customer balance is zero and the assistant
+expense was rejected. Backend events carry `$groups.store` with the store UUID;
+app events additionally carry `smoke=true` from `EXPO_PUBLIC_SMOKE=1`. No production
+backend flag/deploy is required. The flag persists across analytics reset/sign-out
+and is absent from ordinary builds. Initial pre-membership app events can lack a
+store group, which is why the smoke property is also useful.
+
+Use this event predicate to exclude all current smoke traffic in HogQL (including
+pre-store app events):
+
+```sql
+NOT coalesce(properties.smoke, false)
+AND coalesce(properties.$groups.store, '') != '318e7cdf-8132-47a1-b902-cc806ec59121'
+```
+
+To inspect just the store:
+
+```sql
+properties.environment = 'production'
+AND properties.$groups.store = '318e7cdf-8132-47a1-b902-cc806ec59121'
+```
+
+For backend logs, use
+`coalesce(attributes['taphoa.store.id'], '') != '318e7cdf-8132-47a1-b902-cc806ec59121'`.
+The CLI's optional `--exclude-store` / `--only-store` apply the group/store-log
+predicate at every supported scan/entity, including formula denominators; the CLI
+store option alone does not exclude ungrouped app events via `smoke`. Native entities
+receive equivalent HogQL predicates. Unsupported SQL fails closed, and the two
+intentionally global charts remain global. For `posthog.ai_events`, the predicate
+uses `JSONExtractString(toString(properties), '$groups', 'store')` with the same
+UUID comparison (and `coalesce(..., '') != UUID` when excluding). A live two-day
+production HogQL probe confirmed **9 generations, 4 tool spans and 4 traces** all
+carry this UUID in both nested `$groups.store` and `$group_0`; the nested store
+group is the canonical field used here. AI/product unions and nested aggregations
+are filtered at each scan. No PostHog event/person/group deletion was performed.
+
+### Dashboard screenshots
+
+All **seven product dashboards and four LLM dashboards** were exported through
+`POST /api/projects/{id}/exports/`, polled until `has_content`, and downloaded from
+`exports/{id}/content/`. The signed PNG URL is fetched **without Authorization**.
+The script checks the PNG signature and writes a manifest of dashboard/export IDs.
+
+These are refreshed **saved all-environment snapshots**, containing both test and
+production aggregates; they do not replace the production-only tables above. Per
+the controller's clarification, one timestamped set is kept instead of duplicated
+`production/` and `test/` images or extra environment-copy dashboards. No temporary
+filter or dashboard mutation was performed. The earlier pre-completion export set
+was replaced locally by this refreshed set; no remote PostHog data was deleted.
+
+| Dashboard                | Exported PNG                                                             |
+| ------------------------ | ------------------------------------------------------------------------ |
+| Product overview         | [PNG](screenshots/2026-10-28T23-42-46-019Z-product-overview.png)         |
+| Activation funnel        | [PNG](screenshots/2026-10-28T23-42-46-019Z-activation-funnel.png)        |
+| Checkout and recognition | [PNG](screenshots/2026-10-28T23-42-46-019Z-checkout-and-recognition.png) |
+| Receipts and stock       | [PNG](screenshots/2026-10-28T23-42-46-019Z-receipts-and-stock.png)       |
+| Assistant adoption       | [PNG](screenshots/2026-10-28T23-42-46-019Z-assistant-adoption.png)       |
+| Debt book                | [PNG](screenshots/2026-10-28T23-42-46-019Z-debt-book.png)                |
+| Reliability              | [PNG](screenshots/2026-10-28T23-42-46-019Z-reliability.png)              |
+| Assistant health         | [PNG](screenshots/2026-10-28T23-42-46-019Z-assistant-health.png)         |
+| Cost and tokens          | [PNG](screenshots/2026-10-28T23-42-46-019Z-cost-and-tokens.png)          |
+| Tools and actions        | [PNG](screenshots/2026-10-28T23-42-46-019Z-tools-and-actions.png)        |
+| Quality                  | [PNG](screenshots/2026-10-28T23-42-46-019Z-quality.png)                  |
+
+[Export manifest](screenshots/2026-10-28T23-42-46-019Z-manifest.json). The start timestamp is
+**2026-10-28T20:09:13Z**; dashboards export sequentially.
+
+### Validation and delivery
+
+- Node 24.21.0; `node --test infra/posthog/tests infra/posthog/llm/*.test.mjs`: **78/78 passed** after the store-filter fix.
+- Touched analytics Jest suite: **27/27 passed** (`--runInBand --watchman=false`).
+- Mobile lint and typecheck: **passed** after the final smoke harness repair.
+- Prettier and `git diff --check`: **passed**.
+- Default Chromium discovery: **71 tests in 15 files**, with no production-smoke spec.
+- Production resume: **1/1 passed**; preceding failed attempts and the fresh-run validation limit are recorded above.
+- Verification: all **59/59 queried** per scope; **zero final query errors**. Empty rows are reported honestly.
+- No Rust build, `cargo clean`, push, PR, merge or deploy. Local commit only; the unmerged worktree is retained.
+
+## Final verification (GLM default, 2026-10-28 23:30-23:45 UTC)
+
+After PR #126 (paid `z-ai/glm-5.3-flash` default) reached `test` and `production`, the isolated
+smoke flow ran once per environment (`E2E_SMOKE_ENV=test|production`, one dedicated store each:
+test `272deedf-3abc-44e2-844c-00b50e4c8c6e`, production `318e7cdf-8132-47a1-b902-cc806ec59121`).
+Both passed, with replies from `z-ai/glm-5.3-flash` and one proposed expense rejected.
+
+`node infra/posthog/verify-nonsynthetic.mjs` (X6 synthetic events excluded), zero query errors:
+
+| Environment | Window | Insights with data | Empty                                                                    |
+| ----------- | ------ | -----------------: | ------------------------------------------------------------------------ |
+| test        | 7 days |            55 / 59 | time to convert; backend error logs; eval scores per run; eval pass rate |
+| production  | 2 days |            54 / 59 | the same four, plus quota hits                                           |
+
+Why the remaining charts are empty:
+
+- Backend error logs per route and quota hits: no backend errors and no quota hits occurred.
+- Eval scores per run and eval pass rate: eval traffic is `environment=eval` by design. These
+  charts have data under `--environment eval` (nightly and PR eval runs).
+- Time to convert by sign-in method needs one person to complete the whole activation funnel
+  (sign-in, store, three products, sale, day close) after the `signed_in` producer shipped
+  (PR #125). The smoke stores already existed or completed their steps out of order, so no
+  qualifying conversion exists yet.
+
+The X6 synthetic person (`synthetic-x6-validation`, 16 events) was deleted with
+`delete_events=true` (#67); PostHog removes the events asynchronously.
+
+Dashboard PNGs: `screenshots/2026-10-28T23-42-46-019Z-*.png` (all-environment snapshots, 11 dashboards).

@@ -89,7 +89,7 @@ impl Tool for TaxOverview {
         ToolKind::Read
     }
     fn description_vi(&self) -> &'static str {
-        "Dùng khi chủ cửa hàng cần doanh thu năm theo tháng hoặc quý, dải thuế bán lẻ, ước tính VAT/PIT, việc kê khai và nguồn quy định; số liệu cần xác nhận với cơ quan thuế."
+        "Dùng khi chủ cửa hàng hỏi doanh thu quý (quý 3, quý trước) kể cả không nhắc thuế; trả doanh thu năm theo tháng hoặc quý, dải thuế bán lẻ, ước tính VAT/PIT, việc kê khai và nguồn quy định; số liệu cần xác nhận với cơ quan thuế."
     }
     fn parameters(&self) -> Value {
         schema(

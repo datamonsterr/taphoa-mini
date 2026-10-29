@@ -1,9 +1,9 @@
-import { chart, dashboard, number, tokens, where } from './helpers.mjs';
+import { chart, dashboard, tokens, where } from './helpers.mjs';
 export default dashboard('Cost and tokens', [
   [
     'Input / output tokens per day by model',
     chart(
-      `SELECT toStartOfDay(timestamp) AS day, properties.$ai_model AS model, sum(${number('$ai_input_tokens')}) AS input_tokens, sum(${number('$ai_output_tokens')}) AS output_tokens FROM events WHERE ${where} AND event = '$ai_generation' GROUP BY day, model ORDER BY day`,
+      `SELECT toStartOfDay(timestamp) AS day, model, sum(input_tokens) AS input_tokens, sum(output_tokens) AS output_tokens FROM posthog.ai_events WHERE ${where} AND event = '$ai_generation' GROUP BY day, model ORDER BY day`,
       'ActionsStackedBar',
       'day',
       ['input_tokens', 'output_tokens'],
@@ -14,7 +14,7 @@ export default dashboard('Cost and tokens', [
   [
     'Tokens per turn p50 / p95',
     chart(
-      `SELECT day, quantile(0.5)(turn_tokens) AS p50_tokens, quantile(0.95)(turn_tokens) AS p95_tokens FROM (SELECT toStartOfDay(minIf(timestamp, event = '$ai_trace')) AS day, properties.$ai_trace_id AS trace_id, sumIf(${tokens}, event = '$ai_generation') AS turn_tokens FROM events WHERE ${where} AND event IN ('$ai_trace', '$ai_generation') AND properties.$ai_trace_id IS NOT NULL GROUP BY trace_id HAVING countIf(event = '$ai_trace') > 0) GROUP BY day ORDER BY day`,
+      `SELECT day, quantile(0.5)(turn_tokens) AS p50_tokens, quantile(0.95)(turn_tokens) AS p95_tokens FROM (SELECT toStartOfDay(minIf(timestamp, event = '$ai_trace')) AS day, trace_id, sumIf(${tokens}, event = '$ai_generation') AS turn_tokens FROM posthog.ai_events WHERE ${where} AND event IN ('$ai_trace', '$ai_generation') AND trace_id IS NOT NULL AND trace_id != '' GROUP BY trace_id HAVING countIf(event = '$ai_trace') > 0) GROUP BY day ORDER BY day`,
       'ActionsLineGraph',
       'day',
       ['p50_tokens', 'p95_tokens'],
@@ -24,7 +24,7 @@ export default dashboard('Cost and tokens', [
   [
     'Cost per day by model',
     chart(
-      `SELECT toStartOfDay(timestamp) AS day, properties.$ai_model AS model, sum(coalesce(${number('$ai_total_cost_usd')}, ${number('$ai_input_cost_usd')} + ${number('$ai_output_cost_usd')})) AS cost_usd FROM events WHERE ${where} AND event = '$ai_generation' AND (properties.$ai_total_cost_usd IS NOT NULL OR (properties.$ai_input_cost_usd IS NOT NULL AND properties.$ai_output_cost_usd IS NOT NULL)) GROUP BY day, model ORDER BY day`,
+      `SELECT toStartOfDay(timestamp) AS day, model, sum(coalesce(total_cost_usd, input_cost_usd + output_cost_usd)) AS cost_usd FROM posthog.ai_events WHERE ${where} AND event = '$ai_generation' AND (total_cost_usd IS NOT NULL OR (input_cost_usd IS NOT NULL AND output_cost_usd IS NOT NULL)) GROUP BY day, model ORDER BY day`,
       'ActionsStackedBar',
       'day',
       ['cost_usd'],
@@ -35,7 +35,7 @@ export default dashboard('Cost and tokens', [
   [
     'Requests vs. 1,000/day free quota',
     chart(
-      `SELECT toStartOfDay(timestamp) AS day, count() AS requests FROM events WHERE ${where} AND event = '$ai_generation' GROUP BY day ORDER BY day`,
+      `SELECT toStartOfDay(timestamp) AS day, count() AS requests FROM posthog.ai_events WHERE ${where} AND event = '$ai_generation' GROUP BY day ORDER BY day`,
       'ActionsLineGraph',
       'day',
       ['requests'],

@@ -175,3 +175,51 @@ test('LLM verification keeps empty distinct from data, scopes every query except
     /environment/,
   );
 });
+
+test('AI metrics use ai_events columns, retain scoped scans, and avoid trace self-joins', () => {
+  const sql = definitions.filter((i) => i.query.source?.kind === 'HogQLQuery');
+  for (const insight of sql) {
+    const query = scopeQuery(insight.query, {
+      environment: 'test',
+      days: 7,
+    }).query;
+    assert.doesNotMatch(
+      query,
+      /properties\.\$ai_(?:trace_id|model|latency|input_tokens|output_tokens|total_cost_usd|span_name|is_error)/,
+      insight.name,
+    );
+    assert.doesNotMatch(query, /\bJOIN\b/i, insight.name);
+    if (query.includes('posthog.ai_events')) {
+      const scans = query.match(/FROM (?:posthog\.ai_events|events) WHERE/g);
+      const scoped = query.match(
+        /INTERVAL 7 DAY AND properties.environment = 'test'/g,
+      );
+      if (!insight.scope)
+        assert.equal(scoped.length, scans.length, insight.name);
+    }
+  }
+  for (const title of ['Model calls per turn', 'Tokens per turn p50 / p95']) {
+    const query = definitions.find((i) => i.name.endsWith(`· ${title}`)).query
+      .source.query;
+    assert.match(query, /FROM posthog\.ai_events/);
+    assert.match(
+      query,
+      /GROUP BY trace_id HAVING countIf\(event = '\$ai_trace'\) > 0/,
+    );
+  }
+  const rate = definitions.find((i) =>
+    i.name.endsWith('· Error and quota rate'),
+  ).query.source.query;
+  assert.match(rate, /UNION ALL SELECT/);
+  assert.match(rate, /uniqExactIf\(trace_id, event = 'assistant_quota_hit'\)/);
+  const errors = traceFilters[0].query.source.query;
+  assert.match(errors, /FROM posthog\.ai_events/);
+  assert.match(errors, /is_error = true/);
+  for (const filter of traceFilters.slice(1)) {
+    assert.match(filter.query.source.query, /FROM events/);
+    assert.match(
+      filter.query.source.query,
+      /nullIf\(JSONExtractString\(toString\(properties\), '\$ai_trace_id'\), ''\)/,
+    );
+  }
+});

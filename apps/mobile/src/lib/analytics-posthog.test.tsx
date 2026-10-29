@@ -35,9 +35,30 @@ beforeEach(() => {
   delete process.env.EXPO_PUBLIC_POSTHOG_KEY;
   delete process.env.EXPO_PUBLIC_POSTHOG_HOST;
   delete process.env.EXPO_PUBLIC_ENVIRONMENT;
+  delete process.env.EXPO_PUBLIC_SMOKE;
   mockPathname = '/product/123';
   mockSegments = ['product', '[id]'];
   useSettingsStore.setState({ language: 'vi' });
+});
+
+test('smoke builds tag app events and preserve the tag after sign-out', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  process.env.EXPO_PUBLIC_SMOKE = '1';
+  const hook = await renderHook(
+    ({ value }: { value: Parameters<typeof useAnalyticsIdentity>[0] }) =>
+      useAnalyticsIdentity(value),
+    {
+      initialProps: { value: { userId: 'smoke-user', storeId: 'smoke-store' } },
+      wrapper: AnalyticsProvider,
+    },
+  );
+  expect(posthog.register).toHaveBeenCalledWith(
+    expect.objectContaining({ smoke: true }),
+  );
+  await hook.rerender({ value: null });
+  expect(posthog.register).toHaveBeenLastCalledWith(
+    expect.objectContaining({ smoke: true }),
+  );
 });
 afterEach(() => {
   delete process.env.EXPO_PUBLIC_POSTHOG_KEY;
@@ -158,6 +179,25 @@ test('Expo Go keeps analytics but never enables the native replay plugin', async
   } finally {
     environment.restore();
   }
+});
+
+test('test native builds record every session with masking enabled', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  process.env.EXPO_PUBLIC_ENVIRONMENT = 'test';
+  const view = await render(
+    <AnalyticsProvider>
+      <Text>child</Text>
+    </AnalyticsProvider>,
+  );
+  expect(
+    providerProps.mock.calls[0][0].options.sessionReplayConfig,
+  ).toMatchObject({
+    sampleRate: 1,
+    maskAllTextInputs: true,
+    maskAllImages: true,
+    maskAllSandboxedViews: true,
+  });
+  await view.unmount();
 });
 
 test('provider configures privacy, registers properties and clears sink and bridge on unmount', async () => {

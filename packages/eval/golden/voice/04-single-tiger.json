@@ -1,0 +1,17 @@
+{
+  "id": "04-single-tiger",
+  "source": "synthetic",
+  "transcript": "một lon bia tiger",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "bia tiger",
+      "product": "Bia Tiger lon 330ml",
+      "quantity": 1,
+      "unit_price": null
+    }
+  ],
+  "tags": ["single-line"]
+}

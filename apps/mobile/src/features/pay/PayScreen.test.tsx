@@ -3,12 +3,14 @@ import { createCustomer } from '@/lib/api/debts';
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 
 import * as storeApi from '@/lib/api/store';
 import { holdNext } from '@/test/hold';
 import { listSales, setApiTransport } from '@/lib/api';
 import { createMockFetch } from '@/test/mock/fetch';
 import * as ledgerApi from '@/lib/api/ledger';
+import { getProduct } from '@/lib/api/products';
 import { resetMockDb } from '@/test/mock/db';
 import { PRODUCT_IDS } from '@/test/mock/fixtures';
 import { useCartStore } from '@/stores/cart';
@@ -486,5 +488,81 @@ describe('PayScreen credit', () => {
     expect(
       screen.getByRole('header', { name: 'Chọn khách ghi nợ' }),
     ).toBeOnTheScreen();
+  });
+});
+
+test('checkout sends chosen unit_id and its price, with separate base and pack lines', async () => {
+  useCartStore.setState({ lines: [] });
+  const product = await getProduct(PRODUCT_IDS.coca);
+  const unit = product.units[0]!;
+  useCartStore
+    .getState()
+    .add({ productId: product.id, name: product.name!, price: product.price });
+  useCartStore.getState().add({
+    productId: product.id,
+    name: product.name!,
+    price: unit.price,
+    unitId: unit.id,
+  });
+  const request = jest.spyOn(ledgerApi, 'createSale');
+  await renderWithProviders(<PayScreen />);
+  await screen.findByTestId('qr-value');
+  await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+  await waitFor(() => expect(request).toHaveBeenCalled());
+  const body = request.mock.calls[0]![0];
+  expect(body.lines).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        product_id: product.id,
+        unit_price: product.price,
+      }),
+      expect.objectContaining({
+        product_id: product.id,
+        unit_id: unit.id,
+        unit_price: unit.price,
+      }),
+    ]),
+  );
+  expect(new Set(body.lines.map((line) => line.id)).size).toBe(2);
+  expect(body.total).toBe(product.price + unit.price);
+});
+
+describe('PayScreen spoken total', () => {
+  afterEach(() => useSettingsStore.setState({ speakTotal: false }));
+
+  it('is silent while the setting is off', async () => {
+    await renderWithProviders(<PayScreen />);
+    expect(Speech.speak).not.toHaveBeenCalled();
+  });
+
+  it('reads the total in Vietnamese when the sheet opens, and stops on unmount', async () => {
+    useSettingsStore.setState({ speakTotal: true });
+    const view = await renderWithProviders(<PayScreen />);
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    expect(Speech.speak).toHaveBeenCalledWith(
+      'Tổng cộng hai mươi bốn nghìn năm trăm đồng',
+      { language: 'vi-VN' },
+    );
+    (Speech.stop as jest.Mock).mockClear();
+    await view.unmount();
+    expect(Speech.stop).toHaveBeenCalled();
+  });
+
+  it('reads the change when the cash given exceeds the total', async () => {
+    useSettingsStore.setState({ speakTotal: true });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByRole('radio', { name: 'Tiền mặt' }));
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByText('100.000'));
+    // spoken only once the amount settles, not on every keypad press
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    await waitFor(
+      () =>
+        expect(Speech.speak).toHaveBeenLastCalledWith(
+          'Tiền thối bảy mươi lăm nghìn năm trăm đồng',
+          { language: 'vi-VN' },
+        ),
+      { timeout: 2000 },
+    );
   });
 });

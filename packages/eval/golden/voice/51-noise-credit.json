@@ -1,0 +1,19 @@
+{
+  "id": "51-noise-credit",
+  "source": "synthetic",
+  "transcript": "ghi nợ chị Lan ba lon bia tiger",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "credit",
+  "customer_name": "chị Lan",
+  "lines": [
+    {
+      "spoken": "bia tiger",
+      "product": "Bia Tiger lon 330ml",
+      "quantity": 3,
+      "unit_price": null
+    }
+  ],
+  "tags": ["noise", "credit"],
+  "noise": true
+}

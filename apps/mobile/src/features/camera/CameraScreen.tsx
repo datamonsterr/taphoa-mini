@@ -1,4 +1,4 @@
-import { PostHogMaskView } from 'posthog-react-native';
+import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter, type Href } from 'expo-router';

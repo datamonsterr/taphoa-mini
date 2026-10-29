@@ -1,5 +1,6 @@
 import { FlashList } from '@shopify/flash-list';
 import { Search, X } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
@@ -13,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CartPill } from '@/components/camera/CartPill';
 import { CircleButton } from '@/components/ui/CircleButton';
 import { Icon } from '@/components/ui/Icon';
 import { PressableScale } from '@/components/ui/PressableScale';
@@ -20,8 +22,9 @@ import { shouldDismiss } from '@/components/ui/Sheet';
 import { ProductTile } from '@/components/ui/ProductTile';
 import { useProducts } from '@/lib/api/hooks';
 import type { Product } from '@/lib/api/types';
-import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { fill, useT } from '@/lib/i18n';
+import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
+import { colors, radius, size, space, typography } from '@/theme';
 
 import { StockSegment } from '@/features/stock/StockSegment';
 
@@ -36,6 +39,9 @@ const SKELETON_TILES = 6;
 /** Half of the board's 12px grid gap, applied on each tile. */
 const HALF_GAP = space[3] / 2;
 
+/** Above the 64 dp floating bar (16 dp inset). */
+const PILL_BOTTOM = space[4] + size.tapLg + space[3];
+
 const keyExtractor = (product: Product) => product.id;
 
 const InventoryTile = memo(function InventoryTile({
@@ -48,9 +54,25 @@ const InventoryTile = memo(function InventoryTile({
     () => router.push({ pathname: '/product/[id]', params: { id } }),
     [id],
   );
+  const t = useT(strings);
+  const addToCart = useCartStore((s) => s.add);
+  const name = product.name ?? '';
+  const imageUrl = product.images[0]?.url;
+  const onAdd = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    addToCart({
+      productId: id,
+      name,
+      price: product.price,
+      imageUrl,
+      source: 'grid',
+    });
+  }, [addToCart, id, name, product.price, imageUrl]);
   return (
     <View style={styles.cell}>
       <ProductTile
+        onAdd={onAdd}
+        addLabel={fill(t('add'), { name })}
         name={product.name ?? ''}
         price={product.price}
         stockQuantity={product.stock_quantity}
@@ -174,6 +196,24 @@ function Message({
   );
 }
 
+const openCart = () => router.push('/cart');
+
+/** Sell-grid cart shortcut (S3): shows once something is in the cart and opens it. */
+const GridCartPill = memo(function GridCartPill() {
+  const count = useCartStore(selectCount);
+  const total = useCartStore(selectTotal);
+  const insets = useSafeAreaInsets();
+  if (count === 0) return null;
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[styles.pillWrap, { bottom: insets.bottom + PILL_BOTTOM }]}
+    >
+      <CartPill light count={count} total={total} onPress={openCart} />
+    </View>
+  );
+});
+
 export function InventoryScreen() {
   const t = useT(strings);
   const insets = useSafeAreaInsets();
@@ -264,6 +304,7 @@ export function InventoryScreen() {
       </View>
       <StockSegment selected="products" />
       <View style={styles.body}>{body}</View>
+      <GridCartPill />
     </View>
   );
 }
@@ -306,6 +347,7 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, ...typography.body, color: colors.ink, padding: 0 },
   body: { flex: 1 },
+  pillWrap: { position: 'absolute', left: space[4] },
   /** Board: 16px side padding, 112px at the bottom for the bar. */
   listContent: {
     paddingHorizontal: space[4] - HALF_GAP,

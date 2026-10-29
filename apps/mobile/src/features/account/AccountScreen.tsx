@@ -8,6 +8,7 @@ import {
   Landmark,
   LogOut,
   User,
+  Volume2,
 } from 'lucide-react-native';
 import { useAuth, useSessionList } from '@clerk/expo';
 import { useRouter } from 'expo-router';
@@ -83,6 +84,25 @@ const ElderRow = memo(function ElderRow() {
         value={elder}
         onValueChange={setElder}
         accessibilityLabel={t('elder')}
+      />
+    </View>
+  );
+});
+
+const SpeakRow = memo(function SpeakRow() {
+  const t = useT(strings);
+  const speak = useSettingsStore((s) => s.speakTotal);
+  const setSpeak = useSettingsStore((s) => s.setSpeakTotal);
+  return (
+    <View style={[styles.row, styles.rowRight12]}>
+      <Icon icon={Volume2} color={colors.inkMuted} />
+      <ScaledText variant="label" style={styles.grow}>
+        {t('speak')}
+      </ScaledText>
+      <Switch
+        value={speak}
+        onValueChange={setSpeak}
+        accessibilityLabel={t('speak')}
       />
     </View>
   );
@@ -435,6 +455,7 @@ export function AccountScreen() {
           <StockThresholdRow value={store.data.low_stock_threshold} />
         ) : null}
         <ElderRow />
+        <SpeakRow />
         <TextSizeRow />
         <LanguageRow />
         <VoiceSetupSection />

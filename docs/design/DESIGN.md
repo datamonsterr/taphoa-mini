@@ -7,7 +7,7 @@ The source of truth for the drawn boards is the design canvas v0.2
 https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9, built on the Tạp Hóa Mini design system
 (https://claude.ai/artifact/SsJdTA1fdhK5hzfA2Z1Hvi). The v0.1 canvas
 https://claude.ai/artifact/2Jcc8NqdW7tt9jDB6RsnXh stays as the 2026-10-23 record. This folder
-holds 33 boards: the 32 copied on 2026-10-27 plus `VoiceSystem.dc.html`. Local V6 additions
+holds 37 boards: the 32 copied on 2026-10-27, `VoiceSystem.dc.html` and four repo-mirror boards for issue #88. Local V6 additions
 (understanding state, credit customer row and system surfaces) are published as canvas version 31.
 Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is their
 reference.
@@ -80,14 +80,17 @@ Bottom bar on 08, 10 and 12: accent camera circle on the left, floating pill wit
 Kho, Báo cáo, Tài khoản, and the chat button beside the pill (above its right end on narrow
 phones). The low-stock banner can sit above the bar.
 
-| #   | Board / route                       | Purpose                  | Controls                                                                                                                                                                                                                                                                                       |
-| --- | ----------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 08  | `Inventory.dc.html` · `/inventory`  | Product grid             | Handle (swipe down to camera) · title Kho · search toggle and field · 2-column tiles (photo, stock badge, name, price) · segment Sản phẩm / Tồn kho (to 18) · bottom bar                                                                                                                       |
-| 09  | `Product.dc.html` · `/product/[id]` | Product detail           | Back · edit price (sheet) · photo carousel · name · price · stock with adjust-stock sheet and low-stock threshold · cost price · recent stock movements                                                                                                                                        |
-| 10  | `Dashboard.dc.html` · `/dashboard`  | Reports                  | Add expense · Ngày / Tuần / Tháng chips · stat tiles (revenue with sale count, cash, transfer, expense, net) · 7-day bars · alerts (low stock, price below cost, sold without catalog) · **digest card** (to 23) · **debt card** (to 21) · Hóa đơn nhập (to 19) · Chốt sổ                      |
-| 11  | `Expense.dc.html` · `/expense`      | Add expense (sheet)      | Close · bill photo (bill camera) · categories Nhập / Điện / Nước / Khác · Hóa đơn nhập link · amount · keypad · check                                                                                                                                                                          |
-| 12  | `Account.dc.html` · `/account`      | Store and settings       | Store picker · members with invite sheet · bank account sheet · PIN: set and switch sheets · device sessions and Thêm người trên máy này · stock threshold row · elder mode · text size · VI / EN · sign out · **Nút nói nhanh section (voice, planned)** · **Góp giọng nói opt-in (planned)** |
-| 13  | `Close.dc.html` · `/close`          | End-of-day close (sheet) | Close · expected cash with cash repayments and credit sales lines · counted cash keypad · difference pill (green match, red short, amber extra) · check                                                                                                                                        |
+| #   | Board / route                           | Purpose                  | Controls                                                                                                                                                                                                                                                                                                                                           |
+| --- | --------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 08  | `Inventory.dc.html` · `/inventory`      | Product grid             | Handle (swipe down to camera) · title Kho · search toggle and field · 2-column tiles (photo, stock badge, name, price) · segment Sản phẩm / Tồn kho (to 18) · bottom bar                                                                                                                                                                           |
+| 08b | `InventorySell.dc.html` · `/inventory`  | Grid sale (S3)           | Same grid; every tile has a 56 px accent `+` on the photo corner (name "Thêm <tên> vào giỏ", light haptic) that adds one to the cart · tapping the tile body still opens 09 · **cart pill** (ink, count badge and running total) bottom left above the bar, shown when the cart is not empty, opens 06 → 07. Grid to VietQR: `+`, pill, QR button. |
+| 08c | `InventoryElder.dc.html` · `/inventory` | Elder mode (T2)          | Opens here instead of the camera (once per launch; the camera circle in the bar still reaches it) · bigger title, name 22 px and price 30 px · `+` and cart pill 80 px                                                                                                                                                                             |
+| 07d | `PayElder.dc.html` · `/pay`             | Spoken total (S7)        | Pay sheet with a status line "Đọc: <total in words>" under the total; speaks in Vietnamese on open and the change when cash given exceeds the total; setting `Đọc to số tiền` on 12, on by default with elder mode                                                                                                                                 |
+| 09  | `Product.dc.html` · `/product/[id]`     | Product detail           | Back · edit price (sheet) · photo carousel · name · price · stock with adjust-stock sheet and low-stock threshold · cost price · recent stock movements                                                                                                                                                                                            |
+| 10  | `Dashboard.dc.html` · `/dashboard`      | Reports                  | Add expense · Ngày / Tuần / Tháng chips · stat tiles (revenue with sale count, cash, transfer, expense, net) · 7-day bars · alerts (low stock, price below cost, sold without catalog) · **digest card** (to 23) · **debt card** (to 21) · Hóa đơn nhập (to 19) · Chốt sổ                                                                          |
+| 11  | `Expense.dc.html` · `/expense`          | Add expense (sheet)      | Close · bill photo (bill camera) · categories Nhập / Điện / Nước / Khác · Hóa đơn nhập link · amount · keypad · check                                                                                                                                                                                                                              |
+| 12  | `Account.dc.html` · `/account`          | Store and settings       | Store picker · members with invite sheet · bank account sheet · PIN: set and switch sheets · device sessions and Thêm người trên máy này · stock threshold row · elder mode · **read the total aloud** · text size · VI / EN · sign out · **Nút nói nhanh section (voice, planned)** · **Góp giọng nói opt-in (planned)**                          |
+| 13  | `Close.dc.html` · `/close`              | End-of-day close (sheet) | Close · expected cash with cash repayments and credit sales lines · counted cash keypad · difference pill (green match, red short, amber extra) · check                                                                                                                                                                                            |
 
 ### Row C — Assistant and voice (boards added 2026-10-27)
 
@@ -190,22 +193,34 @@ lý" hand-off when the words were a question.
 | -------------------------------------------------------- | ----------------------------- |
 | C1 photo + price enroll; quick enroll                    | 05, camera quick-enroll state |
 | C3 edit price; E4 stock, threshold, movements            | 09, 18                        |
-| C6 price list grid                                       | 08                            |
+| C6 price list grid; S3 grid sale                         | 08, 08b                       |
 | S1 top match + alternatives; S4 unknown; S8 multi        | 02, 04, 03                    |
 | S5 cart; S6 pay cash / transfer / credit (debt book U23) | 06, 07, 20, 21                |
 | E1 expense with bill photo; import receipts              | 11, 19                        |
 | E3 price below cost alert; low-stock alert               | 10 alerts, 22                 |
 | R1 today, R3 bars, R2 chốt sổ                            | 10, 13                        |
 | U1 join by invite, U2 roles, Clerk sign-in, PIN lock     | 12, 24-27                     |
-| T1 bank account; T2 elder mode, text size; T3 language   | 12                            |
+| T1 bank account; T2 elder mode, text size; T3 language   | 12, 08c                       |
 | Assistant U1-U23, next-step strip, daily digest          | 17, 01 strip, 23              |
+| S7 read the total aloud                                  | 07d, 12                       |
 | Voice sale V-U1..V-U5, voice chat V-U6                   | 14-17                         |
+
+### Issue #88 repo-mirror additions
+
+| #   | Board / route                       | Controls                                                                                                                 |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 28a | `RecentSales.dc.html` · `/sales`    | Báo cáo entry; paginated recent sales, completed/voided status; loading, empty, retry                                    |
+| 28  | `SaleDetail.dc.html` · `/sale/[id]` | Sale lines, total, payment, status; Lead-only reason and confirmation; full void/refund, error/retry and recorded reason |
+| 29  | `Export.dc.html` · Báo cáo sheet    | Inclusive date range and CSV/XLSX; download and system share, pending/error; browser download fallback                   |
+| 09b | `ProductUnits.dc.html` · product 09 | Lead-only add/edit/delete extra units, quantity in base and price; cart/payment unit choices                             |
+
+These are repository designs for S10, R5 and C5; they are not a claim that the external canvas was updated.
+Unit writes replace `ProductPatch.units`. The base price remains on product 09. Full voids use the existing backend transaction; there is no partial-refund endpoint.
 
 ## 8. System surfaces and remaining boards
 
 - Boards for 22 (low-stock banner), 25 (add a person) and 27 (PIN lock); the code is the
   reference.
-- Elder-mode variants, TTS (S7), void / refund (S10), CSV export (R5).
 - `VoiceSystem.dc.html`: Android persistent “Nút nói đang bật” notification with “Tắt”,
   Quick Settings tile “Bán hàng”, and iOS Control Center control (both open 15).
 
@@ -216,7 +231,7 @@ docs/design/
   DESIGN.md                this file
   canvas/
     canvas.json            board layout, titles, notes, design-system record
-    *.dc.html              one file per board (33)
+    *.dc.html              one file per board (40)
     ds/taphoa/             copy of the design system: tokens.json, tokens.css, components/bundle.css
 ```
 

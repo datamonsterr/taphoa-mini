@@ -21,7 +21,7 @@ import type {
 } from '@/lib/api/types';
 
 import * as db from './db';
-import { badRequest, MockHttpError } from './errors';
+import { badRequest, notFound, MockHttpError } from './errors';
 import * as ledger from './ledger';
 import * as stock from './stockReceipts';
 import { readMultipart, type FormFields, type FormFile } from './multipart';
@@ -479,6 +479,15 @@ export const MOCK_ROUTES: MockRoute[] = [
     method: 'GET',
     path: '/v1/categories',
     handler: () => ok({ items: db.getMockDb().categories }),
+  },
+  {
+    method: 'GET',
+    path: '/v1/sales/{saleId}',
+    handler: ({ params }) => {
+      const sale = db.getMockDb().sales.find((s) => s.id === params.saleId);
+      if (!sale) throw notFound('Sale');
+      return ok(sale);
+    },
   },
   {
     method: 'GET',

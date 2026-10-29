@@ -1,0 +1,18 @@
+{
+  "id": "29-credit-lan-nuoc-mam",
+  "source": "synthetic",
+  "transcript": "ghi nợ chị Lan hai chai nước mắm nam ngư sáu chục",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "credit",
+  "customer_name": "chị Lan",
+  "lines": [
+    {
+      "spoken": "nước mắm nam ngư",
+      "product": "Nước mắm Nam Ngư 500ml",
+      "quantity": 2,
+      "unit_price": 60000
+    }
+  ],
+  "tags": ["smoke", "credit", "price-shorthand"]
+}

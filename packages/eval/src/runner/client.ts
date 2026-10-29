@@ -50,7 +50,7 @@ export function assertEvalHeaders(runId: string, today: string): void {
 }
 
 /** A fetch that adds auth and eval headers, fresh from the provider, to every request. */
-function withHeaders(
+export function withHeaders(
   base: typeof fetch,
   headersFor: () => Promise<Record<string, string>>,
 ): typeof fetch {
@@ -212,6 +212,7 @@ export async function runTurns(
       };
     }
     threadId = res.data.id;
+    result.thread_id = threadId;
     return null;
   });
   if (result.error) return result;
@@ -250,6 +251,10 @@ export async function runTurns(
             break;
           case 'message.completed':
             model = event.data.model;
+            if (event.data.usage.cost)
+              (result.turn_costs_usd ??= []).push(
+                event.data.usage.cost.total_usd,
+              );
             break;
           case 'error':
             failure = { code: event.data.code, message: event.data.message_vi };

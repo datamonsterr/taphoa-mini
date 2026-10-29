@@ -2815,6 +2815,12 @@ export interface components {
             usage: {
                 input_tokens: number;
                 output_tokens: number;
+                /** @description Actual OpenRouter usage costs in USD; absent when accounting is unavailable. */
+                cost?: {
+                    input_usd: number | null;
+                    output_usd: number | null;
+                    total_usd: number;
+                };
             };
         };
         AssistantStreamError: {

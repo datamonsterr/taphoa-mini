@@ -51,28 +51,42 @@ export default defineConfig({
       ],
     },
   },
-  projects: [
-    {
-      name: 'chromium',
-      testIgnore: /perf\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 390, height: 844 },
-        deviceScaleFactor: 2,
-      },
-    },
-    {
-      // Timing needs an idle machine: this project starts only after every functional spec ended.
-      name: 'perf',
-      testMatch: /perf\.spec\.ts/,
-      dependencies: ['chromium'],
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 390, height: 844 },
-        deviceScaleFactor: 2,
-      },
-    },
-  ],
+  projects:
+    process.env.E2E_PRODUCTION_SMOKE === '1'
+      ? [
+          {
+            name: 'production-smoke',
+            testMatch: /production-smoke\.spec\.ts/,
+            retries: 0,
+            use: {
+              ...devices['Desktop Chrome'],
+              viewport: { width: 390, height: 844 },
+              trace: 'off',
+            },
+          },
+        ]
+      : [
+          {
+            name: 'chromium',
+            testIgnore: /(?:perf|production-smoke)\.spec\.ts/,
+            use: {
+              ...devices['Desktop Chrome'],
+              viewport: { width: 390, height: 844 },
+              deviceScaleFactor: 2,
+            },
+          },
+          {
+            // Timing needs an idle machine: this project starts only after every functional spec ended.
+            name: 'perf',
+            testMatch: /perf\.spec\.ts/,
+            dependencies: ['chromium'],
+            use: {
+              ...devices['Desktop Chrome'],
+              viewport: { width: 390, height: 844 },
+              deviceScaleFactor: 2,
+            },
+          },
+        ],
   // Production web export served statically; expo serve maps clean URLs to .html. CI sets
   // E2E_WEB_EXPORT_READY=1 after downloading the export built by mobile-build, which skips the
   // export here.
@@ -85,6 +99,10 @@ export default defineConfig({
     // signs in through the Clerk development instance.
     env: {
       EXPO_PUBLIC_API_URL: API_URL,
+      EXPO_PUBLIC_POSTHOG_KEY: process.env.EXPO_PUBLIC_POSTHOG_KEY ?? '',
+      EXPO_PUBLIC_POSTHOG_HOST:
+        process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+      EXPO_PUBLIC_ENVIRONMENT: process.env.EXPO_PUBLIC_ENVIRONMENT ?? 'test',
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: CLERK_PUBLISHABLE_KEY,
       // voice.spec.ts opens /voice?fixture=<clip> instead of recording.
       EXPO_PUBLIC_VOICE_FIXTURES: '1',

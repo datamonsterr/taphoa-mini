@@ -1,0 +1,17 @@
+{
+  "id": "18-price-hai-chuc",
+  "source": "synthetic",
+  "transcript": "một chai nước mắm chin su hai chục",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "nước mắm chin su",
+      "product": "Nước mắm Chin-su 500ml",
+      "quantity": 1,
+      "unit_price": 20000
+    }
+  ],
+  "tags": ["smoke", "price-shorthand", "price-chuc"]
+}

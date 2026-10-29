@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dashboards } from '../definitions/index.mjs';
+import { scopeQuery } from '../verify.mjs';
 
 test('verification injects environment into every event/entity without changing definitions', async () => {
   const { scopeQuery } = await import('../verify.mjs');
@@ -143,4 +144,158 @@ test('allow-empty marks matching empty insights as ok without hiding errors', as
   assert.equal(result.insights[0].note, 'empty (allowed)');
   assert.equal(result.insights[1].ok, false);
   assert.equal(result.ok, false);
+});
+
+test('store filtering covers every managed event scan, entity and log without mutating definitions', async () => {
+  const { scopeQuery, verify } = await import('../verify.mjs');
+  const { llmDashboards } = await import('../llm/index.mjs');
+  const { traceFilters } = await import('../llm/trace-filters.mjs');
+  const store = '11111111-2222-4333-8444-555555555555';
+  for (const dashboard of [
+    ...dashboards,
+    ...llmDashboards,
+    { insights: traceFilters },
+  ]) {
+    for (const insight of dashboard.insights) {
+      const original = JSON.stringify(insight.query);
+      for (const options of [{ onlyStore: store }, { excludeStore: store }]) {
+        const query = scopeQuery(insight.query, {
+          environment: 'production',
+          days: 1,
+          ...options,
+        });
+        if (query.kind === 'HogQLQuery') {
+          const scans = query.query.match(
+            /FROM (events|posthog\.ai_events|logs) WHERE/gi,
+          );
+          assert.equal(query.query.split(store).length - 1, scans.length);
+          if (options.excludeStore) assert.match(query.query, /coalesce\(/);
+        } else {
+          const entities = query.series ?? [
+            query.retentionFilter.targetEntity,
+            query.retentionFilter.returningEntity,
+          ];
+          assert.ok(
+            entities.every((e) =>
+              e.properties.some(
+                (p) => p.type === 'hogql' && p.key.includes(store),
+              ),
+            ),
+          );
+        }
+      }
+      assert.equal(JSON.stringify(insight.query), original);
+    }
+  }
+  for (const options of [
+    { onlyStore: "x' OR 1=1" },
+    { onlyStore: store, excludeStore: store },
+  ])
+    assert.throws(() => scopeQuery({ kind: 'TrendsQuery' }, options), /store/i);
+  const calls = [];
+  await verify({
+    environment: 'production',
+    days: 1,
+    onlyStore: store,
+    client: {
+      post: async (_, body) => {
+        calls.push(body);
+        return { results: [] };
+      },
+    },
+  });
+  const quota = calls.find((c) => c.name?.includes('1,000/day'));
+  assert.ok(
+    !JSON.stringify(quota.query).includes(store),
+    'shared quota remains global',
+  );
+  assert.ok(
+    calls
+      .filter((c) => c !== quota && !c.name?.includes('Online judge'))
+      .every((c) => JSON.stringify(c.query).includes(store)),
+  );
+});
+
+for (const [shape, sql, aiScans, eventScans] of [
+  [
+    'direct AI scan',
+    'SELECT count() FROM posthog.ai_events WHERE {{environment}}',
+    1,
+    0,
+  ],
+  [
+    'nested AI aggregation',
+    'SELECT calls FROM (SELECT trace_id, count() AS calls FROM posthog.ai_events WHERE {{environment}} GROUP BY trace_id)',
+    1,
+    0,
+  ],
+  [
+    'AI and product union',
+    'SELECT event FROM posthog.ai_events WHERE {{environment}} UNION ALL SELECT event FROM events WHERE {{environment}}',
+    1,
+    1,
+  ],
+  [
+    'repeated AI scans',
+    'SELECT trace_id FROM posthog.ai_events WHERE trace_id IN (SELECT trace_id FROM posthog.ai_events WHERE {{environment}})',
+    2,
+    0,
+  ],
+]) {
+  test(`store filter scopes each scan in ${shape}`, () => {
+    const store = '11111111-2222-4333-8444-555555555555';
+    const original = { kind: 'HogQLQuery', query: sql };
+    const aiField =
+      "JSONExtractString(toString(properties), '$groups', 'store')";
+    for (const options of [{ onlyStore: store }, { excludeStore: store }]) {
+      const query = scopeQuery(original, {
+        environment: 'production',
+        ...options,
+      });
+      const condition = (field) =>
+        options.onlyStore
+          ? `${field} = '${store}'`
+          : `coalesce(${field}, '') != '${store}'`;
+      assert.equal(
+        query.query.split(
+          `FROM posthog.ai_events WHERE (${condition(aiField)}) AND`,
+        ).length - 1,
+        aiScans,
+      );
+      assert.equal(
+        query.query.split(
+          `FROM events WHERE (${condition('properties.$groups.store')}) AND`,
+        ).length - 1,
+        eventScans,
+      );
+      assert.equal(query.query.split(store).length - 1, aiScans + eventScans);
+    }
+    assert.equal(original.query, sql);
+  });
+}
+
+test('store filter rejects unsupported SQL and query shapes before they can run unfiltered', async () => {
+  const { scopeQuery } = await import('../verify.mjs');
+  const options = { onlyStore: '11111111-2222-4333-8444-555555555555' };
+  for (const query of [
+    { kind: 'HogQLQuery', query: 'SELECT * FROM events e WHERE true' },
+    { kind: 'HogQLQuery', query: 'SELECT * FROM events' },
+    {
+      kind: 'HogQLQuery',
+      query: 'SELECT * FROM posthog.ai_events a WHERE true',
+    },
+    { kind: 'HogQLQuery', query: 'SELECT * FROM posthog.ai_events' },
+    { kind: 'HogQLQuery', query: 'SELECT * FROM ai_events WHERE true' },
+    {
+      kind: 'HogQLQuery',
+      query: 'SELECT * FROM posthog.ai_events WHERE true JOIN events ON true',
+    },
+    {
+      kind: 'HogQLQuery',
+      query:
+        'SELECT * FROM events WHERE true UNION ALL SELECT * FROM posthog.ai_events a WHERE true',
+    },
+    { kind: 'TrendsQuery' },
+  ])
+    assert.throws(() => scopeQuery(query, options), /Unsupported store filter/);
 });

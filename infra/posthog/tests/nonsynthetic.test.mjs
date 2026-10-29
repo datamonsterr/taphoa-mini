@@ -19,7 +19,10 @@ test('excludes flagged and known synthetic events at every SQL scan without muta
   const query = excludeSynthetic(original);
   assert.equal(query.query.split(nonSynthetic).length - 1, 2);
   assert.ok(!original.query.includes('synthetic'));
-  assert.match(nonSynthetic, /NOT coalesce\(properties.synthetic, false\)/);
+  assert.match(
+    nonSynthetic,
+    /NOT coalesce\(toBool\(properties.synthetic\), false\)/,
+  );
   assert.match(nonSynthetic, /distinct_id != 'synthetic-x6-validation'/);
 });
 
@@ -104,4 +107,80 @@ test('read-only verifier filters denominator probes, keeps quota global, and rep
   assert.ok(quota.query.query.includes(nonSynthetic));
   assert.ok(!quota.query.query.includes("properties.environment = 'test'"));
   assert.ok(calls.every((c) => c.refresh === 'force_blocking'));
+});
+
+test('filters ai_events and events independently in a scoped union and rejects unsupported AI scans', () => {
+  const template = {
+    kind: 'HogQLQuery',
+    query:
+      'SELECT event FROM posthog.ai_events WHERE {{environment}} AND timestamp >= now() - INTERVAL {{days}} DAY UNION ALL SELECT event FROM events WHERE {{environment}} AND timestamp >= now() - INTERVAL {{days}} DAY',
+  };
+  const scoped = scopeQuery(template, { environment: 'test', days: 7 });
+  const filtered = excludeSynthetic(scoped);
+  assert.equal(filtered.query.split(nonSynthetic).length - 1, 2);
+  assert.equal(
+    filtered.query.split("properties.environment = 'test'").length - 1,
+    2,
+  );
+  assert.match(filtered.query, /FROM posthog\.ai_events WHERE \(NOT coalesce/);
+  assert.match(filtered.query, /FROM events WHERE \(NOT coalesce/);
+  assert.equal(scoped.query.includes('synthetic'), false);
+  for (const query of [
+    'SELECT count() FROM posthog.ai_events',
+    'SELECT * FROM posthog.ai_events a WHERE true',
+    'SELECT * FROM events WHERE true JOIN posthog.ai_events ON events.uuid = ai_events.uuid',
+  ])
+    assert.throws(
+      () => excludeSynthetic({ kind: 'HogQLQuery', query }),
+      /Unsupported/,
+    );
+});
+
+test('non-synthetic verification composes with both store filters on every managed scan', async () => {
+  const store = '11111111-2222-4333-8444-555555555555';
+  for (const options of [{ onlyStore: store }, { excludeStore: store }]) {
+    const calls = [];
+    const result = await verifyNonsynthetic({
+      environment: 'production',
+      days: 2,
+      ...options,
+      client: {
+        post: async (_path, body) => {
+          calls.push(body);
+          return { results: [] };
+        },
+      },
+    });
+    assert.equal(result.insights.length, 59);
+    assert.ok(result.insights.every((row) => !row.error));
+    for (const { query, name } of calls) {
+      const global = /1,000\/day|Online judge/.test(name ?? '');
+      if (query.kind === 'HogQLQuery') {
+        const scans = query.query.match(
+          /FROM (events|posthog\.ai_events|logs) WHERE/gi,
+        );
+        assert.equal(
+          query.query.split(store).length - 1,
+          global ? 0 : scans.length,
+        );
+        if (!/FROM logs/.test(query.query))
+          assert.equal(
+            query.query.split(nonSynthetic).length - 1,
+            scans.length,
+          );
+      } else {
+        for (const entity of query.series ?? [
+          query.retentionFilter.targetEntity,
+          query.retentionFilter.returningEntity,
+        ]) {
+          assert.ok(entity.properties.some((p) => p.key === nonSynthetic));
+          assert.ok(
+            entity.properties.some(
+              (p) => p.type === 'hogql' && p.key.includes(store),
+            ),
+          );
+        }
+      }
+    }
+  }
 });

@@ -23,6 +23,9 @@ import { DigestCard } from '@/features/digest/DigestCard';
 import { StatTiles } from './StatTiles';
 import { dashboardStrings } from './strings';
 import { useDashboardData } from './useDashboardData';
+import { ExportSheet } from './ExportSheet';
+import { transactionStrings } from './transactionStrings';
+import { Action } from '@/features/sales/kit';
 
 /** Space under the content for the floating bottom bar (board: 112). */
 const BAR_CLEARANCE = 112;
@@ -36,6 +39,8 @@ const periodLabels = (t: (key: string) => string) => ({
 
 export function DashboardScreen() {
   const t = useT(dashboardStrings);
+  const transactions = useT(transactionStrings);
+  const [exporting, setExporting] = useState(false);
   const labels = useLabels(dashboardStrings, periodLabels);
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<Period>('day');
@@ -47,112 +52,123 @@ export function DashboardScreen() {
   const closeDay = useCallback(() => router.push('/close'), []);
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: space[6] + insets.top,
-          paddingBottom: BAR_CLEARANCE + insets.bottom,
-        },
-      ]}
-    >
-      <View style={styles.header}>
-        <View
-          accessible
-          accessibilityRole="header"
-          accessibilityLabel={t('screen')}
-        >
-          <Text style={styles.title}>{t(`title.${period}`)}</Text>
-        </View>
-        <CircleButton
-          icon={Plus}
-          accessibilityLabel={t('addExpense')}
-          onPress={addExpense}
-        />
-      </View>
-
-      <PeriodChips value={period} onChange={setPeriod} labels={labels} />
-
-      {data.status === 'loading' ? (
-        <View
-          testID="dashboard-skeleton"
-          accessibilityLabel={t('loading')}
-          accessibilityRole="progressbar"
-          style={styles.skeleton}
-        >
-          <View style={styles.skeletonWide} />
-          <View style={styles.skeletonTiles}>
-            {[0, 1, 2, 3].map((i) => (
-              <View key={i} style={styles.skeletonTile} />
-            ))}
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: space[6] + insets.top,
+            paddingBottom: BAR_CLEARANCE + insets.bottom,
+          },
+        ]}
+      >
+        <View style={styles.header}>
+          <View
+            accessible
+            accessibilityRole="header"
+            accessibilityLabel={t('screen')}
+          >
+            <Text style={styles.title}>{t(`title.${period}`)}</Text>
           </View>
-          <View style={styles.skeletonChart} />
+          <CircleButton
+            icon={Plus}
+            accessibilityLabel={t('addExpense')}
+            onPress={addExpense}
+          />
         </View>
-      ) : null}
 
-      {data.status === 'error' ? (
-        <View accessibilityRole="alert" style={styles.error}>
-          <Text style={styles.errorText}>{t('error')}</Text>
+        <PeriodChips value={period} onChange={setPeriod} labels={labels} />
+
+        {data.status === 'loading' ? (
+          <View
+            testID="dashboard-skeleton"
+            accessibilityLabel={t('loading')}
+            accessibilityRole="progressbar"
+            style={styles.skeleton}
+          >
+            <View style={styles.skeletonWide} />
+            <View style={styles.skeletonTiles}>
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} style={styles.skeletonTile} />
+              ))}
+            </View>
+            <View style={styles.skeletonChart} />
+          </View>
+        ) : null}
+
+        {data.status === 'error' ? (
+          <View accessibilityRole="alert" style={styles.error}>
+            <Text style={styles.errorText}>{t('error')}</Text>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('retry')}
+              pressedScale={0.96}
+              onPress={data.refetch}
+              style={styles.retry}
+            >
+              <Text style={styles.retryText}>{t('retry')}</Text>
+            </PressableScale>
+          </View>
+        ) : null}
+
+        {data.status === 'ready' ? (
+          <>
+            <StatTiles
+              totals={data.totals}
+              labels={{
+                revenue: t('revenue'),
+                orders: t('orders'),
+                cash: t('cash'),
+                transfer: t('transfer'),
+                expense: t('expense'),
+                net: t('net'),
+              }}
+            />
+            <BarChart bars={data.bars} label={t(`chart.${period}`)} />
+          </>
+        ) : null}
+
+        <Action
+          label={transactions('recent')}
+          onPress={() => router.push('/sales')}
+        />
+        <Action
+          label={transactions('export')}
+          onPress={() => setExporting(true)}
+        />
+        <AlertsSection />
+
+        <DigestCard />
+        <DebtCard />
+
+        {canEnroll ? (
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel={t('retry')}
-            pressedScale={0.96}
-            onPress={data.refetch}
-            style={styles.retry}
+            accessibilityLabel={t('receipts')}
+            onPress={() => router.push('/receipts' as Href)}
+            style={styles.receiptsButton}
           >
-            <Text style={styles.retryText}>{t('retry')}</Text>
+            <Icon icon={ReceiptText} color={colors.ink} />
+            <Text style={styles.retryText}>{t('receipts')}</Text>
           </PressableScale>
-        </View>
-      ) : null}
+        ) : null}
 
-      {data.status === 'ready' ? (
-        <>
-          <StatTiles
-            totals={data.totals}
-            labels={{
-              revenue: t('revenue'),
-              orders: t('orders'),
-              cash: t('cash'),
-              transfer: t('transfer'),
-              expense: t('expense'),
-              net: t('net'),
-            }}
-          />
-          <BarChart bars={data.bars} label={t(`chart.${period}`)} />
-        </>
-      ) : null}
-
-      <AlertsSection />
-
-      <DigestCard />
-      <DebtCard />
-
-      {canEnroll ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={t('receipts')}
-          onPress={() => router.push('/receipts' as Href)}
-          style={styles.receiptsButton}
-        >
-          <Icon icon={ReceiptText} color={colors.ink} />
-          <Text style={styles.retryText}>{t('receipts')}</Text>
-        </PressableScale>
-      ) : null}
-
-      {isLead ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={t('close')}
-          pressedScale={0.96}
-          onPress={closeDay}
-          style={styles.closeButton}
-        >
-          <Icon icon={SquareCheck} color={colors.onInk} />
-          <Text style={styles.closeText}>{t('close')}</Text>
-        </PressableScale>
-      ) : null}
-    </ScrollView>
+        {isLead ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('close')}
+            pressedScale={0.96}
+            onPress={closeDay}
+            style={styles.closeButton}
+          >
+            <Icon icon={SquareCheck} color={colors.onInk} />
+            <Text style={styles.closeText}>{t('close')}</Text>
+          </PressableScale>
+        ) : null}
+      </ScrollView>
+      {exporting ? <ExportSheet onClose={() => setExporting(false)} /> : null}
+    </View>
   );
 }
 

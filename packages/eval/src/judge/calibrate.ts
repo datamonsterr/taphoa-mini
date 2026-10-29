@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { JudgeInput, JudgeResult } from './judge.ts';
+import { DEFAULT_TODAY } from '../runner/client.ts';
 
 export const AGREEMENT_BAR = 0.9;
 export const MAE_BAR = 0.8;
@@ -7,9 +8,7 @@ export const MAE_BAR = 0.8;
 const PASS_SCORE = 4;
 const EPSILON = 1e-9;
 
-export type CalibrationItem = {
-  rubric_vi: string;
-  answer: string;
+export type CalibrationItem = JudgeInput & {
   /** The hand-given score, 1-5. */
   human_score: number;
 };
@@ -45,6 +44,11 @@ export async function calibrate(
     const verdict = await judge({
       rubric_vi: item.rubric_vi,
       answer: item.answer,
+      messages: item.messages ?? [],
+      fixture_context: item.fixture_context ?? {
+        business_date: DEFAULT_TODAY,
+        timezone: 'Asia/Ho_Chi_Minh',
+      },
     });
     rows.push(
       verdict
@@ -137,6 +141,7 @@ export function renderCalibration(
     '',
     `- Date: ${meta.date}`,
     `- Judge model: ${meta.judgeModel}`,
+    '- Input format: rubric, user messages, fixture context, answer (same serializer as live eval). Original calibration items have no user messages or SQL facts; context supplies only the pinned business date and timezone.',
     `- Items: ${result.rows.length}`,
     `- Agreement: ${percent(result.agreement)} (bar: ≥ 90 %)`,
     `- MAE: ${Number(result.mae.toFixed(2))} (bar: ≤ 0.8)`,

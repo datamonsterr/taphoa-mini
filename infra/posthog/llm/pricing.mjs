@@ -3,6 +3,7 @@ import { createClient } from '../lib/client.mjs';
 import { loadSecrets } from '../lib/secrets.mjs';
 
 export const assistantModels = [
+  'z-ai/glm-5.3-flash',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'poolside/laguna-s-2.1:free',
   'nvidia/nemotron-3.5-lightning:free',
@@ -26,7 +27,7 @@ export function configuredModels(env = process.env) {
   return [...new Set(models)];
 }
 
-export function modelPrices(models, catalog) {
+export function modelPrices(models, catalog, endpoints = {}) {
   if (!Array.isArray(catalog?.data))
     throw new Error('Invalid OpenRouter catalog');
   const rate = (value) => {
@@ -49,20 +50,67 @@ export function modelPrices(models, catalog) {
     const output = pricing ? rate(pricing.completion) : 0;
     if (free && (input !== 0 || output !== 0))
       throw new Error(`Nonzero :free price: ${model}`);
-    // Don't silently present a token-only formula as complete for other charges.
-    if (
-      pricing &&
-      Object.entries(pricing).some(
-        ([key, value]) =>
-          !['prompt', 'completion'].includes(key) && rate(value) !== 0,
-      )
-    )
-      throw new Error(`Additional pricing components require review: ${model}`);
+    // These catalog components are conditional (cache, reasoning or modalities).
+    // Verification below is scoped to text generations; unknown fixed charges fail closed.
+    const known = [
+      'prompt',
+      'completion',
+      'input_cache_read',
+      'input_cache_write',
+      'input_cache_write_1h',
+      'internal_reasoning',
+      'web_search',
+      'image',
+      'image_output',
+      'audio',
+      'input_audio_cache',
+    ];
+    const endpointPrices = (endpoints[model]?.data?.endpoints ?? []).map(
+      (e) => e.pricing,
+    );
+    const tiers = [
+      pricing,
+      ...(pricing?.overrides ?? []),
+      ...endpointPrices,
+    ].filter(Boolean);
+    for (const tier of tiers)
+      for (const [key, value] of Object.entries(tier)) {
+        if (
+          key === 'overrides' ||
+          key === 'min_prompt_tokens' ||
+          key === 'discount'
+        )
+          continue;
+        if (!known.includes(key) && rate(value) !== 0)
+          throw new Error(
+            `Additional pricing components require review: ${model}`,
+          );
+        if (free && rate(value) !== 0)
+          throw new Error(`Nonzero :free price: ${model}`);
+        rate(value);
+      }
+    const inputs = tiers.flatMap((t) =>
+      [
+        'prompt',
+        'input_cache_read',
+        'input_cache_write',
+        'input_cache_write_1h',
+      ]
+        .filter((k) => t[k] !== undefined)
+        .map((k) => rate(t[k])),
+    );
+    const outputs = tiers.flatMap((t) =>
+      ['completion'].filter((k) => t[k] !== undefined).map((k) => rate(t[k])),
+    );
     return {
       model,
       provider: 'openrouter',
       input,
       output,
+      inputMin: Math.min(input, ...inputs),
+      inputMax: Math.max(input, ...inputs),
+      outputMin: Math.min(output, ...outputs),
+      outputMax: Math.max(output, ...outputs),
       source: pricing
         ? catalogUrl
         : 'explicit :free policy; absent from current catalog',
@@ -84,7 +132,23 @@ export async function fetchPrices(
   });
   if (!response.ok)
     throw new Error(`OpenRouter catalog failed (${response.status})`);
-  return modelPrices(models, await response.json());
+  const catalog = await response.json();
+  const endpoints = {};
+  for (const model of models.filter((m) => !m.endsWith(':free'))) {
+    const res = await fetchImpl(`${catalogUrl}/${model}/endpoints`, {
+      signal: AbortSignal.timeout(30000),
+      redirect: 'error',
+    });
+    if (!res.ok)
+      throw new Error(`OpenRouter endpoints failed (${res.status}): ${model}`);
+    endpoints[model] = await res.json();
+    if (
+      !Array.isArray(endpoints[model]?.data?.endpoints) ||
+      !endpoints[model].data.endpoints.length
+    )
+      throw new Error(`OpenRouter endpoints missing: ${model}`);
+  }
+  return modelPrices(models, catalog, endpoints);
 }
 
 export function liveClient() {
