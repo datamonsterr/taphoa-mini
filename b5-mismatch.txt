@@ -1,0 +1,6 @@
+  code  | unit_price | price_mismatch | review_status | review_reason  | current_price 
+--------+------------+----------------+---------------+----------------+---------------
+ 8M6TG3 |      10000 | f              |               |                |         12000
+ WPS834 |      10000 | t              | open          | price_mismatch |         12000
+(2 rows)
+

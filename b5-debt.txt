@@ -1,0 +1,6 @@
+    kind     | amount | balance_after | sale_code | business_date 
+-------------+--------+---------------+-----------+---------------
+ credit_sale |  10000 |         10000 | 8M6TG3    | 2026-10-29
+ credit_sale |  10000 |         20000 | WPS834    | 2026-10-29
+(2 rows)
+

@@ -1,0 +1,6 @@
+  code  | payment_method | total | cash_received |  status   | business_date |  void_reason   | catalog_line | source | quantity | unit_price | price_mismatch 
+--------+----------------+-------+---------------+-----------+---------------+----------------+--------------+--------+----------+------------+----------------
+ Q4Y6Q6 | cash           | 20000 |         50000 | voided    | 2026-10-29    | Khách trả hàng | t            | camera |        2 |      10000 | f
+ S3MKED | transfer       | 10000 |               | completed | 2026-10-29    |                | t            | camera |        1 |      10000 | f
+(2 rows)
+

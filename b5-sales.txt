@@ -1,0 +1,6 @@
+  code  | payment_method | total | credit_amount | customer | business_date 
+--------+----------------+-------+---------------+----------+---------------
+ 8M6TG3 | credit         | 10000 |         10000 | Chị Lan  | 2026-10-29
+ WPS834 | credit         | 10000 |         10000 | Chị Lan  | 2026-10-29
+(2 rows)
+
