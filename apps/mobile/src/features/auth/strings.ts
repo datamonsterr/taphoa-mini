@@ -34,6 +34,8 @@ export const strings: Dict = {
     configTitle: 'Chưa cấu hình đăng nhập',
     configMessage:
       'Thiếu EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY. Hãy cấu hình khóa công khai Clerk rồi khởi động lại ứng dụng.',
+    apiConfigTitle: 'Chưa cấu hình máy chủ',
+    apiConfigMessage: 'Ứng dụng chưa được cấu hình máy chủ. Hãy cài bản mới.',
   },
   en: {
     title: 'Sign in',
@@ -71,5 +73,8 @@ export const strings: Dict = {
     configTitle: 'Sign-in configuration missing',
     configMessage:
       'EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY is missing. Configure the Clerk publishable key and restart the app.',
+    apiConfigTitle: 'Server not configured',
+    apiConfigMessage:
+      'This app build has no server configured. Install a newer build.',
   },
 };

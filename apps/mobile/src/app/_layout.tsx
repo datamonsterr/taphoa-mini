@@ -11,6 +11,7 @@ import { tokenCache } from '@clerk/expo/token-cache';
 import { AnalyticsIdentity, AnalyticsSignedOut } from '@/lib/AnalyticsIdentity';
 import { AnalyticsProvider } from '@/lib/analyticsPostHog';
 import { AuthGate } from '@/features/auth/AuthGate';
+import { apiConfigured } from '@/lib/api/client';
 import { ConfigurationError } from '@/features/auth/ConfigurationError';
 import {
   configureNotificationHandler,
@@ -156,8 +157,8 @@ export default function RootLayout() {
           persistOptions={persistOptions}
           onSuccess={() => void revalidateRestoredMe(queryClient)}
         >
-          {!publishableKey ? (
-            <ConfigurationError />
+          {!publishableKey || !apiConfigured() ? (
+            <ConfigurationError missing={publishableKey ? 'api' : 'clerk'} />
           ) : (
             <ClerkProvider
               publishableKey={publishableKey}
