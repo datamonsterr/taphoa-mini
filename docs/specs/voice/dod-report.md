@@ -17,6 +17,18 @@ CI and in PostHog. Row 8 (iOS) is out of scope: there is no iOS build, and V4 (#
 | 8   | iOS entry points                   | Out of scope                          | No iOS build; V4 #74                                                      |
 | 9   | Telemetry contract, CI, merged PRs | Done                                  | Contract tests, `ci-ok` on every epic PR, merged PRs below                |
 
+## Screenshots
+
+Maestro screenshots from Android E2E run 40801118589 (real APK, CI emulator):
+
+| Voice sale: listening                                    | Draft                                            | Sold, line pending                             |
+| -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------- |
+| ![listening](screenshots/maestro-voice-01-listening.png) | ![draft](screenshots/maestro-voice-02-draft.png) | ![sold](screenshots/maestro-voice-03-sold.png) |
+
+| Bubble explainer                                                | System "Display over other apps"                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------- |
+| ![explainer](screenshots/maestro-voice-bubble-01-explainer.png) | ![settings](screenshots/maestro-voice-bubble-02-settings.png) |
+
 ## 1. Android entry points
 
 - The local Expo module `apps/mobile/modules/voice-bubble` adds the overlay bubble (a foreground
