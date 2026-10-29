@@ -89,6 +89,22 @@ impl SaleInput {
                 .is_none_or(|n| money::change_given(self.total - credit, n).is_some())
     }
     fn validate(&self) -> ApiResult<()> {
+        if self.total > money::MAX_AMOUNT {
+            return Err(ApiError::validation_failed(format!(
+                "sale total must be at most {} VND",
+                money::MAX_AMOUNT
+            )));
+        }
+        if self
+            .lines
+            .iter()
+            .any(|l| l.unit_price > money::MAX_UNIT_PRICE)
+        {
+            return Err(ApiError::validation_failed(format!(
+                "unit price must be at most {} VND",
+                money::MAX_UNIT_PRICE
+            )));
+        }
         if self.id.get_version_num() != 7
             || !(1..=200).contains(&self.lines.len())
             || self.total < 0

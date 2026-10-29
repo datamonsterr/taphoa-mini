@@ -2274,3 +2274,54 @@ async fn futures_join(
     }
     out
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn patch_duplicate_barcode_returns_conflict_not_500() {
+    let w = world().await;
+    let a = create_product(
+        &w,
+        &w.lead,
+        "Cola",
+        10000,
+        "a",
+        json!({"barcode": "8934588012228"}),
+    )
+    .await;
+    let b = create_product(&w, &w.lead, "Pepsi", 10000, "b", json!({})).await;
+    let b_path = format!("/v1/products/{}", b["id"].as_str().unwrap());
+    let err = expect_code(
+        &w.app,
+        "PATCH",
+        &b_path,
+        Some(&w.lead),
+        json!({"barcode": "8934588012228"}),
+        StatusCode::CONFLICT,
+        "conflict",
+    )
+    .await;
+    assert_eq!(err["error"], "barcode already used");
+    // changing an existing unit's barcode to one another unit has conflicts too
+    let a_path = format!("/v1/products/{}", a["id"].as_str().unwrap());
+    let (a_unit, b_unit) = (Uuid::now_v7(), Uuid::now_v7());
+    for (path, unit, barcode) in [(&a_path, a_unit, "U-A"), (&b_path, b_unit, "U-B")] {
+        let body = json!({"units": [{"id": unit, "name": "lốc", "quantity_in_base": 6, "price": 54000, "barcode": barcode}]});
+        let (status, got) = call(&w.app, "PATCH", path, Some(&w.lead), body).await;
+        assert_eq!(status, StatusCode::OK, "{got}");
+    }
+    let body = json!({"units": [{"id": b_unit, "name": "lốc", "quantity_in_base": 6, "price": 54000, "barcode": "U-A"}]});
+    expect_code(
+        &w.app,
+        "PATCH",
+        &b_path,
+        Some(&w.lead),
+        body,
+        StatusCode::CONFLICT,
+        "conflict",
+    )
+    .await;
+    // the owner keeps its barcode
+    let (status, got) = call(&w.app, "GET", &a_path, Some(&w.lead), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(got["barcode"], "8934588012228");
+}
