@@ -99,6 +99,10 @@ Status: done on 2026-10-29, PR #116
 
 ## V3 · Android entry points
 
+- **Status:** code done on 2026-10-29, PR #117: overlay bubble, Quick Settings tile, static
+  shortcut, boot receiver and Account toggles, covered by Kotlin unit tests, Jest and the
+  `voice-bubble` Maestro flow. The real-device check (DoD row 1) follows the script in
+  [play-console.md](play-console.md).
 - **Branch:** `epic/v3-voice-android-entry` · **Depends:** V2 · **Wave:** 3
 - **Spec:** voice.md "Entry points" Android rows, ADR 0008.
 - **Owns:** local Expo Module `apps/mobile/modules/voice-bubble/**` (Kotlin: foreground
