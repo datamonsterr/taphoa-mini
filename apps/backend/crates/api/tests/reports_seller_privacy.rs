@@ -204,3 +204,53 @@ async fn sellers_do_not_see_purchase_costs_or_margin_alerts_on_expenses() {
     assert_eq!(lead["alerts"][0]["cost_price"], 8500);
     assert_eq!(lead["purchase_lines"][0]["unit_cost"], 8500);
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn seller_purchase_lines_do_not_change_cost_price_but_lead_lines_do() {
+    let w = World::new().await;
+    w.set_margin_threshold(10.0).await;
+    let coca = w.product("Coca 330ml", 9000, Some(7000)).await;
+    let cost = |w: &World| {
+        let pool = w.pool().clone();
+        async move {
+            sqlx::query_scalar::<_, Option<i64>>("SELECT cost_price FROM products WHERE id=$1")
+                .bind(coca)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let id = Uuid::now_v7();
+    let body = json!({"id": id, "spent_at": now_iso(), "amount": 24, "category": "nhap_hang",
+        "paid_with": "cash_box",
+        "purchase_lines": [{"product_id": coca, "quantity": 24, "unit_cost": 1}]});
+    let reply = w.call("POST", "/v1/expenses", &w.seller, body).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!(reply.body["amount"], 24);
+    assert_eq!(reply.body["alerts"], json!([]));
+    assert_eq!(cost(&w).await, Some(7000));
+    let (alerts, history): (i64, i64) = (
+        sqlx::query_scalar("SELECT count(*) FROM margin_alerts WHERE product_id=$1")
+            .bind(coca)
+            .fetch_one(w.pool())
+            .await
+            .unwrap(),
+        sqlx::query_scalar(
+            "SELECT count(*) FROM price_history WHERE product_id=$1 AND field='cost_price'",
+        )
+        .bind(coca)
+        .fetch_one(w.pool())
+        .await
+        .unwrap(),
+    );
+    assert_eq!((alerts, history), (0, 0));
+
+    let lead_id = Uuid::now_v7();
+    let body = json!({"id": lead_id, "spent_at": now_iso(), "amount": 204_000, "category": "nhap_hang",
+        "paid_with": "cash_box",
+        "purchase_lines": [{"product_id": coca, "quantity": 24, "unit_cost": 8500}]});
+    let reply = w.call("POST", "/v1/expenses", &w.lead, body).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!(cost(&w).await, Some(8500));
+}

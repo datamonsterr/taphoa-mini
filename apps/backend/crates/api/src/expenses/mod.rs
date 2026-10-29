@@ -284,6 +284,7 @@ pub(crate) async fn create_in_transaction(
         .bind(&product_ids)
         .fetch_all(&mut *conn)
         .await?;
+    let lead = can(actor, Action::ChangePrice);
     let threshold: i64 =
         sqlx::query_scalar("SELECT (margin_threshold_pct*100)::bigint FROM stores WHERE id=$1")
             .bind(actor.store_id)
@@ -306,6 +307,11 @@ pub(crate) async fn create_in_transaction(
         let cost = money::base_unit_cost(line.unit_cost, quantity);
         sqlx::query("INSERT INTO purchase_lines (store_id,expense_id,product_id,unit_id,quantity,unit_cost,base_unit_cost) VALUES ($1,$2,$3,$4,$5,$6,$7)")
             .bind(actor.store_id).bind(input.id).bind(line.product_id).bind(line.unit_id).bind(line.quantity).bind(line.unit_cost).bind(cost).execute(&mut *conn).await?;
+        // Only the Lead changes a product cost price; seller purchases record the
+        // expense and lines but leave cost, price history and margin alerts alone.
+        if !lead {
+            continue;
+        }
         sqlx::query("UPDATE products SET cost_price=$3,version=version+1,updated_at=now() WHERE store_id=$1 AND id=$2")
             .bind(actor.store_id).bind(line.product_id).bind(cost).execute(&mut *conn).await?;
         sqlx::query("INSERT INTO price_history (store_id,product_id,field,old_value,new_value,source,changed_by) VALUES ($1,$2,'cost_price',$3,$4,'purchase',$5)")
