@@ -141,6 +141,13 @@ fn pink_segments() -> Vec<Segment> {
 async fn build_state(
     segments: Vec<Segment>,
 ) -> Option<(Router, AppState, Arc<InMemoryVectorIndex>)> {
+    build_state_limited(segments, taphoa_api::ratelimit::RateLimits::default()).await
+}
+
+async fn build_state_limited(
+    segments: Vec<Segment>,
+    limits: taphoa_api::ratelimit::RateLimits,
+) -> Option<(Router, AppState, Arc<InMemoryVectorIndex>)> {
     let (Ok(database), Ok(redis)) = (std::env::var("DATABASE_URL"), std::env::var("REDIS_URL"))
     else {
         eprintln!("SKIP recognition integration: set DATABASE_URL and REDIS_URL");
@@ -154,6 +161,7 @@ async fn build_state(
         .await
         .unwrap();
     common::clerk::install(&mut state);
+    state.rate_limits = limits;
     let index = Arc::new(InMemoryVectorIndex::default());
     state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
     state.embedder = Some(Arc::new(TestEmbedder));
@@ -1246,4 +1254,30 @@ async fn slow_detector_times_out_without_releasing_inference_admission() {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_is_rate_limited_per_member() {
+    let limits = taphoa_api::ratelimit::RateLimits {
+        scan_per_minute: 2,
+        ..Default::default()
+    };
+    let Some((app, _, _)) = build_state_limited(scan_segments(), limits).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+    for _ in 0..2 {
+        let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_requests");
+    assert!(body["error"].as_str().unwrap().contains("scans"));
+    assert!(headers.get("retry-after").is_some());
+    // A member of another store has a budget of their own.
+    let (_, _, other) = create_store(&app).await;
+    let (status, body, _) = post_scan(&app, &other, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
 }

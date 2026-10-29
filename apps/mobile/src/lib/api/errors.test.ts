@@ -1,4 +1,4 @@
-import { ApiError, isApiError, unwrap } from './errors';
+import { ApiError, isApiError, isRateLimited, unwrap } from './errors';
 
 const res = (status: number, statusText = '') =>
   ({ status, statusText, ok: status >= 200 && status < 300 }) as Response;
@@ -61,4 +61,10 @@ test('unwrap carries Retry-After as milliseconds', async () => {
   expect(await get('2')).toBe(2000);
   expect(await get(null)).toBeUndefined();
   expect(await get('soon')).toBeUndefined();
+});
+
+test('isRateLimited is true only for HTTP 429', () => {
+  expect(isRateLimited(new ApiError(429, { error: 'x' }))).toBe(true);
+  expect(isRateLimited(new ApiError(503, { error: 'x' }))).toBe(false);
+  expect(isRateLimited(new Error('429'))).toBe(false);
 });

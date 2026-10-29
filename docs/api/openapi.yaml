@@ -554,6 +554,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /v1/recognition/scans/{scanId}:
@@ -585,9 +586,9 @@ paths:
       summary: Raw class-agnostic segmentation (implemented skeleton)
       description: |
         Runs the configured `Segmenter` and returns boxes only, without catalog matching.
-        Kept for diagnostics and the e2e smoke test. Today it is unauthenticated;
-        it moves behind auth once auth lands.
-      security: []
+        Kept for diagnostics and the e2e smoke test. Needs a signed-in member of a store
+        with the product-enrollment permission, and shares the per-member segmentation
+        rate limit with `/v1/segment/points`.
       requestBody:
         required: true
         content:
@@ -611,7 +612,10 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Segment' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/segment/points:
@@ -639,6 +643,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
@@ -1629,6 +1634,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '400': { $ref: '#/components/responses/BadRequest' }
     get:

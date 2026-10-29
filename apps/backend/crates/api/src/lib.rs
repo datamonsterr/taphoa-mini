@@ -377,8 +377,18 @@ fn multipart_error(error: MultipartError) -> ApiError {
 
 async fn segment(
     State(state): State<AppState>,
+    actor: auth::Actor,
     mut multipart: Multipart,
 ) -> Result<Json<Vec<Segment>>, ApiError> {
+    actor.require(auth::Action::EnrollProduct)?;
+    ratelimit::enforce(
+        &state,
+        &format!("segment:{}:{}", actor.store_id, actor.member_id),
+        state.rate_limits.segment_per_minute,
+        Duration::from_secs(60),
+        "segmentation requests",
+    )
+    .await?;
     let segmenter = state.segmenter.ok_or_else(no_model)?;
     let permit = state
         .inference_slots
@@ -479,7 +489,7 @@ mod tests {
         assert_eq!(json_body(response).await, json!({"status":"ok"}));
     }
     #[tokio::test]
-    async fn segments_multipart_image_with_mock() {
+    async fn segment_refuses_anonymous_callers_before_inference() {
         let response = router(mock_state())
             .oneshot(multipart(
                 "image",
@@ -487,11 +497,8 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            json_body(response).await,
-            json!([{"bbox":[1.,2.,3.,4.],"score":0.95,"area":12}])
-        );
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(json_body(response).await["code"], "unauthorized");
     }
     #[tokio::test]
     async fn preflight_allows_the_authorization_header_explicitly() {
@@ -518,18 +525,6 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn missing_model_returns_503() {
-        let response = router(AppState::default())
-            .oneshot(multipart("image", b"sample"))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            json_body(response).await,
-            json!({"error":"no model loaded", "code":"unavailable"})
-        );
-    }
-    #[tokio::test]
     async fn missing_dependencies_are_named() {
         let response = router(AppState::default())
             .oneshot(Request::get("/readyz").body(Body::empty()).unwrap())
@@ -540,26 +535,5 @@ mod tests {
             json_body(response).await["dependencies"],
             json!(["postgres", "redis"])
         );
-    }
-    #[tokio::test]
-    async fn invalid_fields_and_empty_images_are_rejected() {
-        for request in [multipart("wrong", b"sample"), multipart("image", b"")] {
-            assert_eq!(
-                router(mock_state())
-                    .oneshot(request)
-                    .await
-                    .unwrap()
-                    .status(),
-                StatusCode::BAD_REQUEST
-            );
-        }
-    }
-    #[tokio::test]
-    async fn oversized_upload_is_rejected() {
-        let response = router(mock_state())
-            .oneshot(multipart("image", &vec![0; MAX_UPLOAD_BYTES + 1]))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

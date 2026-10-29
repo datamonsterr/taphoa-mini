@@ -345,8 +345,9 @@ export interface paths {
         /**
          * Raw class-agnostic segmentation (implemented skeleton)
          * @description Runs the configured `Segmenter` and returns boxes only, without catalog matching.
-         *     Kept for diagnostics and the e2e smoke test. Today it is unauthenticated;
-         *     it moves behind auth once auth lands.
+         *     Kept for diagnostics and the e2e smoke test. Needs a signed-in member of a store
+         *     with the product-enrollment permission, and shares the per-member segmentation
+         *     rate limit with `/v1/segment/points`.
          */
         post: operations["segmentImage"];
         delete?: never;
@@ -3668,6 +3669,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -3729,7 +3731,10 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["ServiceUnavailable"];
         };
@@ -3764,6 +3769,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -5002,6 +5008,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };

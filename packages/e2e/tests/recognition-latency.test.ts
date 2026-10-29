@@ -74,13 +74,14 @@ describe('recognition latency', () => {
   it(
     'segments a 1600 px photo within the latency budget',
     async () => {
+      const token = (await createStore()).session.access_token;
       const samples: number[] = [];
       let segments: any[] = [];
       for (let run = 0; run < RUNS; run++) {
-        let result = await post('/v1/segment', form());
+        let result = await post('/v1/segment', form(), token);
         for (let attempt = 0; result.status === 503 && attempt < 5; attempt++) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          result = await post('/v1/segment', form());
+          result = await post('/v1/segment', form(), token);
         }
         expect(result.status).toBe(200);
         samples.push(result.ms);
