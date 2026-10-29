@@ -34,13 +34,28 @@ import {
  */
 const DIR = path.join(__dirname, 'screenshots');
 
-/** Waits for every image to finish loading and animations to start settling, then saves the page. */
+/**
+ * Waits for every image to finish loading and animations to start settling, then saves the page.
+ * A lazy image on a hidden or off-screen view (a screen under the current one) never starts
+ * loading, so only lazy images inside the viewport count.
+ */
 async function capture(page: Page, testInfo: TestInfo, board: string) {
   await page.evaluate(() => document.fonts.ready);
   await expect
     .poll(() =>
       page.evaluate(() =>
-        [...document.images].every((image) => image.complete),
+        [...document.images].every((image) => {
+          if (image.complete || image.loading !== 'lazy') return image.complete;
+          const box = image.getBoundingClientRect();
+          const inViewport =
+            box.width > 0 &&
+            box.height > 0 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < window.innerHeight &&
+            box.left < window.innerWidth;
+          return !(inViewport && image.checkVisibility());
+        }),
       ),
     )
     .toBe(true);
