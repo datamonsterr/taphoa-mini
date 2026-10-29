@@ -10,6 +10,7 @@ import { keys } from '@/lib/api/keys';
 import { pullChanges } from '@/lib/api/sync';
 import type { Category, Change, Page, Product, Store } from '@/lib/api/types';
 import type { ListProductsParams } from '@/lib/api/products';
+import { prefetchThumbnails } from './thumbnails';
 
 export type CatalogSnapshot = {
   /** Cursor of the last applied change page; null before the first snapshot. */
@@ -135,6 +136,7 @@ export function syncCatalog(
     let restarted = false;
     let insertedAny = false;
     const changedIds = new Set<string>();
+    const changedProducts = new Map<string, Product>();
     try {
       for (;;) {
         const before = getCatalog(qc);
@@ -154,6 +156,7 @@ export function syncCatalog(
         insertedAny ||= merged.inserted && before.cursor !== null;
         for (const product of merged.changed) {
           changedIds.add(product.id);
+          changedProducts.set(product.id, product);
         }
         qc.setQueryData<CatalogSnapshot>(keys.catalog(), {
           ...merged.snapshot,
@@ -164,6 +167,7 @@ export function syncCatalog(
         if (!feed.has_more) break;
       }
       options.afterMerge?.(qc, changedIds);
+      void prefetchThumbnails([...changedProducts.values()]);
       if (insertedAny)
         await qc.invalidateQueries({ queryKey: keys.products.all() });
     } finally {

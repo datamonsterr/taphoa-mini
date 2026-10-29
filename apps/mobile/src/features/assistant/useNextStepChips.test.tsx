@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClientProvider } from '@tanstack/react-query';
 
 import type { NextStepChipData } from '@/components/assistant/chip';
 import { setAnalyticsSink } from '@/lib/analytics';
@@ -115,7 +115,10 @@ beforeEach(() => {
   mockSteps([restock, drafts]);
   jest.mocked(useNextSteps).mockClear();
 });
-afterEach(() => setAnalyticsSink(null));
+afterEach(() => {
+  setAnalyticsSink(null);
+  onlineManager.setOnline(true);
+});
 
 const kinds = (chips: NextStepChipData[]) => chips.map((c) => c.kind);
 
@@ -131,6 +134,16 @@ test('server chips alone, in server order, with Vietnamese text and their action
     action: restock.action,
   });
   expect(result.current.chips[1]!.subtitle).toBeUndefined();
+});
+
+test('offline hides server chips and keeps on-device ones; back online they return', async () => {
+  const { result } = await render({ unknownProduct: true });
+  const all = ['unknown_product', 'restock', 'draft_receipts'];
+  expect(kinds(result.current.chips)).toEqual(all);
+  await act(async () => onlineManager.setOnline(false));
+  expect(kinds(result.current.chips)).toEqual(['unknown_product']);
+  await act(async () => onlineManager.setOnline(true));
+  expect(kinds(result.current.chips)).toEqual(all);
 });
 
 test('a detected receipt owns the strip with two different actions', async () => {
