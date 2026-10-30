@@ -5871,6 +5871,8 @@ export interface operations {
             query?: {
                 /** @description Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest. */
                 business_date?: string;
+                /** @description Record that the caller opened the digest. Only the digest screen sets it; reading for the dashboard card leaves `read_at` untouched. The response carries the read time from before this call, so the first open returns null. */
+                mark_read?: boolean;
             };
             header?: {
                 /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
