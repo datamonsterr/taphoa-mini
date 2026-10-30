@@ -58,7 +58,7 @@ describe('opt-in to share voice', () => {
     });
     expect(toggle).not.toBeChecked();
     expect(
-      screen.getByText(/Giữ lại đoạn ghi âm cho bộ mẫu/),
+      screen.getByText(/Chưa gửi giọng nói đi trong bản này/),
     ).toBeOnTheScreen();
     await fireEvent.press(toggle);
     expect(useVoiceSettings.getState().donate).toBe(true);

@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 import { preferenceStorage } from '@/stores/preferenceStorage';
 
 type VoiceSettings = {
-  /** "Góp giọng nói để cải thiện": sent as `donate=true` with a sale clip so the server keeps it for the golden set. */
+  /** "Góp giọng nói để cải thiện": stored on this phone only until the upload follow-up lands. */
   donate: boolean;
   /** Voice sales confirmed on this phone; the `voice_sale` chip stops after three. */
   voiceSales: number;

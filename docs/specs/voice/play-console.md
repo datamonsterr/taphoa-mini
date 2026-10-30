@@ -21,7 +21,7 @@ is submitted by the repository.
 **Data type: Audio, "Voice or sound recordings".**
 
 - Collected: yes. Shared: no (the speech model runs through our backend; processors acting on our behalf are not "sharing").
-- Processed ephemerally: yes. Audio is held in memory on the server during the model call and discarded afterwards. It is not stored, unless the member turns on "Góp giọng nói để cải thiện" (off by default; since #163 the app sends the flag and the server keeps the clip under `voice/<store>/<uuid>.m4a`, so the data-safety entry below must say "collected, optional" before the next release that includes it).
+- Processed ephemerally: yes. Audio is held in memory on the server during the model call and discarded afterwards. It is not stored, unless the member turns on "Góp giọng nói để cải thiện" (off by default, not uploaded in the V2/V3 builds).
 - Required or optional: optional (a seller can type the sale by hand).
 - Purpose: App functionality (turn a spoken sale into a draft).
 - Encrypted in transit: yes (HTTPS). Deletion: transcripts and drafts are deleted after 30 days; the member can delete the account data from the app.
