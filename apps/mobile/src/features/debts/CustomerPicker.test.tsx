@@ -20,10 +20,16 @@ test('shows recent customers, searches name/phone and selects a customer', async
   expect(await screen.findByText('Khách gần đây')).toBeOnTheScreen();
   expect(await screen.findByText('Mai')).toBeOnTheScreen();
   expect(
-    screen.getByRole('header', { name: 'Chọn khách ghi nợ' }),
+    screen.getByRole('header', { name: 'Chọn khách hàng' }),
   ).toBeOnTheScreen();
   expect(screen.getByText('0901234567')).toBeOnTheScreen();
-  expect(screen.getAllByText(/^Cập nhật /)).toHaveLength(2);
+  expect(screen.getByText('2 khách')).toBeOnTheScreen();
+  expect(screen.getAllByText('Hết nợ')).toHaveLength(2);
+  expect(screen.getByText('Không có số')).toBeOnTheScreen();
+  expect(screen.getByText('L')).toBeOnTheScreen();
+  expect(
+    screen.getByPlaceholderText('Tên hoặc số điện thoại'),
+  ).toBeOnTheScreen();
   await fireEvent.changeText(screen.getByLabelText('Tìm khách hàng'), '0901');
   expect(await screen.findByText('Lan')).toBeOnTheScreen();
   await fireEvent.press(screen.getByLabelText('Lan, 0đ'));

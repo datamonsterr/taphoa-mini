@@ -1,13 +1,15 @@
 import type { Dict } from '@/lib/i18n';
 export const debtStrings: Dict = {
   vi: {
-    'picker.title': 'Chọn khách ghi nợ',
+    'picker.title': 'Chọn khách hàng',
+    'picker.searchPlaceholder': 'Tên hoặc số điện thoại',
+    'picker.count': '{n} khách',
+    'picker.lastWeek': 'tuần trước',
     'picker.new': 'Khách mới',
     'picker.creditCreate': 'Tạo và ghi nợ',
     'picker.contact': 'Chọn từ danh bạ',
     'picker.contactError':
       'Không mở được danh bạ. Thử lại hoặc nhập tên và số điện thoại.',
-    'picker.updated': 'Cập nhật {date}',
     'picker.duplicate': 'Dùng khách này?',
     'picker.useExisting': 'Dùng khách này',
     'picker.createAnyway': 'Vẫn tạo khách mới',
@@ -102,13 +104,15 @@ export const debtStrings: Dict = {
     'sheet.close': 'Đóng',
   },
   en: {
-    'picker.title': 'Choose credit customer',
+    'picker.title': 'Choose customer',
+    'picker.searchPlaceholder': 'Name or phone number',
+    'picker.count': '{n} customers',
+    'picker.lastWeek': 'last week',
     'picker.new': 'New customer',
     'picker.creditCreate': 'Create and use for credit',
     'picker.contact': 'Choose from contacts',
     'picker.contactError':
       'Could not open contacts. Try again or enter the name and phone.',
-    'picker.updated': 'Updated {date}',
     'picker.duplicate': 'Use this customer?',
     'picker.useExisting': 'Use this customer',
     'picker.createAnyway': 'Create a new customer anyway',
