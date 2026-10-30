@@ -35,6 +35,7 @@ import {
 } from '@/test/render';
 
 import { uploadPartsAsBlobs } from './testing';
+import { SCAN_TIMEOUT_MS } from './useScanSession';
 import { CameraScreen } from './CameraScreen';
 import { useDocumentProbe } from './useDocumentProbe';
 import { useCaptureModeStore } from './modeStore';
@@ -756,6 +757,49 @@ describe('errors', () => {
     expect(screen.queryByText('Chưa nhận diện được')).toBeNull();
   });
 
+  it('gives up on a scan nobody answers: Vietnamese message, retry, shutter free', async () => {
+    setMockScenario('match');
+    const create = jest
+      .spyOn(images, 'createScan')
+      .mockImplementationOnce(() => new Promise(() => {}));
+    await renderWithProviders(<CameraScreen />);
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(SCAN_TIMEOUT_MS - 1000);
+      });
+      expect(screen.getByTestId('scan-busy')).toBeOnTheScreen();
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1000);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(
+      screen.getByText('Mạng chậm, chưa nhận diện được. Thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByTestId('scan-busy')).toBeNull();
+    expect(shutter()).toBeEnabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Thử lại' }));
+    expect(
+      await screen.findByRole('button', { name: /đã chọn$/ }),
+    ).toBeOnTheScreen();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('says there is no network when the request cannot leave the phone', async () => {
+    jest
+      .spyOn(images, 'createScan')
+      .mockRejectedValueOnce(new TypeError('Network request failed'));
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+    expect(
+      await screen.findByText('Không có mạng. Kiểm tra kết nối rồi thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Thử lại' })).toBeOnTheScreen();
+  });
+
   it('says to slow down when the scan answers 429', async () => {
     setMockScenario('match');
     jest
@@ -833,6 +877,33 @@ describe('ambiguous match', () => {
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
     await fireEvent.press(screen.getByRole('button', { name: /bỏ chọn$/ }));
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeEnabled();
+  });
+});
+
+describe('ambiguous look', () => {
+  beforeEach(() => setMockScenario('ambiguous'));
+
+  it('single mode: amber badge and ? pill, never a green check', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    expect(screen.getByTestId('confidence-badge')).toHaveStyle({
+      backgroundColor: colors.warningSoft,
+    });
+    expect(screen.getByText('?')).toBeOnTheScreen();
+    expect(screen.getByTestId('box-frame')).toHaveStyle({
+      borderStyle: 'dashed',
+      borderColor: colors.warningSoft,
+    });
+  });
+
+  it('turns solid once the seller picks the box', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await fireEvent.press(screen.getByRole('button', { name: /bỏ chọn$/ }));
+    expect(screen.getByTestId('confidence-badge')).toHaveStyle({
+      backgroundColor: colors.successSoft,
+    });
+    expect(screen.queryByText('?')).toBeNull();
   });
 });
 

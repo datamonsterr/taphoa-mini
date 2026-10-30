@@ -7,12 +7,23 @@ import { RATE_LIMIT_MESSAGE, isRateLimited, useCreateScan } from '@/lib/api';
 import { takePhoto, toScanMode, toUploadFile } from './capture';
 import { initialScanState, scanReducer, type Photo } from './scanReducer';
 
+/** A scan with no answer after this long gives up, so the seller is never stuck on the spinner. */
+export const SCAN_TIMEOUT_MS = 20_000;
+export const SCAN_SLOW_MESSAGE = 'Mạng chậm, chưa nhận diện được. Thử lại.';
+export const SCAN_OFFLINE_MESSAGE =
+  'Không có mạng. Kiểm tra kết nối rồi thử lại.';
+export const SCAN_FAILED_MESSAGE = 'Chưa nhận diện được';
+
+const offline = () =>
+  typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/** What the seller reads on the error pill: what failed; the retry button says what to do. */
 const message = (error: unknown) =>
   isRateLimited(error)
     ? RATE_LIMIT_MESSAGE
-    : error instanceof Error
-      ? error.message
-      : String(error);
+    : error instanceof TypeError || offline()
+      ? SCAN_OFFLINE_MESSAGE
+      : SCAN_FAILED_MESSAGE;
 
 /** Drives one capture: take the photo, freeze it, upload it, keep the reducer in step. */
 export function useScanSession(
@@ -26,6 +37,11 @@ export function useScanSession(
 
   const submit = useCallback(
     async (token: number, shot: Photo) => {
+      // A late answer after the timeout is dropped: the reducer only takes `scanning` + same token.
+      const timer = setTimeout(
+        () => dispatch({ type: 'failed', token, message: SCAN_SLOW_MESSAGE }),
+        SCAN_TIMEOUT_MS,
+      );
       try {
         const scan = await mutateAsync({
           image: toUploadFile(shot),
@@ -34,6 +50,8 @@ export function useScanSession(
         dispatch({ type: 'scanned', token, scan });
       } catch (error) {
         dispatch({ type: 'failed', token, message: message(error) });
+      } finally {
+        clearTimeout(timer);
       }
     },
     [mutateAsync, mode],

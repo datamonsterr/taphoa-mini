@@ -13,6 +13,7 @@ import {
   expect,
   goOffline,
   hydrate,
+  openCamera,
   openShop,
   seedTradingDay,
   signInAs,
@@ -655,5 +656,98 @@ test.describe('offline', () => {
     await expect(page.getByText('Đang hiểu…')).toHaveCount(0);
     expect(uploads).toEqual([]);
     await shot(page, testInfo, 'issue-156-voice-offline');
+  });
+});
+
+// ---- #180 camera scan with no answer ----------------------------------------------------
+
+test.describe('#180 camera scan', () => {
+  test('a scan the server never answers gives up with a Vietnamese message and a retry', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+    await openCamera(page);
+    let calls = 0;
+    await page.route('**/v1/recognition/scans', (route) => {
+      calls += 1;
+      // the first scan hangs; the retry goes through to the real backend
+      return calls === 1 ? undefined : route.continue();
+    });
+    await button(page, 'Chụp').click();
+    await expect(byId(page, 'scan-busy')).toBeVisible();
+    await expect(
+      page.getByText('Mạng chậm, chưa nhận diện được. Thử lại.'),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(byId(page, 'scan-busy')).toHaveCount(0);
+    await shot(page, testInfo, 'issue-180-scan-timeout');
+    await expect(button(page, 'Thử lại')).toBeVisible();
+    await expect(button(page, 'Chụp lại')).toBeEnabled();
+  });
+
+  test('a scan with no network says so and offers a retry', async ({
+    page,
+  }, testInfo) => {
+    await openCamera(page);
+    await goOffline(page);
+    await button(page, 'Chụp').click();
+    await expect(
+      page.getByText('Không có mạng. Kiểm tra kết nối rồi thử lại.'),
+    ).toBeVisible();
+    await expect(button(page, 'Thử lại')).toBeVisible();
+    await shot(page, testInfo, 'issue-180-scan-offline');
+  });
+});
+
+// ---- #182 ambiguous scan look -----------------------------------------------------------
+
+test.describe('#182 ambiguous match', () => {
+  test('draws the low-match look and keeps the pill inside the viewfinder', async ({
+    page,
+  }, testInfo) => {
+    await openCamera(page);
+    const candidate = (id: string, similarity: number, price: number) => ({
+      product_id: id,
+      name: `Sản phẩm ${id}`,
+      price,
+      similarity,
+    });
+    await page.route('**/v1/recognition/scans', (route) =>
+      route.fulfill({
+        status: 201,
+        json: {
+          id: uuid7(),
+          image: { id: uuid7(), url: 'https://example.test/x.jpg' },
+          mode: 'single',
+          purpose: 'checkout',
+          pipeline: { segmenter: 'sam', embedder: 'dino' },
+          detections: [
+            {
+              id: uuid7(),
+              bbox: [300, 400, 680, 520],
+              score: 0.95,
+              match: 'ambiguous',
+              candidates: [
+                candidate('a', 0.74, 15_000),
+                candidate('b', 0.7, 12_000),
+              ],
+            },
+          ],
+          created_at: new Date().toISOString(),
+        },
+      }),
+    );
+    await button(page, 'Chụp').click();
+    const badge = byId(page, 'confidence-badge');
+    await expect(badge).toBeVisible();
+    await expect(byId(page, 'box-frame')).toBeVisible();
+    const finder = (await byId(page, 'viewfinder').boundingBox())!;
+    const pill = (await page
+      .getByRole('button', { name: /xem món khác/ })
+      .boundingBox())!;
+    expect(pill.y + pill.height).toBeLessThanOrEqual(
+      finder.y + finder.height - 8,
+    );
+    await expect(page.getByText('?', { exact: true })).toBeVisible();
+    await shot(page, testInfo, 'issue-182-ambiguous');
   });
 });

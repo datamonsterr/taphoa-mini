@@ -51,6 +51,7 @@ export function toOverlayDetections(
       price: top!.price,
       bbox,
       lowMatch: false,
+      ambiguous: detection.match === 'ambiguous',
       alternatives: [items[first]!, ...items.filter((_, i) => i !== first)],
     };
   });
