@@ -117,6 +117,10 @@ const FIXED_HEIGHT =
 /**
  * The live preview. It reports readiness once `expo-camera` has started, and not-ready when it
  * unmounts (behind a frozen photo, off screen), so the shutter never fires into a cold camera.
+ *
+ * The native barcode handler never changes. On Android, expo-camera rebinds CameraX whenever
+ * `onBarcodeScanned` appears or disappears, and that rebind aborts a picture in flight with
+ * "Failed to capture image". A paused scanner passes no handler and the reads are dropped here.
  */
 function LivePreview({
   cameraRef,
@@ -129,6 +133,14 @@ function LivePreview({
 }) {
   useEffect(() => () => onReadyChange(false), [onReadyChange]);
   const onCameraReady = useCallback(() => onReadyChange(true), [onReadyChange]);
+  const barcodeHandler = useRef(onBarcodeScanned);
+  useEffect(() => {
+    barcodeHandler.current = onBarcodeScanned;
+  }, [onBarcodeScanned]);
+  const onBarcode = useCallback(
+    (result: BarcodeScanningResult) => barcodeHandler.current?.(result),
+    [],
+  );
   return (
     <PostHogMaskView style={StyleSheet.absoluteFill}>
       <CameraView
@@ -136,7 +148,7 @@ function LivePreview({
         facing="back"
         animateShutter={false}
         barcodeScannerSettings={BARCODE_SETTINGS}
-        onBarcodeScanned={onBarcodeScanned}
+        onBarcodeScanned={onBarcode}
         onCameraReady={onCameraReady}
         style={StyleSheet.absoluteFill}
       />
@@ -161,6 +173,26 @@ const CartShortcut = memo(function CartShortcut({
     </CartPop>
   );
 });
+
+/** Which quick-enroll step failed, and what the seller does next. */
+function quickPhotoAlert(step: 'capture' | 'upload', error: unknown) {
+  if (step === 'capture')
+    return {
+      title: 'Chưa chụp được ảnh',
+      message: 'Máy ảnh chưa chụp được. Giữ máy yên rồi bấm Chụp lần nữa.',
+    };
+  const title = 'Chưa tải được ảnh';
+  if (isRateLimited(error)) return { title, message: RATE_LIMIT_MESSAGE };
+  if (isApiError(error) && error.status === 403)
+    return {
+      title,
+      message: 'Bạn chưa có quyền thêm hàng. Nhờ chủ cửa hàng cấp quyền.',
+    };
+  return {
+    title,
+    message: 'Ảnh chưa lên được máy chủ. Kiểm tra mạng rồi chụp lại.',
+  };
+}
 
 /** A short scale morph announces the new primary action after the third angle. */
 function QuickAdd({
@@ -588,6 +620,7 @@ export function CameraScreen() {
     setQuickCapturing(true);
     const token = ++quickCaptureToken.current;
     const id = newUuid();
+    let step: 'capture' | 'upload' = 'capture';
     try {
       const photo = await takePhoto(cameraRef.current);
       const downsized = await downsizeForUpload(
@@ -596,6 +629,7 @@ export function CameraScreen() {
         photo.height,
       );
       if (token !== quickCaptureToken.current) return;
+      step = 'upload';
       dispatch({ type: 'captured', id, ...downsized });
       const image = await uploadImage({
         file: {
@@ -609,9 +643,10 @@ export function CameraScreen() {
       dispatch({ type: 'uploaded', id, imageId: image.id });
     } catch (error) {
       if (token !== quickCaptureToken.current) return;
-      const message = error instanceof Error ? error.message : String(error);
+      console.warn('quick_enroll.photo_failed', { step, error });
+      const { title, message } = quickPhotoAlert(step, error);
       dispatch({ type: 'failed', id, error: message });
-      Alert.alert('Chưa tải được ảnh', message);
+      Alert.alert(title, message);
     } finally {
       if (token === quickCaptureToken.current) {
         quickCapturePending.current = false;

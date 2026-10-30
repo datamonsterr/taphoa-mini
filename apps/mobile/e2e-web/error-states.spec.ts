@@ -376,6 +376,10 @@ test.describe('#178 account load', () => {
         body: JSON.stringify({ error: 'internal' }),
       }),
     );
+    // The persisted offline cache (1 s throttle) would restore /me and open the camera instead.
+    await page.addInitScript(() =>
+      localStorage.removeItem('taphoa-query-cache'),
+    );
     await page.reload();
     await expect(
       page.getByText('Máy chủ đang bận, chưa tải được tài khoản. Thử lại sau.'),
