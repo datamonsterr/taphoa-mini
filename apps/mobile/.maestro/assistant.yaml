@@ -33,10 +33,9 @@ appId: com.datamonsterr.taphoamini
       - assertVisible: 'Giữ để nói'
       - takeScreenshot: assistant-01-open
       # a scripted exchange: anything else gets the fixed greeting
-      # Keyboard regression: the composer must sit above the soft keyboard. Maestro's visibility
-      # checks ignore the keyboard window, so assertVisible alone passes even when the input is
-      # covered. Tapping the send button is the real check: a tap on a covered button lands on the
-      # keyboard, nothing is sent and the reply wait below fails.
+      # Keyboard regression: the composer must sit above the soft keyboard. Check the input and
+      # Send while the keyboard is open, then tap Send: a covered button would take the tap on the
+      # keyboard instead. Enter alone sends blind and closes the keyboard, so it hid this bug.
       - tapOn:
           id: 'assistant-input'
       - inputText: 'Xin chào'
