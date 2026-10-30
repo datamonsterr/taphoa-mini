@@ -204,6 +204,7 @@ export function createApiClient(options: ApiClientOptions) {
           mode: input.mode,
           language: input.language,
           context: JSON.stringify(input.context),
+          donate: input.donate,
         },
         bodySerializer: () => {
           const form = new FormData();
@@ -216,6 +217,7 @@ export function createApiClient(options: ApiClientOptions) {
           }
           form.append('mode', input.mode);
           form.append('language', input.language ?? 'vi');
+          if (input.donate) form.append('donate', 'true');
           form.append('context', JSON.stringify(input.context));
           return form;
         },
@@ -237,6 +239,8 @@ export type CreateVoiceUtteranceInput = {
   filename?: string;
   mode: 'sale' | 'transcribe';
   language?: 'vi' | 'en';
+  /** Keep the clip for the golden set (the member's opt-in). */
+  donate?: boolean;
   context: components['schemas']['VoiceUtteranceContext'];
 };
 

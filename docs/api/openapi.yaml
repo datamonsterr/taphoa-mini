@@ -2456,6 +2456,10 @@ paths:
                 audio: { type: string, format: binary }
                 mode: { type: string, enum: [sale, transcribe] }
                 language: { type: string, enum: [vi, en], default: vi }
+                donate:
+                  type: boolean
+                  default: false
+                  description: The member opted in (Tai khoan, voice donation) to keep this clip for the golden set under voice/<store>/<uuid>.m4a. Without it the audio is discarded after the call.
                 context:
                   type: string
                   description: 'JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}.'

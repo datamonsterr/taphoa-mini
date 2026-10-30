@@ -1285,3 +1285,59 @@ async fn paid_primary_is_not_blocked_by_remembered_free_quota_exhaustion() {
     assert_eq!(model.requests().len(), 1);
     taphoa_api::assistant::quota::clear_openrouter_exhausted(&w.state).await;
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn attachments_are_capped_deduplicated_and_checked_in_bulk() {
+    let (w, model, _) = setup(vec![Step::text("Xong")], config()).await;
+    let id = thread(&w, false).await;
+    let path = format!("/v1/assistant/threads/{id}/messages");
+    let image = Uuid::now_v7();
+    sqlx::query("INSERT INTO images(id,store_id,object_key,content_type,byte_size,purpose) VALUES($1,$2,$3,'image/jpeg',10,'checkout')")
+        .bind(image)
+        .bind(w.store_id)
+        .bind(format!("images/test/{image}.jpg"))
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let post = |attachments: Vec<Value>| {
+        w.call(
+            "POST",
+            &path,
+            &w.lead,
+            json!({"content":"Xem anh","language":"vi","attachments":attachments}),
+        )
+    };
+    // 100 copies: refused before any query or model call.
+    let r = post(vec![json!({"image_id": image}); 100]).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST, "{}", r.body);
+    assert_eq!(r.body["code"], "validation_failed");
+    assert!(model.requests().is_empty());
+    // An image the store does not own is a 404.
+    let r = post(vec![json!({"image_id": Uuid::now_v7()})]).await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    // Duplicates within the cap collapse to one attachment in the prompt and the stored row.
+    let r = post(vec![json!({"image_id": image}); 4]).await;
+    assert_eq!(r.status, StatusCode::OK);
+    let prompt = model.requests()[0]
+        .messages
+        .last()
+        .unwrap()
+        .content
+        .clone()
+        .unwrap();
+    assert_eq!(
+        prompt
+            .matches("[\u{111}\u{ed}nh k\u{e8}m \u{1ea3}nh")
+            .count(),
+        1,
+        "{prompt}"
+    );
+    let stored: Value = sqlx::query_scalar(
+        "SELECT attachments FROM assistant_messages WHERE role='user' ORDER BY created_at DESC LIMIT 1",
+    )
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert_eq!(stored, json!([{"image_id": image}]));
+}

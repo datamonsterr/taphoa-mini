@@ -2725,6 +2725,7 @@ export interface components {
         };
         SendAssistantMessage: {
             content: string;
+            /** @description At most 4; duplicates are ignored. More is a 400 validation_failed. */
             attachments?: components["schemas"]["AssistantAttachment"][];
             language: components["schemas"]["AssistantLanguage"];
         };
@@ -5923,6 +5924,11 @@ export interface operations {
                      * @enum {string}
                      */
                     language?: "vi" | "en";
+                    /**
+                     * @description The member opted in (Tai khoan, voice donation) to keep this clip for the golden set under voice/<store>/<uuid>.m4a. Without it the audio is discarded after the call.
+                     * @default false
+                     */
+                    donate?: boolean;
                     /** @description JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}. */
                     context?: string;
                 };
