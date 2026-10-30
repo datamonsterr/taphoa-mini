@@ -138,7 +138,9 @@ pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 pub const SYSTEM_PROMPT: &str = "Bạn giúp chủ tiệm tạp hóa ở Việt Nam ghi một đơn bán hàng bằng giọng nói. \
 Chỉ trả về JSON đúng schema VoiceParse, không thêm chữ nào khác. \
 Chép lại đúng lời nói vào transcript. \
-Tách từng mặt hàng thành một dòng: spoken là đoạn người nói, query là tên hàng ngắn gọn để tìm trong danh mục (không gồm số lượng, đơn vị, giá), \
+Tách từng mặt hàng thành một dòng. spoken và query chỉ là TÊN HÀNG (ví dụ \"tương ớt\", \"nước ngọt\", \"coca\"): tuyệt đối không có số lượng, số đếm bằng chữ (một, hai, ba…), đơn vị hay bao bì (chai, lon, gói, hộp, thùng, bịch, cái, ký…) và không có giá. \
+Ví dụ \"một chai tương ớt hai mươi nghìn\" cho spoken \"tương ớt\", query \"tương ớt\", quantity 1, unit \"chai\", price_spoken \"hai mươi nghìn\", unit_price 20000. \
+Giữ thương hiệu và loại nếu người nói có nói (\"tương ớt Chinsu\"), không tự thêm thương hiệu không được nói: tên chung như \"nước ngọt\" hay \"bia\" vẫn là đúng tên chung đó, không tự chọn một nhãn hiệu. query viết có dấu, theo đúng tên trong danh mục nếu nhận ra. \
 quantity là số lượng (không nói số thì là 1), unit là đơn vị đã nói, price_spoken là đúng lời nói về giá và unit_price là giá một đơn vị bằng đồng. \
 Giá nói tắt theo nghìn: \"hai mươi\" là 20000, \"hai lăm\" là 25000, \"mười rưỡi\" là 10500, \"trăm rưỡi\" là 150000, \"hai trăm\" là 200000. \
 Số đứng ngay sau tên hàng mà là một phần của tên (mã như ST25, 330ml, 500g) không phải giá, trừ khi theo sau là nghìn, k hoặc \"giá\". \

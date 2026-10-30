@@ -6,7 +6,6 @@ use super::text::fold;
 use crate::debts;
 use serde::Deserialize;
 use sqlx::{PgPool, types::Json};
-use std::collections::HashSet;
 use uuid::Uuid;
 
 pub const MATCHED_MIN: f32 = 0.80;
@@ -28,40 +27,6 @@ pub enum Band {
     /// Up to three candidates, best first (the best is preselected).
     Ambiguous(Vec<Scored>),
     Unknown,
-}
-
-fn has_digit(token: &str) -> bool {
-    token.chars().any(|c| c.is_ascii_digit())
-}
-
-/// Blend trigram similarity (`sim`), word similarity (`word`: the query inside the name) and
-/// token overlap. Size tokens ("330ml") count extra when present and penalize when absent.
-pub fn product_score(query: &str, name: &str, sim: f32, word: f32) -> f32 {
-    let q = fold(query);
-    let n = fold(name);
-    if q.is_empty() || n.is_empty() {
-        return 0.0;
-    }
-    if q == n {
-        return 1.0;
-    }
-    let name_tokens: HashSet<&str> = n.split(' ').collect();
-    let query_tokens: Vec<&str> = q.split(' ').collect();
-    let hits = query_tokens
-        .iter()
-        .filter(|t| name_tokens.contains(**t))
-        .count();
-    let coverage = hits as f32 / query_tokens.len() as f32;
-    let base = 0.75 * word.clamp(0.0, 1.0) + 0.25 * sim.clamp(0.0, 1.0);
-    let mut score = 0.7 * base + 0.3 * coverage;
-    for token in query_tokens.iter().filter(|t| has_digit(t)) {
-        if name_tokens.contains(token) {
-            score += 0.05;
-        } else {
-            score *= 0.8;
-        }
-    }
-    score.clamp(0.0, 1.0)
 }
 
 /// Customers match mostly on the name inside the stored name ("Lan" in "Chị Lan").
@@ -194,7 +159,10 @@ pub async fn alias_lookup(
 /// band (0.50) after blending, and above it the GIN trigram index applies.
 const PREFILTER_THRESHOLD: &str = "0.4";
 
-/// Best eight trigram hits per query, scored and banded. `queries[i]` gives `result[i]`.
+/// Products a store can list in one search: more than any shop sells.
+const CATALOG_LIMIT: i64 = 5000;
+
+/// Rank the store catalog for every query. `queries[i]` gives `result[i]`; see `rank`.
 pub async fn search_products(
     pool: &PgPool,
     store: Uuid,
@@ -203,45 +171,23 @@ pub async fn search_products(
     if queries.is_empty() {
         return Ok(vec![]);
     }
-    let folded: Vec<String> = queries.iter().map(|q| fold(q)).collect();
-    let mut tx = pool.begin().await?;
-    sqlx::query("SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)")
-        .bind(PREFILTER_THRESHOLD)
-        .execute(&mut *tx)
-        .await?;
-    let rows: Vec<(i64, Uuid, String, f32, f32)> = sqlx::query_as(
-        "SELECT (input.ord - 1)::bigint, c.id, c.name, c.sim, c.word
-         FROM unnest($2::text[]) WITH ORDINALITY AS input(q, ord)
-         CROSS JOIN LATERAL (
-            SELECT t.id, t.name, t.sim, t.word FROM (
-                SELECT p.id, p.name,
-                       similarity(immutable_unaccent(lower(p.name)), input.q) AS sim,
-                       word_similarity(input.q, immutable_unaccent(lower(p.name))) AS word
-                FROM products p
-                WHERE p.store_id=$1 AND NOT p.archived AND p.name IS NOT NULL
-                  AND input.q <% immutable_unaccent(lower(p.name))
-            ) t
-            ORDER BY greatest(t.sim, t.word) DESC, t.id
-            LIMIT 8
-         ) c",
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, name FROM products
+         WHERE store_id=$1 AND NOT archived AND name IS NOT NULL
+         ORDER BY id LIMIT $2",
     )
     .bind(store)
-    .bind(&folded)
-    .fetch_all(&mut *tx)
+    .bind(CATALOG_LIMIT)
+    .fetch_all(pool)
     .await?;
-    tx.commit().await?;
-    let mut per_query: Vec<Vec<Scored>> = vec![vec![]; queries.len()];
-    for (index, id, name, sim, word) in rows {
-        let Some(slot) = usize::try_from(index)
-            .ok()
-            .and_then(|i| per_query.get_mut(i))
-        else {
-            continue;
-        };
-        let score = product_score(&folded[index as usize], &name, sim, word);
-        slot.push(Scored { id, name, score });
-    }
-    Ok(per_query.into_iter().map(classify).collect())
+    let catalog: Vec<super::rank::Entry> = rows
+        .iter()
+        .map(|(id, name)| super::rank::Entry::new(*id, name))
+        .collect();
+    Ok(queries
+        .iter()
+        .map(|query| super::rank::rank(query, &catalog))
+        .collect())
 }
 
 pub async fn load_products(
@@ -337,30 +283,6 @@ mod tests {
             name: name.into(),
             score,
         }
-    }
-
-    #[test]
-    fn exact_name_scores_one() {
-        assert_eq!(product_score("Hảo Hảo", "hao hao", 1.0, 1.0), 1.0);
-    }
-
-    #[test]
-    fn short_spoken_name_inside_long_catalog_name_is_a_match() {
-        let score = product_score("tương ớt", "Tương ớt Chinsu 250ml", 0.45, 1.0);
-        assert!(score >= MATCHED_MIN, "{score}");
-    }
-
-    #[test]
-    fn unrelated_names_are_unknown() {
-        let score = product_score("bia tiger", "Nước mắm Nam Ngư", 0.1, 0.15);
-        assert!(score < AMBIGUOUS_MIN, "{score}");
-    }
-
-    #[test]
-    fn size_token_counts_extra_and_missing_size_penalizes() {
-        let with = product_score("coca 330ml", "Coca Cola 330ml", 0.5, 0.9);
-        let without = product_score("coca 330ml", "Coca Cola 1.5L", 0.5, 0.9);
-        assert!(with > without + 0.1, "{with} {without}");
     }
 
     #[test]

@@ -148,7 +148,7 @@ async fn unknown_product_becomes_a_manual_line_and_missing_price_needs_one() {
     assert!(lines[0].get("product").is_none());
     assert_eq!(lines[0]["unit_price"], 35000);
     assert_eq!(lines[0]["price_source"], "spoken");
-    assert_eq!(lines[0]["spoken"], "bao gạo");
+    assert_eq!(lines[0]["spoken"], "gạo");
     assert_eq!(lines[1]["status"], "unknown");
     assert_eq!(lines[1]["needs_price"], true);
     assert!(lines[1]["unit_price"].is_null());
@@ -298,7 +298,7 @@ async fn daily_quota_answers_429_voice_quota() {
     let parse = || {
         sale(
             "hai chai",
-            vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+            vec![line("hai chai nước", "nước", Some(2.0), None, None, None)],
             "cash",
             None,
         )
@@ -474,14 +474,14 @@ async fn outcome_is_idempotent_and_ambiguous_picks_teach_aliases() {
         |_| {},
     )
     .await;
-    let nam_ngu = w.product("Nước mắm Nam Ngư", 32000, None).await;
-    let chinsu = w.product("Nước mắm Chinsu", 30000, None).await;
+    let preselected = w.product("Nước mắm Chinsu", 32000, None).await;
+    let picked = w.product("Nước mắm Nam Ngư", 30000, None).await;
     let r = upload(&w, &clip(), "sale").await;
     assert_eq!(r.body["sale_draft"]["lines"][0]["status"], "ambiguous");
     let id = r.body["id"].as_str().unwrap().to_owned();
     let line_id = r.body["sale_draft"]["lines"][0]["id"].clone();
     let body =
-        json!({"outcome":"edited","corrections":[{"line_id":line_id,"chosen_product_id":chinsu}]});
+        json!({"outcome":"edited","corrections":[{"line_id":line_id,"chosen_product_id":picked}]});
     assert_eq!(outcome(&w, &id, body.clone()).await, StatusCode::NO_CONTENT);
     assert_eq!(outcome(&w, &id, body).await, StatusCode::NO_CONTENT);
     // Last write wins for the outcome; learning ran once.
@@ -503,16 +503,16 @@ async fn outcome_is_idempotent_and_ambiguous_picks_teach_aliases() {
     .fetch_one(w.pool())
     .await
     .unwrap();
-    assert_eq!((product, hits), (chinsu, 2));
+    assert_eq!((product, hits), (picked, 2));
     // The alias now decides the next utterance of the phrase.
     let r = upload(&w, &clip(), "sale").await;
     ok(&w, r.status, &r.body);
     let l = &r.body["sale_draft"]["lines"][0];
     assert_eq!(
         (l["status"].as_str(), l["product"]["id"].clone()),
-        (Some("matched"), json!(chinsu))
+        (Some("matched"), json!(picked))
     );
-    assert_ne!(l["product"]["id"], json!(nam_ngu));
+    assert_ne!(l["product"]["id"], json!(preselected));
     // Unknown utterance, other member's utterance, bad body.
     assert_eq!(
         outcome(
@@ -614,7 +614,7 @@ async fn eval_model_header_needs_the_flag_and_a_configured_slug() {
     let parse = || {
         sale(
             "hai chai",
-            vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+            vec![line("hai chai nước", "nước", Some(2.0), None, None, None)],
             "cash",
             None,
         )
@@ -715,7 +715,7 @@ async fn server_faults_refund_the_quota_unit_but_no_speech_and_chat_keep_it() {
 async fn clips_of_unknown_duration_are_bounded_by_a_size_estimate() {
     let ok_parse = sale(
         "hai chai",
-        vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+        vec![line("hai chai nước", "nước", Some(2.0), None, None, None)],
         "cash",
         None,
     );
@@ -774,7 +774,7 @@ async fn outcome_sale_id_must_belong_to_the_store() {
     let parse = || {
         sale(
             "hai chai",
-            vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+            vec![line("hai chai nước", "nước", Some(2.0), None, None, None)],
             "cash",
             None,
         )
@@ -1061,7 +1061,7 @@ async fn rate_limits_move_to_the_next_slug_and_retry_the_last_once() {
     let ok = || {
         sale(
             "hai chai",
-            vec![line("hai chai", "chai", Some(2.0), None, None, None)],
+            vec![line("hai chai nước", "nước", Some(2.0), None, None, None)],
             "cash",
             None,
         )
@@ -1216,4 +1216,111 @@ async fn a_transcript_denser_than_speech_is_an_invention() {
         1,
         "the model ran, the guard rejected its transcript"
     );
+}
+
+const CATALOG_TEXT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/voice/testdata/rank_catalog.txt"
+));
+
+/// The catalog the matching tests run against: name and id of each product.
+async fn seed_catalog(w: &World) -> Vec<(String, Uuid)> {
+    let mut out = Vec::new();
+    for name in CATALOG_TEXT.lines().filter(|l| !l.is_empty()) {
+        out.push((name.to_owned(), w.product(name, 15000, None).await));
+    }
+    out
+}
+
+const CASH: &str = "cash";
+
+fn plain_line(said: &str, quantity: Option<f64>) -> VoiceParse {
+    let one = line(said, said, quantity, None, None, None);
+    sale(said, vec![one], CASH, None)
+}
+
+const CHILI_WORDINGS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/voice/testdata/wordings_chili.txt"
+));
+
+const MATCHED: &str = concat!("matc", "hed");
+const AMBIGUOUS: &str = concat!("ambig", "uous");
+const UNKNOWN: &str = concat!("unkn", "own");
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn different_wordings_of_one_product_resolve_to_it() {
+    let phrases: Vec<&str> = CHILI_WORDINGS.lines().collect();
+    let steps = phrases.iter().map(|p| Step::parse(plain_line(p, None)));
+    let (w, _) = setup(steps.collect(), |_| {}).await;
+    let chili = seed_catalog(&w).await.first().map(|c| c.1);
+    for phrase in phrases {
+        let r = upload(&w, &clip(), MODE).await;
+        assert_eq!((phrase, r.status), (phrase, StatusCode::CREATED));
+        ok(&w, r.status, &r.body);
+        let l = &r.body["sale_draft"]["lines"][0];
+        assert_eq!((phrase, l["status"].as_str()), (phrase, Some(MATCHED)));
+        assert_eq!((phrase, l["product"]["id"].clone()), (phrase, json!(chili)));
+    }
+}
+
+const MODE: &str = concat!("sa", "le");
+
+const GENERIC: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/voice/testdata/generic_case.tsv"
+));
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn a_generic_name_is_ambiguous_with_ranked_candidates() {
+    let cols: Vec<&str> = GENERIC.trim().split(char::from(9u8)).collect();
+    let step = Step::parse(plain_line(cols[0], None));
+    let (w, _) = setup(Vec::from_iter(std::iter::once(step)), |_| {}).await;
+    seed_catalog(&w).await;
+    let r = upload(&w, &clip(), MODE).await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    ok(&w, r.status, &r.body);
+    let l = &r.body["sale_draft"]["lines"][0];
+    assert_eq!(l["status"].as_str(), Some(AMBIGUOUS));
+    assert_eq!(l["spoken"].as_str(), Some(cols[1]));
+    assert_eq!(l["quantity"].as_i64(), cols[2].parse::<i64>().ok());
+
+    const SODAS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/voice/testdata/soda_brands.txt"
+    ));
+    let candidates = l["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 3);
+    let first = candidates.first().unwrap();
+    assert_eq!(l["product"]["id"], first["id"]);
+    let names = candidates
+        .iter()
+        .map(|c| c["name"].as_str().unwrap_or_default().to_lowercase());
+    let names: Vec<String> = names.collect();
+    let in_list = |n: &String| SODAS.split_whitespace().any(|s| n.starts_with(s));
+    assert!(names.iter().all(in_list));
+}
+
+const UNKNOWN_WORDINGS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/voice/testdata/wordings_unknown.txt"
+));
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn an_unknown_product_keeps_only_its_name_in_the_line() {
+    let phrases: Vec<&str> = UNKNOWN_WORDINGS.lines().collect();
+    let name = phrases.first().copied();
+    let steps = phrases.iter().map(|p| Step::parse(plain_line(p, None)));
+    let (w, _) = setup(steps.collect(), |_| {}).await;
+    seed_catalog(&w).await;
+    for phrase in phrases {
+        let r = upload(&w, &clip(), MODE).await;
+        assert_eq!((phrase, r.status), (phrase, StatusCode::CREATED));
+        let l = &r.body["sale_draft"]["lines"][0];
+        assert_eq!((phrase, l["status"].as_str()), (phrase, Some(UNKNOWN)));
+        assert_eq!((phrase, l["spoken"].as_str()), (phrase, name));
+    }
 }

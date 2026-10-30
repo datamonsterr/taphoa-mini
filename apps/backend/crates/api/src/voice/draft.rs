@@ -1,7 +1,8 @@
 //! Build the `VoiceSaleDraft` from the model parse: catalog match, unit, rules, customer.
+use super::clean;
 use super::{
     matching::{self, Band, CustomerBand, ProductInfo, UnitChoice, UnitInfo},
-    model::VoiceParse,
+    model::{ParsedLine, VoiceParse},
     rules::{self, PriceDecision, PriceSource, Quantity},
     telemetry::Counts,
 };
@@ -73,6 +74,39 @@ fn select<'a>(product: &'a ProductInfo, spoken_unit: Option<&str>) -> Option<Sel
     }
 }
 
+/// The parsed line with a clean name: the quantity, unit and price words the model left in
+/// spoken or query are removed and filled into their own fields when those are empty.
+/// Nothing but noise (a name that is only a count and a unit) drops the line.
+pub fn clean_line(line: &ParsedLine) -> Option<ParsedLine> {
+    let said = clean::clean_phrase(&line.spoken);
+    let asked = clean::clean_phrase(&line.query);
+    let name = if said.name.is_empty() {
+        asked.name.clone()
+    } else {
+        said.name.clone()
+    };
+    if name.is_empty() {
+        return None;
+    }
+    let query = if asked.name.is_empty() {
+        said.name.clone()
+    } else {
+        asked.name.clone()
+    };
+    let given_unit = line
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
+    Some(ParsedLine {
+        spoken: name,
+        query,
+        quantity: line.quantity.or(said.quantity).or(asked.quantity),
+        unit: given_unit.map(str::to_owned).or(said.unit).or(asked.unit),
+        ..line.clone()
+    })
+}
+
 pub async fn build(
     state: &AppState,
     actor: &Actor,
@@ -80,12 +114,13 @@ pub async fn build(
 ) -> ApiResult<Option<Draft>> {
     let pool = crate::auth::data::pool(state)?;
     let store = actor.store_id;
-    let lines: Vec<_> = parse
+    let lines: Vec<ParsedLine> = parse
         .lines
         .iter()
         .filter(|l| !l.spoken.trim().is_empty() || !l.query.trim().is_empty())
         // Lines with no word in common with the transcript are hallucinations (silence, noise).
         .filter(|l| rules::line_is_grounded(&l.spoken, &l.query, &parse.transcript))
+        .filter_map(clean_line)
         .take(MAX_LINES)
         .collect();
     if lines.is_empty() {

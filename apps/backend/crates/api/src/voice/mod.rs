@@ -4,6 +4,7 @@
 //! transcript and parse, re-checks quantities and prices, matches the catalog and returns a
 //! sale draft. The audio is held in memory for the request only.
 pub mod audio;
+pub mod clean;
 pub mod config;
 mod draft;
 pub mod hint;
@@ -11,6 +12,7 @@ pub mod matching;
 pub mod model;
 mod outcome;
 pub mod quota;
+pub mod rank;
 pub mod retention;
 pub mod rules;
 pub mod scripted;

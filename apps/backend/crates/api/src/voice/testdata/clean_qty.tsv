@@ -1,0 +1,9 @@
+# input<TAB>name<TAB>quantity<TAB>unit (empty means none). Used by clean.rs tests.
+hai chai tương ớt	tương ớt	2	chai
+một gói bánh bi 15.000	bánh bi	1	gói
+hai mươi lon bia	bia	20	lon
+mười lăm gói kẹo	kẹo	15	gói
+hai mươi mốt chai nước	nước	21	chai
+12 lon bia	bia	12	lon
+ba thùng nước ngọt	nước ngọt	3	thùng
+tương ớt	tương ớt		
