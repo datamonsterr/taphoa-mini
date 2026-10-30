@@ -94,8 +94,10 @@ describe('daily digest against the deployed backend', () => {
       ),
     ).toBe(false);
 
-    // 2. Generate and mark read via GET /v1/assistant/digest
-    const digestRes = await client.raw.GET('/v1/assistant/digest');
+    // 2. Generate and mark read. A plain GET no longer marks it read (#203); opening it does.
+    const digestRes = await client.raw.GET('/v1/assistant/digest', {
+      params: { query: { mark_read: true } },
+    });
     expect(digestRes.response.status).toBe(200);
 
     // 3. After digest call: member has already read it -> digest chip remains absent
