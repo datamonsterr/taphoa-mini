@@ -169,8 +169,8 @@ pub fn voice_parse_schema() -> Value {
                     "additionalProperties": false,
                     "required": ["spoken", "query", "quantity", "unit", "unit_price", "price_spoken"],
                     "properties": {
-                        "spoken": {"type": "string"},
-                        "query": {"type": "string"},
+                        "spoken": {"type": "string", "description": "Product name only, no quantity, number word, unit, container or price"},
+                        "query": {"type": "string", "description": "Product name to look up in the catalog, same rule as spoken"},
                         "quantity": nullable("number"),
                         "unit": nullable("string"),
                         "unit_price": nullable("number"),
