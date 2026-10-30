@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PressableScale, Text } from '@/components/ui';
+import { statusErrorText } from '@/lib/api/errorText';
 import { fill, useT } from '@/lib/i18n';
 import { useOnline } from '@/lib/online';
 import {
@@ -33,7 +34,11 @@ export function SyncStatus() {
 function Banner({ online, items }: { online: boolean; items: OutboxItem[] }) {
   const t = useT(syncStrings);
   const insets = useSafeAreaInsets();
-  const pending = items.filter((item) => item.status === 'pending').length;
+  const waiting = items.filter((item) => item.status === 'pending');
+  const serverDown = waiting.filter(
+    (item) => item.lastStatus !== undefined,
+  ).length;
+  const pending = waiting.length - serverDown;
   const failed = items.filter((item) => item.status === 'failed');
   const firstFailed = failed[0];
   return (
@@ -57,6 +62,13 @@ function Banner({ online, items }: { online: boolean; items: OutboxItem[] }) {
           <Text style={styles.text}>{fill(t('pending'), { n: pending })}</Text>
         </View>
       ) : null}
+      {serverDown > 0 ? (
+        <View style={styles.card} accessibilityRole="summary">
+          <Text style={styles.text}>
+            {fill(t('serverDown'), { n: serverDown })}
+          </Text>
+        </View>
+      ) : null}
       {firstFailed ? (
         <View accessible style={styles.card} accessibilityRole="alert">
           <Text style={styles.text}>
@@ -65,7 +77,10 @@ function Banner({ online, items }: { online: boolean; items: OutboxItem[] }) {
           <Text style={styles.detail}>
             {fill(t('failedDetail'), {
               code: saleCode(firstFailed.key),
-              message: firstFailed.error?.message ?? '',
+              message:
+                firstFailed.error?.status !== undefined
+                  ? statusErrorText(firstFailed.error.status)
+                  : (firstFailed.error?.message ?? ''),
             })}
           </Text>
           <View style={styles.row}>

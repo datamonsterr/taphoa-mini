@@ -29,6 +29,7 @@ import {
   useConfirmReceipt,
   useDiscardReceipt,
   useProduct,
+  isApiError,
   useReceipt,
   type Receipt,
   type ReceiptConfirm,
@@ -106,11 +107,20 @@ export function ReceiptReviewScreen({ id }: { id: string }) {
             <ActivityIndicator accessibilityLabel={t('loading')} />
           ) : (
             <View style={styles.content}>
-              <Text accessibilityRole="alert">{t('error')}</Text>
-              <Action
-                label={t('retry')}
-                onPress={() => void receipt.refetch()}
-              />
+              {isApiError(receipt.error) && receipt.error.status === 404 ? (
+                <>
+                  <Text accessibilityRole="alert">{t('notFound')}</Text>
+                  <Action label={t('toList')} onPress={back} />
+                </>
+              ) : (
+                <>
+                  <Text accessibilityRole="alert">{t('error')}</Text>
+                  <Action
+                    label={t('retry')}
+                    onPress={() => void receipt.refetch()}
+                  />
+                </>
+              )}
             </View>
           )}
         </>

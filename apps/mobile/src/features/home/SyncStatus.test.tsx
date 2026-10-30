@@ -62,7 +62,32 @@ test('counts unsent sales and offers discard for a refused one', async () => {
   });
   await view();
   expect(screen.getByText('1 đơn chờ gửi khi có mạng')).toBeOnTheScreen();
-  expect(screen.getByRole('alert')).toHaveTextContent(/Tổng tiền sai/);
+  expect(screen.getByRole('alert')).toHaveTextContent(/Thông tin chưa hợp lệ/);
   await fireEvent.press(screen.getByRole('button', { name: 'Bỏ đơn này' }));
   expect(useOutboxStore.getState().items.map((i) => i.key)).toEqual(['a']);
+});
+
+test('a server refusal shows a Vietnamese reason, not the server text', async () => {
+  useOutboxStore.setState({
+    items: [
+      item({
+        key: '0198f3a0-0000-7000-8000-000000000003',
+        status: 'failed',
+        error: { status: 403, message: 'permission denied' },
+      }),
+    ],
+  });
+  await view();
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent(/Bạn không có quyền làm việc này/);
+  expect(alert).not.toHaveTextContent(/permission denied/);
+});
+
+test('a 5xx retry says the server failed, not that the network is down', async () => {
+  useOutboxStore.setState({
+    items: [item({ attempts: 1, lastStatus: 500 })],
+  });
+  await view();
+  expect(screen.getByText(/Máy chủ đang lỗi/)).toBeOnTheScreen();
+  expect(screen.queryByText(/chờ gửi khi có mạng/)).toBeNull();
 });
