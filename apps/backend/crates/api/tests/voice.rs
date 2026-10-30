@@ -1323,6 +1323,7 @@ async fn an_unknown_product_keeps_only_its_name_in_the_line() {
         assert_eq!((phrase, l["status"].as_str()), (phrase, Some(UNKNOWN)));
         assert_eq!((phrase, l["spoken"].as_str()), (phrase, name));
     }
+}
 
 #[tokio::test]
 #[ignore = "requires Postgres"]

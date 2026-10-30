@@ -1334,8 +1334,9 @@ async fn attachments_are_capped_deduplicated_and_checked_in_bulk() {
         "{prompt}"
     );
     let stored: Value = sqlx::query_scalar(
-        "SELECT attachments FROM assistant_messages WHERE role='user' ORDER BY created_at DESC LIMIT 1",
+        "SELECT attachments FROM assistant_messages WHERE role='user' AND store_id=$1 ORDER BY created_at DESC LIMIT 1",
     )
+    .bind(w.store_id)
     .fetch_one(w.pool())
     .await
     .unwrap();
