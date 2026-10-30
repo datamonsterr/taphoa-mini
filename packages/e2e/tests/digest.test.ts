@@ -54,8 +54,16 @@ describe('daily digest against the deployed backend', () => {
     expect(firstRes.data!.read_at).toBeNull();
     expect(firstRes.data!.business_date).toBe(today);
 
-    // 2. Second digest call -> same generated_at, read_at is now a date string
-    const secondRes = await client.raw.GET('/v1/assistant/digest');
+    // 2. A plain second call is cached (same generated_at) and still unread (#203)
+    const plainRes = await client.raw.GET('/v1/assistant/digest');
+    expect(plainRes.response.status).toBe(200);
+    expect(plainRes.data!.generated_at).toBe(firstRes.data!.generated_at);
+    expect(plainRes.data!.read_at ?? null).toBeNull();
+
+    // Opening it (mark_read) records the read: read_at is now a date string
+    const secondRes = await client.raw.GET('/v1/assistant/digest', {
+      params: { query: { mark_read: true } },
+    });
     expect(secondRes.response.status).toBe(200);
     expect(secondRes.data).toBeDefined();
     expect(secondRes.data!.generated_at).toBe(firstRes.data!.generated_at);
