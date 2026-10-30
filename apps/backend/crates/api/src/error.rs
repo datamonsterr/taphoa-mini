@@ -1,6 +1,9 @@
 use axum::{
     Json,
-    extract::{FromRequest, Request},
+    extract::{
+        FromRequest, Request,
+        rejection::{JsonRejection, QueryRejection},
+    },
     http::{StatusCode, header::RETRY_AFTER},
     response::{IntoResponse, Response},
 };
@@ -52,6 +55,14 @@ impl ApiError {
     }
     pub fn conflict(code: &'static str, msg: impl Into<String>) -> Self {
         Self::new(StatusCode::CONFLICT, code, msg)
+    }
+    /// 413 for a request body over a route's size limit.
+    pub fn payload_too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+            "request body too large",
+        )
     }
     pub fn gone() -> Self {
         Self::new(StatusCode::GONE, "gone", "resource no longer available")
@@ -215,7 +226,35 @@ where
         Json::<T>::from_request(request, state)
             .await
             .map(|Json(value)| Self(value))
-            .map_err(|rejection| ApiError::validation_failed(rejection.body_text()))
+            .map_err(ApiError::from)
+    }
+}
+
+/// Extractor rejections carry serde and parser text (field names, byte offsets, repeated
+/// brackets). It goes to the debug log; the client gets a short fixed message and a stable code.
+impl From<JsonRejection> for ApiError {
+    fn from(rejection: JsonRejection) -> Self {
+        tracing::debug!(detail = %rejection.body_text(), "request body rejected");
+        match rejection {
+            JsonRejection::BytesRejection(_)
+                if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE =>
+            {
+                Self::payload_too_large()
+            }
+            JsonRejection::MissingJsonContentType(_) => Self::new(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media_type",
+                "content type must be application/json",
+            ),
+            JsonRejection::JsonDataError(_) => Self::validation_failed("invalid JSON body fields"),
+            _ => Self::validation_failed("invalid JSON body"),
+        }
+    }
+}
+impl From<QueryRejection> for ApiError {
+    fn from(rejection: QueryRejection) -> Self {
+        tracing::debug!(detail = %rejection.body_text(), "query string rejected");
+        Self::validation_failed("invalid query string")
     }
 }
 

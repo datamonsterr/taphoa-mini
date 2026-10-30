@@ -1199,6 +1199,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/customers/{customerId}:
@@ -2018,7 +2019,7 @@ paths:
         `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
         for that business date, computed on the server from synced records. Re-closing the
         same date overwrites the count and recomputes; sales synced after a close are
-        reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+        reported in `late_sales_count` (with repayments recorded after the close). A date after today (store time zone) or before 2024-01-01 is a 400 `validation_failed`. Cash sales/refunds and transfer revenue count only
         the paid part (`total − credit_amount`). Repayments are summed by method and business
         date; `credit_sales` sums credit_amount of completed sales of that date.
       requestBody:
@@ -2656,7 +2657,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     PayloadTooLarge:
-      description: Upload exceeds the endpoint limit (512 KB for document probes; 10 MiB for image uploads).
+      description: Request body exceeds the endpoint limit (2 MiB for JSON bodies; 512 KB for document probes; 10 MiB for image uploads). Always the standard error envelope with code payload_too_large.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -4183,7 +4184,7 @@ components:
         late_sales_count:
           {
             type: integer,
-            description: Sales synced after the close for this date.,
+            description: Sales and repayments recorded after the close for this date.,
           }
         note: { type: [string, 'null'] }
         closed_by: { type: string, format: uuid }

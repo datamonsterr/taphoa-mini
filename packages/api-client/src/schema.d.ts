@@ -1230,7 +1230,7 @@ export interface paths {
          * @description `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
          *     for that business date, computed on the server from synced records. Re-closing the
          *     same date overwrites the count and recomputes; sales synced after a close are
-         *     reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+         *     reported in `late_sales_count` (with repayments recorded after the close). A date after today (store time zone) or before 2024-01-01 is a 400 `validation_failed`. Cash sales/refunds and transfer revenue count only
          *     the paid part (`total − credit_amount`). Repayments are summed by method and business
          *     date; `credit_sales` sums credit_amount of completed sales of that date.
          */
@@ -2630,7 +2630,7 @@ export interface components {
              */
             difference: number;
             transfer_revenue?: components["schemas"]["Money"];
-            /** @description Sales synced after the close for this date. */
+            /** @description Sales and repayments recorded after the close for this date. */
             late_sales_count?: number;
             note?: string | null;
             /** Format: uuid */
@@ -3039,7 +3039,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Upload exceeds the endpoint limit (512 KB for document probes; 10 MiB for image uploads). */
+        /** @description Request body exceeds the endpoint limit (2 MiB for JSON bodies; 512 KB for document probes; 10 MiB for image uploads). Always the standard error envelope with code payload_too_large. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -4461,6 +4461,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
         };
     };
     getCustomer: {
