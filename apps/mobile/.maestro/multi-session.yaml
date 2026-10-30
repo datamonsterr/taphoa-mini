@@ -47,9 +47,12 @@ appId: com.datamonsterr.taphoamini
 - tapOn: '6'
 - tapOn: '8'
 - tapOn: 'Xác nhận'
-- extendedWaitUntil:
-    visible: 'Đã đặt mã PIN'
+# The confirmation sits under the 'Mã PIN khóa máy' row, below the fold of the account tab, so
+# scroll to it: an element outside the viewport is not visible to Maestro.
+- scrollUntilVisible:
+    element: 'Đã đặt mã PIN'
     timeout: 30000
+- assertVisible: 'Đã đặt mã PIN'
 - takeScreenshot: multi-session-01-pin-set
 
 # 2. Add person B. A is the only one on the phone for now.

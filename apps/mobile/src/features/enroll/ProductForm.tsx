@@ -23,7 +23,9 @@ import { validBarcode } from '@/features/camera/barcode';
 
 const PHOTO = 72;
 const MAX_DIGITS = 9;
-export const ENROLL_SHEET_HEIGHT = 740;
+// Fits name, barcode, price and all four keypad rows (1-9, 000, 0, delete) above the save button
+// on a 411x914 dp screen; at 740 the 000 row sat below the scrolled fold and nothing could tap it.
+export const ENROLL_SHEET_HEIGHT = 840;
 export const QUICK_ENROLL_SHEET_HEIGHT = 880;
 export type ProductValues = { name: string; price: number; barcode?: string };
 export type ProductPhoto = { id: string; uri: string };
