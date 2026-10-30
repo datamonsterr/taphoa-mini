@@ -13,12 +13,23 @@ appId: com.datamonsterr.taphoamini
 - runScript: subflows/receipt-seed.js
 - tapOn: 'Vuốt lên: cửa hàng'
 - tapOn: 'Báo cáo'
-# The shortcut chip sits under the digest card: scroll to it, as the Android tree names it by text or label.
+# The shortcut chip sits under the digest card. Wait for the dashboard data to load (the skeleton
+# leaves) so the layout stops shifting, then scroll to the chip by testID. The chip shows only for
+# members who can enroll, so a bare text regex could match another row or hide behind the tab bar.
+- extendedWaitUntil:
+    notVisible:
+      id: 'dashboard-skeleton'
+    timeout: 60000
 - scrollUntilVisible:
     element:
-      text: 'Hóa đơn.*'
+      id: 'dashboard-receipts-chip'
     direction: DOWN
-- tapOn: 'Hóa đơn.*'
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
+- tapOn:
+    id: 'dashboard-receipts-chip'
 - extendedWaitUntil:
     visible:
       id: 'receipt-history-row'
