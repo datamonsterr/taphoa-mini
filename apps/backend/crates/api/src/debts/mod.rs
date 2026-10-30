@@ -195,10 +195,21 @@ async fn entry(
         (input.amount, None, Some(input.reason), input.adjusted_at)
     };
     // The client time only picks the day inside the same window as a sale's `sold_at`, and a
-    // seller cannot put cash on a day the Lead already closed (it lands today instead).
+    // seller cannot put cash on a day the Lead already closed (it lands today instead). The Lead
+    // moving an old paper debt book in dates an adjustment as far back as the books go: overdue
+    // tracking depends on the real date. Repayments are cash and keep the window for everyone.
+    let now = state.clock.now();
     let booked_at = match at {
+        Some(at)
+            if kind == "adjustment"
+                && actor.role == crate::auth::Role::Lead
+                && business_date(at) >= crate::time::EARLIEST_BUSINESS_DATE
+                && at <= now + state.sale_window.max_future =>
+        {
+            at
+        }
         Some(at) => crate::sales::bounded_sold_at(&mut tx, state, actor, at).await?,
-        None => state.clock.now(),
+        None => now,
     };
     let row = record_entry(
         &mut tx,

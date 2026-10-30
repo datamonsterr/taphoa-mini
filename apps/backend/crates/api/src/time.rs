@@ -85,6 +85,10 @@ impl SaleWindow {
     }
 }
 
+/// Oldest business date the books accept (before the app shipped): day close and a Lead's
+/// backdated debt entries.
+pub const EARLIEST_BUSINESS_DATE: NaiveDate = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
 pub const STORE_TZ: chrono_tz::Tz = chrono_tz::Asia::Ho_Chi_Minh;
 pub fn business_date(at: DateTime<Utc>) -> NaiveDate {
     at.with_timezone(&STORE_TZ).date_naive()
