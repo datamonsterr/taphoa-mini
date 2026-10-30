@@ -202,6 +202,7 @@ impl taphoa_api::assistant::model::ChatModel for FixedModel {
             finish_reason: "stop".into(),
             usage: Usage::default(),
             http_status: 200,
+            generation_id: None,
             time_to_first_token: None,
         })
     }

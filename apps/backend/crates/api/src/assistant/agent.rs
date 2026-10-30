@@ -49,6 +49,7 @@ pub struct ModelAttempt {
     pub usage: Usage,
     pub error: Option<ModelError>,
     pub finish_reason: Option<String>,
+    pub generation_id: Option<String>,
 }
 #[derive(Debug, Clone)]
 pub struct ToolRecord {
@@ -128,6 +129,61 @@ struct ImageAttachment {
 struct ReceiptAttachment {
     receipt_id: Uuid,
 }
+/// Most attachments one message may carry (the app sends one or two).
+const MAX_ATTACHMENTS: usize = 4;
+
+/// Reject long lists (400), drop duplicates and confirm in one query per kind that the store owns
+/// every image and receipt; a missing one is a 404.
+async fn check_attachments(
+    db: &sqlx::PgPool,
+    actor: &Actor,
+    attachments: &mut Vec<Attachment>,
+) -> ApiResult<()> {
+    if attachments.len() > MAX_ATTACHMENTS {
+        return Err(ApiError::validation_failed(
+            "a message takes at most 4 attachments",
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    attachments.retain(|a| {
+        seen.insert(match a {
+            Attachment::Image(a) => (false, a.image_id),
+            Attachment::Receipt(a) => (true, a.receipt_id),
+        })
+    });
+    for (receipt, query) in [
+        (
+            false,
+            "SELECT count(*) FROM images WHERE store_id=$1 AND id = ANY($2)",
+        ),
+        (
+            true,
+            "SELECT count(*) FROM receipts WHERE store_id=$1 AND id = ANY($2)",
+        ),
+    ] {
+        let ids: Vec<Uuid> = attachments
+            .iter()
+            .filter_map(|a| match (a, receipt) {
+                (Attachment::Image(a), false) => Some(a.image_id),
+                (Attachment::Receipt(a), true) => Some(a.receipt_id),
+                _ => None,
+            })
+            .collect();
+        if ids.is_empty() {
+            continue;
+        }
+        let found: i64 = sqlx::query_scalar(query)
+            .bind(actor.store_id)
+            .bind(&ids)
+            .fetch_one(db)
+            .await?;
+        if found != ids.len() as i64 {
+            return Err(ApiError::not_found());
+        }
+    }
+    Ok(())
+}
+
 fn user_text(content: &str, attachments: &[Attachment]) -> String {
     let mut text = content.to_owned();
     for attachment in attachments {
@@ -149,7 +205,7 @@ pub(crate) async fn send_message(
     actor: Actor,
     Path(id): Path<String>,
     headers: HeaderMap,
-    ValidJson(input): ValidJson<SendMessage>,
+    ValidJson(mut input): ValidJson<SendMessage>,
 ) -> ApiResult<impl IntoResponse> {
     if !(1..=4000).contains(&input.content.chars().count()) {
         return Err(ApiError::validation_failed(
@@ -159,26 +215,9 @@ pub(crate) async fn send_message(
     let thread_id = threads::parse_id(&id)?;
     let db = pool(&state)?;
     let thread = threads::load_thread(db, &actor, thread_id).await?;
-    for attachment in &input.attachments {
-        let (query, id) = match attachment {
-            Attachment::Image(a) => (
-                "SELECT EXISTS(SELECT 1 FROM images WHERE store_id=$1 AND id=$2)",
-                a.image_id,
-            ),
-            Attachment::Receipt(a) => (
-                "SELECT EXISTS(SELECT 1 FROM receipts WHERE store_id=$1 AND id=$2)",
-                a.receipt_id,
-            ),
-        };
-        if !sqlx::query_scalar::<_, bool>(query)
-            .bind(actor.store_id)
-            .bind(id)
-            .fetch_one(db)
-            .await?
-        {
-            return Err(ApiError::not_found());
-        }
-    }
+    // Bounded and de-duplicated before any query or prompt text; the store checks run in one
+    // query per kind.
+    check_attachments(db, &actor, &mut input.attachments).await?;
     let eval = eval::from_headers(&headers, &state.assistant.config);
     let today = eval
         .as_ref()
@@ -805,8 +844,10 @@ async fn run_turn_inner(
                 usage: Usage::default(),
                 error: None,
                 finish_reason: None,
+                generation_id: None,
             };
             if let Ok(response) = &result {
+                attempt.generation_id = response.generation_id.clone();
                 attempt.model = response.model.clone();
                 attempt.content = response.content.clone();
                 attempt.http_status = Some(response.http_status);

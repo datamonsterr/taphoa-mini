@@ -214,6 +214,7 @@ impl ChatModel for RuleModel {
                 ..Usage::default()
             },
             http_status: 200,
+            generation_id: None,
         })
     }
 }

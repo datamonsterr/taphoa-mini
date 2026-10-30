@@ -31,6 +31,8 @@ pub enum Verdict {
     Silent,
     /// Could not decode: no judgement, the model decides.
     Unknown,
+    /// The decoded audio is longer than the caller's bound, whatever the container header says.
+    TooLong,
 }
 
 /// Longest stretch (ms) of frames above the threshold, bridging dips of up to
@@ -61,8 +63,19 @@ pub fn frame_rms(samples: &[f32], rate: u32) -> Vec<f32> {
         .collect()
 }
 
-/// Decode to mono f32 samples and the sample rate.
-fn decode(bytes: &[u8], format: Format) -> Option<(Vec<f32>, u32)> {
+enum Decoded {
+    Samples(Vec<f32>, u32),
+    TooLong,
+    Failed,
+}
+
+/// Decode to mono f32 samples and the sample rate, stopping once more than `max_seconds` of
+/// audio has been decoded (the container header is not trusted for the length).
+fn decode(bytes: &[u8], format: Format, max_seconds: f64) -> Decoded {
+    decode_inner(bytes, format, max_seconds).unwrap_or(Decoded::Failed)
+}
+
+fn decode_inner(bytes: &[u8], format: Format, max_seconds: f64) -> Option<Decoded> {
     let source = std::io::Cursor::new(bytes.to_vec());
     let stream = MediaSourceStream::new(Box::new(source), Default::default());
     let mut hint = Hint::new();
@@ -98,19 +111,33 @@ fn decode(bytes: &[u8], format: Format) -> Option<(Vec<f32>, u32)> {
                         .chunks_exact(channels)
                         .map(|c| c.iter().sum::<f32>() / channels as f32),
                 );
+                if mono.len() as f64 > max_seconds * f64::from(rate) {
+                    return Some(Decoded::TooLong);
+                }
             }
             Err(Error::DecodeError(_)) => {}
             Err(_) => return None,
         }
     }
-    (rate > 0 && !mono.is_empty()).then_some((mono, rate))
+    Some(if rate > 0 && !mono.is_empty() {
+        Decoded::Samples(mono, rate)
+    } else {
+        Decoded::Failed
+    })
 }
 
 /// Judge a clip. CPU-bound (about 10 ms for 30 s of AAC in release); callers on the async
 /// runtime use `spawn_blocking`.
 pub fn check(bytes: &[u8], format: Format) -> Verdict {
-    let Some((samples, rate)) = decode(bytes, format) else {
-        return Verdict::Unknown;
+    check_within(bytes, format, f64::INFINITY)
+}
+
+/// [`check`] that also reports [`Verdict::TooLong`] when the decoded audio exceeds `max_seconds`.
+pub fn check_within(bytes: &[u8], format: Format, max_seconds: f64) -> Verdict {
+    let (samples, rate) = match decode(bytes, format, max_seconds) {
+        Decoded::Samples(samples, rate) => (samples, rate),
+        Decoded::TooLong => return Verdict::TooLong,
+        Decoded::Failed => return Verdict::Unknown,
     };
     if longest_active_ms(&frame_rms(&samples, rate)) >= MIN_SPEECH_MS {
         Verdict::Speech
@@ -157,6 +184,13 @@ mod tests {
         ] {
             assert_eq!(check(clip, Format::M4a), Verdict::Speech, "{name}");
         }
+    }
+
+    #[test]
+    fn decoded_length_is_bounded_whatever_the_header_says() {
+        let wav = super::super::audio::fixtures::wav(5.0);
+        assert_eq!(check_within(&wav, Format::Wav, 2.0), Verdict::TooLong);
+        assert_eq!(check_within(&wav, Format::Wav, 6.0), Verdict::Silent);
     }
 
     #[test]

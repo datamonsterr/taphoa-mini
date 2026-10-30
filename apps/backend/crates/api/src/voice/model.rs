@@ -90,6 +90,8 @@ pub struct Parsed {
     pub usage: ModelUsage,
     pub finish_reason: Option<String>,
     pub http_status: u16,
+    /// OpenRouter generation id (`gen-...`) of the call, for lookups in OpenRouter.
+    pub generation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +99,7 @@ pub struct Transcribed {
     pub model: String,
     pub text: String,
     pub usage: ModelUsage,
+    pub generation_id: Option<String>,
 }
 
 #[async_trait]
@@ -298,6 +301,15 @@ fn usage_of(value: &Value) -> ModelUsage {
     }
 }
 
+/// The response's top-level `id`; it is an opaque provider id, never personal data.
+fn generation_id_of(body: &Value) -> Option<String> {
+    body["id"]
+        .as_str()
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && id.len() <= 128)
+        .map(str::to_owned)
+}
+
 fn strip_fences(text: &str) -> &str {
     let t = text.trim();
     let t = t
@@ -340,6 +352,7 @@ pub fn parse_chat_response(
         usage: usage_of(&body["usage"]),
         finish_reason: choice["finish_reason"].as_str().map(str::to_owned),
         http_status: status,
+        generation_id: generation_id_of(body),
     })
 }
 
@@ -356,6 +369,7 @@ pub fn parse_stt_response(
         model: requested.to_owned(),
         text: text.trim().to_owned(),
         usage: usage_of(&body["usage"]),
+        generation_id: generation_id_of(body),
     })
 }
 
@@ -635,7 +649,7 @@ mod tests {
             "lines":[{"spoken":"hai gói hảo hảo","query":"hảo hảo","quantity":2,"unit":"gói","unit_price":null,"price_spoken":null}],
             "payment_method":"cash","customer_name":null,"confidence":0.9})
         .to_string();
-        let body = json!({"model":"google/gemini-2.5-flash-lite","choices":[{"message":{"content": format!("```json\n{content}\n```")},"finish_reason":"stop"}],
+        let body = json!({"id":"gen-1759-abc","model":"google/gemini-2.5-flash-lite","choices":[{"message":{"content": format!("```json\n{content}\n```")},"finish_reason":"stop"}],
             "usage":{"prompt_tokens":320,"completion_tokens":60,"cost":0.00012}});
         let parsed = parse_chat_response("google/gemini-2.5-flash-lite", 200, &body).unwrap();
         assert_eq!(parsed.parse.intent, Intent::Sale);
@@ -649,6 +663,12 @@ mod tests {
             }
         );
         assert_eq!(parsed.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(parsed.generation_id.as_deref(), Some("gen-1759-abc"));
+        let no_id = json!({"choices":[{"message":{"content": content},"finish_reason":"stop"}]});
+        assert_eq!(
+            parse_chat_response("m", 200, &no_id).unwrap().generation_id,
+            None
+        );
     }
 
     #[test]
@@ -674,10 +694,11 @@ mod tests {
 
     #[test]
     fn stt_response_with_cost() {
-        let t = parse_stt_response("w", 200, &json!({"text":" hai chai ","usage":{"cost":0.0005,"input_tokens":83,"output_tokens":30,"seconds":9.2}})).unwrap();
+        let t = parse_stt_response("w", 200, &json!({"id":"gen-stt-1","text":" hai chai ","usage":{"cost":0.0005,"input_tokens":83,"output_tokens":30,"seconds":9.2}})).unwrap();
         assert_eq!(t.text, "hai chai");
         assert_eq!(t.usage.cost_usd, Some(0.0005));
         assert_eq!(t.usage.input_tokens, 83);
+        assert_eq!(t.generation_id.as_deref(), Some("gen-stt-1"));
     }
 
     #[test]

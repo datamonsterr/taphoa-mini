@@ -128,6 +128,9 @@ pub struct ChatResponse {
     pub usage: Usage,
     pub http_status: u16,
     pub time_to_first_token: Option<Duration>,
+    /// OpenRouter generation id (`gen-...`) of the call.
+    #[serde(default)]
+    pub generation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
