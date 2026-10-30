@@ -144,12 +144,14 @@ describe('toCartLines', () => {
 });
 
 describe('confidencePercent', () => {
-  it('rounds the top-1 similarity to a whole percent, 0 without candidates', () => {
+  it('rounds the top-1 similarity to a whole percent, nothing without candidates', () => {
     expect(
       confidencePercent(
         detection('a', { candidates: [candidate('x', 1, 0.964)] }),
       ),
     ).toBe(96);
-    expect(confidencePercent(detection('a', { candidates: [] }))).toBe(0);
+    expect(
+      confidencePercent(detection('a', { candidates: [] })),
+    ).toBeUndefined();
   });
 });

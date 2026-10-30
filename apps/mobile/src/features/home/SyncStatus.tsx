@@ -17,6 +17,9 @@ import { colors, radius, size, space, typography } from '@/theme';
 
 import { syncStrings } from './syncStrings';
 
+/** Camera board: the photo/grid toggle ends 76 below the top inset; the cards start under it. */
+const BELOW_MODE_TOGGLE = 80;
+
 const openGrid = () => router.push('/inventory');
 
 /**
@@ -44,7 +47,7 @@ function Banner({ online, items }: { online: boolean; items: OutboxItem[] }) {
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.wrap, { top: space[3] + insets.top }]}
+      style={[styles.wrap, { top: insets.top + BELOW_MODE_TOGGLE }]}
     >
       {!online ? (
         <PressableScale

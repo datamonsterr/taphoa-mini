@@ -47,7 +47,7 @@ export function useScanSession(
           image: toUploadFile(shot),
           mode: toScanMode(mode),
         });
-        dispatch({ type: 'scanned', token, scan });
+        dispatch({ type: 'scanned', token, scan, open: mode === 'one' });
       } catch (error) {
         dispatch({ type: 'failed', token, message: message(error) });
       } finally {

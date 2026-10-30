@@ -9,8 +9,8 @@ import { fontFamily } from '@/theme/typography';
 
 type Props = {
   box: Rect;
-  /** Whole percent. */
-  percent: number;
+  /** Whole percent; omitted when the server returned no candidate to score. */
+  percent?: number;
   low: boolean;
 };
 
@@ -29,7 +29,9 @@ export const ConfidenceBadge = memo(function ConfidenceBadge({
   return (
     <View
       testID="confidence-badge"
-      accessibilityLabel={`Độ chắc chắn ${percent}%`}
+      accessibilityLabel={
+        percent === undefined ? 'Chưa có trong kho' : `Độ chắc chắn ${percent}%`
+      }
       style={[
         styles.badge,
         {
@@ -45,7 +47,9 @@ export const ConfidenceBadge = memo(function ConfidenceBadge({
         strokeWidth={3}
         color={tint}
       />
-      <Text style={[styles.text, { color: tint }]}>{percent}</Text>
+      {percent === undefined ? null : (
+        <Text style={[styles.text, { color: tint }]}>{percent}</Text>
+      )}
     </View>
   );
 });

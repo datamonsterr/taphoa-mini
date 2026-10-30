@@ -443,12 +443,9 @@ describe('single item', () => {
     });
   });
 
-  it('the strip sits below the viewfinder; price opens and closes it', async () => {
+  it('the strip opens under the viewfinder at once (board 02); price closes and reopens it', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    expect(screen.queryByTestId('alternatives-strip')).toBeNull();
-    const price = screen.getByRole('button', { name: /xem món khác$/ });
-    await fireEvent.press(price);
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
     expect(screen.getAllByRole('radio').length).toBeGreaterThan(1);
     expect(screen.getAllByRole('radio')[0]).toBeChecked();
@@ -459,6 +456,10 @@ describe('single item', () => {
       screen.getByRole('button', { name: /xem món khác$/ }),
     );
     expect(screen.queryByTestId('alternatives-strip')).toBeNull();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /xem món khác$/ }),
+    );
+    expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
   });
 
   it('choosing a chip replaces the price and product, keeping the box selected', async () => {
@@ -466,9 +467,6 @@ describe('single item', () => {
     await capture();
     const before = screen.getByRole('button', { name: /xem món khác$/ }).props
       .accessibilityLabel as string;
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
     const second = screen.getAllByRole('radio')[1]!;
     const chosenLabel = second.props.accessibilityLabel as string;
     await fireEvent.press(second);
@@ -492,9 +490,6 @@ describe('single item', () => {
   it('+ adds the chosen product, buzzes, flies a dot and returns to the live camera', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
     const second = screen.getAllByRole('radio')[1]!;
     const label = second.props.accessibilityLabel as string;
     await fireEvent.press(second);
@@ -1475,10 +1470,6 @@ describe('assistant entry points', () => {
   it('yields the slot to the alternatives strip and to quick enroll', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await strip();
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
     expect(screen.queryByTestId('next-step-strip')).toBeNull();
     await fireEvent.press(
