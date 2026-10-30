@@ -33,6 +33,7 @@ export type DraftViewProps = {
   onToggleCandidates: (id: string) => void;
   onEditPrice: (id: string) => void;
   onSearch: (id: string) => void;
+  onAddNew: (id: string) => void;
   onChooseCustomer: () => void;
   /** A second utterance is being recorded or parsed. */
   adding: 'idle' | 'listening' | 'understanding';
@@ -62,6 +63,7 @@ export const DraftView = memo(function DraftView({
   onToggleCandidates,
   onEditPrice,
   onSearch,
+  onAddNew,
   onChooseCustomer,
   adding,
   micMode,
@@ -123,6 +125,7 @@ export const DraftView = memo(function DraftView({
             }}
             onEditPrice={onEditPrice}
             onSearch={onSearch}
+            onAddNew={onAddNew}
           />
         ))}
       </ScrollView>

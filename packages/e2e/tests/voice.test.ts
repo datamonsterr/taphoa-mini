@@ -134,6 +134,19 @@ describe('voice utterances', () => {
     expect(line.price_source).toBe('spoken');
   });
 
+  it('shows a generic name as ambiguous with three candidates', async () => {
+    const f = clip('ambiguous');
+    if (!f) return;
+    const store = await prepare(f.sidecar);
+    const r = await utter(store, f.audio);
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    const line = r.body.sale_draft.lines[0];
+    expect(line.status, JSON.stringify(r.body)).toBe('ambiguous');
+    expect(line.spoken).toBe('nước ngọt');
+    expect(line.candidates).toHaveLength(3);
+    expect(line.unit_price).toBe(line.product.price);
+  });
+
   it('matches the customer of a credit sale', async () => {
     const f = clip('credit-sale');
     if (!f) return;

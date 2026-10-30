@@ -35,6 +35,7 @@ const handlers = () => ({
   onPick: jest.fn(),
   onEditPrice: jest.fn(),
   onSearch: jest.fn(),
+  onAddNew: jest.fn(),
 });
 
 async function row(line: Partial<DraftLine>, expanded = false) {
@@ -107,17 +108,44 @@ test('the candidate strip stays closed until expanded', async () => {
   expect(screen.queryByTestId('alternatives-strip')).toBeNull();
 });
 
-test('an unknown line shows the spoken words and a tag that opens the catalog search', async () => {
-  const h = await row({
-    status: 'unknown',
-    product: null,
-    spoken: 'gạo ST25',
-    unitPrice: 35000,
-  });
+const unknown = {
+  status: 'unknown' as const,
+  product: null,
+  spoken: 'gạo ST25',
+  unitPrice: 35000,
+};
+
+test('an unknown line warns in Vietnamese and never looks matched', async () => {
+  await row(unknown);
   expect(screen.getByText('gạo ST25')).toBeOnTheScreen();
   expect(screen.getByTestId('icon-Tag')).toBeOnTheScreen();
+  expect(screen.queryByTestId('icon-Check')).toBeNull();
+  const warning = screen.getByTestId('voice-line-l1-unknown');
+  expect(
+    within(warning).getByText('Chưa có sản phẩm này trong kho'),
+  ).toBeOnTheScreen();
+  expect(warning.props.accessibilityRole).toBe('alert');
+});
+
+test('an unknown line offers pick, add and remove, each calling back with the line id', async () => {
+  const h = await row(unknown);
+  await fireEvent.press(screen.getByLabelText('Chọn món có sẵn'));
+  expect(h.onSearch).toHaveBeenCalledWith('l1');
+  await fireEvent.press(screen.getByLabelText('Thêm món mới'));
+  expect(h.onAddNew).toHaveBeenCalledWith('l1');
+  await fireEvent.press(screen.getByLabelText('Xóa dòng này'));
+  expect(h.onRemove).toHaveBeenCalledWith('l1');
+});
+
+test('the grey tag also opens the catalog search', async () => {
+  const h = await row(unknown);
   await fireEvent.press(
-    screen.getByLabelText('Chưa có trong kho, bán theo giá đã nói'),
+    screen.getByLabelText('Chưa có sản phẩm này trong kho'),
   );
   expect(h.onSearch).toHaveBeenCalledWith('l1');
+});
+
+test('a matched line shows no unknown warning', async () => {
+  await row({});
+  expect(screen.queryByTestId('voice-line-l1-unknown')).toBeNull();
 });

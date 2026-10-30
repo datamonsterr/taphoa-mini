@@ -117,14 +117,24 @@ The backend validates ranges (quantity 1..999, price 500..50,000,000) and marks 
 
 ### Catalog match
 
-- Normalize both sides like `assistant/tools/catalog.rs` (`immutable_unaccent`, lower, strip
-  punctuation) and compare with trigram similarity plus token overlap; brand and size tokens
-  ("330ml", "đỏ") count extra.
+- Clean the name first (`voice/clean.rs`): the quantity, number words (một, hai, ba), unit and
+  container words (chai, lon, gói, hộp, thùng, bịch, cái) and the price never stay in `spoken`
+  or `query`; they fill `quantity` and `unit` when the model left them empty. The prompt asks the
+  model for the same, and this step makes it hold when the model slips (issue 152).
+- Rank every product name of the store word by word (`voice/rank.rs`) after folding both sides
+  (lower case, no diacritics, `đ` as `d`). It finds the product when the seller says the brand or
+  the generic name only, changes the word order, drops diacritics, splits or joins a brand
+  (chin su and Chinsu), uses a short form or leaves the size out; a size that is spoken and
+  differs from the product size lowers the score. A generic category (nước ngọt, nước suối,
+  nước tăng lực, cà phê) names no product: the known brands of the category become ambiguous
+  candidates (issue 154). The catalog is read once per utterance, so there is no extra model call
+  or round trip.
 - Voice aliases: `voice_aliases(store_id, phrase, product_id, hits)` learned from outcomes
   (a correction twice for the same phrase, or one confirm of an ambiguous pick). Checked first.
 - Bands: score at least 0.80 → `matched`; 0.50-0.80 → `ambiguous` with up to three
-  candidates (top one preselected, amber chip); under 0.50 → `unknown` → manual line with
-  `manual_label` = spoken words and the spoken price.
+  candidates (top one preselected, amber chip); under 0.50 → `unknown`. An unknown line never
+  becomes a sale line by itself: the sheet blocks Confirm until the seller picks a catalog
+  product, adds a new one or removes the line.
 - Unit: the spoken unit picks the product's unit (`unit_id`) when it exists ("thùng" versus
   "lon"); otherwise the base unit.
 
@@ -233,7 +243,7 @@ Screens 14-16 in [DESIGN.md](../../design/DESIGN.md).
 - **Draft state.** Transcript on top (tap to see it in full). Lines like the cart: thumbnail,
   name, stepper, price, line total. Chips on the thumbnail: green check (matched), amber "?"
   (ambiguous: tap opens a three-candidate strip like the camera alternatives strip), grey tag
-  (unknown: manual line at the spoken price; tap to search the catalog). Price in red with a
+  (unknown: the line warns "Chưa có sản phẩm này trong kho" and offers three actions: pick an existing product (catalog search), add a new product (the add-product form with the name and price filled in) or remove the line; the green check stays off until no unknown line is left). Price in red with a
   pill when `price_mismatch`. Footer: total, payment toggle (tiền mặt / chuyển khoản / ghi nợ),
   microphone to add more lines, green check. Credit shows the customer row (matched name or
   "Chọn khách").

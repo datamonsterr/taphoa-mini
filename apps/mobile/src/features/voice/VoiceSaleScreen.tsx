@@ -366,6 +366,21 @@ export function VoiceSaleScreen() {
     setAddedToCart((n) => n + 1);
   }, []);
 
+  /** Opens the add-product form with the spoken name (and price) filled in. */
+  const addNewProduct = useCallback(
+    (id: string) => {
+      const line = draftRef.current?.lines.find((l) => l.id === id);
+      if (!line) return;
+      const price =
+        line.unitPrice === null ? {} : { price: String(line.unitPrice) };
+      router.push({
+        pathname: '/enroll',
+        params: { name: line.spoken, ...price },
+      });
+    },
+    [router],
+  );
+
   const editedLine = editing
     ? draft?.lines.find((l) => l.id === editing.id)
     : undefined;
@@ -447,6 +462,7 @@ export function VoiceSaleScreen() {
         }
         onEditPrice={(id) => setEditing({ kind: 'price', id })}
         onSearch={(id) => setEditing({ kind: 'search', id })}
+        onAddNew={addNewProduct}
         onChooseCustomer={() => setPicker(true)}
         adding={adding}
         micMode={micMode}
