@@ -8,6 +8,8 @@ import {
   groupTypes,
   projectSettings,
 } from './definitions/index.mjs';
+import { llmDashboards } from './llm/index.mjs';
+import { traceFilters } from './llm/trace-filters.mjs';
 import { createClient } from './lib/client.mjs';
 import { loadSecrets } from './lib/secrets.mjs';
 import {
@@ -23,6 +25,7 @@ import { scopeQuery } from './verify.mjs';
 
 const categories = [
   'dashboards',
+  'llm',
   'flags',
   'playlists',
   'logs',
@@ -48,24 +51,33 @@ export async function apply({
     );
     return operation;
   }
-  if (!only || only === 'dashboards')
-    for (const { insights, ...dashboard } of dashboards) {
-      const result = await run(
-        'dashboard',
-        dashboard.name,
-        ensureDashboard,
-        dashboard,
-      );
-      for (const { events: _events, ...insight } of insights) {
-        const source = scopeQuery(insight.query);
-        const query = { ...insight.query, source };
-        await run('insight', insight.name, ensureInsight, {
-          ...insight,
-          query,
-          dashboards: [result.object.id],
-        });
-      }
+  const selectedDashboards = [
+    ...(!only || only === 'dashboards' ? dashboards : []),
+    ...(!only || only === 'llm' ? llmDashboards : []),
+  ];
+  for (const { insights, ...dashboard } of selectedDashboards) {
+    const result = await run(
+      'dashboard',
+      dashboard.name,
+      ensureDashboard,
+      dashboard,
+    );
+    for (const { events: _events, scope: _scope, ...insight } of insights) {
+      const source = scopeQuery(insight.query);
+      const query = { ...insight.query, source };
+      await run('insight', insight.name, ensureInsight, {
+        ...insight,
+        query,
+        dashboards: [result.object.id],
+      });
     }
+  }
+  if (!only || only === 'llm')
+    for (const filter of traceFilters)
+      await run('trace filter', filter.name, ensureInsight, {
+        ...filter,
+        query: { ...filter.query, source: scopeQuery(filter.query) },
+      });
   for (const [category, type, definitions, ensure] of [
     ['flags', 'flag', featureFlags, ensureFeatureFlag],
     ['playlists', 'playlist', playlists, ensurePlaylist],
@@ -103,12 +115,17 @@ export async function main(args = process.argv.slice(2)) {
         get: async () => ({ organization: 'offline' }),
       }
     : createClient(config);
-  return apply({
+  const operations = await apply({
     client,
     projectId: config.projectId,
     dryRun: values['dry-run'],
     only: values.only,
   });
+  const summary = { create: 0, update: 0, unchanged: 0, skip: 0 };
+  for (const operation of operations)
+    summary[operation.status ?? operation.action]++;
+  console.log(`Summary: ${JSON.stringify(summary)}`);
+  return operations;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
   main().catch((error) => {

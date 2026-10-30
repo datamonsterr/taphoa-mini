@@ -114,7 +114,7 @@ fn inference_failure(e: SegmentError) -> ApiError {
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal",
-                other.to_string(),
+                "internal server error",
             )
         }
     }
@@ -151,6 +151,14 @@ pub async fn segment_points(
 
     // Permission check: Lead or seller with can_enroll
     actor.require(Action::EnrollProduct)?;
+    crate::ratelimit::enforce(
+        &state,
+        &format!("segment:{}:{}", actor.store_id, actor.member_id),
+        state.rate_limits.segment_per_minute,
+        std::time::Duration::from_secs(60),
+        "segmentation requests",
+    )
+    .await?;
 
     // Early validation of points count and labels before storage or inference
     if request.points.is_empty() || request.points.len() > 2 {
@@ -410,4 +418,28 @@ pub async fn segment_points(
             total: total_ms,
         },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unexpected_inference_error_hides_internal_detail() {
+        let error = inference_failure(SegmentError::Inference(
+            "ort: /models/sam/decoder.onnx failed at node 17".into(),
+        ));
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "internal");
+        assert_eq!(error.message, "internal server error");
+    }
+
+    #[test]
+    fn client_errors_keep_their_message() {
+        let error = inference_failure(SegmentError::InvalidPrompt(
+            "need a foreground point".into(),
+        ));
+        assert_eq!(error.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(error.message, "need a foreground point");
+    }
 }

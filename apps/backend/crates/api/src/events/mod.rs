@@ -112,6 +112,7 @@ async fn stream_events(
     }
     let pool = state.postgres.clone();
     let (store_id, member_id) = (actor.store_id, actor.member_id);
+    let lead = actor.role == crate::auth::Role::Lead;
     let stream = stream::unfold(
         (
             subscription,
@@ -167,6 +168,10 @@ async fn stream_events(
                         continue;
                     }
                     last_id = message.id;
+                    // Skip Lead-only events for sellers; the cursor still advances past them.
+                    if !visible_to(lead, &message) {
+                        continue;
+                    }
                     // Deliver deactivation, then end this member's stream.
                     let closing = ends_membership(&message, member_id);
                     let event = SseEvent::default()
@@ -221,6 +226,21 @@ async fn replay_page(
             })
         })
         .collect())
+}
+
+/// Cost, margin and day-close cash figures are Lead-only, matching the REST routes.
+/// Sellers never receive these events, live or on replay.
+fn visible_to(lead: bool, message: &HubMessage) -> bool {
+    if lead {
+        return true;
+    }
+    match message.event_type.as_str() {
+        "day.closed" | "alert.created" | "alert.resolved" => false,
+        "price.changed" => serde_json::from_str::<Value>(&message.payload)
+            .ok()
+            .is_some_and(|envelope| envelope["data"]["field"] != "cost_price"),
+        _ => true,
+    }
 }
 
 /// True when this member's membership was deactivated.

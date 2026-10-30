@@ -1,4 +1,10 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react-native';
 import { router } from 'expo-router';
 
 import * as debtsApi from '@/lib/api/debts';
@@ -49,19 +55,49 @@ test('shows total outstanding and the overdue count above the list, largest debt
   ]);
 });
 
-test('only an overdue customer gets the badge with its age in days', async () => {
+test('rows show an initial, the debt age and a Quá hạn pill only when overdue', async () => {
   await seed();
   await renderWithProviders(<DebtBookScreen />);
-  expect(await screen.findByText('Quá hạn 10 ngày')).toBeOnTheScreen();
-  expect(screen.getAllByText(/^Quá hạn \d+ ngày$/)).toHaveLength(1);
+  const lan = await screen.findByRole('button', { name: /^Chị Lan,/ });
+  expect(within(lan).getByText('C')).toBeOnTheScreen();
+  expect(within(lan).getByText('0901234567')).toBeOnTheScreen();
+  expect(within(lan).getByText('10 ngày')).toBeOnTheScreen();
+  expect(within(lan).getByText('Quá hạn')).toBeOnTheScreen();
+  const mai = screen.getByRole('button', { name: /^Cô Mai,/ });
+  expect(within(mai).getByText('2 ngày')).toBeOnTheScreen();
+  expect(within(mai).getByText('Không có số')).toBeOnTheScreen();
+  expect(within(mai).queryByText('Quá hạn')).toBeNull();
+  const hoa = screen.getByRole('button', { name: /^Anh Hòa,/ });
+  expect(within(hoa).queryByText(/ngày/)).toBeNull();
+});
+
+test('the summary follows board 20: total with the customer count, then the overdue tile', async () => {
+  await seed();
+  await renderWithProviders(<DebtBookScreen />);
+  expect(await screen.findByText('Tổng nợ · 2 khách')).toBeOnTheScreen();
+  expect(screen.getByText('Quá hạn 7 ngày · 1 khách')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Tất cả' })).toBeSelected();
+  expect(screen.getByLabelText('Thêm khách hàng')).toBeOnTheScreen();
+});
+
+test('debt age reads hôm nay, hôm qua, then days', async () => {
+  await seedCustomer({ name: 'Hôm nay', owes: 1000, ageDays: 0 });
+  await seedCustomer({ name: 'Hôm qua', owes: 2000, ageDays: 1 });
+  await renderWithProviders(<DebtBookScreen />);
+  expect(await screen.findByText('hôm nay')).toBeOnTheScreen();
+  expect(screen.getByText('hôm qua')).toBeOnTheScreen();
 });
 
 test('exactly seven days is not overdue yet; eight is', async () => {
   await seedCustomer({ name: 'Bảy ngày', owes: 1000, ageDays: 7 });
   await seedCustomer({ name: 'Tám ngày', owes: 1000, ageDays: 8 });
   await renderWithProviders(<DebtBookScreen />);
-  expect(await screen.findByText('Quá hạn 8 ngày')).toBeOnTheScreen();
-  expect(screen.queryByText('Quá hạn 7 ngày')).toBeNull();
+  const eight = await screen.findByRole('button', { name: /^Tám ngày,/ });
+  expect(within(eight).getByText('8 ngày')).toBeOnTheScreen();
+  expect(within(eight).getByText('Quá hạn')).toBeOnTheScreen();
+  const seven = screen.getByRole('button', { name: /^Bảy ngày,/ });
+  expect(within(seven).getByText('7 ngày')).toBeOnTheScreen();
+  expect(within(seven).queryByText('Quá hạn')).toBeNull();
 });
 
 test('search sends the query and narrows the list by name or phone', async () => {
@@ -85,7 +121,7 @@ test('search sends the query and narrows the list by name or phone', async () =>
   );
 });
 
-test('the Quá hạn chip asks the server for overdue customers only and toggles off again', async () => {
+test('the Quá hạn chip asks the server for overdue customers only and Tất cả brings everyone back', async () => {
   await seed();
   const list = jest.spyOn(debtsApi, 'listCustomers');
   await renderWithProviders(<DebtBookScreen />);
@@ -102,7 +138,7 @@ test('the Quá hạn chip asks the server for overdue customers only and toggles
     expect(rowNames()).toEqual(['Chị Lan, 120.000đ, quá hạn 10 ngày']),
   );
   expect(chip()).toBeSelected();
-  await fireEvent.press(chip());
+  await fireEvent.press(screen.getByRole('button', { name: 'Tất cả' }));
   await waitFor(() => expect(rowNames()).toHaveLength(3));
   expect(list.mock.calls.at(-1)![0]).not.toHaveProperty('overdue');
 });
@@ -191,11 +227,11 @@ test('English labels follow the language', async () => {
   expect(await screen.findByLabelText('Total owed 150.000đ')).toBeOnTheScreen();
   expect(screen.getByRole('header', { name: 'Debt book' })).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Overdue' })).toBeOnTheScreen();
-  expect(await screen.findByText('Overdue 10 days')).toBeOnTheScreen();
+  expect(await screen.findByText('10 days')).toBeOnTheScreen();
   expect(screen.getByLabelText('1 overdue, 120.000đ')).toBeOnTheScreen();
 });
 
-test('a negative balance is shown as money the store holds', async () => {
+test('an overpaid customer reads Trả dư with the amount, never a bare minus (#206)', async () => {
   const lan = await seedCustomer({ name: 'Chị Lan', owes: 10000 });
   await debtsApi.createRepayment(
     lan.id,
@@ -203,8 +239,34 @@ test('a negative balance is shown as money the store holds', async () => {
     'key-over',
   );
   await renderWithProviders(<DebtBookScreen />);
-  expect(
-    await screen.findByRole('button', { name: 'Chị Lan, -15.000đ' }),
-  ).toBeOnTheScreen();
+  const row = await screen.findByRole('button', {
+    name: 'Chị Lan, trả dư 15.000đ',
+  });
+  expect(within(row).getByText('Trả dư 15.000đ')).toBeOnTheScreen();
+  expect(screen.queryByText('-15.000đ')).toBeNull();
   expect(screen.getByLabelText('Tổng nợ 0đ')).toBeOnTheScreen();
+});
+
+test('the add circle creates a profile without a sale and opens its customer screen', async () => {
+  await renderWithProviders(<DebtBookScreen />);
+  await fireEvent.press(screen.getByLabelText('Thêm khách hàng'));
+  expect(screen.getByRole('header', { name: 'Khách mới' })).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText('Tên khách hàng'), 'Cô Hoa');
+  await fireEvent.changeText(
+    screen.getByLabelText('Số điện thoại (không bắt buộc)'),
+    '0912345678',
+  );
+  await fireEvent.press(screen.getByLabelText('Tạo khách hàng'));
+  await waitFor(() =>
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/customer/[id]',
+      params: { id: expect.any(String) },
+    }),
+  );
+  const customer = (await debtsApi.listCustomers({ query: 'Hoa' })).items![0]!;
+  expect(router.push).toHaveBeenLastCalledWith({
+    pathname: '/customer/[id]',
+    params: { id: customer.id },
+  });
+  expect(screen.queryByLabelText('Tên khách hàng')).toBeNull();
 });

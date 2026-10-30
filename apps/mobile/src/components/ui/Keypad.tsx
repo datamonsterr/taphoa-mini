@@ -63,7 +63,13 @@ export type KeypadProps = {
   disabled?: boolean;
   /** Accessible name of the delete key; Vietnamese by default. */
   labels?: KeypadLabels;
+  /** Digits 0-9 and delete only (a PIN pad): the "000" slot stays empty. */
+  digitsOnly?: boolean;
 };
+
+const ROWS = [0, 1, 2, 3].map((row) =>
+  KEYPAD_LAYOUT.slice(row * 3, row * 3 + 3),
+);
 
 /** 3x4 pad: 1-9, 000, 0, delete. Pair with `applyKey`. */
 export const Keypad = memo(function Keypad({
@@ -71,30 +77,36 @@ export const Keypad = memo(function Keypad({
   diameter,
   disabled,
   labels,
+  digitsOnly = false,
 }: KeypadProps) {
+  // Board: a 3-column grid, each key centred in its third (1-9, 000, 0, delete).
   return (
-    <View style={styles.grid}>
-      {KEYPAD_LAYOUT.map((keyId) => (
-        <KeypadKey
-          key={keyId}
-          keyId={keyId}
-          onPress={onKey}
-          diameter={diameter}
-          disabled={disabled}
-          labels={labels}
-        />
+    <View testID="keypad" style={styles.grid}>
+      {ROWS.map((row) => (
+        <View key={row[0]} style={styles.row}>
+          {row.map((keyId) => (
+            <View key={keyId} style={styles.cell}>
+              {digitsOnly && keyId === '000' ? null : (
+                <KeypadKey
+                  keyId={keyId}
+                  onPress={onKey}
+                  diameter={diameter}
+                  disabled={disabled}
+                  labels={labels}
+                />
+              )}
+            </View>
+          ))}
+        </View>
       ))}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: space[3],
-  },
+  grid: { rowGap: space[3] },
+  row: { flexDirection: 'row' },
+  cell: { flex: 1, alignItems: 'center' },
   key: {
     alignItems: 'center',
     justifyContent: 'center',

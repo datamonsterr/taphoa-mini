@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { SignInScreen } from './SignInScreen';
@@ -19,6 +20,10 @@ beforeEach(() => {
   setClerkState({ isSignedIn: false, userId: null, sessionId: null });
   mockPush.mockClear();
   mockReplace.mockClear();
+  onlineManager.setOnline(true);
+  delete (clerkMock.signIn as { errors?: unknown }).errors;
+  delete (clerkMock.signUp as { errors?: unknown }).errors;
+  clerkMock.signIn.status = 'needs_first_factor';
 });
 
 async function sendEmail() {
@@ -34,6 +39,25 @@ async function codeScreen(mode: 'signIn' | 'signUp' = 'signIn') {
   await renderWithProviders(<VerifyCodeScreen />);
 }
 
+test('sign-in follows board 24: logo header, subtitle, email pill, or-divider, shared-phone card', async () => {
+  await renderWithProviders(<SignInScreen />);
+  expect(screen.getByRole('header', { name: 'Đăng nhập' })).toBeOnTheScreen();
+  expect(
+    screen.getByText('Nhận mã 6 số qua email, không cần mật khẩu'),
+  ).toBeOnTheScreen();
+  const email = screen.getByTestId('auth-email');
+  expect(email).toHaveProp('placeholder', 'Email');
+  expect(screen.getByLabelText('Địa chỉ email')).toBe(email);
+  expect(
+    screen.getByText('hoặc', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(screen.getByText('G')).toBeOnTheScreen();
+  expect(
+    screen.getByText(
+      'Máy dùng chung: mỗi người có mã PIN riêng để đổi người bán.',
+    ),
+  ).toBeOnTheScreen();
+});
 test('validates the email before requesting a code', async () => {
   await renderWithProviders(<SignInScreen />);
   await fireEvent.press(screen.getByTestId('auth-send-code'));
@@ -105,6 +129,7 @@ test('expired sign-up code stays on verification and can be resent', async () =>
   expect(clerkMock.signUp.verifications.sendEmailCode).toHaveBeenCalledTimes(1);
 });
 test('an incomplete verification explains the extra requirement without activating it', async () => {
+  clerkMock.signIn.status = 'needs_second_factor';
   clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({ error: null });
   await codeScreen();
   await fireEvent.changeText(screen.getByTestId('auth-code'), '424242');
@@ -255,6 +280,7 @@ describe('device lock', () => {
     });
     await codeScreen();
     await enterCode();
+    clerkMock.signIn.status = 'needs_second_factor';
     clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
       error: null,
     });
@@ -264,5 +290,239 @@ describe('device lock', () => {
     });
     await enterCode();
     expect(useDeviceLock.getState().locked).toBe(true);
+  });
+});
+
+/** Core 3 wraps what went wrong in a ClerkError whose own code says nothing; the cause has it. */
+const wrapped = (cause: unknown, status?: number) => ({
+  code: 'api_response_error',
+  ...(status ? { status } : {}),
+  cause,
+});
+const NETWORK = 'Không kết nối được. Kiểm tra mạng rồi thử lại.';
+const RATE = 'Thử quá nhiều lần. Đợi một lúc rồi thử lại.';
+const INCOMPLETE = 'Tài khoản cần thêm bước xác minh. Vui lòng liên hệ hỗ trợ.';
+const GENERIC = 'Không đăng nhập được. Vui lòng thử lại.';
+
+async function typeCodeAndVerify() {
+  await fireEvent.changeText(screen.getByTestId('auth-code'), '111111');
+  await fireEvent.press(screen.getByTestId('auth-verify-code'));
+}
+
+describe('sign-in failures each show their own message (#175)', () => {
+  test('a dropped connection while sending the code says the network is down', async () => {
+    clerkMock.signIn.create.mockResolvedValueOnce({
+      error: wrapped(new TypeError('Failed to fetch')),
+    });
+    await sendEmail();
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(screen.queryByText(GENERIC)).toBeNull();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+  test('an offline phone says so without calling Clerk', async () => {
+    onlineManager.setOnline(false);
+    await sendEmail();
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(clerkMock.signIn.create).not.toHaveBeenCalled();
+  });
+  test('Clerk 429 while sending the code says too many tries', async () => {
+    clerkMock.signIn.emailCode.sendCode.mockResolvedValueOnce({
+      error: wrapped({ errors: [{ code: 'too_many_requests' }] }, 429),
+    });
+    await sendEmail();
+    expect(screen.getByText(RATE)).toBeOnTheScreen();
+  });
+  test('a 429 that carries only its status says too many tries', async () => {
+    clerkMock.signIn.create.mockResolvedValueOnce({
+      error: wrapped({ message: 'Too many requests' }, 429),
+    });
+    await sendEmail();
+    expect(screen.getByText(RATE)).toBeOnTheScreen();
+  });
+  test('a send that fails only on the resource errors is still reported', async () => {
+    (clerkMock.signIn as { errors?: unknown }).errors = {
+      raw: [{ code: 'too_many_requests' }],
+      global: null,
+      fields: {},
+    };
+    clerkMock.signIn.emailCode.sendCode.mockResolvedValueOnce({ error: null });
+    await sendEmail();
+    expect(screen.getByText(RATE)).toBeOnTheScreen();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+  test('adding a person who is already signed in on this phone says so', async () => {
+    clerkMock.signIn.create.mockResolvedValueOnce({
+      error: { code: 'identifier_already_signed_in' },
+    });
+    await sendEmail();
+    expect(
+      screen.getByText('Người này đã đăng nhập trên máy này.'),
+    ).toBeOnTheScreen();
+  });
+  test('an expired code says the code expired, not that support is needed', async () => {
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: wrapped({ errors: [{ code: 'verification_expired' }] }, 422),
+    });
+    await codeScreen();
+    await typeCodeAndVerify();
+    expect(
+      screen.getByText('Mã đã hết hạn. Vui lòng gửi lại mã.'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(INCOMPLETE)).toBeNull();
+  });
+  test('Clerk 429 on the code says too many tries', async () => {
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: wrapped({ errors: [{ code: 'too_many_requests' }] }, 429),
+    });
+    await codeScreen();
+    await typeCodeAndVerify();
+    expect(screen.getByText(RATE)).toBeOnTheScreen();
+    expect(screen.queryByText(INCOMPLETE)).toBeNull();
+  });
+  test('a failed attempt that Clerk reports only on the resource is not "needs support"', async () => {
+    (clerkMock.signIn as { errors?: unknown }).errors = {
+      raw: [wrapped({ errors: [{ code: 'verification_expired' }] }, 422)],
+      global: null,
+      fields: {},
+    };
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: null,
+    });
+    await codeScreen();
+    await typeCodeAndVerify();
+    expect(
+      screen.getByText('Mã đã hết hạn. Vui lòng gửi lại mã.'),
+    ).toBeOnTheScreen();
+  });
+  test('a dropped connection on the code says the network is down', async () => {
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: wrapped(new TypeError('Failed to fetch')),
+    });
+    await codeScreen();
+    await typeCodeAndVerify();
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(screen.queryByText(INCOMPLETE)).toBeNull();
+  });
+  test('an offline phone on the code says so without calling Clerk', async () => {
+    await codeScreen();
+    onlineManager.setOnline(false);
+    await typeCodeAndVerify();
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(clerkMock.signIn.emailCode.verifyCode).not.toHaveBeenCalled();
+  });
+  test('Clerk answering nothing while the code is still pending never reached Clerk: network, not "needs support"', async () => {
+    clerkMock.signIn.emailCode.verifyCode.mockResolvedValueOnce({
+      error: null,
+    });
+    await codeScreen();
+    await typeCodeAndVerify();
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(screen.queryByText(INCOMPLETE)).toBeNull();
+  });
+  test('a sign-up whose email is not verified never reached Clerk, a verified one needs support', async () => {
+    (clerkMock.signUp as { verifications: unknown }).verifications = {
+      ...clerkMock.signUp.verifications,
+      emailAddress: { status: 'unverified' },
+    };
+    clerkMock.signUp.verifications.verifyEmailCode.mockResolvedValueOnce({
+      error: null,
+    });
+    await codeScreen('signUp');
+    await typeCodeAndVerify();
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    (
+      clerkMock.signUp.verifications as unknown as {
+        emailAddress: { status: string };
+      }
+    ).emailAddress.status = 'verified';
+    clerkMock.signUp.verifications.verifyEmailCode.mockResolvedValueOnce({
+      error: null,
+    });
+    await fireEvent.press(screen.getByTestId('auth-verify-code'));
+    expect(screen.getByText(INCOMPLETE)).toBeOnTheScreen();
+    delete (clerkMock.signUp.verifications as { emailAddress?: unknown })
+      .emailAddress;
+  });
+  test('resending while offline shows the network message', async () => {
+    await codeScreen();
+    onlineManager.setOnline(false);
+    await fireEvent.press(screen.getByTestId('auth-resend-code'));
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(clerkMock.signIn.emailCode.sendCode).not.toHaveBeenCalled();
+  });
+  test('a resend that fails on the resource errors shows the rate limit', async () => {
+    (clerkMock.signIn as { errors?: unknown }).errors = {
+      raw: null,
+      global: [{ code: 'too_many_requests' }],
+      fields: {},
+    };
+    clerkMock.signIn.emailCode.sendCode.mockResolvedValueOnce({ error: null });
+    await codeScreen();
+    await fireEvent.press(screen.getByTestId('auth-resend-code'));
+    expect(screen.getByText(RATE)).toBeOnTheScreen();
+  });
+  describe('Clerk resolves quietly without doing anything (an offline phone)', () => {
+    const verification = (expireAt: number | null) => ({
+      status: expireAt ? 'unverified' : null,
+      expireAt: expireAt ? new Date(expireAt) : null,
+    });
+    afterEach(() => {
+      delete (clerkMock.signIn as { firstFactorVerification?: unknown })
+        .firstFactorVerification;
+    });
+    test('a sign-in that never started says the network is down', async () => {
+      clerkMock.signIn.create.mockImplementationOnce(async () => {
+        clerkMock.signIn.status = 'needs_identifier';
+        return { error: null };
+      });
+      await sendEmail();
+      expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+      expect(clerkMock.signIn.emailCode.sendCode).not.toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+    test('a code that was never sent says the network is down', async () => {
+      (
+        clerkMock.signIn as { firstFactorVerification?: unknown }
+      ).firstFactorVerification = verification(null);
+      clerkMock.signIn.emailCode.sendCode.mockResolvedValueOnce({
+        error: null,
+      });
+      await sendEmail();
+      expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+    test('a sent code moves on to the code screen', async () => {
+      (
+        clerkMock.signIn as { firstFactorVerification?: unknown }
+      ).firstFactorVerification = verification(null);
+      clerkMock.signIn.emailCode.sendCode.mockImplementationOnce(async () => {
+        (
+          clerkMock.signIn as { firstFactorVerification?: unknown }
+        ).firstFactorVerification = verification(Date.now() + 600_000);
+        return { error: null };
+      });
+      await sendEmail();
+      expect(mockPush).toHaveBeenCalledWith('/verify-code');
+    });
+    test('a resend that sent nothing says the network is down; a real one stays quiet', async () => {
+      const first = Date.now() + 600_000;
+      (
+        clerkMock.signIn as { firstFactorVerification?: unknown }
+      ).firstFactorVerification = verification(first);
+      clerkMock.signIn.emailCode.sendCode.mockResolvedValueOnce({
+        error: null,
+      });
+      await codeScreen();
+      await fireEvent.press(screen.getByTestId('auth-resend-code'));
+      expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+      clerkMock.signIn.emailCode.sendCode.mockImplementationOnce(async () => {
+        (
+          clerkMock.signIn as { firstFactorVerification?: unknown }
+        ).firstFactorVerification = verification(first + 600_000);
+        return { error: null };
+      });
+      await fireEvent.press(screen.getByTestId('auth-resend-code'));
+      expect(screen.queryByText(NETWORK)).toBeNull();
+    });
   });
 });

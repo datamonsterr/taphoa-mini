@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "transcript": "một chai tương ớt chin su",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "tương ớt chin su",
+      "quantity": 1,
+      "status": "matched"
+    }
+  ],
+  "requires_products": ["tương ớt Chin-su"]
+}

@@ -1,6 +1,17 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { ArrowLeft, Trash2, X } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Banknote,
+  Check,
+  ChevronRight,
+  Plus,
+  QrCode,
+  Trash2,
+  X,
+  ZoomIn,
+} from 'lucide-react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,26 +20,29 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CircleButton, PressableScale, Text } from '@/components/ui';
+import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import {
   useConfirmReceipt,
   useDiscardReceipt,
   useProduct,
+  isApiError,
   useReceipt,
   type Receipt,
   type ReceiptConfirm,
   type ReceiptLine,
 } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { useT } from '@/lib/i18n';
+import { fill, useT } from '@/lib/i18n';
 import { businessDate } from '@/lib/date';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import { colors, radius, space, typography } from '@/theme';
 import { ProductPicker } from './ProductPicker';
+import { ReceiptLineStatus, receiptLineStatus } from './ReceiptLineStatus';
+import { ReceiptPriceKeypad, ReceiptPricePill } from './ReceiptPrice';
+import { ReceiptQuantityStepper } from './ReceiptQuantityStepper';
 import { useReceiptNotice } from './ReceiptToast';
 import { strings } from './strings';
 
@@ -38,19 +52,28 @@ const back = () => {
 };
 
 type EditableLine = {
-  line: ReceiptLine;
-  quantity: string;
-  cost: string;
+  key: string;
+  line?: ReceiptLine;
+  name: string;
+  quantity: number;
+  unitPrice: number;
   productId: string | null;
 };
-const integer = (text: string) =>
-  /^\d+$/.test(text) && Number.isSafeInteger(Number(text));
-const valid = (l: EditableLine) =>
-  l.productId !== null &&
-  integer(l.quantity) &&
-  Number(l.quantity) > 0 &&
-  Number(l.quantity) <= 2147483647 &&
-  integer(l.cost);
+// The API stores line amounts. Preserve their precision when deriving a unit price,
+// and round the derived amount once to whole đồng for confirmation.
+/** A request that failed while the phone is offline says so instead of "try again". */
+const failureKind = (): 'save' | 'offline' =>
+  onlineManager.isOnline() ? 'save' : 'offline';
+const lineTotal = (line: EditableLine) =>
+  Math.round(line.quantity * line.unitPrice);
+const valid = (line: EditableLine) =>
+  line.productId !== null &&
+  Number.isInteger(line.quantity) &&
+  line.quantity >= 1 &&
+  line.quantity <= 2147483647 &&
+  Number.isFinite(line.unitPrice) &&
+  line.unitPrice >= 0 &&
+  Number.isSafeInteger(lineTotal(line));
 
 export function ReceiptReviewScreen({ id }: { id: string }) {
   const t = useT(strings);
@@ -63,28 +86,44 @@ export function ReceiptReviewScreen({ id }: { id: string }) {
         { paddingTop: insets.top, paddingBottom: insets.bottom },
       ]}
     >
-      <View style={styles.header}>
-        <CircleButton
-          icon={ArrowLeft}
-          accessibilityLabel={t('back')}
-          onPress={back}
-        />
-        <Text accessibilityRole="header" style={typography.heading}>
-          {t('review')}
-        </Text>
-      </View>
-      {receipt.isPending ? (
-        <ActivityIndicator accessibilityLabel={t('loading')} />
-      ) : receipt.data ? (
+      {receipt.data ? (
         <Review
           key={receipt.data.id + receipt.data.status}
           receipt={receipt.data}
         />
       ) : (
-        <View style={styles.content}>
-          <Text accessibilityRole="alert">{t('error')}</Text>
-          <Action label={t('retry')} onPress={() => void receipt.refetch()} />
-        </View>
+        <>
+          <View style={styles.header}>
+            <CircleButton
+              icon={ArrowLeft}
+              accessibilityLabel={t('back')}
+              onPress={back}
+            />
+            <Text accessibilityRole="header" style={typography.heading}>
+              {t('review')}
+            </Text>
+          </View>
+          {receipt.isPending ? (
+            <ActivityIndicator accessibilityLabel={t('loading')} />
+          ) : (
+            <View style={styles.content}>
+              {isApiError(receipt.error) && receipt.error.status === 404 ? (
+                <>
+                  <Text accessibilityRole="alert">{t('notFound')}</Text>
+                  <Action label={t('toList')} onPress={back} />
+                </>
+              ) : (
+                <>
+                  <Text accessibilityRole="alert">{t('error')}</Text>
+                  <Action
+                    label={t('retry')}
+                    onPress={() => void receipt.refetch()}
+                  />
+                </>
+              )}
+            </View>
+          )}
+        </>
       )}
     </View>
   );
@@ -92,43 +131,33 @@ export function ReceiptReviewScreen({ id }: { id: string }) {
 
 function ProductChip({
   line,
-  productId,
   readonly,
+  disabled,
   onPress,
 }: {
-  line: ReceiptLine;
-  productId: string | null;
+  line: EditableLine;
   readonly: boolean;
+  disabled: boolean;
   onPress: () => void;
 }) {
   const t = useT(strings);
-  const product = useProduct(productId ?? undefined);
+  const product = useProduct(line.productId ?? undefined);
   const name =
     product.data?.name ??
-    line.candidates.find((c) => c.product_id === productId)?.name ??
-    t('unnamed');
-  const label = productId ? name : t('unmatched');
+    line.line?.candidates.find((c) => c.product_id === line.productId)?.name ??
+    line.name;
+  if (readonly) return <Text style={typography.label}>{name}</Text>;
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={`${label}: ${line.product_name}`}
-      disabled={readonly}
+      accessibilityLabel={`${name}, ${t('changeProduct')}`}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
       onPress={onPress}
-      style={[
-        styles.chip,
-        {
-          backgroundColor: productId ? colors.successSoft : colors.warningSoft,
-        },
-      ]}
+      style={styles.product}
     >
-      <Text
-        style={[
-          typography.label,
-          { color: productId ? colors.success : colors.warning },
-        ]}
-      >
-        {label}
-      </Text>
+      <Text style={[typography.label, styles.grow]}>{name}</Text>
+      <Icon icon={ChevronRight} size={20} color={colors.inkMuted} />
     </PressableScale>
   );
 }
@@ -137,46 +166,63 @@ function Review({ receipt }: { receipt: Receipt }) {
   const t = useT(strings);
   const [lines, setLines] = useState<EditableLine[]>(() =>
     receipt.lines.map((line) => ({
+      key: line.id,
       line,
-      quantity: String(line.quantity),
-      cost: String(line.cost),
+      name: line.product_name,
+      quantity: Math.max(1, line.quantity),
+      unitPrice: (line.cost ?? 0) / Math.max(1, line.quantity),
       productId: line.product_id,
     })),
   );
   const [paidWith, setPaidWith] =
     useState<ReceiptConfirm['paid_with']>('cash_box');
   const [picker, setPicker] = useState<string | null>(null);
+  const [editingPrice, setEditingPrice] = useState<string | null>(null);
+  const [summary, setSummary] = useState(receipt.status !== 'draft');
   const [photo, setPhoto] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<'save' | 'offline' | null>(null);
   const confirm = useConfirmReceipt(receipt.id);
   const discard = useDiscardReceipt(receipt.id);
   const busyRef = useRef(false);
+  const newLineNumber = useRef(0);
   // An unchanged retry replays exactly the same confirmation after a lost response.
   const request = useRef<ReceiptConfirm | null>(null);
   const readonly = receipt.status !== 'draft';
   const busy = confirm.isPending || discard.isPending;
   const total = readonly
     ? receipt.total
-    : lines.reduce((sum, l) => sum + (integer(l.cost) ? Number(l.cost) : 0), 0);
+    : lines.reduce((sum, line) => sum + lineTotal(line), 0);
+  const count = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const fixes = lines.filter(
+    (line) => receiptLineStatus(line.productId, line.unitPrice) !== 'matched',
+  ).length;
+  const missing = lines.filter((line) => !line.productId);
   const canConfirm =
     lines.length > 0 &&
+    lines.length <= 100 &&
     lines.every(valid) &&
     Number.isSafeInteger(total) &&
+    total > 0 &&
     !busy;
-  const change = (id: string, patch: Partial<EditableLine>) =>
-    setLines((ls) =>
-      ls.map((l) => (l.line.id === id ? { ...l, ...patch } : l)),
+  const change = (key: string, patch: Partial<EditableLine>) =>
+    setLines((current) =>
+      current.map((line) => (line.key === key ? { ...line, ...patch } : line)),
     );
   const save = async () => {
     if (!canConfirm || busyRef.current) return;
+    setError(null);
+    // Offline the request would only wait: say so at once and keep the draft as it is.
+    if (!onlineManager.isOnline()) {
+      setError('offline');
+      return;
+    }
     busyRef.current = true;
-    setError(false);
     const body: ReceiptConfirm = {
-      lines: lines.map((l) => ({
-        line_id: l.line.id,
-        product_id: l.productId!,
-        quantity: Number(l.quantity),
-        cost: Number(l.cost),
+      lines: lines.map((line) => ({
+        ...(line.line ? { line_id: line.line.id } : {}),
+        product_id: line.productId!,
+        quantity: line.quantity,
+        cost: lineTotal(line),
       })),
       paid_with: paidWith,
     };
@@ -187,7 +233,7 @@ function Review({ receipt }: { receipt: Receipt }) {
       useReceiptNotice.setState({ count: saved.lines.length });
       router.dismissTo('/');
     } catch {
-      setError(true);
+      setError(failureKind());
     } finally {
       busyRef.current = false;
     }
@@ -195,12 +241,12 @@ function Review({ receipt }: { receipt: Receipt }) {
   const discardConfirmed = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
-    setError(false);
+    setError(null);
     try {
       await discard.mutateAsync();
       router.dismissTo('/');
     } catch {
-      setError(true);
+      setError(failureKind());
     } finally {
       busyRef.current = false;
     }
@@ -219,108 +265,168 @@ function Review({ receipt }: { receipt: Receipt }) {
       ]);
     }
   };
-  const chosenLine = lines.find((l) => l.line.id === picker);
+  const chosenLine = lines.find((line) => line.key === picker);
+  const priceLine = lines.find((line) => line.key === editingPrice);
   return (
     <>
+      <View style={styles.header}>
+        <CircleButton
+          icon={ArrowLeft}
+          accessibilityLabel={t('back')}
+          disabled={busy}
+          onPress={() => {
+            if (summary && !readonly) setSummary(false);
+            else if (editingPrice) setEditingPrice(null);
+            else back();
+          }}
+        />
+        <View style={styles.grow}>
+          <Text accessibilityRole="header" style={typography.heading}>
+            {t(summary ? 'title' : 'review')}
+          </Text>
+          <Text accessibilityLiveRegion="polite" style={styles.meta}>
+            {summary
+              ? `${businessDate(receipt.created_at)} · ${t(receipt.status)}`
+              : fill(t('fixCount'), { count: lines.length, fixes })}
+          </Text>
+        </View>
+      </View>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t('photo')}
-            onPress={() => setPhoto(true)}
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('photo')}
+          onPress={() => setPhoto(true)}
+          style={[styles.photoStrip, summary && styles.summaryPhoto]}
+        >
+          <Image
+            source={{ uri: receipt.image_url }}
+            style={styles.thumbnail}
+            contentFit="cover"
+          />
+          <Text style={styles.photoLabel}>{t('photo')}</Text>
+          <Icon icon={ZoomIn} color={colors.cameraInk} />
+        </PressableScale>
+        {lines.map((line) => (
+          <View
+            key={line.key}
+            style={[
+              styles.line,
+              !line.productId && styles.unmatched,
+              summary && styles.summaryLine,
+            ]}
           >
-            <Image
-              source={{ uri: receipt.image_url }}
-              style={styles.thumbnail}
-              contentFit="cover"
-            />
-          </PressableScale>
-          <View style={styles.grow}>
-            <Text style={typography.label}>
-              {businessDate(receipt.created_at)}
-            </Text>
-            <Text style={typography.caption}>{t(receipt.status)}</Text>
-          </View>
-          {!readonly ? (
-            <CircleButton
-              icon={Trash2}
-              accessibilityLabel={t('discard')}
-              onPress={discardDraft}
-              disabled={busy}
-            />
-          ) : null}
-        </View>
-        {lines.map((l) => (
-          <View key={l.line.id} style={styles.line}>
-            <Text style={typography.label}>{l.line.product_name}</Text>
-            <View style={styles.fields}>
-              <View style={styles.grow}>
-                <Text style={typography.caption}>{t('quantity')}</Text>
-                {readonly ? (
-                  <Text style={typography.body}>{l.quantity}</Text>
-                ) : (
-                  <TextInput
-                    accessibilityLabel={`${t('quantity')}: ${l.line.product_name}`}
-                    value={l.quantity}
-                    onChangeText={(quantity) => change(l.line.id, { quantity })}
-                    keyboardType="number-pad"
-                    editable={!busy}
-                    style={styles.input}
-                    maxLength={10}
-                  />
-                )}
-              </View>
-              <View style={styles.amountField}>
-                <Text style={typography.caption}>{t('cost')}</Text>
-                {readonly ? (
-                  <Text style={typography.body}>
-                    {formatVnd(Number(l.cost))}
-                  </Text>
-                ) : (
-                  <TextInput
-                    accessibilityLabel={`${t('cost')}: ${l.line.product_name}`}
-                    value={
-                      l.cost === ''
-                        ? ''
-                        : integer(l.cost)
-                          ? formatVnd(Number(l.cost))
-                          : l.cost
-                    }
-                    onChangeText={(text) =>
-                      change(l.line.id, { cost: text.replace(/[.đ\s]/g, '') })
-                    }
-                    keyboardType="number-pad"
-                    editable={!busy}
-                    style={styles.input}
-                  />
-                )}
-              </View>
-            </View>
             <View style={styles.fields}>
               <View style={styles.grow}>
                 <ProductChip
-                  line={l.line}
-                  productId={l.productId}
-                  readonly={readonly || busy}
-                  onPress={() => setPicker(l.line.id)}
+                  line={line}
+                  readonly={readonly}
+                  disabled={busy}
+                  onPress={() => setPicker(line.key)}
+                />
+                <ReceiptLineStatus
+                  productId={line.productId}
+                  price={line.unitPrice}
                 />
               </View>
-              {!readonly ? (
+              {!readonly && !summary ? (
                 <CircleButton
                   icon={Trash2}
-                  accessibilityLabel={`${t('drop')} ${l.line.product_name}`}
+                  accessibilityLabel={`${t('drop')} ${line.name}`}
                   disabled={busy}
-                  onPress={() =>
-                    setLines((ls) => ls.filter((x) => x.line.id !== l.line.id))
-                  }
+                  onPress={() => {
+                    setLines((current) =>
+                      current.filter((l) => l.key !== line.key),
+                    );
+                    if (editingPrice === line.key) setEditingPrice(null);
+                  }}
                 />
               ) : null}
             </View>
+            {!summary && line.line?.raw_text ? (
+              <Text style={styles.meta}>
+                {fill(t('source'), { text: line.line.raw_text })}
+              </Text>
+            ) : null}
+            {summary ? (
+              <View style={styles.fields}>
+                <Text style={[styles.meta, styles.grow]}>
+                  {line.quantity} × {formatVnd(line.unitPrice)}
+                </Text>
+                <Text style={styles.lineTotal}>
+                  {formatVnd(lineTotal(line))}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.amounts}>
+                <ReceiptQuantityStepper
+                  name={line.name}
+                  value={line.quantity}
+                  disabled={busy}
+                  onChange={(quantity) => change(line.key, { quantity })}
+                />
+                <Text style={styles.meta}>×</Text>
+                <ReceiptPricePill
+                  name={line.name}
+                  price={line.unitPrice}
+                  disabled={busy}
+                  editing={editingPrice === line.key}
+                  onPress={() => setEditingPrice(line.key)}
+                />
+                <Text
+                  accessibilityLabel={`${t('cost')}: ${line.name}`}
+                  style={styles.lineTotal}
+                >
+                  {formatVnd(lineTotal(line))}
+                </Text>
+              </View>
+            )}
           </View>
         ))}
+        {!readonly && !summary ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('addLine')}
+            accessibilityState={{ disabled: busy || lines.length >= 100 }}
+            disabled={busy || lines.length >= 100}
+            style={styles.addLine}
+            onPress={() => {
+              const number = ++newLineNumber.current;
+              setLines((current) => [
+                ...current,
+                {
+                  key: `new-${number}`,
+                  name: fill(t('newLine'), { number }),
+                  quantity: 1,
+                  unitPrice: 0,
+                  productId: null,
+                },
+              ]);
+            }}
+          >
+            <Icon icon={Plus} />
+            <Text style={typography.label}>{t('addLine')}</Text>
+          </PressableScale>
+        ) : null}
+        {!readonly && receipt.parser === 'fallback' ? (
+          <Text accessibilityRole="alert" style={styles.notice}>
+            {t('fallbackNotice')}
+          </Text>
+        ) : null}
+        {summary && !readonly && missing.length === 0 && total <= 0 ? (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {t('zeroTotal')}
+          </Text>
+        ) : null}
+        {summary && missing.length > 0 && !readonly ? (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {fill(t('missingProducts'), {
+              lines: missing.map((line) => line.name).join(', '),
+            })}
+          </Text>
+        ) : null}
         {readonly && receipt.expense_id ? (
           <Text
             accessibilityLabel={t('linkedExpense')}
@@ -331,66 +437,102 @@ function Review({ receipt }: { receipt: Receipt }) {
         ) : null}
       </ScrollView>
       <View style={styles.footer}>
-        <Text
-          accessibilityLabel={t('total')}
-          accessibilityLiveRegion="polite"
-          style={typography.price}
-        >
-          {formatVnd(total)}
-        </Text>
-        {error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
-            {t('saveError')}
-          </Text>
-        ) : null}
-        {!readonly ? (
+        {!summary && priceLine ? (
+          <ReceiptPriceKeypad
+            key={priceLine.key}
+            name={priceLine.name}
+            price={priceLine.unitPrice}
+            onChange={(unitPrice) => change(priceLine.key, { unitPrice })}
+            onDone={() => setEditingPrice(null)}
+          />
+        ) : (
           <>
-            <View
-              accessibilityRole="radiogroup"
-              accessibilityLabel={t('payment')}
-              style={styles.fields}
-            >
-              {(['cash_box', 'other'] as const).map((value) => (
-                <PressableScale
-                  key={value}
-                  accessibilityRole="radio"
-                  accessibilityLabel={t(value)}
-                  accessibilityState={{
-                    checked: paidWith === value,
-                    disabled: busy,
-                  }}
-                  disabled={busy}
-                  onPress={() => setPaidWith(value)}
-                  style={[styles.toggle, paidWith === value && styles.toggleOn]}
-                >
-                  <Text
-                    style={[
-                      typography.label,
-                      { color: paidWith === value ? colors.onInk : colors.ink },
-                    ]}
-                  >
-                    {t(value)}
-                  </Text>
-                </PressableScale>
-              ))}
+            <View style={styles.fields}>
+              <Text style={[typography.label, styles.grow]}>
+                {fill(t('itemTotal'), { count })}
+              </Text>
+              <Text
+                accessibilityLabel={t('total')}
+                accessibilityLiveRegion="polite"
+                style={typography.price}
+              >
+                {formatVnd(total)}
+              </Text>
             </View>
-            <Action
-              label={t('confirm')}
-              disabled={!canConfirm}
-              onPress={() => void save()}
-            />
-            {busy ? (
-              <ActivityIndicator accessibilityLabel={t('saving')} />
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.error}>
+                {t(error === 'offline' ? 'offlineError' : 'saveError')}
+              </Text>
+            ) : null}
+            {!readonly && !summary ? (
+              <Action
+                label={t('reviewDone')}
+                check
+                disabled={busy || lines.length === 0}
+                onPress={() => setSummary(true)}
+              />
+            ) : !readonly ? (
+              <>
+                <View
+                  accessibilityRole="radiogroup"
+                  accessibilityLabel={t('payment')}
+                  style={styles.fields}
+                >
+                  {(['cash_box', 'other'] as const).map((value) => (
+                    <PressableScale
+                      key={value}
+                      accessibilityRole="radio"
+                      accessibilityLabel={t(value)}
+                      accessibilityState={{
+                        checked: paidWith === value,
+                        disabled: busy,
+                      }}
+                      disabled={busy}
+                      onPress={() => setPaidWith(value)}
+                      style={[
+                        styles.toggle,
+                        paidWith === value && styles.toggleOn,
+                      ]}
+                    >
+                      <Icon
+                        icon={value === 'cash_box' ? Banknote : QrCode}
+                        color={paidWith === value ? colors.onInk : colors.ink}
+                      />
+                    </PressableScale>
+                  ))}
+                  <Text style={[styles.meta, styles.grow]}>
+                    {t('expenseHint')}
+                  </Text>
+                </View>
+                <Action
+                  label={t('confirm')}
+                  success
+                  disabled={!canConfirm}
+                  onPress={() => void save()}
+                />
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={t('discard')}
+                  disabled={busy}
+                  onPress={discardDraft}
+                  style={styles.discard}
+                >
+                  <Text style={styles.error}>{t('discard')}</Text>
+                </PressableScale>
+                {busy ? (
+                  <ActivityIndicator accessibilityLabel={t('saving')} />
+                ) : null}
+              </>
             ) : null}
           </>
-        ) : null}
+        )}
       </View>
       {chosenLine ? (
         <ProductPicker
-          line={chosenLine.line}
+          line={chosenLine.line ?? { candidates: [] }}
           onClose={() => setPicker(null)}
           onChoose={(productId) => {
-            change(chosenLine.line.id, { productId });
+            change(chosenLine.key, { productId });
             setPicker(null);
           }}
         />
@@ -423,10 +565,14 @@ export function Action({
   label,
   onPress,
   disabled = false,
+  success = false,
+  check = false,
 }: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  success?: boolean;
+  check?: boolean;
 }) {
   return (
     <PressableScale
@@ -435,8 +581,13 @@ export function Action({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.action, disabled && styles.disabled]}
+      style={[
+        styles.action,
+        success && styles.success,
+        disabled && styles.disabled,
+      ]}
     >
+      {success || check ? <Icon icon={Check} color={colors.onInk} /> : null}
       <Text style={styles.actionText}>{label}</Text>
     </PressableScale>
   );
@@ -448,47 +599,72 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    padding: space[3],
-  },
-  content: { padding: space[4], gap: space[4] },
-  grow: { flex: 1 },
-  thumbnail: {
-    width: 72,
-    height: 88,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surfaceSoft,
-  },
-  line: {
-    gap: space[3],
     padding: space[4],
-    borderRadius: radius.lg,
+  },
+  content: {
+    paddingHorizontal: space[4],
+    paddingBottom: space[4],
+    gap: space[2],
+  },
+  grow: { flex: 1, minWidth: 0 },
+  meta: { ...typography.caption, color: colors.inkMuted },
+  thumbnail: {
+    width: 32,
+    height: 44,
+    borderRadius: space[1],
     backgroundColor: colors.surfaceSoft,
+  },
+  photoStrip: {
+    minHeight: 64,
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.cameraBg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  summaryPhoto: { minHeight: 96 },
+  photoLabel: { ...typography.caption, color: colors.cameraInk, flex: 1 },
+  line: {
+    gap: space[2],
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSoft,
+  },
+  unmatched: { backgroundColor: colors.warningSoft },
+  summaryLine: { backgroundColor: colors.surface },
+  product: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
   },
   fields: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  amountField: { flex: 2 },
-  input: {
-    minHeight: 56,
-    padding: space[3],
-    backgroundColor: colors.surface,
-    color: colors.ink,
-    borderRadius: radius.sm,
-    fontFamily: fontFamily.semibold,
-    fontSize: 18,
+  amounts: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: space[2],
   },
-  chip: {
+  lineTotal: {
+    ...typography.heading,
+    textAlign: 'right',
+    flexGrow: 1,
+    fontVariant: ['tabular-nums'],
+  },
+  addLine: {
     minHeight: 56,
-    justifyContent: 'center',
-    padding: space[3],
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    paddingHorizontal: space[4],
     borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
   },
-  footer: {
-    padding: space[4],
-    gap: space[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.surfacePressed,
-  },
+  footer: { padding: space[4], gap: space[3] },
   toggle: {
-    flex: 1,
+    minWidth: 56,
     minHeight: 56,
     borderRadius: radius.full,
     alignItems: 'center',
@@ -497,16 +673,26 @@ const styles = StyleSheet.create({
   },
   toggleOn: { backgroundColor: colors.ink },
   action: {
-    minHeight: 56,
+    flexDirection: 'row',
+    gap: space[2],
+    minHeight: 64,
     padding: space[3],
     borderRadius: radius.full,
     backgroundColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  success: { backgroundColor: colors.success },
   actionText: { ...typography.label, color: colors.onInk },
   disabled: { opacity: 0.4 },
   error: { ...typography.caption, color: colors.danger },
+  notice: { ...typography.caption, color: colors.warning },
+  discard: {
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+  },
   photo: {
     flex: 1,
     padding: space[8],

@@ -5,6 +5,8 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import {
   fireGestureHandler,
@@ -14,7 +16,10 @@ import {
 import * as productsApi from '@/lib/api/products';
 import { holdNext } from '@/test/hold';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
+import { renderOffline, restoreOnline } from '@/test/offline';
 import { renderWithProviders } from '@/test/render';
+import { useCartStore } from '@/stores/cart';
+import { useSettingsStore } from '@/stores/settings';
 
 import { InventoryScreen, HANDLE_PAN_TEST_ID } from './InventoryScreen';
 
@@ -41,9 +46,12 @@ jest.mock('@/components/ui/ProductTile', () => {
 
 beforeEach(() => {
   resetMockDb();
+  useCartStore.setState({ lines: [] });
+  useSettingsStore.setState({ elderMode: false });
   jest.clearAllMocks();
 });
 afterEach(() => {
+  restoreOnline();
   jest.useRealTimers();
   jest.restoreAllMocks();
 });
@@ -75,6 +83,49 @@ test('tile tap opens the product', async () => {
     pathname: '/product/[id]',
     params: { id: PRODUCT_IDS.coca },
   });
+});
+
+test('the + on a tile adds the product to the cart with a haptic and does not open it', async () => {
+  await renderWithProviders(<InventoryScreen />);
+  await screen.findByRole('button', { name: COCA });
+  const add = screen.getByRole('button', {
+    name: 'Thêm Coca-Cola lon 330ml vào giỏ',
+  });
+  await fireEvent.press(add);
+  await fireEvent.press(add);
+  expect(useCartStore.getState().lines).toEqual([
+    expect.objectContaining({
+      productId: PRODUCT_IDS.coca,
+      name: 'Coca-Cola lon 330ml',
+      price: 10000,
+      qty: 2,
+      source: 'grid',
+    }),
+  ]);
+  expect(Haptics.impactAsync).toHaveBeenCalledTimes(2);
+  expect(router.push).not.toHaveBeenCalled();
+});
+
+test('the cart pill shows once the cart has items and opens the cart', async () => {
+  await renderWithProviders(<InventoryScreen />);
+  await screen.findByRole('button', { name: COCA });
+  expect(screen.queryByRole('button', { name: /^Giỏ hàng/ })).toBeNull();
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Thêm Coca-Cola lon 330ml vào giỏ' }),
+  );
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Giỏ hàng: 1 món, 10.000đ' }),
+  );
+  expect(router.push).toHaveBeenCalledWith('/cart');
+});
+
+test('elder mode keeps the + and enlarges it', async () => {
+  useSettingsStore.setState({ elderMode: true });
+  await renderWithProviders(<InventoryScreen />);
+  const add = await screen.findByRole('button', {
+    name: 'Thêm Coca-Cola lon 330ml vào giỏ',
+  });
+  expect(add).toHaveStyle({ width: 80, height: 80 });
 });
 
 test('handle tap returns to the camera', async () => {
@@ -265,4 +316,24 @@ test('products segment is selected and stock segment opens the stock route', asy
   await fireEvent.press(screen.getByRole('radio', { name: 'Tồn kho' }));
   expect(router.push).toHaveBeenCalledWith('/stock');
   expect(screen.getByLabelText('Tồn kho 20, Còn hàng')).toBeOnTheScreen();
+});
+
+test('offline with nothing cached says so with a retry instead of a skeleton (#246)', async () => {
+  await renderOffline(<InventoryScreen />);
+  expect(await screen.findByTestId('inventory-offline')).toBeOnTheScreen();
+  expect(
+    screen.getByText(
+      'Không tải được sản phẩm. Không có mạng, danh sách sẽ tải khi có mạng.',
+    ),
+  ).toBeOnTheScreen();
+  expect(screen.queryByTestId('inventory-skeleton')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Thử lại' })).toBeOnTheScreen();
+});
+
+test('the offline message gives way to the grid once the network returns (#246)', async () => {
+  await renderOffline(<InventoryScreen />);
+  await screen.findByTestId('inventory-offline');
+  await act(async () => onlineManager.setOnline(true));
+  expect(await screen.findByRole('button', { name: COCA })).toBeOnTheScreen();
+  expect(screen.queryByTestId('inventory-offline')).toBeNull();
 });

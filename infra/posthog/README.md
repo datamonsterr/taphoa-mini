@@ -3,7 +3,8 @@
 Node 24 ESM, no npm dependencies. These definitions manage the seven X6 product
 analytics dashboards (35 insights), three replay playlists, `assistant_enabled`,
 three saved log views, store group labels and replay/error project settings.
-LLM analytics dashboards belong to X9.
+The X9 `llm/` scope adds five assistant LLM dashboards (29 insights; 21 cover
+20 spec rows, 8 are the voice DoD charts) and three shared saved trace filters.
 
 ## Run
 
@@ -26,18 +27,31 @@ node infra/posthog/apply.mjs --dry-run --only dashboards
 # Controller: apply the reviewed plan. This writes to the configured project.
 node infra/posthog/apply.mjs
 node infra/posthog/apply.mjs --only flags
+node infra/posthog/apply.mjs --dry-run --offline --only llm
+node infra/posthog/apply.mjs --only llm
+# Run again: all 37 LLM objects should report unchanged.
+node infra/posthog/apply.mjs --only llm
 
 # Controller: execute queries to check real data for one environment.
 node infra/posthog/verify.mjs --environment test --days 7
 # Charts that are empty by design (regex on the insight name) report `empty (allowed)`.
 node infra/posthog/verify.mjs --environment test --allow-empty 'Backend error logs'
 node infra/posthog/verify.mjs --environment production --days 30 --json
+# Same metrics with both flagged and known X6 synthetic events excluded (reads only).
+node infra/posthog/verify-nonsynthetic.mjs --environment test --days 7
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 30
+node infra/posthog/verify.mjs --only llm --environment test --days 30
+node infra/posthog/verify.mjs --only llm --environment eval --days 30
 ```
 
-`--only` accepts `dashboards`, `flags`, `playlists`, `logs`, `groups` or `settings`.
+`apply --only` accepts `dashboards` (X6 product only), `llm`, `flags`,
+`playlists`, `logs`, `groups` or `settings`. With no scope it includes everything.
+`verify --only` accepts `dashboards` or `llm`; its default covers both scopes.
 `--offline` requires `--dry-run`, skips credentials and network entirely, and uses
-empty fixtures. Its plan includes 49 creates, one skipped group and one settings
-update. A credentialed dry-run reads lists with pagination and returns the planned
+empty fixtures. Its full plan includes 86 creates, one skipped group and one settings
+update. The isolated LLM plan has 37 creates (5 dashboards, 29 dashboard insights,
+3 trace-filter insights). The CLI prints create/update/unchanged/skip totals.
+A credentialed dry-run reads lists with pagination and returns the planned
 payloads through the exported `apply` function without POST or PATCH requests.
 
 `apply.mjs` matches exact dashboard/insight/playlist/log-view names and feature flag
@@ -58,12 +72,22 @@ mobile SDK's responsibility; project settings alone cannot prove replay masking.
 `verify.mjs` unwraps and runs every insight's source through `POST query/` with
 `refresh: force_blocking`. Each event series or retention entity gets an event property
 filter `environment = <name>`. HogQL templates scope events by
-`properties.environment` and logs by
+`properties.environment` in both `events` and `posthog.ai_events`, and logs by
 `resource_attributes['deployment.environment.name']`; `--days` applies to all
 queries. Applied insights cover all environments, without an environment filter.
-The table/JSON reports each insight's returned row count and data check; any empty
-insight or query error fails the command. Zero-filled native series do not prove
-input data. A zero-valued formula also queries its denominator to distinguish a
+The table/JSON reports each insight's returned row count, `data` yes/no and `ok`.
+`verify-nonsynthetic.mjs` reuses these queries, excludes
+`coalesce(toBool(properties.synthetic), false)` and distinct ID `synthetic-x6-validation`
+at every `events` and `posthog.ai_events` scan, and adds the same HogQL predicate to every native event/entity
+(including retention and formula denominator probes). It emits JSON and preserves
+the global quota scope. Log queries stay unchanged because event synthetic flags
+do not apply to the logs table. Unsupported event SQL shapes (including aliased AI scans) fail closed. This is
+a query-time exclusion; no events or saved insights are modified.
+Empty product insights fail unless allowed with `--allow-empty`. Empty LLM
+insights succeed with `data=no` and `empty (allowed)` because traffic is still
+arriving; query errors always fail. A valid zero-cost or zero-error SQL row
+counts as data, while a target line does not fabricate rows. Zero-filled native
+series do not prove input data. A zero-valued formula also queries its denominator to distinguish a
 valid 0% from absent inputs. Rare error/void/voice events and completed funnels
 may need deliberate test traffic; week-4 retention needs older cohorts and a
 longer window. Local fake-fetch tests are not real-service or deployed proof.
@@ -127,17 +151,221 @@ requires a future contract extension. Debt amount buckets support counts by
 bucket, not precise monetary totals. Overdue reminder share uses next-step
 impressions of kind `overdue_debts` divided by all next-step impressions.
 
+## LLM chart-to-insight mapping
+
+The four dashboards requested in #62 follow the assistant section of
+[the spec](../../docs/specs/assistant/dashboards.md). The extra Users and stores
+dashboard is outside this issue's explicitly requested four-dashboard scope.
+Every row below is a stable insight suffix. The next-step spec row has two
+insights to show both counts by kind and an ordered conversion funnel.
+
+| Dashboard         | Chart / insight suffix                  |
+| ----------------- | --------------------------------------- |
+| Assistant health  | Turns per day by environment            |
+| Assistant health  | Turn latency p50 / p95                  |
+| Assistant health  | Time to first token p50 / p95 by model  |
+| Assistant health  | Model calls per turn                    |
+| Assistant health  | Error and quota rate                    |
+| Assistant health  | Fallback rate by model                  |
+| Cost and tokens   | Input / output tokens per day by model  |
+| Cost and tokens   | Tokens per turn p50 / p95               |
+| Cost and tokens   | Cost per day by model                   |
+| Cost and tokens   | Requests vs. 1,000/day free quota       |
+| Tools and actions | Tool calls per day by tool              |
+| Tools and actions | Tool error and denied rate by tool      |
+| Tools and actions | Tool latency p95 by tool                |
+| Tools and actions | Use-case mix                            |
+| Tools and actions | Proposed action outcomes by kind        |
+| Tools and actions | Next-step turns by kind                 |
+| Tools and actions | Next-step chip to turn                  |
+| Quality           | User feedback (thumbs) over time        |
+| Quality           | Eval scores per run by model            |
+| Quality           | Eval pass rate by use case              |
+| Quality           | Online judge score on production sample |
+| Voice             | Cost per utterance avg / p95            |
+| Voice             | Voice spend per day                     |
+| Voice             | Utterance funnel                        |
+| Voice             | Abandoned by stage                      |
+| Voice             | Engine split                            |
+| Voice             | Draft latency p50 / p95                 |
+| Voice             | STT fallback rate                       |
+| Voice             | Calls and cost by model                 |
+
+LLM definitions use SQL `DataVisualizationNode` charts with explicit axes,
+series, breakdowns and the 1,000/day goal line. The model-calls histogram groups counts
+per trace first and renders discrete bins. Token percentiles sum all attempts
+per trace first, including completed turns with zero attempts. The native
+next-step funnel uses a 30-minute ordered person window and attributes the
+breakdown to the tap's `kind`. There is no shared chip id on the tap event, so
+this is aggregate conversion; exact attribution needs a future emitter/contract
+extension. The adjacent turn counts use the backend's `next_step_kind`.
+
+The quota chart deliberately spans **all environments**, including during scoped
+verification, because it represents a shared provider budget. All other LLM
+queries respect `--environment` and `--days`. The target is the spec's budget,
+not an automatically discovered provider limit. The error chart uses generation
+errors / generation calls and unique quota-hit trace ids / completed trace ids.
+Multiple quota scopes cannot double count a turn. Fallback share means calls
+with `fallback_index > 0` / calls to that model. Tool errors include denied calls,
+as the emitter records them. Costs use the total USD column or the sum of
+input/output USD costs; missing prices remain missing. Pricing configuration is
+owned by #63.
+
+**Emitter checks and spec clarifications:**
+
+- The backend emits `assistant_feedback_submitted` (`rating=up/down`). This is
+  the feedback chart source; the optional `survey sent` mirror and mobile
+  `assistant_feedback_given` are excluded to prevent duplicate thumbs. The
+  dashboard spec's generic “LLM feedback event” does not name this source.
+- Tool span names are `tool:<name>`; metrics filter that prefix rather than
+  including arbitrary `$ai_span` events. Latency is in seconds; TTFT uses the
+  `time_to_first_token` column in seconds, multiplied by 1,000 for the chart. `use_cases` is an array, exploded for the
+  pie, so multi-case turns contribute to each case.
+- Eval events come from `packages/eval/src/posthog.ts` with `environment=eval`.
+  Run/model/scorer charts and the judge chart can therefore be empty for test
+  or production. The online judge row uses the spec's **nightly harness sample
+  alternative**, reading existing `eval_case_scored` with `scorer=judge`. It
+  creates no evaluator or sampling configuration; #63 owns that setup.
+- Eval pass rates follow the harness's per-case rules in
+  `packages/eval/src/scorers/aggregate.ts`: judge >=4, facts >=1−1e−9,
+  permission leak <0.5, binary scores >=0.5. Latency has a run-level p95 bar,
+  so it is excluded from the per-case pass-rate table. Scores are raw units,
+  including milliseconds for latency, so compare within a scorer.
+- AI metrics and error trace filters read `posthog.ai_events`: `trace_id`,
+  `model`, token/cost columns, `latency`, `time_to_first_token`, `span_name` and
+  `is_error`. Live queries confirmed that its `properties` still contains
+  `environment`, `fallback_index`, `use_cases`, `denied` and `eval_run_id`.
+  `next_step_kind` is readable there too; it was absent from test traffic and
+  present in new production traffic. No UUID join is necessary; the existing
+  `{{environment}}` injection is valid on each AI scan without changing
+  `scopeQuery`. Every scan retains `{{days}}` and environment templating.
+- In this project, direct `events.properties.$ai_trace_id` access returns null
+  even though the raw event JSON contains the ID. Quota-hit, action-decision
+  and feedback events retain it in raw JSON. Non-AI trace filters and the quota
+  numerator therefore use `nullIf(JSONExtractString(toString(properties), '$ai_trace_id'), '')`. Feedback counts stay on `events` without trace grouping.
+  The error/quota chart unions two bounded scans before aggregation; per-turn
+  metrics group one AI scan by `trace_id`. There are no event self-joins.
+- [PostHog retention docs](https://posthog.com/docs/ai-observability/data-retention)
+  describe a full `ai_events` copy and a trimmed `events` copy, with the full
+  copy retained for 30 days. Although the docs say metadata remains available
+  historically, this project's direct event-property lookups do not supply the
+  trace fields. These AI queries use the live-verified table and are limited to
+  its available retention window; extending `--days` cannot restore expired AI
+  rows. No backend property renames were needed.
+
+**Shared saved trace filters:** `llm/trace-filters.mjs` manages three favorited
+saved insights named `Assistant traces · Errors`, `Assistant traces · Quota hits`
+and `Assistant traces · Rejected actions`. They list matching trace ids, first
+match timestamps and event counts; open a returned id in LLM analytics to inspect
+its trace. They include errors on roots/generations/tools, quota events and
+rejected decisions respectively, with date/environment filters at verification.
+No prompt or response content is selected.
+
+PostHog's native DataTable “saved filters” are persisted in browser local storage,
+with no REST endpoint in the current API. These shared saved trace-table insights
+are the durable API-supported equivalent, rather than an invented saved-filter
+endpoint. Native browser filter presets themselves are not provisioned. This
+limitation is documented in each saved insight description.
+
+API/query shapes were checked against current primary sources before coding:
+[API overview](https://posthog.com/docs/api),
+[Insights](https://posthog.com/docs/api/insights),
+[Query](https://posthog.com/docs/api/query),
+[SQL visualizations](https://posthog.com/docs/data-warehouse/query),
+[LLM analytics](https://posthog.com/docs/llm-analytics),
+[traces](https://posthog.com/docs/ai-observability/traces),
+[visualization schema](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-general.ts)
+and [saved-filter persistence](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/nodes/DataTable/dataTableSavedFiltersLogic.ts).
+The real-service apply and verification results are in
+[llm/verification.md](llm/verification.md). Phase A deployed traffic, synthetic
+exclusions, and incomplete DoD evidence are recorded in
+[traffic-proof.md](../../docs/specs/assistant/dod/traffic-proof.md).
+
 ## Add a chart
 
-Edit the dashboard's module in `definitions/` and add a stable suffix, query and
+Edit the dashboard's module in `definitions/` or `llm/` and add a stable suffix, query and
 useful description. Native event nodes must use contract event/property names.
 For HogQL include `{{environment}}` as a WHERE predicate and `{{days}}` as the
 lookback number, and list referenced event names in the chart's fourth tuple
 field. Applying renders the environment predicate as `1 = 1`; verifying supplies
 the environment predicate and day window. Never interpolate raw CLI input into
-SQL. Update the coverage count in `tests/definitions.test.mjs` and this table,
+SQL. Update the coverage count in `tests/definitions.test.mjs` or `tests/llm.test.mjs` and the mapping table,
 then run the tests and offline plan before controller verification.
 
 The tests inject fake fetch at the HTTP boundary. CI runs only tests and the
 offline plan, with no PostHog credentials or requests. `tests/package.json` and
 `tests/index.mjs` let Node 24 resolve the explicitly requested test directory.
+
+## Masked replay smoke
+
+The Expo web app uses `posthog-js`; native `posthog-react-native` replay does not support
+web or Expo Go. Android APKs need the linked plugin and public PostHog key at bundle time.
+CI uses the existing `POSTHOG_PROJECT_TOKEN` secret and `POSTHOG_HOST` variable for both
+web exports and `assembleRelease`, with `EXPO_PUBLIC_ENVIRONMENT=test`. Setting these only
+when launching a prebuilt APK/export cannot enable analytics retroactively. Missing keys
+leave the app's analytics disabled. EAS builds obtain their public key from EAS environment
+variables independently; the `test`/`e2e` profiles supply the test label.
+
+For a cheap replay proof without an emulator, load the configured credentials in a shell
+without shell tracing, leave `E2E_WEB_EXPORT_READY` unset so the export embeds the values,
+and run:
+
+```sh
+set -a
+. ~/.config/taphoa-mini/secrets.env
+set +a
+EXPO_PUBLIC_POSTHOG_KEY="$POSTHOG_PROJECT_TOKEN" \
+EXPO_PUBLIC_POSTHOG_HOST="${POSTHOG_INGEST_HOST:-https://us.i.posthog.com}" \
+EXPO_PUBLIC_ENVIRONMENT=test \
+EXPO_PUBLIC_API_URL=https://backend-test-70c2.up.railway.app \
+POSTHOG_REPLAY_SMOKE=1 \
+pnpm --filter @taphoa/mobile test:e2e:web replay.spec.ts --project chromium --workers 1
+```
+
+This signs nobody in, submits no form, and never opens the assistant. It interacts with
+the sign-in input for more than 10 seconds, verifies successful snapshot ingestion, masked
+input values, blocked media canaries, and an `environment=test` product event with the
+same session id. Browser automation is captured deliberately only in test. It emits a safe
+`masked-replay-evidence` attachment containing the session id and assertion results.
+
+List `GET /api/projects/<id>/session_recordings/` with the personal key in the Authorization
+header to verify that id after ingestion. For environment scoping, pass event properties
+`[{"key":"environment","value":["test"],"operator":"exact","type":"event"}]` in the
+URL-encoded `properties` parameter. A read-only HogQL query of the matching `$session_id`
+can independently confirm its `environment=test` `$screen` event. Browser `$snapshot`
+envelopes deliberately omit super properties, so environment comes from the correlated
+product event, not the snapshot envelope. Project settings alone never prove masking.
+
+## Production smoke and dashboard PNG exports
+
+The opt-in `production-smoke` Playwright project uses one persistent `+clerk_test`
+user and one store named **Smoke test (X9) - do not use**. It is excluded from normal
+projects. See the [production smoke proof](../../docs/specs/assistant/dod/traffic-proof.md#production-smoke)
+for the run command, store ID and exact coverage. App events from a web export built
+with `EXPO_PUBLIC_SMOKE=1` carry `smoke=true`. Backend events retain their ordinary
+store group; no synthetic captures or production backend configuration changes are needed.
+
+Both verification CLIs accept `--only-store <UUID>` or `--exclude-store <UUID>`.
+They filter every event scan/entity and log store attribute, including formula
+denominator probes. They fail closed on unsupported query shapes. Global provider
+quota and online-judge charts keep their existing all-environment scope; a store
+filter does not turn those into store-attributed evidence. Rows without a store
+are preserved by exclusion and omitted by inclusion.
+
+```sh
+node infra/posthog/verify.mjs --environment production --days 1 --only-store <UUID> --json
+node infra/posthog/verify-nonsynthetic.mjs --environment production --days 1 --exclude-store <UUID>
+node infra/posthog/export-dashboards.mjs
+# Optional alternate local output directory:
+node infra/posthog/export-dashboards.mjs --output-dir docs/specs/assistant/dod/screenshots
+```
+
+The exporter matches the 11 managed dashboards by exact name, creates each PNG
+through `POST exports/`, polls until `has_content`, then downloads `content/`.
+Only the initial API request carries Authorization; the signed HTTPS redirect
+receives no API credential. PNG signatures are checked before saving. A timestamped
+JSON manifest records dashboard/export IDs and filenames without signed URLs.
+Exports use the **saved all-environment dashboard queries**; they do not temporarily
+mutate dashboards or prove production traffic on their own. Pair these visual
+snapshots with the environment-scoped verification report. Exports require
+`export:write` and `export:read` API scopes ([API reference](https://posthog.com/docs/api/exports)).

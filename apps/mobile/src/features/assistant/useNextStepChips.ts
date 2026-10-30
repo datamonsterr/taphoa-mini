@@ -5,7 +5,10 @@ import type { NextStepChipData } from '@/components/assistant/chip';
 import { strings } from '@/components/assistant/strings';
 import { capture } from '@/lib/analytics';
 import { t } from '@/lib/i18n';
+import { useOnline } from '@/lib/online';
 import { useSettingsStore } from '@/stores/settings';
+import { useVoiceSettings } from '@/features/voice/voiceSettings';
+import { showVoiceSaleChip } from '@/features/voice/chipRule';
 
 import { useNextSteps } from './api';
 
@@ -15,14 +18,16 @@ export type UseNextStepChipsOptions = {
   unknownProduct: boolean;
   /** On-device chips lead to flows only a member who can enroll may start. */
   canEnroll: boolean;
-  /** The assistant flag; off means no chips and no request. */
+  /** The assistant flag; off hides assistant suggestions, keeping direct receipt review. */
   enabled: boolean;
+  /** When the member joined (ISO); the `voice_sale` chip shows for their first 14 days. */
+  joinedAt?: string;
 };
 
 /**
- * The chips of the next-step strip: on-device chips first (receipt, unknown product), then the
- * server chips of the screen, one per kind. `next_step_shown` is captured once per chip per screen
- * visit; a visit ends when the screen loses focus.
+ * The receipt state owns the strip with review and assistant actions. Otherwise the unknown
+ * product chip precedes server suggestions, one per kind. `next_step_shown` is captured once per
+ * chip per screen visit; a visit ends when the screen loses focus.
  */
 export function useNextStepChips({
   screen,
@@ -30,29 +35,64 @@ export function useNextStepChips({
   unknownProduct,
   canEnroll,
   enabled,
+  joinedAt,
 }: UseNextStepChipsOptions) {
+  const voiceSales = useVoiceSettings((s) => s.voiceSales);
   const language = useSettingsStore((s) => s.language);
   const focused = useIsFocused();
+  const online = useOnline();
   const { data } = useNextSteps(
     { screen, documentDetected, unknownProduct },
     { enabled: enabled && focused },
   );
 
   const chips = useMemo<NextStepChipData[]>(() => {
+    if (documentDetected && canEnroll) {
+      const receipts: NextStepChipData[] = [
+        {
+          id: 'receipt_detected',
+          kind: 'receipt_detected',
+          title: t(strings, 'readReceipt', language),
+          source: 'device',
+          tone: 'accent',
+          action: { type: 'receipt', destination: 'review' },
+        },
+      ];
+      if (enabled)
+        receipts.push({
+          id: 'receipt_assistant',
+          kind: 'receipt_detected',
+          title: t(strings, 'receiptAssistant', language),
+          source: 'device',
+          tone: 'neutral',
+          action: { type: 'receipt', destination: 'assistant' },
+        });
+      return receipts;
+    }
     if (!enabled) return [];
     const list: NextStepChipData[] = [];
-    const device = (kind: 'receipt_detected' | 'unknown_product') =>
+    const device = (kind: 'unknown_product') =>
       list.push({
         id: kind,
         kind,
         title: t(strings, `kind.${kind}`, language),
         subtitle: t(strings, `sub.${kind}`, language),
         source: 'device',
-        action: { type: kind === 'receipt_detected' ? 'receipt' : 'enroll' },
+        action: { type: 'enroll' },
       });
-    if (documentDetected && canEnroll) device('receipt_detected');
+
     if (unknownProduct && canEnroll) device('unknown_product');
-    for (const item of data?.items ?? []) {
+    if (showVoiceSaleChip({ joinedAt, voiceSales }))
+      list.push({
+        id: 'voice_sale',
+        kind: 'voice_sale',
+        title: t(strings, 'kind.voice_sale', language),
+        subtitle: t(strings, 'sub.voice_sale', language),
+        source: 'app',
+        action: { type: 'voice' },
+      });
+    // server suggestions need the network: tapping one offline fails, so none show
+    for (const item of online ? (data?.items ?? []) : []) {
       if (list.some((chip) => chip.kind === item.kind)) continue;
       const english = language === 'en' && strings.en[`kind.${item.kind}`];
       list.push({
@@ -65,7 +105,17 @@ export function useNextStepChips({
       });
     }
     return list;
-  }, [enabled, documentDetected, unknownProduct, canEnroll, data, language]);
+  }, [
+    enabled,
+    documentDetected,
+    unknownProduct,
+    canEnroll,
+    data,
+    online,
+    language,
+    joinedAt,
+    voiceSales,
+  ]);
 
   const shown = useRef(new Set<string>());
   useEffect(() => {

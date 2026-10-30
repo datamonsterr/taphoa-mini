@@ -30,6 +30,9 @@ export const ErrorNotice = memo(function ErrorNotice({
     case 'network':
       text = t('networkError');
       break;
+    case 'busy':
+      text = t('busyError');
+      break;
     case 'interrupted':
       text = t('interruptedError');
       break;

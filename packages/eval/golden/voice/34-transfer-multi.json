@@ -1,0 +1,23 @@
+{
+  "id": "34-transfer-multi",
+  "source": "synthetic",
+  "transcript": "một chai nước mắm chin su với ba gói mì hảo hảo tôm chua cay chuyển khoản",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "transfer",
+  "lines": [
+    {
+      "spoken": "nước mắm chin su",
+      "product": "Nước mắm Chin-su 500ml",
+      "quantity": 1,
+      "unit_price": null
+    },
+    {
+      "spoken": "mì hảo hảo tôm chua cay",
+      "product": "Mì Hảo Hảo tôm chua cay 75g",
+      "quantity": 3,
+      "unit_price": null
+    }
+  ],
+  "tags": ["transfer", "multi-line"]
+}

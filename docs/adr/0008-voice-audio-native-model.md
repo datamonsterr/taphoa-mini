@@ -1,6 +1,6 @@
 # ADR 0008: Voice sales use one audio-native model call, no AccessibilityService
 
-Status: Proposed · Date: 2026-10-27 · Program: [voice](../specs/voice/README.md) · Amends the
+Status: Accepted (owner confirmed 2026-10-27) · Date: 2026-10-27 · Program: [voice](../specs/voice/README.md) · Amends the
 "Voice" decision of the [assistant program](../specs/assistant/README.md)
 
 ## Context
@@ -36,7 +36,7 @@ accessibility tool.
   transcription path by default and the same fallbacks.
 - **Confirm before write.** The parsed draft always shows on the voice sale sheet; Confirm
   records the sale through the existing cart, outbox and `POST /v1/sales` with
-  `source=voice` lines. Unknown products become manual lines for Lead review.
+  `source=voice` lines. An unknown product warns on the sheet and is picked, added or removed before Confirm (updated for issue 152, 154).
 - **Android entry point: overlay, not accessibility.** A floating bubble drawn with
   `SYSTEM_ALERT_WINDOW` from a foreground service of type `specialUse`, plus a Quick Settings
   tile. The bubble only launches the app's `/voice` route; recording happens in the

@@ -13,6 +13,8 @@ export interface OracleProvider {
   value(query: OracleQuery): Promise<OracleValue>;
   /** "product:<name>", "receipt:<key>" or "member:<name>" to the row id. */
   resolveRef(ref: string): Promise<string>;
+  /** Actual persisted tool messages of this eval thread's last assistant turn. */
+  toolEvidence?(threadId: string): Promise<unknown[]>;
 }
 
 /** Canned values for the oracle names used by the dry-run fixture cases. */

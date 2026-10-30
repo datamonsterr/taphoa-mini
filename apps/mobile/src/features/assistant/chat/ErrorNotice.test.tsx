@@ -7,6 +7,7 @@ import { ErrorNotice } from './ErrorNotice';
 
 const retryCodes: ChatError['code'][] = [
   'network',
+  'busy',
   'interrupted',
   'timeout',
   'model_unavailable',
@@ -75,5 +76,19 @@ test('quota in English shows the English text, not the server message', async ()
   );
   expect(screen.getByText(/used today's assistant messages/)).toBeTruthy();
   expect(screen.queryByText(/Bạn đã hết/)).toBeNull();
+  expect(screen.queryByTestId('assistant-retry')).toBeNull();
+});
+
+test('a busy server asks to try later, not to check the network (#158)', async () => {
+  await render(<ErrorNotice error={{ code: 'busy' }} onRetry={jest.fn()} />);
+  expect(
+    screen.getByText('Trợ lý đang bận. Bạn thử lại sau ít phút nhé.'),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Kiểm tra mạng/)).toBeNull();
+});
+
+test('a quota error without a server text says the daily limit is used up (#158)', async () => {
+  await render(<ErrorNotice error={{ code: 'quota' }} onRetry={jest.fn()} />);
+  expect(screen.getByText(/hết lượt trợ lý hôm nay/)).toBeTruthy();
   expect(screen.queryByTestId('assistant-retry')).toBeNull();
 });

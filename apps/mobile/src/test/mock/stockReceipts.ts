@@ -260,6 +260,7 @@ export function confirmReceipt(id: string, body: ReceiptConfirm): Receipt {
     };
   });
   const total = lines.reduce((sum, l) => sum + l.cost, 0);
+  if (total <= 0) throw unprocessableEntity('Receipt total must be positive');
   const expense = createExpense({
     id: newUuid(),
     spent_at: body.spent_at ?? nowIso(),

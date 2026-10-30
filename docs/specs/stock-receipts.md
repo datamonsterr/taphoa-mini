@@ -1,6 +1,6 @@
 # Stock and import receipts: scan a supplier receipt into stock and expenses
 
-Status: Proposed · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
+Status: Done · Merge: [#27](https://github.com/datamonsterr/taphoa-mini/pull/27), [#109](https://github.com/datamonsterr/taphoa-mini/pull/109) (live receipt detection, editable lines) · Date: 2026-10-25 · Scope: camera screen, catalog, expenses, stock,
 recognition (PRD E2, E4 promoted from P2)
 
 ## Goal
@@ -61,8 +61,17 @@ run out, using a configurable threshold.
 - **Document detection runs inside the existing scan.** The same detector runs on the
   downsized scan image in parallel with SAM proposals (~150 ms on 4 vCPU).
   `detected = text_lines >= 6 && text_area_ratio >= 0.08`. The scan response gains
-  `document: { detected, score, text_lines }`. No extra round trip; the checkout path is
+  `document: { detected, score, text_lines, line_boxes }`. No extra round trip; the checkout path is
   unchanged when no document is present.
+- **Live receipt detection.** Expo Go has no frame processors, so the live camera sends
+  a small JPEG/PNG still every 2–3 seconds to `POST /v1/recognition/document-probes`.
+  This detector-only endpoint returns `DocumentSignal` with normalized boxes per grouped
+  text line for the preview overlay. It runs no SAM or embeddings and persists no scan,
+  image row or object. The image limit is 512 KB; the member limit is 40 requests/minute.
+  Probes use a separate pool (`DOCUMENT_PROBE_CONCURRENCY`, default 1), never scan or
+  enrollment slots. When this pool is full, the best-effort response is 200 with
+  `{detected:false, score:0, text_lines:0, line_boxes:[]}`. An instance without a text
+  detector returns 503 `ocr_unavailable`; rate limiting still returns 429.
 - **Parse: rules first, decision model second.** `receipt::parse` turns OCR lines into
   candidates with regexes for Vietnamese money (`204.000`, `204,000`, `204000đ`) and
   quantities (`x24`, `SL 24`, `24 thùng`). Common layouts: `name qty unit_price amount`,
@@ -76,7 +85,7 @@ run out, using a configurable threshold.
     not `none`; otherwise the line stays unmatched and shows its candidates.
 - **Decision model is configurable; Mercury now, Jev later.** OpenRouter Decisions API
   (`POST https://openrouter.ai/api/alpha/decisions`). Env: `DECISIONS_MODEL` (default
-  `inception/mercury-decide:free`; switch to `~typesafe/jev-latest` by env only),
+  `inception/mercury-decide`; switch to `~typesafe/jev-latest` by env only),
   `OPENROUTER_API_KEY`, `DECISIONS_URL`, `DECISIONS_TIMEOUT_MS` (default 2500). On timeout,
   HTTP error or missing key the parser falls back to rules: keyword roles (`tổng`, `cộng`,
   `thanh toán`, `chiết khấu` are not items) and the top trigram candidate when similarity
@@ -84,7 +93,7 @@ run out, using a configurable threshold.
 - **Mock data schema now.** Line schema is exactly `{product_name, quantity, cost}` plus
   match fields. Units (`product_units`) are out of scope: quantities are in the product's
   base unit. Fixture receipts (rendered PNGs with Vietnamese text + expected JSON) live in
-  `apps/backend/crates/api/tests/fixtures/receipts/`; `taphoa-seed` adds two confirmed
+  `apps/backend/crates/recognition/tests/fixtures/receipts/`; `taphoa-seed` adds two confirmed
   receipts and starting stock for seeded products.
 - **Synchronous receipt parse.** `POST /v1/receipts` returns the parsed draft in the same
   request (≤ 6 s budget). Receipts are rare, so no job queue.
@@ -116,8 +125,17 @@ created_at }`, newest first.
 
 Recognition:
 
-- `ScanResult` gains `document: { detected: boolean, score: number, text_lines: integer }`.
-  `score` = clamped `text_area_ratio / 0.2`. Present on every scan.
+- `ScanResult` gains `document: DocumentSignal { detected: boolean, score: number,
+text_lines: integer, line_boxes: [number, number, number, number][] }`.
+  `score` = clamped `text_area_ratio / 0.2`. Present on every scan and stored scan read.
+  `line_boxes` are grouped lines ordered top-to-bottom, each normalized `[x, y, w, h]`
+  clamped to the image bounds, capped at 40. Empty when no text is found; `text_lines`
+  retains the full count. Old stored signals without boxes read as `line_boxes: []`.
+- `POST /v1/recognition/document-probes` (same auth/roles as checkout scans), multipart
+  `image` (JPEG/PNG, ≤ 512 KB) → 200 `DocumentSignal`. Detector only, no persistence.
+  413 oversized image, 415 unsupported format, 422 invalid image, 429 member limit
+  (40/minute, `Retry-After`), 503 `ocr_unavailable` without a detector or `unavailable` when
+  inference admission is occupied.
 
 Receipts (Lead or `can_enroll`):
 
@@ -143,7 +161,7 @@ cash_box|other, spent_at? }` → 200 `Receipt` (`status='confirmed'`, `expense_i
   "image_url": "https://...",
   "total": 456000,
   "parser": "decisions",
-  "model": "inception/mercury-decide:free",
+  "model": "inception/mercury-decide",
   "lines": [
     {
       "id": "uuid",

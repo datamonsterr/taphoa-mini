@@ -1,4 +1,6 @@
+import { onlineManager } from '@tanstack/react-query';
 import {
+  act,
   fireEvent,
   screen,
   waitFor,
@@ -13,6 +15,7 @@ import { resetApiClient } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { resetMockDb } from '@/test/mock';
 import { seedCustomer } from '@/test/debts';
+import { renderOffline, restoreOnline } from '@/test/offline';
 import { renderWithProviders } from '@/test/render';
 import { testSession, setTestMembership } from '@/test/session';
 import { useSettingsStore } from '@/stores/settings';
@@ -30,7 +33,10 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  restoreOnline();
+  jest.restoreAllMocks();
+});
 
 const ready = () => screen.findByLabelText(/^Doanh thu \d/);
 
@@ -337,8 +343,8 @@ describe('debt book card', () => {
       name: 'Sổ nợ, 150.000đ, 1 khách quá hạn',
     });
     expect(within(card).getByText('Sổ nợ')).toBeOnTheScreen();
-    expect(within(card).getByText('150.000đ')).toBeOnTheScreen();
-    expect(within(card).getByText('1 khách quá hạn')).toBeOnTheScreen();
+    // Board 10: a half-width chip with the overdue customers as a red count badge.
+    expect(within(card).getByText('1')).toBeOnTheScreen();
     await fireEvent.press(card);
     expect(router.push).toHaveBeenCalledWith('/debts');
   });
@@ -386,4 +392,26 @@ describe('debt book card', () => {
       }),
     ).toBeOnTheScreen();
   });
+});
+
+test('offline with no cached figures says so with a retry instead of a skeleton (#204)', async () => {
+  await renderOffline(<DashboardScreen />);
+  expect(await screen.findByTestId('dashboard-offline')).toBeOnTheScreen();
+  expect(
+    screen.getByText(
+      'Không tải được báo cáo. Không có mạng, số liệu sẽ cập nhật khi có mạng.',
+    ),
+  ).toBeOnTheScreen();
+  expect(screen.queryByTestId('dashboard-skeleton')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Thử lại' })).toBeOnTheScreen();
+  await act(async () => onlineManager.setOnline(true));
+  await ready();
+  expect(screen.queryByTestId('dashboard-offline')).toBeNull();
+});
+
+test('a failed load still shows the error, not the offline message', async () => {
+  jest.spyOn(ledger, 'getTodayReport').mockRejectedValue(new Error('x'));
+  await renderWithProviders(<DashboardScreen />);
+  expect(await screen.findByTestId('dashboard-error')).toBeOnTheScreen();
+  expect(screen.getByText('Không tải được báo cáo')).toBeOnTheScreen();
 });

@@ -1,7 +1,6 @@
 import { memo, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   StyleSheet,
   TextInput,
   View,
@@ -9,6 +8,7 @@ import {
 
 import { CheckButton, ScaledText, Sheet } from '@/components/ui';
 import { usePatchStore, type BankAccount } from '@/lib/api';
+import { bankByBin, type Bank } from '@/lib/banks';
 import { useT } from '@/lib/i18n';
 import {
   colors,
@@ -19,10 +19,10 @@ import {
   useFontScale,
 } from '@/theme';
 
+import { BankPicker } from './BankPicker';
 import { strings } from './strings';
 import { stripDiacritics } from './utils';
 
-const BIN_RE = /^[0-9]{6}$/;
 const NUMBER_RE = /^[0-9A-Za-z]{4,19}$/;
 
 export type BankSheetProps = {
@@ -40,27 +40,34 @@ export const BankSheet = memo(function BankSheet({
   const t = useT(strings);
   const scale = useFontScale();
   const patch = usePatchStore();
-  const [name, setName] = useState(initial?.bank_short_name ?? '');
-  const [bin, setBin] = useState(initial?.bank_bin ?? '');
+  // A saved account whose bank is not in the list keeps its BIN and short name as typed before.
+  const [bank, setBank] = useState<Bank | null>(
+    initial
+      ? (bankByBin(initial.bank_bin) ?? {
+          bin: initial.bank_bin,
+          short: initial.bank_short_name ?? initial.bank_bin,
+          name: initial.bank_short_name ?? initial.bank_bin,
+        })
+      : null,
+  );
   const [number, setNumber] = useState(initial?.account_number ?? '');
   const [holder, setHolder] = useState(initial?.account_name ?? '');
   const [errors, setErrors] = useState<Errors>({});
 
   const save = () => {
     const next: Errors = {};
-    if (!BIN_RE.test(bin)) next.bin = t('bank.binError');
+    if (!bank) next.bin = t('bank.binError');
     if (!NUMBER_RE.test(number)) next.number = t('bank.numberError');
     if (!holder.trim()) next.holder = t('bank.holderError');
     setErrors(next);
-    if (next.bin || next.number || next.holder) return;
-    const shortName = name.trim();
+    if (!bank || next.number || next.holder) return;
     patch.mutate(
       {
         bank_account: {
-          bank_bin: bin,
+          bank_bin: bank.bin,
+          bank_short_name: bank.short,
           account_number: number,
           account_name: holder.trim(),
-          ...(shortName ? { bank_short_name: shortName } : {}),
         },
       },
       { onSuccess: onClose },
@@ -97,7 +104,7 @@ export const BankSheet = memo(function BankSheet({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       pointerEvents="box-none"
       style={StyleSheet.absoluteFill}
     >
@@ -105,11 +112,14 @@ export const BankSheet = memo(function BankSheet({
         <ScaledText variant="heading" accessibilityRole="header">
           {t('bank.title')}
         </ScaledText>
-        {field(t('bank.name'), name, setName)}
-        {field(t('bank.bin'), bin, setBin, errors.bin, {
-          keyboardType: 'number-pad',
-          maxLength: 6,
-        })}
+        <BankPicker
+          label={t('bank.name')}
+          placeholder={t('bank.pick')}
+          emptyText={t('bank.none')}
+          value={bank}
+          onChange={setBank}
+          error={errors.bin}
+        />
         {field(t('bank.number'), number, setNumber, errors.number, {
           maxLength: 19,
           autoCapitalize: 'characters',

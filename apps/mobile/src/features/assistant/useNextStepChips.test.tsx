@@ -1,10 +1,14 @@
 import { act, renderHook } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClientProvider } from '@tanstack/react-query';
 
 import type { NextStepChipData } from '@/components/assistant/chip';
 import { setAnalyticsSink } from '@/lib/analytics';
 import { useSettingsStore } from '@/stores/settings';
+import {
+  initialVoiceSettings,
+  useVoiceSettings,
+} from '@/features/voice/voiceSettings';
 import { createTestQueryClient } from '@/test/render';
 
 import { useNextSteps } from './api';
@@ -107,10 +111,14 @@ beforeEach(() => {
   mockFocus.focused = true;
   setAnalyticsSink({ capture: (name, props) => events.push([name, props]) });
   useSettingsStore.setState({ language: 'vi' });
+  useVoiceSettings.setState(initialVoiceSettings);
   mockSteps([restock, drafts]);
   jest.mocked(useNextSteps).mockClear();
 });
-afterEach(() => setAnalyticsSink(null));
+afterEach(() => {
+  setAnalyticsSink(null);
+  onlineManager.setOnline(true);
+});
 
 const kinds = (chips: NextStepChipData[]) => chips.map((c) => c.kind);
 
@@ -128,28 +136,35 @@ test('server chips alone, in server order, with Vietnamese text and their action
   expect(result.current.chips[1]!.subtitle).toBeUndefined();
 });
 
-test('on-device chips come first: receipt, then unknown product', async () => {
+test('offline hides server chips and keeps on-device ones; back online they return', async () => {
+  const { result } = await render({ unknownProduct: true });
+  const all = ['unknown_product', 'restock', 'draft_receipts'];
+  expect(kinds(result.current.chips)).toEqual(all);
+  await act(async () => onlineManager.setOnline(false));
+  expect(kinds(result.current.chips)).toEqual(['unknown_product']);
+  await act(async () => onlineManager.setOnline(true));
+  expect(kinds(result.current.chips)).toEqual(all);
+});
+
+test('a detected receipt owns the strip with two different actions', async () => {
   const { result } = await render({
     documentDetected: true,
     unknownProduct: true,
   });
-  expect(kinds(result.current.chips)).toEqual([
-    'receipt_detected',
-    'unknown_product',
-    'restock',
-    'draft_receipts',
+  expect(result.current.chips).toMatchObject([
+    {
+      title: 'Đọc hóa đơn nhập',
+      source: 'device',
+      tone: 'accent',
+      action: { type: 'receipt', destination: 'review' },
+    },
+    {
+      title: 'Nhập trong trợ lý',
+      source: 'device',
+      tone: 'neutral',
+      action: { type: 'receipt', destination: 'assistant' },
+    },
   ]);
-  expect(result.current.chips[0]).toMatchObject({
-    source: 'device',
-    title: 'Hóa đơn nhập hàng',
-    subtitle: 'Trợ lý đọc từng dòng',
-    action: { type: 'receipt' },
-  });
-  expect(result.current.chips[1]).toMatchObject({
-    source: 'device',
-    title: 'Hàng chưa có trong kho',
-    action: { type: 'enroll' },
-  });
 });
 
 test('on-device chips need the member to be able to enroll', async () => {
@@ -172,20 +187,20 @@ test('only the signals that are on produce a chip', async () => {
 test('server chips of a kind already shown are skipped', async () => {
   mockSteps([serverReceipt, restock]);
   const { result } = await render({ documentDetected: true });
-  expect(kinds(result.current.chips)).toEqual(['receipt_detected', 'restock']);
+  expect(kinds(result.current.chips)).toEqual([
+    'receipt_detected',
+    'receipt_detected',
+  ]);
 });
 
 test('English shows a title per kind and drops the Vietnamese subtitle', async () => {
   useSettingsStore.setState({ language: 'en' });
   const { result } = await render({ documentDetected: true });
   expect(result.current.chips.map((c) => c.title)).toEqual([
-    'Supplier receipt',
-    'Restock',
-    'Draft receipts',
+    'Read import receipt',
+    'Import in assistant',
   ]);
-  expect(result.current.chips[0]!.subtitle).toBe(
-    'The assistant reads each line',
-  );
+  expect(result.current.chips[0]!.subtitle).toBeUndefined();
   expect(result.current.chips[1]!.subtitle).toBeUndefined();
 });
 
@@ -214,21 +229,24 @@ test('asks the server only while focused and enabled, with the scan signals', as
   });
 });
 
-test('shows nothing and records nothing while the assistant is off', async () => {
+test('keeps the direct receipt action available while the assistant is off', async () => {
   const { result } = await render({ enabled: false, documentDetected: true });
-  expect(result.current.chips).toEqual([]);
-  expect(events).toEqual([]);
+  expect(result.current.chips).toMatchObject([
+    {
+      title: 'Đọc hóa đơn nhập',
+      action: { type: 'receipt', destination: 'review' },
+    },
+  ]);
 });
 
 test('captures next_step_shown once per chip with its position', async () => {
   const { rerender } = await render({ documentDetected: true });
   expect(shown()).toEqual([
     ['next_step_shown', { kind: 'receipt_detected', position: 0 }],
-    ['next_step_shown', { kind: 'restock', position: 1 }],
-    ['next_step_shown', { kind: 'draft_receipts', position: 2 }],
+    ['next_step_shown', { kind: 'receipt_detected', position: 1 }],
   ]);
   await rerender({ documentDetected: true });
-  expect(shown()).toHaveLength(3);
+  expect(shown()).toHaveLength(2);
 });
 
 test('a chip that appears later is captured alone', async () => {
@@ -259,6 +277,78 @@ test('tap captures next_step_tapped with kind and position', async () => {
   await act(async () => result.current.tap(result.current.chips[1]!, 1));
   expect(events.at(-1)).toEqual([
     'next_step_tapped',
-    { kind: 'restock', position: 1 },
+    { kind: 'receipt_detected', position: 1 },
   ]);
+});
+
+describe('voice_sale chip', () => {
+  const joined = (days: number) =>
+    new Date(Date.now() - days * 86_400_000).toISOString();
+
+  test('shows after the device chips and before the server chips for a new member', async () => {
+    const { result } = await render({
+      joinedAt: joined(2),
+      unknownProduct: true,
+    });
+    expect(kinds(result.current.chips)).toEqual([
+      'unknown_product',
+      'voice_sale',
+      'restock',
+      'draft_receipts',
+    ]);
+    expect(result.current.chips[1]).toEqual({
+      id: 'voice_sale',
+      kind: 'voice_sale',
+      title: 'Bán bằng giọng nói',
+      subtitle: 'Nói “hai chai coca” là xong',
+      source: 'app',
+      action: { type: 'voice' },
+    });
+  });
+
+  test('is in English when the language is English', async () => {
+    useSettingsStore.setState({ language: 'en' });
+    const { result } = await render({ joinedAt: joined(1) });
+    expect(result.current.chips[0]).toMatchObject({
+      title: 'Sell by voice',
+      subtitle: 'Say “two cokes” and you are done',
+    });
+  });
+
+  test('is gone after 14 days', async () => {
+    const { result } = await render({ joinedAt: joined(15) });
+    expect(kinds(result.current.chips)).not.toContain('voice_sale');
+  });
+
+  test('is gone after three voice sales and without a join date', async () => {
+    useVoiceSettings.setState({ voiceSales: 3 });
+    expect(
+      kinds((await render({ joinedAt: joined(1) })).result.current.chips),
+    ).not.toContain('voice_sale');
+    useVoiceSettings.setState({ voiceSales: 2 });
+    expect(
+      kinds((await render({ joinedAt: joined(1) })).result.current.chips),
+    ).toContain('voice_sale');
+    expect(kinds((await render()).result.current.chips)).not.toContain(
+      'voice_sale',
+    );
+  });
+
+  test('is hidden with the rest of the strip while the assistant is off', async () => {
+    const { result } = await render({ joinedAt: joined(1), enabled: false });
+    expect(result.current.chips).toEqual([]);
+  });
+
+  test('is counted as shown and tapped like any chip', async () => {
+    const { result } = await render({ joinedAt: joined(1) });
+    expect(shown()).toContainEqual([
+      'next_step_shown',
+      { kind: 'voice_sale', position: 0 },
+    ]);
+    await act(async () => result.current.tap(result.current.chips[0]!, 0));
+    expect(events).toContainEqual([
+      'next_step_tapped',
+      { kind: 'voice_sale', position: 0 },
+    ]);
+  });
 });

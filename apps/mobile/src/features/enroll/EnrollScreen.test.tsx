@@ -238,6 +238,32 @@ describe('EnrollScreen save', () => {
     expect(useCartStore.getState().lines).toHaveLength(1);
   });
 
+  it('tells a seller without the enroll right that they may not add products (#230)', async () => {
+    jest
+      .spyOn(productsApi, 'createProduct')
+      .mockRejectedValueOnce(new ApiError(403, { error: 'forbidden' }));
+    await renderWithProviders(<EnrollScreen />);
+    await typePrice('7', '000');
+    await fireEvent.press(save());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Bạn chưa có quyền thêm hàng. Nhờ chủ tiệm cấp quyền.',
+    );
+    expect(screen.queryByText(/Không lưu được/)).toBeNull();
+  });
+
+  it('tells the seller a photo is too large when the upload answers 413 (#230)', async () => {
+    (imagesApi.uploadImage as jest.Mock).mockRejectedValueOnce(
+      new ApiError(413, { error: 'Payload Too Large' }),
+    );
+    await renderWithProviders(<EnrollScreen />);
+    await typePrice('7', '000');
+    await fireEvent.press(save());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Ảnh quá lớn. Chụp lại ảnh khác rồi lưu.',
+    );
+    expect(screen.getByLabelText('Giá bán')).toHaveTextContent('7.000đ');
+  });
+
   it('does not upload twice on retry after the product call fails', async () => {
     const upload = imagesApi.uploadImage as jest.Mock;
     jest
@@ -294,6 +320,27 @@ describe('EnrollScreen save', () => {
         productId: LOOKALIKE.product_id,
         name: 'Coca 330ml',
         price: 9000,
+      });
+    });
+
+    it('links the entered barcode when merging a visual duplicate', async () => {
+      jest
+        .spyOn(productsApi, 'createProduct')
+        .mockRejectedValueOnce(duplicate());
+      const patch = jest
+        .spyOn(productsApi, 'patchProduct')
+        .mockResolvedValue({} as never);
+      jest.spyOn(productsApi, 'addProductImage').mockResolvedValue({} as never);
+      mockParams = { photoUri: PHOTO, barcode: '4006381333931' };
+      await renderWithProviders(<EnrollScreen />);
+      await typePrice('9', '000');
+      await fireEvent.press(save());
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Gộp ảnh vào món có sẵn' }),
+      );
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(patch).toHaveBeenCalledWith(LOOKALIKE.product_id, {
+        barcode: '4006381333931',
       });
     });
 
@@ -477,5 +524,72 @@ describe('EnrollScreen from a sold-without-catalog line', () => {
     expect(
       (await reviewApi.listManualLines({ status: 'resolved' })).items[0],
     ).toMatchObject({ line_id: LINE, resolution: { action: 'enrolled' } });
+  });
+});
+
+describe('enroll barcode', () => {
+  it('prefills, restricts typed input to digits, validates length and sends the code', async () => {
+    const create = jest.spyOn(productsApi, 'createProduct');
+    mockParams = { photoUri: PHOTO, barcode: '4006381333931' };
+    await renderWithProviders(<EnrollScreen />);
+    const field = screen.getByLabelText('Mã vạch (không bắt buộc)');
+    expect(field).toHaveDisplayValue('4006381333931');
+    await fireEvent.changeText(field, 'a123-45');
+    await typePrice('1', '000');
+    expect(field).toHaveDisplayValue('12345');
+    expect(save()).toBeDisabled();
+    await fireEvent.changeText(field, '4006381333931');
+    await fireEvent.press(save());
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      barcode: '4006381333931',
+    });
+  });
+  it('scan icon opens a camera and fills the field once', async () => {
+    await renderWithProviders(<EnrollScreen />);
+    await fireEvent.press(screen.getByLabelText('Quét mã vạch'));
+    const camera = screen.getByTestId('camera-view');
+    expect(camera.props.barcodeScannerSettings.barcodeTypes).toEqual([
+      'ean13',
+      'ean8',
+      'upc_a',
+      'upc_e',
+      'code128',
+    ]);
+    await fireEvent(camera, 'barcodeScanned', {
+      data: '4006381333931',
+      type: 'ean13',
+    });
+    expect(
+      screen.getByLabelText('Mã vạch (không bắt buộc)'),
+    ).toHaveDisplayValue('4006381333931');
+    expect(screen.queryByLabelText('Đóng quét mã vạch')).toBeNull();
+  });
+  it('409 shows the existing product and lets the seller correct and retry', async () => {
+    const existing = (await productsApi.listProducts()).items[0]!;
+    await productsApi.patchProduct(existing.id, { barcode: '4006381333931' });
+    const create = jest
+      .spyOn(productsApi, 'createProduct')
+      .mockRejectedValueOnce(
+        new ApiError(409, { error: 'barcode already used', code: 'conflict' }),
+      );
+    mockParams = { photoUri: PHOTO, barcode: '4006381333931' };
+    await renderWithProviders(<EnrollScreen />);
+    await typePrice('1', '000');
+    await fireEvent.press(save());
+    expect(
+      await screen.findByText(`Mã vạch đã dùng cho ${existing.name}`),
+    ).toBeOnTheScreen();
+    expect(mockRouter.back).not.toHaveBeenCalled();
+    await fireEvent.changeText(
+      screen.getByLabelText('Mã vạch (không bắt buộc)'),
+      '8931234567890',
+    );
+    await fireEvent.press(save());
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(create.mock.calls[1]![0]).toMatchObject({
+      barcode: '8931234567890',
+    });
+    expect(imagesApi.uploadImage).toHaveBeenCalledTimes(1);
   });
 });

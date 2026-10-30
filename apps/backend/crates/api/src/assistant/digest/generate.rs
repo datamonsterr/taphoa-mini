@@ -15,6 +15,9 @@ use serde_json::{Value, json};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
 
+const CLAIM_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+const CLAIM_WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(90);
+
 #[derive(Debug, thiserror::Error)]
 #[error("store has no active member")]
 pub(super) struct NoActiveMember;
@@ -38,6 +41,35 @@ async fn generate_inner(
     business_date: NaiveDate,
 ) -> anyhow::Result<StoredDigest> {
     let db = pool(state).map_err(|_| anyhow::anyhow!("database unavailable"))?;
+    if let Some(digest) = stored(db, store_id, business_date).await? {
+        return Ok(digest);
+    }
+    // One generator per store/day: whoever takes the transaction-scoped advisory lock (freed when
+    // the transaction ends or the connection drops) generates. Losers hand their connection back
+    // and poll for the winner's row, so waiting never starves the pool the winner still needs.
+    let key = format!("assistant_digest:{store_id}:{business_date}");
+    let mut waited = std::time::Duration::ZERO;
+    let claim = loop {
+        let mut tx = db.begin().await?;
+        let locked: bool =
+            sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(&key)
+                .fetch_one(&mut *tx)
+                .await?;
+        if locked {
+            break tx;
+        }
+        drop(tx);
+        if let Some(digest) = stored(db, store_id, business_date).await? {
+            return Ok(digest);
+        }
+        anyhow::ensure!(
+            waited < CLAIM_WAIT_MAX,
+            "digest generation still running elsewhere"
+        );
+        tokio::time::sleep(CLAIM_POLL).await;
+        waited += CLAIM_POLL;
+    };
     if let Some(digest) = stored(db, store_id, business_date).await? {
         return Ok(digest);
     }
@@ -101,6 +133,7 @@ async fn generate_inner(
     };
     sqlx::query("INSERT INTO assistant_digests(store_id,business_date,source,model,summary_vi,payload) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(store_id,business_date) DO NOTHING")
         .bind(store_id).bind(business_date).bind(source).bind(model).bind(summary).bind(payload).execute(db).await?;
+    claim.commit().await?;
     stored(db, store_id, business_date)
         .await?
         .ok_or_else(|| anyhow::anyhow!("digest missing after insert"))
@@ -129,7 +162,7 @@ async fn model_summary(
     };
     if config.model_provider == ModelProvider::Scripted
         || config.digest_model_max_per_day == 0
-        || quota::openrouter_exhausted(state).await
+        || config.free_quota_applies(None) && quota::openrouter_exhausted(state).await
     {
         return Ok(None);
     }

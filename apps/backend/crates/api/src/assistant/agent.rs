@@ -2,7 +2,8 @@
 use super::{
     Language,
     eval::{self, EvalContext},
-    model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage},
+    grounding,
+    model::{ChatMessage, ChatRequest, ChatRole, ModelError, ToolCall, Usage, UsageCost},
     quota::{self, QuotaOutcome},
     stream::{self, Sender, StreamEvent},
     telemetry, threads,
@@ -22,15 +23,12 @@ use chrono::{DateTime, Datelike, NaiveDate, Utc, Weekday};
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{
-    collections::HashSet,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{Instrument, instrument::WithSubscriber};
 use uuid::Uuid;
 
-pub const PROMPT_VERSION: &str = "2";
+pub const PROMPT_VERSION: &str = "8";
 const VI: &str = include_str!("prompts/system.vi.md");
 const EN: &str = include_str!("prompts/system.en.md");
 const CONTEXT_MESSAGES: usize = 20;
@@ -51,6 +49,7 @@ pub struct ModelAttempt {
     pub usage: Usage,
     pub error: Option<ModelError>,
     pub finish_reason: Option<String>,
+    pub generation_id: Option<String>,
 }
 #[derive(Debug, Clone)]
 pub struct ToolRecord {
@@ -62,6 +61,8 @@ pub struct ToolRecord {
     pub ok: bool,
     pub denied: bool,
     pub rows: usize,
+    /// The tool ran fine and found nothing: no row and no figure other than zero.
+    pub empty: bool,
     pub latency: Duration,
     pub summary_vi: String,
 }
@@ -128,6 +129,61 @@ struct ImageAttachment {
 struct ReceiptAttachment {
     receipt_id: Uuid,
 }
+/// Most attachments one message may carry (the app sends one or two).
+const MAX_ATTACHMENTS: usize = 4;
+
+/// Reject long lists (400), drop duplicates and confirm in one query per kind that the store owns
+/// every image and receipt; a missing one is a 404.
+async fn check_attachments(
+    db: &sqlx::PgPool,
+    actor: &Actor,
+    attachments: &mut Vec<Attachment>,
+) -> ApiResult<()> {
+    if attachments.len() > MAX_ATTACHMENTS {
+        return Err(ApiError::validation_failed(
+            "a message takes at most 4 attachments",
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    attachments.retain(|a| {
+        seen.insert(match a {
+            Attachment::Image(a) => (false, a.image_id),
+            Attachment::Receipt(a) => (true, a.receipt_id),
+        })
+    });
+    for (receipt, query) in [
+        (
+            false,
+            "SELECT count(*) FROM images WHERE store_id=$1 AND id = ANY($2)",
+        ),
+        (
+            true,
+            "SELECT count(*) FROM receipts WHERE store_id=$1 AND id = ANY($2)",
+        ),
+    ] {
+        let ids: Vec<Uuid> = attachments
+            .iter()
+            .filter_map(|a| match (a, receipt) {
+                (Attachment::Image(a), false) => Some(a.image_id),
+                (Attachment::Receipt(a), true) => Some(a.receipt_id),
+                _ => None,
+            })
+            .collect();
+        if ids.is_empty() {
+            continue;
+        }
+        let found: i64 = sqlx::query_scalar(query)
+            .bind(actor.store_id)
+            .bind(&ids)
+            .fetch_one(db)
+            .await?;
+        if found != ids.len() as i64 {
+            return Err(ApiError::not_found());
+        }
+    }
+    Ok(())
+}
+
 fn user_text(content: &str, attachments: &[Attachment]) -> String {
     let mut text = content.to_owned();
     for attachment in attachments {
@@ -149,7 +205,7 @@ pub(crate) async fn send_message(
     actor: Actor,
     Path(id): Path<String>,
     headers: HeaderMap,
-    ValidJson(input): ValidJson<SendMessage>,
+    ValidJson(mut input): ValidJson<SendMessage>,
 ) -> ApiResult<impl IntoResponse> {
     if !(1..=4000).contains(&input.content.chars().count()) {
         return Err(ApiError::validation_failed(
@@ -159,30 +215,13 @@ pub(crate) async fn send_message(
     let thread_id = threads::parse_id(&id)?;
     let db = pool(&state)?;
     let thread = threads::load_thread(db, &actor, thread_id).await?;
-    for attachment in &input.attachments {
-        let (query, id) = match attachment {
-            Attachment::Image(a) => (
-                "SELECT EXISTS(SELECT 1 FROM images WHERE store_id=$1 AND id=$2)",
-                a.image_id,
-            ),
-            Attachment::Receipt(a) => (
-                "SELECT EXISTS(SELECT 1 FROM receipts WHERE store_id=$1 AND id=$2)",
-                a.receipt_id,
-            ),
-        };
-        if !sqlx::query_scalar::<_, bool>(query)
-            .bind(actor.store_id)
-            .bind(id)
-            .fetch_one(db)
-            .await?
-        {
-            return Err(ApiError::not_found());
-        }
-    }
+    // Bounded and de-duplicated before any query or prompt text; the store checks run in one
+    // query per kind.
+    check_attachments(db, &actor, &mut input.attachments).await?;
     let eval = eval::from_headers(&headers, &state.assistant.config);
     let today = eval
         .as_ref()
-        .map_or_else(|| crate::time::business_date(Utc::now()), |e| e.today);
+        .map_or_else(|| state.clock.today(), |e| e.today);
     let store_name: String = sqlx::query_scalar("SELECT name FROM stores WHERE id=$1")
         .bind(actor.store_id)
         .fetch_one(db)
@@ -352,6 +391,16 @@ fn render_prompt(
         rest = &rest[index + key.len()..];
     }
     out.push_str(rest);
+    if let Some(yesterday) = today.pred_opt() {
+        out.push_str(&format!("\nHôm qua (yesterday): {yesterday}."));
+    }
+    for days in [30, 60] {
+        if let Some(from) = today.checked_sub_days(chrono::Days::new(days - 1)) {
+            out.push_str(&format!(
+                "\n{days} ngày gần nhất / last {days} days (inclusive): {from}..{today}."
+            ));
+        }
+    }
     for key in ["receipt_id", "image_id"] {
         if let Some(id) = context.and_then(|c| c[key].as_str()) {
             let label = if key == "image_id" {
@@ -434,160 +483,68 @@ fn mark_previous_turn(mut message: ChatMessage) -> ChatMessage {
     }
     message
 }
-const UNITS: [&str; 11] = [
-    "₫",
-    "đ",
-    "đồng",
-    "vnd",
-    "đơn",
-    "sản phẩm",
-    "cái",
-    "chai",
-    "gói",
-    "lon",
-    "hộp",
-];
-const MULTIPLIERS: [(&str, f64); 5] = [
-    ("triệu", 1e6),
-    ("nghìn", 1e3),
-    ("ngàn", 1e3),
-    ("tr", 1e6),
-    ("k", 1e3),
-];
-fn ends_word(after: &str) -> bool {
-    !after.chars().next().is_some_and(char::is_alphanumeric)
-}
-/// Numbers in a text, normalized to whole units: "150.000 ₫", "150000", "150k" and "150 nghìn" all
-/// give 150000; dots and commas group thousands, `k`/`nghìn` scale by 1e3 and `tr`/`triệu` by 1e6.
-/// Dates such as 26/10/2026 are skipped. With `store_only`, only figures that read as store data
-/// count: two or more digits, a scaled number, or a number followed by a money or count unit.
-fn numbers(text: &str, store_only: bool) -> Vec<i64> {
-    let chars: Vec<char> = text.to_lowercase().chars().collect();
-    let run = |from: usize| {
-        chars[from..]
-            .iter()
-            .take_while(|c| c.is_ascii_digit())
-            .count()
-    };
-    let mut found = vec![];
-    let mut i = 0;
-    while i < chars.len() {
-        if !chars[i].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        // Skip a date: digits, separator, digits, separator, digits.
-        let mut end = i + run(i);
-        let mut parts = 1;
-        let mut probe = end;
-        while parts < 3
-            && matches!(chars.get(probe), Some('/' | '-'))
-            && chars.get(probe + 1).is_some_and(char::is_ascii_digit)
-        {
-            probe += 1 + run(probe + 1);
-            parts += 1;
-        }
-        if parts == 3 {
-            i = probe;
-            continue;
-        }
-        let mut groups = vec![chars[i..end].iter().collect::<String>()];
-        while matches!(chars.get(end), Some('.' | ','))
-            && chars.get(end + 1).is_some_and(char::is_ascii_digit)
-        {
-            let n = run(end + 1);
-            groups.push(chars[end + 1..end + 1 + n].iter().collect());
-            end += 1 + n;
-        }
-        let thousands =
-            groups.len() > 1 && groups[0].len() <= 3 && groups[1..].iter().all(|g| g.len() == 3);
-        let mut value: f64 = if groups.len() == 1 || thousands {
-            groups.concat().parse().unwrap_or(0.0)
-        } else if groups.len() == 2 {
-            format!("{}.{}", groups[0], groups[1])
-                .parse()
-                .unwrap_or(0.0)
-        } else {
-            groups.concat().parse().unwrap_or(0.0)
-        };
-        let mut after = end;
-        while chars.get(after) == Some(&' ') {
-            after += 1;
-        }
-        let rest: String = chars[after..].iter().take(10).collect();
-        let scale = MULTIPLIERS
-            .iter()
-            .find(|(word, _)| rest.strip_prefix(word).is_some_and(ends_word));
-        let has_unit = UNITS
-            .iter()
-            .any(|unit| rest.strip_prefix(unit).is_some_and(ends_word));
-        let scaled = scale.is_some();
-        if let Some((_, factor)) = scale {
-            value *= factor;
-        }
-        if !store_only || value >= 10.0 || scaled || has_unit {
-            found.push(value.round() as i64);
-        }
-        i = end.max(i + 1);
-    }
-    found
-}
-/// Store figures a reply states.
-fn store_numbers(text: &str) -> Vec<i64> {
-    numbers(text, true)
-}
+#[cfg(test)]
+use super::grounding::numbers;
 #[cfg(test)]
 fn contains_store_numbers(text: &str) -> bool {
-    !store_numbers(text).is_empty()
+    !numbers(text, true).is_empty()
 }
-fn collect_json_numbers(value: &Value, out: &mut HashSet<i64>) {
-    match value {
-        Value::Number(n) => {
-            if let Some(f) = n.as_f64() {
-                out.insert(f.round() as i64);
-            }
-        }
-        Value::String(s) => out.extend(numbers(s, false)),
-        Value::Array(items) => items.iter().for_each(|v| collect_json_numbers(v, out)),
-        Value::Object(map) => map.values().for_each(|v| collect_json_numbers(v, out)),
-        _ => {}
-    }
+/// Only current-turn tool results and user figures back a reply; model-generated read
+/// arguments are requests, not evidence.
+fn unmatched_numbers(record: &TurnRecord, answer: &str) -> Vec<f64> {
+    grounding::unmatched_numbers(
+        &record.input,
+        record
+            .transcript
+            .iter()
+            .filter(|m| m.role == ChatRole::Tool)
+            .filter_map(|m| m.content.as_deref()),
+        answer,
+    )
 }
-fn collect_text_numbers(raw: &str, out: &mut HashSet<i64>) {
-    match serde_json::from_str::<Value>(raw) {
-        Ok(value) => collect_json_numbers(&value, out),
-        Err(_) => out.extend(numbers(raw, false)),
-    }
-}
-/// Every number the turn can legitimately cite: tool results and arguments, plus the user's message.
-fn grounded_numbers(record: &TurnRecord) -> HashSet<i64> {
-    let mut out: HashSet<i64> = numbers(&record.input, false).into_iter().collect();
-    for message in &record.transcript {
-        if message.role == ChatRole::Tool
-            && let Some(content) = &message.content
-        {
-            collect_text_numbers(content, &mut out);
-        }
-        for call in &message.tool_calls {
-            collect_text_numbers(&call.arguments, &mut out);
-        }
-    }
-    out
-}
-/// Whether the reply states a store figure that no tool result, proposal or user message backs.
 fn has_ungrounded_number(record: &TurnRecord, answer: &str) -> bool {
-    let figures = store_numbers(answer);
-    if figures.is_empty() {
-        return false;
-    }
-    let grounded = grounded_numbers(record);
-    figures.iter().any(|n| !grounded.contains(n))
+    !unmatched_numbers(record, answer).is_empty()
 }
 fn ungrounded_text(language: Language) -> &'static str {
     if language == Language::Vi {
         "Mình chưa lấy được số liệu để trả lời chính xác. Bạn thử hỏi lại nhé."
     } else {
         "I could not fetch the figures to answer accurately. Please ask again."
+    }
+}
+/// True when a tool result holds nothing to report: no non-zero number and no non-empty text
+/// below the top level (dates and echoed arguments are text, so strings do not count).
+fn data_is_empty(value: &Value) -> bool {
+    match value {
+        Value::Number(n) => n.as_f64().is_none_or(|v| v == 0.0),
+        Value::Array(items) => items.iter().all(data_is_empty),
+        Value::Object(map) => map.values().all(data_is_empty),
+        _ => true,
+    }
+}
+/// Every read tool of the turn ran fine and found nothing (a missing product, a period without
+/// sales): the answer is "no data", not a failure the seller should retry.
+fn found_nothing(record: &TurnRecord) -> bool {
+    let mut reads = record
+        .tools
+        .iter()
+        .filter(|t| t.ok && t.kind == Some(ToolKind::Read))
+        .peekable();
+    reads.peek().is_some() && reads.all(|t| t.empty)
+}
+fn no_data_text(language: Language) -> &'static str {
+    if language == Language::Vi {
+        "Cửa hàng của bạn chưa có số liệu cho yêu cầu này. Mình chỉ xem được dữ liệu của cửa hàng này. Bạn thử kỳ khác hoặc tên khác nhé."
+    } else {
+        "Your store has no data for this request. I can only see this store's data. Try another period or name."
+    }
+}
+/// The closing text when the grounding guard drops the model's answer.
+fn guard_text(record: &TurnRecord, language: Language) -> &'static str {
+    if found_nothing(record) {
+        no_data_text(language)
+    } else {
+        ungrounded_text(language)
     }
 }
 /// A successful propose call ends the guard: the turn is about that action, not store figures.
@@ -748,7 +705,30 @@ async fn run_turn_inner(
         error: None,
         grounding_retry: false,
     };
-    let openrouter_exhausted = quota::openrouter_exhausted(state).await;
+    if super::policy::seller_day_close(ctx.actor.role, &record.input) {
+        let reply = match ctx.language {
+            Language::Vi => {
+                "Số liệu chốt sổ, tiền kiểm quỹ và chênh lệch quỹ chỉ chủ cửa hàng được xem. Em hỏi trực tiếp chủ cửa hàng nhé."
+            }
+            Language::En => {
+                "Only the store owner can view day-close and cash reconciliation figures. Please ask the owner."
+            }
+        };
+        record.model = Some("policy".into());
+        record.usage.cost = Some(UsageCost {
+            input_usd: Some(0.0),
+            output_usd: Some(0.0),
+            total_usd: 0.0,
+        });
+        record
+            .transcript
+            .push(ChatMessage::assistant(Some(reply.into()), vec![]));
+        text(&mut record, tx, reply.into());
+        return record;
+    }
+    let openrouter_exhausted = config
+        .free_quota_applies(record.eval.as_ref().and_then(|e| e.model.as_deref()))
+        && quota::openrouter_exhausted(state).await;
     let quota = if openrouter_exhausted {
         Ok(QuotaOutcome::Exceeded)
     } else if record.eval.is_some() {
@@ -801,6 +781,7 @@ async fn run_turn_inner(
     }
     let max_calls = config.max_model_calls.min(6);
     let mut first_model_index = 0;
+    let mut received_response = false;
     while record.attempts.len() < max_calls {
         let mut answer = None;
         let mut all_timeouts = true;
@@ -817,7 +798,8 @@ async fn run_turn_inner(
                 tools: state.assistant.registry.specs_for(&ctx.actor),
                 max_tokens: 2048,
                 reasoning_effort: Some(config.reasoning_effort.clone()),
-                tool_choice: None,
+                tool_choice: (record.grounding_retry && !record.tools.iter().any(|t| t.ok))
+                    .then(|| "required".into()),
             };
             let (deltas, mut rx) = mpsc::unbounded_channel();
             let started = Instant::now();
@@ -862,22 +844,22 @@ async fn run_turn_inner(
                 usage: Usage::default(),
                 error: None,
                 finish_reason: None,
+                generation_id: None,
             };
             if let Ok(response) = &result {
+                attempt.generation_id = response.generation_id.clone();
                 attempt.model = response.model.clone();
                 attempt.content = response.content.clone();
                 attempt.http_status = Some(response.http_status);
                 attempt.usage = response.usage;
                 attempt.time_to_first_token = response.time_to_first_token.or(first_token);
                 attempt.finish_reason = Some(response.finish_reason.clone());
-                record.usage.input_tokens = record
-                    .usage
-                    .input_tokens
-                    .saturating_add(response.usage.input_tokens);
-                record.usage.output_tokens = record
-                    .usage
-                    .output_tokens
-                    .saturating_add(response.usage.output_tokens);
+                if received_response {
+                    record.usage.accumulate(response.usage);
+                } else {
+                    record.usage = response.usage;
+                    received_response = true;
+                }
             }
             let result = result.and_then(|response| {
                 if response
@@ -918,10 +900,11 @@ async fn run_turn_inner(
                             reason = "retry_failed",
                             "assistant grounding retry failed"
                         );
-                        text(&mut record, tx, ungrounded_text(ctx.language).into());
+                        let fallback = guard_text(&record, ctx.language);
+                        text(&mut record, tx, fallback.into());
                         return record;
                     }
-                    if !held.is_empty() {
+                    if !buffering && !held.is_empty() {
                         text(&mut record, tx, std::mem::take(&mut held));
                     }
                     if matches!(error, ModelError::DailyQuota { .. }) {
@@ -973,7 +956,11 @@ async fn run_turn_inner(
             } else {
                 held
             };
-            if has_ungrounded_number(&record, &answer) {
+            let unmatched = unmatched_numbers(&record, &answer);
+            if !unmatched.is_empty() {
+                if record.eval.is_some() {
+                    tracing::warn!(unmatched_numbers = ?unmatched, "assistant eval grounding mismatch");
+                }
                 tracing::warn!(
                     model = %response.model,
                     reason = if record.grounding_retry {
@@ -983,15 +970,21 @@ async fn run_turn_inner(
                     },
                     "assistant grounding guard fired"
                 );
-                if record.grounding_retry {
-                    text(&mut record, tx, ungrounded_text(ctx.language).into());
+                if record.grounding_retry || record.attempts.len() >= max_calls {
+                    let fallback = guard_text(&record, ctx.language);
+                    text(&mut record, tx, fallback.into());
                     return record;
                 }
                 // Drop the answer and ask once more; tool_choice stays auto.
                 record.grounding_retry = true;
-                messages.push(ChatMessage::system(
-                    "Hãy gọi công cụ để lấy số liệu trước khi trả lời.",
-                ));
+                // The model needs the rejected draft and the mismatches to repair it.
+                // Neither becomes evidence: only user input and tools enter the guard.
+                messages.push(ChatMessage::assistant(Some(answer), vec![]));
+                messages.push(ChatMessage::system(format!("Các số chưa khớp: {unmatched:?}. Đây là bản nháp bị từ chối, chưa gửi cho người dùng, không phải dữ liệu. Viết lại toàn bộ câu trả lời cuối để trả lời câu hỏi ban đầu; không nói câu trên đã đúng hay giải thích việc sửa bản nháp. {}", if record.tools.iter().any(|t| t.ok) {
+                    "Có số liệu chưa khớp. Dùng lại kết quả công cụ trong lượt này, viết đúng số và đơn vị; chỉ gọi thêm công cụ nếu thiếu dữ liệu. Không lặp lại công cụ đã có dữ liệu."
+                } else {
+                    "Hãy gọi công cụ để lấy số liệu trước khi trả lời."
+                })));
                 continue;
             }
             if !answer.is_empty() {
@@ -1002,8 +995,10 @@ async fn run_turn_inner(
                 return record;
             }
         } else if !held.is_empty() {
-            // A preamble before tool calls is shown as before.
-            text(&mut record, tx, held);
+            // A tool-call preamble is also model text; do not leak invented figures.
+            if !has_ungrounded_number(&record, &held) {
+                text(&mut record, tx, held);
+            }
         }
         let message =
             ChatMessage::assistant(Some(response.content.clone()), response.tool_calls.clone());
@@ -1155,6 +1150,7 @@ async fn run_tool_inner(
     span.record("taphoa.tool.ok", ok);
     span.record("taphoa.tool.rows", rows as i64);
     span.record("taphoa.tool.denied", denied);
+    let empty = ok && data_is_empty(&data);
     let record = ToolRecord {
         span_id: telemetry::span_id(&span).unwrap_or_else(|| Uuid::new_v4().simple().to_string()),
         name: call.name.clone(),
@@ -1164,6 +1160,7 @@ async fn run_tool_inner(
         ok,
         denied,
         rows,
+        empty,
         latency: started.elapsed(),
         summary_vi: summary_vi.clone(),
     };
@@ -1264,6 +1261,114 @@ mod tests {
                 assert!(prompt.contains(text), "{text}: {prompt}");
             }
         }
+    }
+    #[test]
+    fn routing_guidance_and_relative_dates_are_explicit() {
+        for language in [Language::Vi, Language::En] {
+            let prompt = render_prompt(
+                "Cửa hàng",
+                Role::Lead,
+                NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(),
+                language,
+                None,
+            );
+            for tool in [
+                "get_recognition_health",
+                "get_member_activity",
+                "get_sales_summary",
+                "get_restock_plan",
+            ] {
+                assert!(prompt.contains(tool), "{tool}");
+            }
+            assert!(prompt.contains("yesterday): 2026-10-19"));
+            assert!(prompt.contains(if language == Language::Vi {
+                "Không trả lời nội dung ngoài phạm vi"
+            } else {
+                "Do not answer the unrelated question"
+            }));
+        }
+    }
+    fn tool_record(kind: ToolKind, ok: bool, data: &Value) -> ToolRecord {
+        ToolRecord {
+            span_id: String::new(),
+            name: "t".into(),
+            call_id: "c".into(),
+            kind: Some(kind),
+            args: Value::Null,
+            ok,
+            denied: false,
+            rows: 0,
+            empty: ok && data_is_empty(data),
+            latency: Duration::ZERO,
+            summary_vi: String::new(),
+        }
+    }
+    #[test]
+    fn data_without_rows_or_nonzero_figures_is_empty() {
+        assert!(data_is_empty(&json!({"items":[]})));
+        assert!(data_is_empty(
+            &json!({"from":"2026-10-26","totals":{"revenue_dong":0,"sale_count":0},"groups":[]})
+        ));
+        assert!(!data_is_empty(
+            &json!({"items":[{"name":"Mì","price_dong":7000}]})
+        ));
+        assert!(!data_is_empty(&json!({"totals":{"revenue_dong":15000}})));
+    }
+    #[test]
+    fn a_dropped_answer_after_empty_reads_says_there_is_no_data() {
+        let mut r = record_with("Giá món X?", vec![]);
+        r.tools = vec![tool_record(ToolKind::Read, true, &json!({"items":[]}))];
+        assert_eq!(guard_text(&r, Language::Vi), no_data_text(Language::Vi));
+        assert_eq!(guard_text(&r, Language::En), no_data_text(Language::En));
+        assert!(!no_data_text(Language::Vi).contains("thử hỏi lại"));
+    }
+    #[test]
+    fn a_dropped_answer_keeps_the_retry_text_for_real_failures_and_real_data() {
+        let none = record_with("Doanh thu?", vec![]);
+        assert_eq!(
+            guard_text(&none, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+        let mut failed = record_with("Doanh thu?", vec![]);
+        failed.tools = vec![tool_record(ToolKind::Read, false, &Value::Null)];
+        assert_eq!(
+            guard_text(&failed, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+        let mut found = record_with("Doanh thu?", vec![]);
+        found.tools = vec![
+            tool_record(ToolKind::Read, true, &json!({"items":[]})),
+            tool_record(
+                ToolKind::Read,
+                true,
+                &json!({"totals":{"revenue_dong":15000}}),
+            ),
+        ];
+        assert_eq!(
+            guard_text(&found, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+        let mut propose = record_with("Đổi giá", vec![]);
+        propose.tools = vec![tool_record(ToolKind::Propose, true, &json!({}))];
+        assert_eq!(
+            guard_text(&propose, Language::Vi),
+            ungrounded_text(Language::Vi)
+        );
+    }
+    #[test]
+    fn invented_read_arguments_do_not_validate_the_reply() {
+        let r = record_with(
+            "Doanh thu?",
+            vec![ChatMessage::assistant(
+                None,
+                vec![ToolCall {
+                    id: "c1".into(),
+                    name: "get_sales_summary".into(),
+                    arguments: r#"{"revenue_dong":99999}"#.into(),
+                }],
+            )],
+        );
+        assert!(has_ungrounded_number(&r, "99.999 ₫"));
     }
     #[test]
     fn numbers_normalize_money_formats() {

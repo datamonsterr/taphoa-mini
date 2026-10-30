@@ -52,7 +52,7 @@ Vietnamese description for the model, a JSON Schema for arguments, the required
 | `search_products`              | read    | `query`, `limit`                                             | none                                             |
 | `get_stock_levels`             | read    | `filter` (low, negative, untracked, all)                     | none                                             |
 | `get_restock_plan`             | read    | `horizon_days` (default 7)                                   | none; cost fields need `ChangePrice`             |
-| `get_margin_report`            | read    | `min_margin_pct` (default 10)                                | `ChangePrice`                                    |
+| `get_margin_report`            | read    | `min_margin_pct` (default 10), `product_query?`              | `ChangePrice`                                    |
 | `get_dead_stock`               | read    | `days` (default 30)                                          | none                                             |
 | `explain_day_close`            | read    | `business_date`                                              | `DayClose`                                       |
 | `list_review_queue`            | read    | `limit`                                                      | `ReviewQueue`                                    |
@@ -84,6 +84,12 @@ Vietnamese description for the model, a JSON Schema for arguments, the required
 | `propose_invite`               | propose | `role`, `can_enroll`                                         | `ManageInvites`                                  |
 
 Rules:
+
+- Explicit seller requests for day-close, counted/expected cash or cash shortfalls
+  receive a server-side refusal before any model/tool call. This narrow intent guard
+  recognizes Vietnamese with or without diacritics and English. Generic app help and
+  ordinary seller revenue, expense, stock and product-sales questions stay available.
+  Tool `auth::Action` permissions continue to apply to every execution.
 
 - The tool list sent to the model contains only the tools the caller may use. A tool still
   re-checks its permission when it runs.
@@ -127,14 +133,24 @@ proposed ──Confirm──▶ executing ──▶ done (result: entity ids)
   formatted as `1.234.000 ₫`).
 - Loop: at most 6 model calls per user message; tool calls in one model turn run in parallel;
   each tool has a 5 s timeout.
-- Models: `ASSISTANT_MODELS` is an ordered comma-separated list of free tool-capable OpenRouter
-  models; the next model is used on 429, 5xx, timeout or invalid tool-call JSON (use OpenRouter
+- Models: `ASSISTANT_MODELS` is an ordered comma-separated list of tool-capable OpenRouter
+  models (paid IDs allowed; finite per-environment key budgets); the next model is used on 429, 5xx, timeout or invalid tool-call JSON (use OpenRouter
   model fallback routing when its current docs support it). The golden set picks the order.
 - Quota: `ASSISTANT_DAILY_MESSAGES_PER_STORE` (default 60) in Redis per store and business date.
   When the store cap or the OpenRouter daily quota is hit, the reply is a friendly Vietnamese
   message and a `quota` SSE error; no model call is made.
 - Context: the last 20 messages of the thread plus tool results; longer threads drop the oldest
   tool results first.
+- Numerical grounding: hold read answers until every store figure matches current-turn
+  successful tool data or user-supplied figures, allowing displayed rounding and documented
+  like-measure derivations. Dates and opaque identifiers are not store figures. On rejection,
+  retry once with the rejected draft and unmatched values, reusing tools where possible;
+  neither the rejected draft nor model-chosen arguments become evidence. If the retry still
+  fails, errors, or cannot fit within the six-call limit, return the missing-data fallback.
+  Do not release individual sentences or rows from a rejected answer: their context may
+  depend on the rejected figures. Eval-enabled runs may log unmatched numeric values only.
+- Scope: politely redirect general-knowledge and unrelated questions to grocery management
+  or help using the app, in the requested language.
 - Prompt injection: product names, OCR text, notes and customer names are data. The golden set
   includes injection cases; the assistant must not follow them.
 
@@ -226,3 +242,10 @@ Analytics: `next_step_shown` (per chip, once per screen visit) and `next_step_ta
   receipt screen for the same receipt.
 - **i18n:** every string in `vi` and `en` dictionaries; Vietnamese default.
 - **Accessibility:** buttons at least 48 dp, labels for screen readers, text scales.
+
+Named margin queries return the matching products even above the warning threshold; list
+queries keep the threshold filter. Margin and dead-stock tools use the latest purchase
+cost, falling back to the stored current cost when no purchase history exists. Unknown
+costs remain null, and seller cost redaction still applies. Forecast name queries also
+match category names. Aggregate fields describe the returned products, including when
+the result is truncated.

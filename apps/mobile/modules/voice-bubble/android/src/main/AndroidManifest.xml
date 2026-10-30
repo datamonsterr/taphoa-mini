@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Permissions, the service, the tile, the boot receiver and the shortcut are declared by the
+     config plugin (../plugin), so they stay testable and visible in app.json. -->
+<manifest />

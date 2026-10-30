@@ -141,6 +141,13 @@ fn pink_segments() -> Vec<Segment> {
 async fn build_state(
     segments: Vec<Segment>,
 ) -> Option<(Router, AppState, Arc<InMemoryVectorIndex>)> {
+    build_state_limited(segments, taphoa_api::ratelimit::RateLimits::default()).await
+}
+
+async fn build_state_limited(
+    segments: Vec<Segment>,
+    limits: taphoa_api::ratelimit::RateLimits,
+) -> Option<(Router, AppState, Arc<InMemoryVectorIndex>)> {
     let (Ok(database), Ok(redis)) = (std::env::var("DATABASE_URL"), std::env::var("REDIS_URL"))
     else {
         eprintln!("SKIP recognition integration: set DATABASE_URL and REDIS_URL");
@@ -154,6 +161,7 @@ async fn build_state(
         .await
         .unwrap();
     common::clerk::install(&mut state);
+    state.rate_limits = limits;
     let index = Arc::new(InMemoryVectorIndex::default());
     state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
     state.embedder = Some(Arc::new(TestEmbedder));
@@ -265,6 +273,16 @@ async fn post_scan(
     image: Option<&[u8]>,
     extras: &[(&str, &str)],
 ) -> (StatusCode, Value, HeaderMap) {
+    post_recognition(app, token, "/v1/recognition/scans", image, extras).await
+}
+
+async fn post_recognition(
+    app: &Router,
+    token: &str,
+    path: &str,
+    image: Option<&[u8]>,
+    extras: &[(&str, &str)],
+) -> (StatusCode, Value, HeaderMap) {
     let mut body = Vec::new();
     for (name, value) in extras {
         body.extend_from_slice(
@@ -284,7 +302,7 @@ async fn post_scan(
     let response = app
         .clone()
         .oneshot(
-            Request::post("/v1/recognition/scans")
+            Request::post(path)
                 .header("content-type", "multipart/form-data; boundary=SCAN")
                 .header("authorization", format!("Bearer {token}"))
                 .header("x-forwarded-for", unique_ip())
@@ -480,6 +498,138 @@ async fn scan_orders_classes_candidates_and_persists() {
             .unwrap();
     assert_eq!(catalog_version, latest);
     let _ = blue;
+}
+
+/// Exercise empty/singleton arrays as well as a full 24-detection multi scan.
+/// Distinct boxes and mixed colours catch array alignment, ordering and JSONB
+/// snapshot regressions; embeddings are read directly because the API hides them.
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn multi_scan_many_detections_round_trips_unchanged() {
+    for count in [0, 1, 24] {
+        let mut photo = image::RgbImage::new(384, 256);
+        let mut segments = Vec::new();
+        let colours = [RED, PURPLE, GREY, BLUE];
+        for i in 0..count {
+            let (x, y) = ((i % 6) * 64, (i / 6) * 64);
+            let colour = colours[i as usize % colours.len()];
+            for py in y..y + 64 {
+                for px in x..x + 64 {
+                    photo.put_pixel(px, py, image::Rgb(colour));
+                }
+            }
+            segments.push(segment(
+                [x as f32 + 16., y as f32 + 16., 20. + (i % 3) as f32, 24.],
+                0.5 + i as f32 * 0.015,
+            ));
+        }
+        // The segmenter order deliberately disagrees with row-major display order.
+        let Some((app, state, index)) = build_state(segments.iter().rev().cloned().collect()).await
+        else {
+            return;
+        };
+        let pool = state.postgres.clone().unwrap();
+        let (store_id, member_id, token) = create_store(&app).await;
+        seed_products(&pool, store_id, member_id, &index).await;
+        let (status, body, _) =
+            post_scan(&app, &token, Some(&encode_png(photo)), &[("mode", "multi")]).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let scan_id = body["id"].as_str().unwrap();
+        let posted = body["detections"].as_array().unwrap();
+        assert_eq!(posted.len(), count as usize);
+        let (status, fetched) = get_scan(&app, &token, scan_id).await;
+        assert_eq!(status, StatusCode::OK, "{fetched}");
+        for key in ["id", "mode", "purpose", "pipeline", "created_at"] {
+            assert_eq!(fetched[key], body[key], "{key}");
+        }
+        let stored: Vec<(Value, Option<pgvector::Vector>, Value)> = sqlx::query_as(
+            "SELECT to_jsonb(d) - 'embedding', d.embedding, to_jsonb(i) \
+             FROM detections d JOIN images i ON i.id = d.crop_image_id \
+             WHERE d.scan_id = $1 ORDER BY d.position",
+        )
+        .bind(scan_id.parse::<Uuid>().unwrap())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored.len(), posted.len());
+        for (position, ((row, embedding, crop), expected)) in
+            stored.iter().zip(&segments).enumerate()
+        {
+            let detection = &posted[position];
+            let loaded = &fetched["detections"][position];
+            for key in ["id", "match"] {
+                assert_eq!(row[key], detection[key], "persisted {key} at {position}");
+            }
+            for key in ["id", "bbox", "score", "match"] {
+                assert_eq!(loaded[key], detection[key], "GET {key} at {position}");
+            }
+            assert_eq!(row["position"], position);
+            assert_eq!(row["store_id"], store_id.to_string());
+            assert_eq!(row["scan_id"], scan_id);
+            let bbox: [f32; 4] = serde_json::from_value(row["bbox"].clone()).unwrap();
+            assert_eq!(bbox, expected.bbox);
+            assert_eq!(
+                bbox,
+                serde_json::from_value::<[f32; 4]>(detection["bbox"].clone()).unwrap()
+            );
+            assert!((row["score"].as_f64().unwrap() - f64::from(expected.score)).abs() < 1e-7);
+            assert!(
+                (row["score"].as_f64().unwrap() - detection["score"].as_f64().unwrap()).abs()
+                    < 1e-7
+            );
+            assert_eq!(row["area"], expected.area);
+            assert_eq!(row["crop_image_id"], crop["id"]);
+            assert_eq!(crop["store_id"], store_id.to_string());
+            assert_eq!(crop["uploaded_by"], member_id.to_string());
+            assert_eq!(crop["content_type"], "image/jpeg");
+            assert_eq!(crop["purpose"], "crop");
+            assert!(crop["byte_size"].as_i64().unwrap() > 0);
+            let crop_key = crop["object_key"].as_str().unwrap();
+            assert!(detection["crop_url"].as_str().unwrap().contains(crop_key));
+            // Presigned URLs are generated afresh; all persisted candidate fields
+            // must agree, including their order and optional default unit ids.
+            let snapshots = row["candidates"].as_array().unwrap();
+            let candidates = detection["candidates"].as_array().unwrap();
+            assert_eq!(snapshots.len(), candidates.len());
+            for (snapshot, candidate) in snapshots.iter().zip(candidates) {
+                for key in ["product_id", "name", "price", "default_unit_id"] {
+                    assert_eq!(snapshot[key], candidate[key]);
+                }
+                // JSONB stores the f32 snapshot through serde_json::Value;
+                // the API serializes f32 directly with shorter decimal text.
+                assert!(
+                    (snapshot["similarity"].as_f64().unwrap()
+                        - candidate["similarity"].as_f64().unwrap())
+                    .abs()
+                        < 1e-7
+                );
+            }
+            assert_eq!(loaded["candidates"], detection["candidates"]);
+            let [r, g, b] = colours[position % colours.len()];
+            assert_eq!(
+                embedding.as_ref().unwrap().to_vec(),
+                TestEmbedder.colour_vector(f32::from(r), f32::from(g), f32::from(b)),
+            );
+        }
+        let crops: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM images WHERE store_id = $1 AND purpose = 'crop'",
+        )
+        .bind(store_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(crops, i64::from(count));
+        let completed: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM outbox_events WHERE store_id = $1 AND type = 'scan.completed' \
+             AND payload->'data'->>'scan_id' = $2",
+        )
+        .bind(store_id)
+        .bind(scan_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(completed, 1);
+    }
 }
 
 #[tokio::test]
@@ -721,7 +871,7 @@ async fn scan_without_detector_has_document_signal() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(
         body["document"],
-        json!({"detected":false,"score":0.0,"text_lines":0})
+        json!({"detected":false,"score":0.0,"text_lines":0,"line_boxes":[]})
     );
 }
 
@@ -751,12 +901,297 @@ async fn scan_fake_document_detector_true_false_and_get() {
         assert_eq!(status, StatusCode::CREATED, "{body}");
         assert_eq!(body["document"]["detected"], detected);
         assert_eq!(body["document"]["text_lines"], if detected { 6 } else { 0 });
+        let expected_boxes: Vec<_> = if detected {
+            (0..6)
+                .map(|i| json!([0., i as f32 * 20. / 128., 100. / 160., 10. / 128.]))
+                .collect()
+        } else {
+            vec![]
+        };
+        assert_eq!(body["document"]["line_boxes"], json!(expected_boxes));
         Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
         let (status, got) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(got["document"], body["document"]);
         Contract::load().assert_conforms("/v1/recognition/scans/{scanId}", "get", status, &got);
+        // Old timing snapshots keep their detection/count when boxes are absent.
+        sqlx::query("UPDATE scans SET timings = timings #- '{document,line_boxes}' WHERE id = $1")
+            .bind(body["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .execute(state.postgres.as_ref().unwrap())
+            .await
+            .unwrap();
+        let (status, legacy) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let mut expected = body["document"].clone();
+        expected["line_boxes"] = json!([]);
+        assert_eq!(legacy["document"], expected);
     }
+}
+
+const PROBES: &str = "/v1/recognition/document-probes";
+
+/// Auth uses real membership rows; the preview has no storage or other inference ports.
+async fn probe_state(with_detector: bool) -> AppState {
+    use taphoa_recognition::ocr::{FakeTextDetector, TextBox};
+    let mut state = AppState::connect(
+        Some(&std::env::var("DATABASE_URL").expect("DATABASE_URL")),
+        Some(&std::env::var("REDIS_URL").expect("REDIS_URL")),
+        None,
+    )
+    .await
+    .unwrap();
+    common::clerk::install(&mut state);
+    state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
+    if with_detector {
+        state.text_detector = Some(Arc::new(FakeTextDetector {
+            boxes: (0..6)
+                .rev()
+                .flat_map(|i| {
+                    [
+                        TextBox {
+                            bbox: [0., i as f32 * 20., 40., 10.],
+                            score: 0.9,
+                        },
+                        TextBox {
+                            bbox: [60., i as f32 * 20., 40., 10.],
+                            score: 0.9,
+                        },
+                    ]
+                })
+                .collect(),
+        }));
+    }
+    state
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_returns_grouped_signal_without_scan_services_or_writes() {
+    let state = probe_state(true).await;
+    assert!(state.storage.is_none());
+    assert!(state.segmenter.is_none());
+    assert!(state.embedder.is_none());
+    assert!(state.vector_index.is_none());
+    let app = router(state.clone());
+    let (store_id, _, token) = create_store(&app).await;
+    let pool = state.postgres.as_ref().unwrap();
+    let counts = || async {
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT (SELECT count(*) FROM scans WHERE store_id=$1), (SELECT count(*) FROM images WHERE store_id=$1)"
+        ).bind(store_id).fetch_one(pool).await.unwrap()
+    };
+    let before = counts().await;
+    let png = draw_photo();
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::load_from_memory(&png)
+        .unwrap()
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+    for photo in [&png, jpeg.get_ref()] {
+        let (status, body, _) = post_recognition(&app, &token, PROBES, Some(photo), &[]).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["detected"], true);
+        assert_eq!(body["text_lines"], 6);
+        assert_eq!(body["score"], 1.);
+        let expected: Vec<_> = (0..6)
+            .map(|i| json!([0., i as f32 * 20. / 128., 100. / 160., 10. / 128.]))
+            .collect();
+        assert_eq!(body["line_boxes"], json!(expected));
+        Contract::load().assert_conforms(PROBES, "post", status, &body);
+    }
+    assert_eq!(
+        counts().await,
+        before,
+        "probes must not persist scans or images"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_without_detector_returns_ocr_unavailable() {
+    let app = router(probe_state(false).await);
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["code"], "ocr_unavailable");
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_enforces_image_limit_and_validates_input() {
+    let app = router(probe_state(true).await);
+    let (_, _, token) = create_store(&app).await;
+    let mut photo = draw_photo();
+    photo.resize(512 * 1024, 0);
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::OK, "exactly 512 KB allowed: {body}");
+    photo.push(0);
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    assert_eq!(body["code"], "payload_too_large");
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+    for (image, expected) in [
+        (None, StatusCode::BAD_REQUEST),
+        (
+            Some(b"not an image".as_slice()),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            Some(b"\x89PNG\r\n\x1a\ninvalid".as_slice()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let (status, body, _) = post_recognition(&app, &token, PROBES, image, &[]).await;
+        assert_eq!(status, expected, "{body}");
+        Contract::load().assert_conforms(PROBES, "post", status, &body);
+    }
+    let (status, _, _) = post_recognition(&app, "", PROBES, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_rate_limits_per_member_with_standard_retry_shape() {
+    let state = probe_state(true).await;
+    let app = router(state.clone());
+    let (store_id, _, token) = create_store(&app).await;
+    let photo = draw_photo();
+    for _ in 0..40 {
+        let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let (status, body, headers) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(
+        body,
+        json!({"code":"too_many_requests", "error":"rate limit exceeded"})
+    );
+    let retry: u64 = headers["retry-after"].to_str().unwrap().parse().unwrap();
+    assert!((1..=60).contains(&retry));
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+    let other_user = common::clerk::user();
+    sqlx::query(
+        "INSERT INTO members (store_id, display_name, role, clerk_user_id) VALUES ($1, 'Seller', 'seller', $2)",
+    )
+    .bind(store_id)
+    .bind(&other_user)
+    .execute(state.postgres.as_ref().unwrap())
+    .await
+    .unwrap();
+    let other_token = common::clerk::clerk_token(&other_user, "sess_probe_seller");
+    let (status, body, _) = post_recognition(&app, &other_token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a seller in the same store has its own limit: {body}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_works_while_scan_slots_are_exhausted() {
+    let state = probe_state(true).await;
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let _permit = state.inference_slots.clone().acquire_owned().await.unwrap();
+    let (status, body, headers) =
+        post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["detected"], true);
+    assert_eq!(body["text_lines"], 6);
+    assert!(!headers.contains_key("retry-after"));
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn document_probe_pool_full_returns_empty_signal() {
+    let state = probe_state(true).await;
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let permit = state.probe_slots.clone().acquire_owned().await.unwrap();
+    let photo = draw_photo();
+    let (status, body, headers) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({"detected":false,"score":0.,"text_lines":0,"line_boxes":[]})
+    );
+    assert!(!headers.contains_key("retry-after"));
+    Contract::load().assert_conforms(PROBES, "post", status, &body);
+    assert_eq!(state.inference_slots.available_permits(), 1);
+    drop(permit);
+    let (status, body, _) = post_recognition(&app, &token, PROBES, Some(&photo), &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["detected"], true,
+        "pool resumes detection after release"
+    );
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_works_while_probe_holds_its_slot() {
+    use std::sync::{
+        Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+    use taphoa_recognition::ocr::{OcrError, TextBox, TextDetector};
+    struct BlockingFirstDetection {
+        first: AtomicBool,
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+    impl TextDetector for BlockingFirstDetection {
+        fn detect(&self, _: &[u8]) -> Result<Vec<TextBox>, OcrError> {
+            if self.first.swap(false, Ordering::SeqCst) {
+                self.started.notify_one();
+                let (lock, changed) = &*self.release;
+                let _guard = changed
+                    .wait_timeout_while(
+                        lock.lock().unwrap(),
+                        std::time::Duration::from_secs(5),
+                        |released| !*released,
+                    )
+                    .unwrap();
+            }
+            Ok(vec![])
+        }
+    }
+    let (_, mut state, _) = build_state(scan_segments())
+        .await
+        .expect("test services configured");
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    state.text_detector = Some(Arc::new(BlockingFirstDetection {
+        first: AtomicBool::new(true),
+        started: started.clone(),
+        release: release.clone(),
+    }));
+    let app = router(state.clone());
+    let (_, _, token) = create_store(&app).await;
+    let probe = tokio::spawn({
+        let app = app.clone();
+        let token = token.clone();
+        async move { post_recognition(&app, &token, PROBES, Some(&draw_photo()), &[]).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), started.notified())
+        .await
+        .expect("probe entered its blocking detector");
+    assert_eq!(state.probe_slots.available_permits(), 0);
+    assert_eq!(state.inference_slots.available_permits(), 1);
+    let scan = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    let probe_permits_during_scan = state.probe_slots.available_permits();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    let (probe_status, probe_body, _) = probe.await.unwrap();
+    assert_eq!(probe_status, StatusCode::OK, "{probe_body}");
+    assert_eq!(probe_permits_during_scan, 0, "probe was still running");
+    let (status, body, _) = scan;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+    assert_eq!(state.probe_slots.available_permits(), 1);
 }
 
 /// A detector that cannot finish until after the response proves checkout does not
@@ -783,6 +1218,7 @@ async fn slow_detector_times_out_without_releasing_inference_admission() {
                 detected: true,
                 score: 1.,
                 text_lines: 8,
+                line_boxes: vec![],
             })
         }
     }
@@ -805,7 +1241,7 @@ async fn slow_detector_times_out_without_releasing_inference_admission() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(
         body["document"],
-        json!({"detected":false,"score":0.0,"text_lines":0})
+        json!({"detected":false,"score":0.0,"text_lines":0,"line_boxes":[]})
     );
     assert_eq!(
         permits_before_release, 0,
@@ -818,4 +1254,30 @@ async fn slow_detector_times_out_without_releasing_inference_admission() {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_is_rate_limited_per_member() {
+    let limits = taphoa_api::ratelimit::RateLimits {
+        scan_per_minute: 2,
+        ..Default::default()
+    };
+    let Some((app, _, _)) = build_state_limited(scan_segments(), limits).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+    for _ in 0..2 {
+        let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_requests");
+    assert!(body["error"].as_str().unwrap().contains("scans"));
+    assert!(headers.get("retry-after").is_some());
+    // A member of another store has a budget of their own.
+    let (_, _, other) = create_store(&app).await;
+    let (status, body, _) = post_scan(&app, &other, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
 }

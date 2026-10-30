@@ -72,6 +72,20 @@ impl Transaction {
         ]
     }
 }
+/// Stops spreadsheets from running a text cell as a formula (CSV injection): a cell whose first
+/// character, after any leading spaces, is `=`, `+`, `-`, `@`, tab or CR gets a `'` prefix.
+fn neutralize_formula(value: &str) -> String {
+    let first = value.trim_start_matches(' ').chars().next();
+    if matches!(first, Some('=' | '+' | '-' | '@' | '\t' | '\r')) {
+        format!("'{value}")
+    } else {
+        value.to_owned()
+    }
+}
+/// Columns 5 and 6 are amounts: real numbers that may be negative and are not text.
+fn is_numeric_column(col: usize) -> bool {
+    col == 5 || col == 6
+}
 fn csv_escape(value: &str) -> String {
     if value.contains([',', '"', '\r', '\n']) {
         format!("\"{}\"", value.replace('"', "\"\""))
@@ -87,7 +101,14 @@ fn csv(rows: &[Transaction]) -> Vec<u8> {
         result.push_str(
             &row.cells()
                 .iter()
-                .map(|s| csv_escape(s))
+                .enumerate()
+                .map(|(col, s)| {
+                    if is_numeric_column(col) {
+                        csv_escape(s)
+                    } else {
+                        csv_escape(&neutralize_formula(s))
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(","),
         );
@@ -187,6 +208,35 @@ mod tests {
         assert_eq!(csv_escape("a,b"), "\"a,b\"");
         assert_eq!(csv_escape("a\"b\r\nc"), "\"a\"\"b\r\nc\"");
         assert!(csv(&[]).starts_with(&[0xef, 0xbb, 0xbf]));
+    }
+    #[test]
+    fn csv_neutralizes_formula_cells_but_keeps_negative_amounts() {
+        for risky in ["=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx", "  =cmd"] {
+            assert!(neutralize_formula(risky).starts_with('\''), "{risky:?}");
+        }
+        for safe in ["Lead", "a=b", "", "1-2", "Tạp hóa"] {
+            assert_eq!(neutralize_formula(safe), safe);
+        }
+        let row = Transaction {
+            typ: "sale".into(),
+            business_date: NaiveDate::from_ymd_opt(2026, 3, 5).unwrap(),
+            at: DateTime::parse_from_rfc3339("2026-03-05T03:00:00Z")
+                .unwrap()
+                .into(),
+            code_or_category: "=HYPERLINK(\"http://x\",\"y\")".into(),
+            payment: "cash".into(),
+            amount: -5000,
+            credit_amount: 0,
+            status: "completed".into(),
+            member: "=2+5".into(),
+        };
+        let text = String::from_utf8(csv(&[row])).unwrap();
+        assert!(
+            text.ends_with(
+                "\"'=HYPERLINK(\"\"http://x\"\",\"\"y\"\")\",cash,-5000,0,completed,'=2+5\r\n"
+            ),
+            "{text}"
+        );
     }
     #[test]
     fn csv_row_has_credit_amount_after_amount_and_matches_headers() {

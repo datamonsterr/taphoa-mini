@@ -1,6 +1,6 @@
 # X6 plan: product analytics (PostHog)
 
-Status: In progress · Date: 2026-10-26 · Epic brief: [epics.md](epics.md) "X6" · Spec:
+Status: Done · Merge: [#40](https://github.com/datamonsterr/taphoa-mini/pull/40) · Date: 2026-10-26 · Epic brief: [epics.md](epics.md) "X6" · Spec:
 [telemetry-contract.md](telemetry-contract.md) "Product events", PostHog section of
 [dashboards.md](dashboards.md), ADR [0007](../../adr/0007-posthog-only-observability.md).
 
@@ -124,3 +124,48 @@ for `TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `Lifecyc
   backend), `Debt book · Overdue reminder shares` (`next_step_shown`, X4) and
   `Reliability · Backend error logs per route` (no backend error logs on `test` in the window, which
   is the healthy state).
+
+## Issue #66 replay gap (2026-10-29 local)
+
+At baseline `f36fd52`, `apps/mobile/src/lib/analyticsPostHog.tsx:4-8` selected
+`posthog-react-native` on every platform. Its product events and exceptions work on web,
+but [React Native replay only supports Android/iOS](https://posthog.com/docs/session-replay/installation/react-native).
+Expo Go cannot load the native recorder and remains intentionally disabled (#108).
+`.github/workflows/android-e2e.yml:132-137` supplied only API/Clerk variables to
+`assembleRelease`; no PostHog key meant the analytics provider returned children without
+initializing a client, and no environment meant any manually enabled client defaulted to local.
+The web export in `.github/workflows/ci.yml:459-464` also omitted those variables.
+
+Read-only project API inspection found `session_recording_opt_in=true`; sample rate,
+minimum duration, linked flag and replay config were null, with no URL/event triggers or
+blocklist. The recordings list initially returned zero across the project. Settings were
+not the blocker and were not changed. Existing GitHub secret `POSTHOG_PROJECT_TOKEN` and
+variable `POSTHOG_HOST` suffice; no new repository secret is needed.
+
+The successful Android E2E run `40720263293` (SHA `32b0ad99345b41f46518069df1231fe96c578dc0`)
+contained both `com/posthogreactnativeplugin/PosthogReactNativePluginPackage` and
+`com/posthog/android/replay/PostHogSessionReplay` in the downloaded APK's DEX files. Linking
+was already present. No emulator/adb/Maestro runtime was available locally.
+
+The fix selects a browser SDK adapter on web, shares its session with typed events and API
+correlation, and adds DOM mask wrappers. The current browser SDK also treats
+`navigator.webdriver` as a bot, dropping events/snapshots even with a normal Chrome user
+agent; `opt_out_useragent_filter` is enabled only for `environment=test`. Both CI exports
+and release APK builds embed the existing PostHog token/host and `environment=test`.
+EAS `e2e`/`test` profiles label their environment as test; EAS still needs the public PostHog
+key through its own build environment, since it cannot read GitHub secrets.
+
+See [the replay smoke procedure](../../../infra/posthog/README.md#masked-replay-smoke) for
+an inexpensive browser-only proof against Railway test without assistant traffic.
+
+Browser proof: Playwright `replay.spec.ts` against the Railway test-configured export passed
+without signing in or opening chat. Session `01a183b2-3d6d-7708-8e9e-82ca6a450d07` uploaded
+four snapshot batches. Recursive decompression of the actual outgoing replay data confirmed
+masked input, absent image/camera canaries, and blocked image/container dimensions. The same
+session emitted `$screen` with `environment=test`; assistant request count was zero.
+The read-only recordings API and session-event query provide the environment correlation
+(the native runtime is still unrun locally).
+
+Validation: mobile lint, typecheck, `pnpm --filter @taphoa/mobile test` (180 Jest suites,
+1,739 tests plus 13 script tests), Android/web exports, both bundle budgets and workflow YAML
+parsing passed. No backend code, project settings, data deletion or new secrets were needed.

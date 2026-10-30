@@ -1,0 +1,17 @@
+{
+  "id": "22-price-hai-tram",
+  "source": "synthetic",
+  "transcript": "một hộp sữa bột dielac alpha gold hai trăm",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "sữa bột dielac alpha gold",
+      "product": "Sữa bột Dielac Alpha Gold 2 400g",
+      "quantity": 1,
+      "unit_price": 200000
+    }
+  ],
+  "tags": ["smoke", "price-shorthand", "price-tram"]
+}

@@ -43,7 +43,7 @@ test.describe('debt book', () => {
       .getByRole('textbox', { name: 'Số điện thoại (không bắt buộc)' })
       .fill(phone);
     const created = await callApi(page, 'POST', '/v1/customers', () =>
-      button(page, 'Tạo khách hàng').click(),
+      button(page, 'Tạo và ghi nợ').click(),
     );
     expect(created.status).toBe(201);
     expect(created.requestBody).toMatchObject({ name: customerName, phone });
@@ -60,16 +60,14 @@ test.describe('debt book', () => {
     await expect(
       page.getByRole('textbox', { name: 'Tên khách hàng' }),
     ).toHaveCount(0);
+    await expect(page.getByText(customerName, { exact: true })).toBeVisible();
     await expect(
-      page.getByText(`${customerName} · Đổi khách hàng`),
-    ).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Trả trước' })).toHaveValue(
-      '0',
-    );
+      page.getByRole('radio', { name: '0đ', exact: true }),
+    ).toHaveAttribute('aria-checked', 'true');
 
     // received: one POST /v1/sales for the whole total on credit, no cash handed over
     const sale = await callApi(page, 'POST', '/v1/sales', () =>
-      button(page, 'Đã nhận tiền').click(),
+      button(page, `Ghi nợ ${formatVnd(coca.price)}`).click(),
     );
     expect(sale.status).toBe(201);
     expect(sale.requestBody).toMatchObject({
@@ -124,7 +122,7 @@ test.describe('debt book', () => {
     await expect(page).toHaveURL(new RegExp(`/customer/${customerId}`));
     const balance = page.getByTestId('customer-balance');
     await expect(balance).toHaveAccessibleName(
-      `Còn nợ ${formatVnd(coca.price)}`,
+      `Đang nợ ${formatVnd(coca.price)}`,
     );
     await expect(
       page.getByTestId('ledger-row').filter({ hasText: 'Ghi nợ' }),

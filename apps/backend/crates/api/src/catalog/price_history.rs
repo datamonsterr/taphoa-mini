@@ -12,7 +12,7 @@ struct ChangeRow {
     unit_id: Option<Uuid>,
     field: String,
     old_value: Option<i64>,
-    new_value: i64,
+    new_value: Option<i64>,
     changed_by: Uuid,
     changed_at: DateTime<Utc>,
     source: String,

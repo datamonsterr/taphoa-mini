@@ -2,13 +2,17 @@ import type { CameraView } from 'expo-camera';
 import { useCallback, useReducer, useRef, type RefObject } from 'react';
 
 import type { CaptureMode } from '@/components/camera';
-import { useCreateScan } from '@/lib/api';
+import { RATE_LIMIT_MESSAGE, isRateLimited, useCreateScan } from '@/lib/api';
 
 import { takePhoto, toScanMode, toUploadFile } from './capture';
 import { initialScanState, scanReducer, type Photo } from './scanReducer';
 
 const message = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+  isRateLimited(error)
+    ? RATE_LIMIT_MESSAGE
+    : error instanceof Error
+      ? error.message
+      : String(error);
 
 /** Drives one capture: take the photo, freeze it, upload it, keep the reducer in step. */
 export function useScanSession(
@@ -35,20 +39,29 @@ export function useScanSession(
     [mutateAsync, mode],
   );
 
-  const capture = useCallback(async () => {
-    if (phase !== 'idle') return;
-    const token = ++tokenRef.current;
-    dispatch({ type: 'shutter', token });
-    let shot: Photo;
-    try {
-      shot = await takePhoto(cameraRef.current);
-    } catch (error) {
-      dispatch({ type: 'failed', token, message: message(error) });
-      return;
-    }
-    dispatch({ type: 'captured', token, photo: shot });
-    await submit(token, shot);
-  }, [phase, cameraRef, submit]);
+  const capture = useCallback(
+    async (onPhoto?: (shot: Photo) => Promise<void>) => {
+      if (phase !== 'idle') return;
+      const token = ++tokenRef.current;
+      dispatch({ type: 'shutter', token });
+      let shot: Photo;
+      try {
+        shot = await takePhoto(cameraRef.current);
+      } catch (error) {
+        dispatch({ type: 'failed', token, message: message(error) });
+        return;
+      }
+      dispatch({ type: 'captured', token, photo: shot });
+      if (onPhoto) {
+        try {
+          await onPhoto(shot);
+        } finally {
+          dispatch({ type: 'reset' });
+        }
+      } else await submit(token, shot);
+    },
+    [phase, cameraRef, submit],
+  );
 
   /** Scan the frozen photo again; with no photo (camera failure) go back to live. */
   const retry = useCallback(async () => {

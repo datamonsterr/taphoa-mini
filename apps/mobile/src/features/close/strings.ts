@@ -10,8 +10,16 @@ export const closeStrings: Dict = {
     creditSales: 'Bán ghi nợ',
     save: 'Chốt sổ hôm nay',
     closed: 'Đã chốt sổ',
+    resave: 'Chốt sổ lại',
+    lateNotice:
+      'Có {n} giao dịch phát sinh sau khi chốt sổ. Đếm lại tiền và chốt sổ lại.',
+    dateError:
+      'Ngày trên điện thoại không khớp với ngày của cửa hàng. Kiểm tra ngày giờ của máy rồi thử lại.',
     error: 'Không tải được số liệu',
+    forbidden: 'Chỉ chủ tiệm mới xem và chốt sổ được.',
     saveError: 'Không chốt được sổ. Thử lại.',
+    offlineError:
+      'Không có mạng nên chưa chốt được sổ. Tiền đếm được vẫn còn, thử lại khi có mạng.',
     'diff.match': 'Khớp',
     'diff.short': 'Thiếu',
     'diff.extra': 'Dư',
@@ -28,8 +36,16 @@ export const closeStrings: Dict = {
     creditSales: 'Credit sales',
     save: 'Close today',
     closed: 'Day closed',
+    resave: 'Close the day again',
+    lateNotice:
+      '{n} transactions arrived after the close. Count the cash again and close again.',
+    dateError:
+      "The phone's date does not match the store's date. Check the phone's date and time, then try again.",
     error: 'Could not load the figures',
+    forbidden: 'Only the store owner can view and close the day.',
     saveError: 'Could not close the day. Try again.',
+    offlineError:
+      'No network, so the day was not closed. The counted cash is kept; try again when you are online.',
     'diff.match': 'Matches',
     'diff.short': 'Short',
     'diff.extra': 'Over',

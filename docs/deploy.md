@@ -84,21 +84,21 @@ Railway uses `ASSISTANT_MODEL_PROVIDER=openrouter` and
 `ASSISTANT_REASONING_EFFORT=low` in `.railway/railway.ts`. Production must never
 use the `scripted` provider. Local `.env.example` files select `scripted` so local
 assistant turns need no model network calls. OpenRouter uses the shared
-`OPENROUTER_API_KEY`; only model ids ending in `:free` are accepted.
+`OPENROUTER_API_KEY`; paid and `:free` OpenRouter model IDs are accepted. Paid generations report actual OpenRouter usage costs; keep a finite USD limit on each environment key.
 
-| Variable                                 | Default / purpose                                                                                                             | Railway management                                                            |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `ASSISTANT_MODEL_PROVIDER`               | Backend default `openrouter`; local examples use `scripted`                                                                   | Fixed `openrouter`                                                            |
-| `ASSISTANT_MODELS`                       | Ordered fallbacks: `nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free` | Per environment, `preserve()`; X7 updates the order                           |
-| `ASSISTANT_DAILY_MESSAGES_PER_STORE`     | `60` user messages per store per business day                                                                                 | Per environment, `preserve()`                                                 |
-| `ASSISTANT_ALLOW_EVAL_HEADERS`           | Backend default `0`; `1` enables eval run/model headers and pinned dates                                                      | Per environment, `preserve()`; `1` on `test` only, `0` or unset in production |
-| `ASSISTANT_REASONING_EFFORT`             | `low`                                                                                                                         | Fixed `low`                                                                   |
-| `ASSISTANT_FEEDBACK_SURVEY_ID`           | Optional PostHog survey id                                                                                                    | Per environment, `preserve()`                                                 |
-| `ASSISTANT_FEEDBACK_QUESTION_ID`         | Optional rating question id; required with survey id                                                                          | Per environment, `preserve()`                                                 |
-| `ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID` | Optional comment question id                                                                                                  | Per environment, `preserve()`                                                 |
-| `ASSISTANT_OPENROUTER_URL`               | `https://openrouter.ai/api/v1/chat/completions`                                                                               | Backend default; local mock override                                          |
-| `ASSISTANT_FIRST_TOKEN_TIMEOUT_MS`       | `20000` ms to the first token                                                                                                 | Backend default                                                               |
-| `ASSISTANT_MODEL_TIMEOUT_MS`             | `60000` ms per model attempt                                                                                                  | Backend default                                                               |
+| Variable                                 | Default / purpose                                                          | Railway management                                                            |
+| ---------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `ASSISTANT_MODEL_PROVIDER`               | Backend default `openrouter`; local examples use `scripted`                | Fixed `openrouter`                                                            |
+| `ASSISTANT_MODELS`                       | Ordered fallbacks: `z-ai/glm-5.3-flash,nvidia/nemotron-3.5-lightning:free` | Per environment, `preserve()`; X7 updates the order                           |
+| `ASSISTANT_DAILY_MESSAGES_PER_STORE`     | `60` user messages per store per business day                              | Per environment, `preserve()`                                                 |
+| `ASSISTANT_ALLOW_EVAL_HEADERS`           | Backend default `0`; `1` enables eval run/model headers and pinned dates   | Per environment, `preserve()`; `1` on `test` only, `0` or unset in production |
+| `ASSISTANT_REASONING_EFFORT`             | `low`                                                                      | Fixed `low`                                                                   |
+| `ASSISTANT_FEEDBACK_SURVEY_ID`           | Optional PostHog survey id                                                 | Per environment, `preserve()`                                                 |
+| `ASSISTANT_FEEDBACK_QUESTION_ID`         | Optional rating question id; required with survey id                       | Per environment, `preserve()`                                                 |
+| `ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID` | Optional comment question id                                               | Per environment, `preserve()`                                                 |
+| `ASSISTANT_OPENROUTER_URL`               | `https://openrouter.ai/api/v1/chat/completions`                            | Backend default; local mock override                                          |
+| `ASSISTANT_FIRST_TOKEN_TIMEOUT_MS`       | `20000` ms to the first token                                              | Backend default                                                               |
+| `ASSISTANT_MODEL_TIMEOUT_MS`             | `60000` ms per model attempt                                               | Backend default                                                               |
 
 Preserved values are configured independently on `test` and `production`; applying
 IaC keeps their existing values. Eval headers must never be enabled in production.
@@ -110,7 +110,7 @@ Run it on Railway `test` with `BACKEND_URL` set. It sends at most four live
 messages (up to six model calls each, at most 24 calls), asserts response structure,
 and visibly skips remaining live checks when the shared daily quota is exhausted.
 Set `E2E_ASSISTANT_LIVE=0` to run only deterministic endpoint checks against a local
-backend. Live checks expect real `:free` model ids and are for the controller to run
+backend. Live checks expect real OpenRouter model IDs and are for the controller to run
 on `test`.
 
 ## Telemetry

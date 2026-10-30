@@ -1,6 +1,6 @@
 # X7 plan: golden set and evaluation
 
-Status: In progress · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X7" · Spec:
+Status: Done · Merge: [#38](https://github.com/datamonsterr/taphoa-mini/pull/38) · Date: 2026-10-25 · Epic brief: [epics.md](epics.md) "X7" · Spec:
 [golden-set.md](golden-set.md), [assistant.md](assistant.md) (U1-U23, tools),
 [telemetry-contract.md](telemetry-contract.md) (eval events), ADR
 [0007](../../adr/0007-posthog-only-observability.md).

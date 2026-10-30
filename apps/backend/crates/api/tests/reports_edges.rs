@@ -189,3 +189,115 @@ async fn recognition_top_three_unknown_and_distinct_scan_median() {
     assert_eq!(report["top1_rate"], 0.25);
     assert_eq!(report["median_scan_ms"], 60, "each scan counted once");
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn oversized_sales_are_rejected_and_max_sales_keep_reports_working() {
+    let w = World::new().await;
+    let product = w.product("Vang", 1000, None).await;
+    // The reproduction of the bug: 2^62 per sale used to be accepted and then break the reports.
+    let mut huge = sale_body(Uuid::now_v7(), AT, "transfer", &[(product, 1, 1000)]);
+    huge["lines"][0]["unit_price"] = json!(4_611_686_018_427_387_904_i64);
+    huge["total"] = json!(4_611_686_018_427_387_904_i64);
+    let reply = w.call("POST", "/v1/sales", &w.seller, huge).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.body);
+    assert_eq!(reply.body["code"], "validation_failed");
+    assert!(reply.body["error"].as_str().unwrap().contains("sale total"));
+    let mut pricey = sale_body(
+        Uuid::now_v7(),
+        AT,
+        "transfer",
+        &[(product, 1, 2_000_000_000)],
+    );
+    pricey["lines"][0]["unit_price"] = json!(2_000_000_000_i64);
+    let reply = w.call("POST", "/v1/sales", &w.seller, pricey).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.body);
+    assert!(reply.body["error"].as_str().unwrap().contains("unit price"));
+    // A sale total above the bound is rejected even when each line is within bounds.
+    let lines = [(product, 999, 1_000_000_000)].repeat(2);
+    let mut over = sale_body(Uuid::now_v7(), AT, "transfer", &lines);
+    over["total"] = json!(1_998_000_000_000_i64);
+    let reply = w.call("POST", "/v1/sales", &w.seller, over).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.body);
+    assert!(reply.body["error"].as_str().unwrap().contains("sale total"));
+    // Two sales at the largest accepted size keep both reports correct.
+    for _ in 0..2 {
+        let body = sale_body(
+            Uuid::now_v7(),
+            AT,
+            "transfer",
+            &[(product, 999, 1_000_000_000)],
+        );
+        w.checked(
+            "POST",
+            "/v1/sales",
+            "/v1/sales",
+            &w.seller,
+            body,
+            StatusCode::CREATED,
+        )
+        .await;
+    }
+    let today = w
+        .checked(
+            "GET",
+            &format!("/v1/reports/today?date={DAY}"),
+            "/v1/reports/today",
+            &w.lead,
+            json!(null),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(today["revenue"], 1_998_000_000_000_i64);
+    assert_eq!(today["sales_count"], 2);
+    let summary = w
+        .checked(
+            "GET",
+            &format!("/v1/reports/summary?from={DAY}&to={DAY}"),
+            "/v1/reports/summary",
+            &w.lead,
+            json!(null),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(summary["buckets"][0]["revenue"], 1_998_000_000_000_i64);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn day_close_rejects_out_of_range_cash_with_422() {
+    let w = World::new().await;
+    let path = format!("/v1/day-closes/{DAY}");
+    for body in [
+        json!({"counted_cash": 0, "opening_float": i64::MAX}),
+        json!({"counted_cash": i64::MAX}),
+        json!({"counted_cash": 1_000_000_000_001_i64}),
+    ] {
+        let reply = w.call("PUT", &path, &w.lead, body.clone()).await;
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{body}: {}",
+            reply.body
+        );
+        assert_eq!(reply.body["code"], "validation_failed");
+        assert!(
+            reply.body["error"]
+                .as_str()
+                .unwrap()
+                .contains("at most 1000000000000")
+        );
+    }
+    // The bound itself is accepted.
+    let ok = w
+        .checked(
+            "PUT",
+            &path,
+            "/v1/day-closes/{businessDate}",
+            &w.lead,
+            json!({"counted_cash": 1_000_000_000_000_i64, "opening_float": 1_000_000_000_000_i64}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(ok["difference"], 0);
+}

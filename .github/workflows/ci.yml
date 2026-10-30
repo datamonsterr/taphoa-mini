@@ -272,8 +272,10 @@ jobs:
           path: apps/backend
       # The per-IP limit test needs the default limits and fresh Redis counters, so it runs
       # first; everything else runs with the raised limits from the job env.
+      # Bound test steps so the always() summary runs before the job timeout.
       - name: Integration tests - default rate limits
         if: matrix.partition == 1
+        timeout-minutes: 2
         working-directory: apps/backend
         run: >-
           env -u RATE_LIMIT_STORE_CREATE_PER_HOUR -u RATE_LIMIT_JOIN_PER_HOUR
@@ -284,6 +286,7 @@ jobs:
         if: matrix.partition == 1
         run: cp apps/backend/target/nextest/ci/junit.xml apps/backend/target/nextest/ci/junit-limits.xml
       - name: Integration tests - everything else (real Postgres+pgvector, Redis, RustFS)
+        timeout-minutes: 7
         working-directory: apps/backend
         run: >-
           cargo nextest run --archive-file nextest.tar.zst --workspace-remap .
@@ -295,8 +298,10 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          python3 -I scripts/ci/junit_summary.py "rust-integration ${{ matrix.partition }}/2" apps/backend/target/nextest/ci/junit-limits.xml apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          summary_status=0
+          python3 -I scripts/ci/junit_summary.py --budget-seconds 360 "rust-integration ${{ matrix.partition }}/2" apps/backend/target/nextest/ci/junit-limits.xml apps/backend/target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY" || summary_status=$?
           scripts/ci/job-summary.sh "rust-integration timing"
+          exit "$summary_status"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -455,7 +460,12 @@ jobs:
         if: matrix.target == 'web'
         env:
           EXPO_PUBLIC_API_URL: http://localhost:8080
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          EXPO_PUBLIC_ENVIRONMENT: test
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          # voice.spec.ts opens /voice?fixture=<clip>: the e2e export honours the fixture param.
+          EXPO_PUBLIC_VOICE_FIXTURES: '1'
         run: pnpm --filter @taphoa/mobile ${{ matrix.script }}
       - uses: actions/upload-artifact@v7
         if: matrix.dist != ''
@@ -799,6 +809,9 @@ jobs:
         env:
           E2E_WEB_EXPORT_READY: ${{ steps.web-export.outcome == 'success' && '1' || '0' }}
           EXPO_PUBLIC_API_URL: http://localhost:8080
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          EXPO_PUBLIC_ENVIRONMENT: test
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
@@ -806,6 +819,13 @@ jobs:
       - name: Backend log
         if: failure()
         run: tail -n 200 "$E2E_STATE_DIR/backend.log" || true
+      - uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: web-e2e-screenshots
+          path: apps/mobile/e2e-web/screenshots
+          if-no-files-found: ignore
+          retention-days: 3
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -831,15 +851,15 @@ jobs:
   #   live: the assistant (X3) and Clerk identity (X1, members.clerk_user_id) are in the checkout
   #         and the secrets are available (not a fork PR). A
   #         local stack (compose postgres + redis, taphoa-seed --profile eval, the prebuilt
-  #         backend with ASSISTANT_ALLOW_EVAL_HEADERS=1) answers the cases. The shared free
-  #         OpenRouter quota pays for it, so a newer push cancels the run. PostHog gets nothing
+  #         backend with ASSISTANT_ALLOW_EVAL_HEADERS=1) answers the cases. The shared
+  #         OpenRouter credit budget pays for it, so a newer push cancels the run. PostHog gets nothing
   #         from pull requests; the nightly workflow eval.yml sends the events.
   #   stub: otherwise, a dry run against the in-process stub assistant: no network, no secrets.
   assistant-eval-smoke:
     needs: [changes, backend-binary]
     if: needs.changes.outputs.eval == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       group: assistant-eval-smoke-${{ github.ref }}
       cancel-in-progress: true
@@ -889,15 +909,15 @@ jobs:
         env:
           OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-        # A run that finishes but misses a pass bar is the free models' and the assistant's score,
+        # A run that finishes but misses a pass bar is the models' and the assistant's score,
         # not a broken stack: it is reported (annotation, summary, artifact) and the nightly
         # workflow eval.yml enforces the bars. A refused or aborted run still fails the job.
         run: |
           pnpm --filter @taphoa/eval run smoke -- --concurrency 1 --no-posthog --out "$RUNNER_TEMP/eval" 2>&1 | tee "$RUNNER_TEMP/eval-smoke.log"
           rc=${PIPESTATUS[0]}
           # The shared free quota (1,000 requests a day) can be spent by other runs: not a failure.
-          if [ "$rc" -eq 1 ] && grep -q 'free quota too low' "$RUNNER_TEMP/eval-smoke.log"; then
-            echo "::warning title=Assistant eval::skipped, the shared OpenRouter free quota is used up for today"
+          if [ "$rc" -eq 1 ] && grep -Eq 'free quota too low|credits too low' "$RUNNER_TEMP/eval-smoke.log"; then
+            echo "::warning title=Assistant eval::skipped, the shared OpenRouter budget is too low"
             exit 0
           fi
           if [ "$rc" -eq 1 ] && grep -qs '^- Result: FAIL' "$RUNNER_TEMP"/eval/*.md; then
@@ -969,9 +989,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      - name: PostHog controller and definitions tests
+      - name: PostHog controller, product and LLM definitions tests
         run: node --test infra/posthog/tests
-      - name: Offline dashboard plan
+      - name: LLM pricing and judge tests
+        run: node --test infra/posthog/llm/*.test.mjs
+      - name: Offline product and LLM dashboard plan
         run: node infra/posthog/apply.mjs --dry-run --offline
       - name: Summary
         if: always()

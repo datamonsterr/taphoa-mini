@@ -5,7 +5,13 @@ export {
   resetApiClient,
   setApiTransport,
 } from './client';
-export { ApiError, isApiError } from './errors';
+export {
+  ApiError,
+  RATE_LIMIT_MESSAGE,
+  apiErrorText,
+  isApiError,
+  isRateLimited,
+} from './errors';
 export * from './downsize';
 export { getHealth, type HealthResponse } from './health';
 export * from './hooks';
@@ -24,3 +30,5 @@ export * from './events';
 export * from './debts';
 export * from './digest';
 export * from './devices';
+export * from './documentProbes';
+export * from './sync';

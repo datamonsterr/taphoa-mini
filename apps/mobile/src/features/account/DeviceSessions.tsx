@@ -1,9 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, UserPlus } from 'lucide-react-native';
+import { Check, ChevronRight, Plus, Smartphone } from 'lucide-react-native';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { Icon, PressableScale, ScaledText, Text } from '@/components/ui';
+import {
+  CircleButton,
+  Icon,
+  PressableScale,
+  ScaledText,
+  Text,
+} from '@/components/ui';
 import {
   deviceMeKey,
   personName,
@@ -132,9 +138,35 @@ export const DeviceSessions = memo(function DeviceSessions({
   const { prefix, title } = VARIANTS[variant];
   return (
     <View testID={`${prefix}s`} style={styles.group}>
-      <ScaledText variant="label" accessibilityRole="header">
-        {t(title)}
-      </ScaledText>
+      {onAdd ? (
+        // Board 12: one row with the people count and a "+" that adds a person.
+        <View style={styles.head}>
+          <Icon icon={Smartphone} color={colors.inkMuted} />
+          <ScaledText
+            variant="label"
+            accessibilityRole="header"
+            style={styles.grow}
+          >
+            {t(title)}
+          </ScaledText>
+          <View style={styles.count}>
+            <ScaledText variant="label" style={styles.countText}>
+              {sessions.length}
+            </ScaledText>
+          </View>
+          <CircleButton
+            testID="account-add-person"
+            icon={Plus}
+            variant="surface"
+            accessibilityLabel={t('sessions.add')}
+            onPress={onAdd}
+          />
+        </View>
+      ) : (
+        <ScaledText variant="label" accessibilityRole="header">
+          {t(title)}
+        </ScaledText>
+      )}
       {sessions.map((session, index) => (
         <SessionRow
           key={session.id}
@@ -156,28 +188,32 @@ export const DeviceSessions = memo(function DeviceSessions({
           {error}
         </ScaledText>
       ) : null}
-      {onAdd ? (
-        <PressableScale
-          testID="account-add-person"
-          accessibilityRole="button"
-          accessibilityLabel={t('sessions.add')}
-          pressedScale={0.98}
-          onPress={onAdd}
-          style={styles.row}
-        >
-          <Icon icon={UserPlus} color={colors.inkMuted} />
-          <ScaledText variant="label" style={styles.grow}>
-            {t('sessions.add')}
-          </ScaledText>
-          <Icon icon={ChevronRight} color={colors.inkMuted} />
-        </PressableScale>
-      ) : null}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   group: { gap: space[2] },
+  head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    minHeight: 72,
+    paddingLeft: space[4],
+    paddingRight: space[2],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  count: {
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: space[2],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+  },
+  countText: { fontVariant: ['tabular-nums'], color: colors.ink },
   grow: { flex: 1, minWidth: 0 },
   row: {
     flexDirection: 'row',

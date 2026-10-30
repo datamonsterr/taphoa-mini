@@ -1,0 +1,58 @@
+appId: com.datamonsterr.taphoamini
+---
+# Voice sale on a new store (real backend with the V1 voice routes). A phone cannot speak into the
+# emulator reliably, so the flow opens the sheet through the debug deep link
+# `taphoa://voice?fixture=<clip>`: the app uploads that fixture clip name instead of recording
+# (honoured only because the E2E build sets EXPO_PUBLIC_VOICE_FIXTURES=1). While the backend has
+# no /v1/voice/* routes (probe below) the flow passes after creating the store: the voice steps
+# are skipped, not failed.
+#
+# The store is new and has no catalog, so the clip is unknown-product.m4a: one line for a product
+# that is not in the stock, with the spoken price (15.000đ). The backend runs the scripted voice
+# model (scripts/e2e/stack.sh), and the fixture bytes carry their own answer.
+#
+# Not covered here: the real microphone and the Android bubble (V3). Playwright (voice.spec.ts)
+# and Jest cover the long-press and the chip entry points.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Giọng nói'
+      OWNER_NAME: 'Cô Ba'
+- runScript:
+    file: subflows/voice-probe.js
+    env:
+      # runScript runs in the Maestro CLI on the host, not on the emulator: localhost, not 10.0.2.2
+      API_URL: 'http://localhost:8080'
+- runFlow:
+    when:
+      true: ${output.voice}
+    commands:
+      - openLink: 'taphoa://voice?entry=chip&fixture=unknown-product.m4a'
+      # the sheet opens recording; the fixture stands in for the microphone
+      - extendedWaitUntil:
+          visible:
+            id: 'voice-listening'
+          timeout: 20000
+      - assertVisible: 'Nói tên hàng và giá'
+      - takeScreenshot: voice-01-listening
+      - tapOn: 'Xong, hiểu lời vừa nói'
+      # the draft sheet: transcript, lines, total and the payment toggle
+      - extendedWaitUntil:
+          visible:
+            id: 'voice-draft'
+          timeout: 30000
+      - assertVisible:
+          id: 'voice-total'
+      - assertVisible: 'Tiền mặt'
+      - takeScreenshot: voice-02-draft
+      # a product that is not in the catalog never becomes a sale line by itself: the sheet warns
+      # and offers pick, add or remove, and the green check stays off until the line is resolved
+      - assertVisible: 'Chưa có sản phẩm này trong kho'
+      - assertVisible: 'Chọn món có sẵn'
+      - assertVisible: 'Thêm món mới'
+      - assertVisible: 'Xóa dòng này'
+      - takeScreenshot: voice-03-unknown-warning
+      - tapOn: 'Xóa dòng này'
+      - assertNotVisible: 'Chưa có sản phẩm này trong kho'

@@ -4,6 +4,11 @@ use crate::auth::Actor;
 use chrono::NaiveDate;
 use uuid::Uuid;
 
+/// Largest sale unit price, expense, repayment or cash amount the API accepts, in whole VND.
+/// Day aggregates (`sum(...)::bigint`) then stay far below the `i64` range.
+pub const MAX_AMOUNT: i64 = 1_000_000_000_000;
+/// Largest price of one sale line unit, in whole VND.
+pub const MAX_UNIT_PRICE: i64 = 1_000_000_000;
 /// Sum of `quantity * unit_price`; `None` on overflow.
 pub fn sum_lines(lines: &[(i32, i64)]) -> Option<i64> {
     lines.iter().try_fold(0_i64, |total, &(quantity, price)| {
@@ -67,11 +72,11 @@ pub fn expected_cash(
     cash_refunds: i64,
     cash_repayments: i64,
     cash_expenses: i64,
-) -> i64 {
+) -> Option<i64> {
     let cash = i128::from(opening_float) + i128::from(cash_sales) - i128::from(cash_refunds)
         + i128::from(cash_repayments)
         - i128::from(cash_expenses);
-    i64::try_from(cash).expect("expected cash exceeds i64 range")
+    i64::try_from(cash).ok()
 }
 /// Lead may void any sale; a seller only their own sale on the same business date.
 pub fn can_void(
@@ -151,22 +156,28 @@ mod tests {
     fn cash_formula() {
         assert_eq!(
             expected_cash(200_000, 1_500_000, 60_000, 0, 400_000),
-            1_240_000
+            Some(1_240_000)
         );
-        assert_eq!(expected_cash(0, 0, 0, 0, 50_000), -50_000);
+        assert_eq!(expected_cash(0, 0, 0, 0, 50_000), Some(-50_000));
+        assert_eq!(
+            expected_cash(i64::MAX, 1, 0, 0, 0),
+            None,
+            "overflow is None"
+        );
+        assert_eq!(expected_cash(i64::MIN, 0, 1, 0, 0), None);
     }
     #[test]
     fn cash_formula_adds_cash_repayments() {
         // opening + sales - refunds + repayments - expenses
         assert_eq!(
             expected_cash(200_000, 1_500_000, 60_000, 25_000, 400_000),
-            1_265_000
+            Some(1_265_000)
         );
-        assert_eq!(expected_cash(0, 0, 0, 40_000, 0), 40_000);
-        assert_eq!(expected_cash(0, 0, 0, 40_000, 50_000), -10_000);
+        assert_eq!(expected_cash(0, 0, 0, 40_000, 0), Some(40_000));
+        assert_eq!(expected_cash(0, 0, 0, 40_000, 50_000), Some(-10_000));
         assert_eq!(
             expected_cash(i64::MAX, 0, 0, 1, 1),
-            i64::MAX,
+            Some(i64::MAX),
             "wide intermediate"
         );
     }

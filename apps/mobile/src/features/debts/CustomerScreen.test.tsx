@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { Share } from 'react-native';
@@ -33,7 +34,10 @@ jest.mock('expo-router', () => ({
   },
 }));
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  onlineManager.setOnline(true);
+  jest.restoreAllMocks();
+});
 
 const press = (name: string) =>
   fireEvent.press(screen.getByRole('button', { name }));
@@ -85,7 +89,7 @@ async function seedLan() {
 async function renderLan() {
   const lan = await seedLan();
   await renderWithProviders(<CustomerScreen id={lan.id} />);
-  await screen.findByLabelText('Còn nợ 105.000đ');
+  await screen.findByLabelText('Đang nợ 105.000đ');
   return lan;
 }
 
@@ -93,7 +97,9 @@ describe('profile and ledger', () => {
   test('shows name, phone, note, credit limit, balance and the overdue age', async () => {
     await renderLan();
     expect(screen.getByRole('header', { name: 'Chị Lan' })).toBeOnTheScreen();
-    expect(screen.getByLabelText('Điện thoại 0901234567')).toBeOnTheScreen();
+    // Board 21: the phone sits under the name in the header, not in the balance card.
+    expect(screen.getByText('0901234567')).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Điện thoại/)).toBeNull();
     expect(screen.getByLabelText('Ghi chú Hay quên')).toBeOnTheScreen();
     expect(screen.getByLabelText('Hạn mức nợ 500.000đ')).toBeOnTheScreen();
     expect(screen.getByText('Quá hạn 10 ngày')).toBeOnTheScreen();
@@ -114,7 +120,11 @@ describe('profile and ledger', () => {
     ]);
     const first = screen.getAllByTestId('ledger-row')[0]!;
     expect(within(first).getByText('+5.000đ')).toBeOnTheScreen();
-    expect(within(first).getByText('Số dư 105.000đ')).toBeOnTheScreen();
+    // Board: date and time under the title; the running balance is spoken only.
+    expect(
+      within(first).getByText(/^\d{2}\/\d{2} · \d{2}:\d{2}$/),
+    ).toBeOnTheScreen();
+    expect(within(first).queryByText('Số dư 105.000đ')).toBeNull();
   });
 
   test('a customer who owes more than the limit gets a warning, not a block', async () => {
@@ -132,9 +142,7 @@ describe('profile and ledger', () => {
     const settled = await seedCustomer({ name: 'Cô Mai' });
     await renderWithProviders(<CustomerScreen id={settled.id} />);
     expect(await screen.findByLabelText('Hết nợ 0đ')).toBeOnTheScreen();
-    expect(
-      screen.getByLabelText('Hạn mức nợ Không giới hạn'),
-    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/^Hạn mức nợ/)).toBeNull();
     expect(await screen.findByText('Chưa có giao dịch')).toBeOnTheScreen();
   });
 
@@ -247,7 +255,7 @@ describe('Thu nợ', () => {
       { amount: 50000, method: 'transfer' },
       expect.any(String),
     );
-    expect(await screen.findByLabelText('Còn nợ 55.000đ')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('Đang nợ 55.000đ')).toBeOnTheScreen();
     await waitFor(() => expect(ledgerRows()).toHaveLength(6));
     expect(ledgerRows()[0]).toBe(
       `Trả nợ · Chuyển khoản, -50.000đ, ${today()}, Số dư 55.000đ`,
@@ -304,6 +312,49 @@ describe('Thu nợ', () => {
     ).toBeDisabled();
   });
 
+  test('collecting offline says so at once, keeps the amount and never drops the payment (#205)', async () => {
+    const lan = await renderLan();
+    const create = jest.spyOn(debtsApi, 'createRepayment');
+    await press('Thu nợ');
+    await type('Số tiền thu', '1000');
+    await act(async () => onlineManager.setOnline(false));
+    await press('Xác nhận thu nợ');
+    expect(
+      await screen.findByText(
+        'Không có mạng nên chưa ghi được khoản thu. Số tiền vẫn còn, thử lại khi có mạng.',
+      ),
+    ).toBeOnTheScreen();
+    expect(create).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'Xác nhận thu nợ' }),
+    ).toBeEnabled();
+    expect(screen.getByLabelText('Số tiền thu')).toHaveDisplayValue('1000');
+    expect(screen.getByRole('header', { name: 'Thu nợ' })).toBeOnTheScreen();
+    // back online, the same sheet records it once
+    await act(async () => onlineManager.setOnline(true));
+    await press('Xác nhận thu nợ');
+    await sheetClosed('Thu nợ');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(
+      lan.id,
+      { amount: 1000, method: 'cash' },
+      expect.any(String),
+    );
+  });
+
+  test('a payment that fails because the connection dropped says there is no network', async () => {
+    await renderLan();
+    jest.spyOn(debtsApi, 'createRepayment').mockImplementationOnce(async () => {
+      onlineManager.setOnline(false);
+      throw new TypeError('Network request failed');
+    });
+    await press('Thu nợ');
+    await press('Xác nhận thu nợ');
+    expect(
+      await screen.findByText(/^Không có mạng nên chưa ghi được khoản thu/),
+    ).toBeOnTheScreen();
+  });
+
   test('a lost response is retried with the same Idempotency-Key and the payment lands once', async () => {
     const lan = await seedCustomer({ name: 'Chị Lan', owes: 100000 });
     const real = debtsApi.createRepayment;
@@ -314,7 +365,7 @@ describe('Thu nợ', () => {
         throw new TypeError('response lost');
       });
     await renderWithProviders(<CustomerScreen id={lan.id} />);
-    await screen.findByLabelText('Còn nợ 100.000đ');
+    await screen.findByLabelText('Đang nợ 100.000đ');
     await press('Thu nợ');
     await press('Xác nhận thu nợ');
     expect(
@@ -334,7 +385,7 @@ describe('Thu nợ', () => {
       .spyOn(debtsApi, 'createRepayment')
       .mockRejectedValue(new TypeError('offline'));
     await renderWithProviders(<CustomerScreen id={lan.id} />);
-    await screen.findByLabelText('Còn nợ 100.000đ');
+    await screen.findByLabelText('Đang nợ 100.000đ');
     await press('Thu nợ');
     await press('Xác nhận thu nợ');
     await screen.findByText('Không ghi được khoản thu. Thử lại.');
@@ -395,7 +446,7 @@ describe('Điều chỉnh (Lead)', () => {
   test('raises the debt with a reason and updates the balance', async () => {
     const lan = await renderLan();
     const adjust = jest.spyOn(debtsApi, 'createDebtAdjustment');
-    await press('Điều chỉnh');
+    await press('Điều chỉnh số dư (Chủ)');
     expect(
       screen.getByRole('header', { name: 'Điều chỉnh sổ nợ' }),
     ).toBeOnTheScreen();
@@ -415,13 +466,13 @@ describe('Điều chỉnh (Lead)', () => {
       { amount: 10000, reason: 'Ghi thiếu' },
       expect.any(String),
     );
-    expect(await screen.findByLabelText('Còn nợ 115.000đ')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('Đang nợ 115.000đ')).toBeOnTheScreen();
   });
 
   test('lowers the debt as a negative amount', async () => {
     const lan = await renderLan();
     const adjust = jest.spyOn(debtsApi, 'createDebtAdjustment');
-    await press('Điều chỉnh');
+    await press('Điều chỉnh số dư (Chủ)');
     await fireEvent.press(screen.getByRole('radio', { name: 'Giảm nợ' }));
     await type('Số tiền điều chỉnh', '5000');
     await type('Lý do', 'Giảm giá');
@@ -432,7 +483,7 @@ describe('Điều chỉnh (Lead)', () => {
       { amount: -5000, reason: 'Giảm giá' },
       expect.any(String),
     );
-    expect(await screen.findByLabelText('Còn nợ 100.000đ')).toBeOnTheScreen();
+    expect(await screen.findByLabelText('Đang nợ 100.000đ')).toBeOnTheScreen();
   });
 
   test('a retry after a lost response reuses the key and adjusts once', async () => {
@@ -444,7 +495,7 @@ describe('Điều chỉnh (Lead)', () => {
         await real(...args);
         throw new TypeError('response lost');
       });
-    await press('Điều chỉnh');
+    await press('Điều chỉnh số dư (Chủ)');
     await type('Số tiền điều chỉnh', '10000');
     await type('Lý do', 'Ghi thiếu');
     await press('Xác nhận điều chỉnh');
@@ -550,10 +601,12 @@ describe('as a Seller', () => {
     const lan = await seedLan();
     actAsSeller();
     await renderWithProviders(<CustomerScreen id={lan.id} />);
-    await screen.findByLabelText('Còn nợ 105.000đ');
+    await screen.findByLabelText('Đang nợ 105.000đ');
     expect(screen.getByRole('button', { name: 'Thu nợ' })).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Nhắc nợ' })).toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: 'Điều chỉnh' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Điều chỉnh số dư (Chủ)' }),
+    ).toBeNull();
     await press('Sửa thông tin');
     expect(screen.getByLabelText('Tên khách hàng')).toBeOnTheScreen();
     expect(
@@ -566,7 +619,7 @@ describe('as a Seller', () => {
     actAsSeller();
     const update = jest.spyOn(debtsApi, 'updateCustomer');
     await renderWithProviders(<CustomerScreen id={lan.id} />);
-    await screen.findByLabelText('Còn nợ 105.000đ');
+    await screen.findByLabelText('Đang nợ 105.000đ');
     await press('Sửa thông tin');
     await type('Ghi chú (không bắt buộc)', 'Mới');
     await press('Lưu thay đổi');
@@ -581,14 +634,14 @@ describe('sheets', () => {
     await press('Thu nợ');
     await press('Đóng');
     await sheetClosed('Thu nợ');
-    await press('Điều chỉnh');
+    await press('Điều chỉnh số dư (Chủ)');
     await fireEvent.press(screen.getByTestId('sheet-scrim'));
     await sheetClosed('Điều chỉnh sổ nợ');
   });
 
   test('the action buttons are at least 48 dp tall', async () => {
     await renderLan();
-    for (const name of ['Thu nợ', 'Nhắc nợ', 'Điều chỉnh'])
+    for (const name of ['Thu nợ', 'Nhắc nợ', 'Điều chỉnh số dư (Chủ)'])
       expect(screen.getByRole('button', { name })).toHaveStyle({
         minHeight: 56,
       });
@@ -603,7 +656,9 @@ test('English labels follow the language', async () => {
   expect(await screen.findByLabelText('Owes 105.000đ')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Collect' })).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Remind' })).toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: 'Adjust' })).toBeOnTheScreen();
+  expect(
+    screen.getByRole('button', { name: 'Adjust balance (Owner)' }),
+  ).toBeOnTheScreen();
   expect(screen.getByRole('header', { name: 'History' })).toBeOnTheScreen();
   await waitFor(() => expect(ledgerRows()).toHaveLength(5));
   expect(ledgerRows()[1]).toBe(

@@ -117,6 +117,19 @@ export async function createLiveOracle(
   return {
     value: (query) => provider.value(query),
     resolveRef: (ref) => provider.resolveRef(ref),
+    toolEvidence: async (threadId) => {
+      const { rows } = await db.pool.query<{
+        transcript: { role: string; content?: string }[];
+      }>(
+        "SELECT transcript FROM assistant_messages WHERE store_id=$1 AND thread_id=$2 AND role='assistant' AND status='complete' ORDER BY created_at DESC,id DESC LIMIT 1",
+        [db.storeId, threadId],
+      );
+      if (rows.length !== 1)
+        throw new Error('eval turn evidence is unavailable');
+      return rows[0]!.transcript
+        .filter((message) => message.role === 'tool')
+        .map((message) => JSON.parse(message.content ?? '{}'));
+    },
     close: db.close,
   };
 }

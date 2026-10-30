@@ -37,6 +37,32 @@ def run(cmd, env=None, cwd=None):
     return subprocess.run(cmd, capture_output=True, text=True, env=full_env, cwd=cwd, check=False)
 
 
+class MaestroLint(unittest.TestCase):
+    def lint(self, flows):
+        return run(["bash", str(HERE / "lint-maestro.sh"), str(flows)])
+
+    def test_accepts_submit_and_tap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "flow.yaml").write_text("- pressKey: Enter\n- tapOn: 'Title'\n")
+            out = self.lint(tmp)
+        self.assertEqual(out.returncode, 0, out.stderr)
+
+    def test_rejects_nested_keyboard_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = pathlib.Path(tmp, "subflows")
+            nested.mkdir()
+            (nested / "flow.yaml").write_text("- hideKeyboard\n")
+            out = self.lint(tmp)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("flow.yaml:1", out.stdout)
+        self.assertIn("assert the sheet stays open", out.stderr)
+
+    def test_missing_directory_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self.lint(pathlib.Path(tmp, "missing"))
+        self.assertNotEqual(out.returncode, 0)
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         self.send_response(200)
@@ -63,6 +89,29 @@ class JunitSummary(unittest.TestCase):
         out = run(["python3", "-I", str(HERE / "junit_summary.py"), "Unit", "/nonexistent/junit.xml"])
         self.assertEqual(out.returncode, 0)
         self.assertIn("no JUnit report", out.stdout)
+
+    def test_budget_exceeded_fails_and_prints_slowest_tests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp, "junit.xml")
+            path.write_text(JUNIT)
+            out = run(
+                ["python3", "-I", str(HERE / "junit_summary.py"), "--budget-seconds", "1", "Integration", str(path)]
+            )
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("Total test time: 1.20s (budget: 1.00s)", out.stdout)
+        self.assertIn("ok_two", out.stdout)
+        self.assertIn("Test time budget exceeded", out.stdout)
+
+    def test_slowest_tests_are_limited_to_ten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp, "junit.xml")
+            cases = "".join(f'<testcase name="test_{i}" classname="suite" time="{i}"/>' for i in range(12))
+            path.write_text(f'<testsuite name="suite">{cases}</testsuite>')
+            out = run(["python3", "-I", str(HERE / "junit_summary.py"), "Integration", str(path)])
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("test_11", out.stdout)
+        self.assertIn("test_2", out.stdout)
+        self.assertNotIn("test_1`", out.stdout)
 
 
 class JobSummary(unittest.TestCase):
@@ -415,6 +464,8 @@ class SmokeServer:
                 if (method, path) in (("GET", "/healthz"), ("GET", "/readyz")):
                     return self.reply(200, b"ok", "text/plain")
                 if (method, path) == ("POST", "/v1/segment"):
+                    if not user_auth:
+                        return self.reply(401, b'{"errors":[{"code":"unauthorized"}]}')
                     return self.reply(200, b'{"detections":[]}')
                 if path.startswith("/v1/users") or path.startswith("/v1/sessions"):
                     if not clerk_auth:
@@ -489,6 +540,7 @@ class BackendSmoke(unittest.TestCase):
                 ("POST", "/v1/sessions"),
                 ("POST", "/v1/sessions/sess_smoke1/tokens"),
                 ("POST", "/v1/stores"),
+                ("POST", "/v1/segment"),
                 ("POST", "/v1/images"),
                 ("GET", "/v1/images/img1"),
                 ("GET", "/blob/sample.png"),
@@ -553,7 +605,7 @@ DEV_CLERK_KEY = "pk_test_ZnVsbC1tb2NjYXNpbi01NDA3LmNsZXJrLmFjY291bnRzLmRldiQ"
 
 FAKE_BACKEND = """#!/usr/bin/env python3
 import http.server, json, os
-KEYS = ("JWT_SECRET", "DATABASE_URL", "REDIS_URL")
+KEYS = ("JWT_SECRET", "DATABASE_URL", "REDIS_URL", "TAPHOA_TEST_NOW")
 env = {k: v for k, v in os.environ.items() if k.startswith(("CLERK_", "RATE_LIMIT_")) or k in KEYS}
 with open(os.environ["ENV_DUMP"], "w") as out:
     json.dump(env, out)
@@ -641,6 +693,11 @@ class E2eStack(unittest.TestCase):
         seen = self.start(CLERK_PUBLISHABLE_KEY="pk_test_other", CLERK_SECRET_KEY="sk_test_unit")
         self.assertEqual(seen["CLERK_PUBLISHABLE_KEY"], "pk_test_other")
         self.assertEqual(seen["CLERK_SECRET_KEY"], "sk_test_unit")
+
+    def test_passes_the_business_clock_override_through(self):
+        pinned = "2026-01-15T10:00:00+07:00"
+        seen = self.start(TAPHOA_TEST_NOW=pinned)
+        self.assertEqual(seen["TAPHOA_TEST_NOW"], pinned)
 
     def test_default_database_and_redis_db_keep_ci_behaviour(self):
         seen = self.start()

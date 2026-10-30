@@ -1,0 +1,18 @@
+{
+  "id": "30-credit-lan-coca",
+  "source": "synthetic",
+  "transcript": "hai lon coca ghi nợ chị Lan",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "credit",
+  "customer_name": "chị Lan",
+  "lines": [
+    {
+      "spoken": "coca",
+      "product": "Coca-Cola lon 320ml",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["credit"]
+}

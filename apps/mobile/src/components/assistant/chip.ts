@@ -4,8 +4,9 @@ import type { NextStepKind } from '@/lib/analytics';
 
 /** What a chip does when tapped; the server actions come through untouched. */
 export type NextStepChipAction =
-  | { type: 'receipt' }
+  | { type: 'receipt'; destination?: 'review' | 'assistant' }
   | { type: 'enroll' }
+  | { type: 'voice' }
   | components['schemas']['NextStep']['action'];
 
 /** A chip as the strip shows it: text already in the app language. */
@@ -14,7 +15,8 @@ export type NextStepChipData = {
   kind: NextStepKind;
   title: string;
   subtitle?: string;
-  /** `device` chips come from the current camera frame and look different. */
-  source: 'device' | 'server';
+  /** `device` chips come from the current camera frame and look different; `app` chips come from app rules. */
+  source: 'device' | 'server' | 'app';
+  tone?: 'accent' | 'neutral';
   action: NextStepChipAction;
 };

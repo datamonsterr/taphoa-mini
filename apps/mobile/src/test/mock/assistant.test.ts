@@ -168,7 +168,13 @@ test('next steps are server chips, digest supports missing dates, devices upsert
   expect(digest.data!.sales.revenue).toBe(1234000);
   expect(digest.data!.read_at).toBeNull();
   const secondDigest = await api().raw.GET('/v1/assistant/digest');
-  expect(secondDigest.data!.read_at).not.toBeNull();
+  expect(secondDigest.data!.read_at).toBeNull();
+  const opened = await api().raw.GET('/v1/assistant/digest', {
+    params: { query: { mark_read: true } },
+  });
+  expect(opened.data!.read_at).toBeNull();
+  const thirdDigest = await api().raw.GET('/v1/assistant/digest');
+  expect(thirdDigest.data!.read_at).not.toBeNull();
   expect(
     (
       await api().raw.GET('/v1/assistant/digest', {

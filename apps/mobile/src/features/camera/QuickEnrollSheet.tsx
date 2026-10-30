@@ -8,6 +8,7 @@ import {
   type Candidate,
   type Product,
 } from '@/lib/api';
+import { barcodeConflict } from '@/features/enroll/barcodeConflict';
 import { newUuid } from '@/lib/uuid';
 
 import {
@@ -27,6 +28,7 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
   const shots = useQuickEnrollStore((s) => s.shots);
   const dispatch = useQuickEnrollStore((s) => s.dispatch);
   const create = useCreateProduct();
+  const [barcodeError, setBarcodeError] = useState('');
   const [saving, setSaving] = useState(false);
   const productId = useRef<string | null>(null);
   const pending = useRef(false);
@@ -49,6 +51,11 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
       onCreated(product);
       if (useQuickEnrollStore.getState().active) dispatch({ type: 'toggle' });
     } catch (error) {
+      const conflict = await barcodeConflict(error, values.barcode ?? '');
+      if (conflict) {
+        setBarcodeError(conflict);
+        return;
+      }
       if (isApiError(error) && error.code === 'duplicate_suspected') {
         const candidates = error.body.details?.candidates;
         const candidate = Array.isArray(candidates)
@@ -74,6 +81,7 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
   return (
     <ProductForm
       testID="quick-enroll-sheet"
+      title={`Thêm hàng nhanh · ${accepted.length}/${MIN_SHOTS}`}
       photos={accepted.map((shot) => ({ id: shot.id, uri: shot.uri }))}
       maxPhotos={MAX_SHOTS}
       minPhotos={MIN_SHOTS}
@@ -81,6 +89,8 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
       onRemovePhoto={(id) => dispatch({ type: 'remove', id })}
       onSave={(values) => void save(values)}
       saving={saving}
+      barcodeError={barcodeError}
+      onBarcodeChange={() => setBarcodeError('')}
       onClose={() => {
         if (!pending.current) onClose();
       }}

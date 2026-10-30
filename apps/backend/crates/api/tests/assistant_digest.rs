@@ -28,7 +28,22 @@ async fn today_is_cached_and_read_state_is_per_member() {
         .await;
     assert_eq!(second.status, StatusCode::OK);
     assert_eq!(first.body["generated_at"], second.body["generated_at"]);
-    assert!(second.body["read_at"].is_string());
+    // Reading for the dashboard card never records a read (issue 203).
+    assert!(second.body["read_at"].is_null());
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM assistant_digest_reads WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(rows, 0);
+    // Only the digest screen opts in; the response still shows the state before this open.
+    let opened_path = format!("{PATH}?mark_read=true");
+    let opened = w.call("GET", &opened_path, &w.lead, Value::Null).await;
+    assert_eq!(opened.status, StatusCode::OK, "{}", opened.body);
+    assert!(opened.body["read_at"].is_null());
+    let after = w.call("GET", PATH, &w.lead, Value::Null).await;
+    assert!(after.body["read_at"].is_string());
     let seller = w.call("GET", PATH, &w.seller, Value::Null).await;
     assert!(seller.body["read_at"].is_null());
     assert!(seller.body["sales"]["gross_profit"].is_null());
@@ -139,7 +154,12 @@ async fn scheduler_generation_adds_unread_chip_and_member_read_removes_only_thei
         chip[0]["action"],
         serde_json::json!({"type":"navigate","route":"/digest"})
     );
-    let read = w.call("GET", PATH, &w.lead, Value::Null).await;
+    // A plain read (the dashboard card) keeps the chip; opening the digest removes it.
+    let peek = w.call("GET", PATH, &w.lead, Value::Null).await;
+    assert!(peek.body["read_at"].is_null());
+    assert_eq!(chips(&w, &w.lead).await.len(), 1);
+    let opened_path = format!("{PATH}?mark_read=true");
+    let read = w.call("GET", &opened_path, &w.lead, Value::Null).await;
     assert_eq!(
         read.body["generated_at"],
         serde_json::json!(stored.generated_at)
@@ -173,6 +193,8 @@ impl taphoa_api::assistant::model::ChatModel for FixedModel {
             serde_json::from_str(request.messages[1].content.as_ref().unwrap()).unwrap();
         assert!(data["sales"]["revenue"].is_number());
         self.calls.lock().unwrap().push(request.clone());
+        // A real model takes time; concurrent requests overlap while it answers.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         Ok(ChatResponse {
             model: request.model.clone(),
             content: self.answer.clone()?,
@@ -180,6 +202,7 @@ impl taphoa_api::assistant::model::ChatModel for FixedModel {
             finish_reason: "stop".into(),
             usage: Usage::default(),
             http_status: 200,
+            generation_id: None,
             time_to_first_token: None,
         })
     }
@@ -550,4 +573,54 @@ async fn empty_fresh_store_with_mock_model_yields_template_without_model_call() 
         .execute(w.pool())
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn concurrent_requests_for_a_missing_digest_call_the_model_once() {
+    use std::sync::{Arc, Mutex};
+    use taphoa_api::assistant::{digest, quota};
+    let mut w = fixture().await;
+    w.state.redis = None;
+    quota::clear_openrouter_exhausted(&w.state).await;
+    let mut config = (*w.state.assistant.config).clone();
+    config.models = vec!["first:free".into()];
+    config.digest_model_max_per_day = u32::MAX;
+    w.state.assistant.config = Arc::new(config);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    w.state.assistant.model = Some(Arc::new(FixedModel {
+        answer: Ok(
+            "Hôm qua cửa hàng có doanh thu. Hãy xem hàng cần nhập và các việc đang chờ xử lý."
+                .into(),
+        ),
+        calls: calls.clone(),
+    }));
+    let today = taphoa_api::time::business_date(chrono::Utc::now());
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let state = w.state.clone();
+        let store_id = w.store_id;
+        tasks.push(tokio::spawn(async move {
+            digest::get_or_generate(&state, store_id, today).await
+        }));
+    }
+    let mut generated_at = None;
+    for task in tasks {
+        let stored = task.await.unwrap().unwrap();
+        assert_eq!(stored.source, "model");
+        let first = *generated_at.get_or_insert(stored.generated_at);
+        assert_eq!(first, stored.generated_at);
+    }
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        1,
+        "concurrent requests must share one model call"
+    );
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM assistant_digests WHERE store_id=$1")
+        .bind(w.store_id)
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(rows, 1);
+    quota::clear_openrouter_exhausted(&w.state).await;
 }

@@ -1,0 +1,23 @@
+{
+  "id": "16-multi-household",
+  "source": "synthetic",
+  "transcript": "một chai nước rửa chén sunlight với hai gói bột giặt omo",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "nước rửa chén sunlight",
+      "product": "Nước rửa chén Sunlight 750g",
+      "quantity": 1,
+      "unit_price": null
+    },
+    {
+      "spoken": "bột giặt omo",
+      "product": "Bột giặt OMO 400g",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["multi-line"]
+}

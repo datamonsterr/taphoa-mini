@@ -2,7 +2,15 @@ import { CustomerPicker } from '../debts/CustomerPicker';
 import { debtStrings } from '../debts/strings';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Check, ChevronLeft, Landmark, Undo2 } from 'lucide-react-native';
+import {
+  BookText,
+  ChevronRight,
+  Check,
+  ChevronLeft,
+  Landmark,
+  Undo2,
+  UserRound,
+} from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,24 +28,34 @@ import {
   CheckButton,
   CircleButton,
   Icon,
+  Keypad,
   MoneyText,
   PayToggle,
   PressableScale,
   Text,
 } from '@/components/ui';
 import type { PayMethod } from '@/components/ui';
-import { useCreateSale, useStore } from '@/lib/api';
+import { useStore } from '@/lib/api';
+import { enqueueSale } from '@/lib/outbox';
+import { useQueryClient } from '@tanstack/react-query';
 import type { CreateSaleRequest, Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { useLabels, useT } from '@/lib/i18n';
+import { fill, useLabels, useT } from '@/lib/i18n';
 import { newUuid, saleCode } from '@/lib/uuid';
+import { useSettingsStore } from '@/stores/settings';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
-import type { CartLine } from '@/stores/cart';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import { cartLineKey, type CartLine } from '@/stores/cart';
+import { UnitChooser } from '@/features/checkout/UnitChooser';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
+import { applyKey } from '@/components/ui/keypad';
+import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
+import { bankLabel } from '@/lib/banks';
+import { initialOf } from '../account/utils';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
+import { useSpokenTotal } from './speak';
 import { buildVietQr } from './vietqr';
 
 /** How long the green "received" state shows before returning to the camera. */
@@ -72,14 +90,12 @@ const OrderItem = memo(function OrderItem({ line }: { line: CartLine }) {
 
 type CashChipProps = {
   amount: number;
-  exact: boolean;
   pressed: boolean;
   onPick: (amount: number) => void;
 };
 
 const CashChip = memo(function CashChip({
   amount,
-  exact,
   pressed,
   onPick,
 }: CashChipProps) {
@@ -87,7 +103,6 @@ const CashChip = memo(function CashChip({
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={exact ? 'Đủ tiền' : undefined}
       accessibilityState={{ selected: pressed }}
       aria-selected={pressed}
       onPress={pick}
@@ -115,9 +130,13 @@ export function PayScreen() {
   const total = useCartStore(selectTotal);
   const clearCart = useCartStore((s) => s.clear);
   const store = useStore();
-  const sale = useCreateSale();
+  const qc = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   const t = useT(debtStrings);
+  const payT = useT(payStrings);
+  const [customPaid, setCustomPaid] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [picker, setPicker] = useState(false);
   const [paidText, setPaidText] = useState('0');
@@ -151,9 +170,36 @@ export function PayScreen() {
   );
 
   const cashGiven = tendered ?? total;
+  // Tapping the selected note again clears it: back to paying the exact amount.
+  const pickNote = useCallback(
+    (amount: number) => setTendered((now) => (now === amount ? null : amount)),
+    [],
+  );
   const change = computeChange(total, cashGiven);
-  const options = useMemo(() => quickCashOptions(total), [total]);
-  const short = method === 'cash' && cashGiven < total;
+  const options = useMemo(() => quickCashOptions(), []);
+  const roundStep = total >= 10000 ? 10000 : total >= 1000 ? 1000 : 100;
+  const roundPaid = Math.min(
+    total,
+    Math.max(roundStep, Math.floor(total / roundStep) * roundStep),
+  );
+  const speakTotal = useSettingsStore((s) => s.speakTotal);
+  useSpokenTotal({
+    enabled: speakTotal,
+    total,
+    change: method === 'cash' && tendered !== null ? change : 0,
+  });
+  const creditAmount = Math.max(0, total - paidNow);
+  const confirmDisabled =
+    saving ||
+    done ||
+    lines.length === 0 ||
+    (method === 'cash' && cashGiven < total) ||
+    (method === 'credit' && (!customer || invalidPaid)) ||
+    picker ||
+    customPaid;
+  const creditLabel = fill(payT('credit.confirm'), {
+    amount: formatVnd(creditAmount),
+  });
 
   const back = useCallback(() => router.back(), [router]);
   const retryStore = useCallback(() => void store.refetch(), [store]);
@@ -191,14 +237,15 @@ export function PayScreen() {
           ? { cash_received: cashGiven }
           : { vietqr_memo: memo }),
       lines: lines.map((line) => {
-        let id = lineIds.get(line.productId);
+        let id = lineIds.get(cartLineKey(line));
         if (!id) {
           id = newUuid();
-          lineIds.set(line.productId, id);
+          lineIds.set(cartLineKey(line), id);
         }
         return {
           id,
           product_id: line.productId,
+          ...(line.unitId ? { unit_id: line.unitId } : {}),
           source: line.manual ? 'manual' : (line.source ?? 'camera'),
           quantity: line.qty,
           unit_price: line.price,
@@ -211,15 +258,23 @@ export function PayScreen() {
       }),
       ...(scanIds.length > 0 ? { scan_ids: scanIds } : {}),
     };
-    sale.mutate(body, {
-      onSuccess: () => {
+    // Recorded on the device first: the sale is safe even with no network, and the outbox sends
+    // it (idempotent on `saleId`) as soon as the server answers.
+    setSaving(true);
+    setSaveError(false);
+    enqueueSale(qc, body).then(
+      () => {
         void Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         );
         clearCart();
         setDone(true);
       },
-    });
+      () => {
+        setSaving(false);
+        setSaveError(true);
+      },
+    );
   }, [
     saleId,
     method,
@@ -228,7 +283,7 @@ export function PayScreen() {
     memo,
     lines,
     lineIds,
-    sale,
+    qc,
     clearCart,
     customer,
     paidNow,
@@ -250,15 +305,18 @@ export function PayScreen() {
           accessibilityLabel="Quay lại giỏ hàng"
           onPress={back}
         />
-        <PayToggle
-          value={method}
-          onChange={(next) => {
-            setMethod(next);
-            if (next === 'credit' && !customer) setPicker(true);
-          }}
-          labels={toggle}
-        />
+        <Text accessibilityRole="header" style={styles.title}>
+          {payT('title')}
+        </Text>
       </View>
+      <PayToggle
+        value={method}
+        onChange={(next) => {
+          setMethod(next);
+          if (next === 'credit' && !customer) setPicker(true);
+        }}
+        labels={toggle}
+      />
 
       <MoneyText amount={total} variant="total" style={styles.total} />
 
@@ -266,22 +324,95 @@ export function PayScreen() {
         <View style={styles.cashCard}>
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel={customer ? t('change') : t('choose')}
+            accessibilityLabel={
+              customer
+                ? `${customer.name}, ${fill(payT('credit.currentDebt'), { amount: formatVnd(customer.balance) })}${customer.phone ? `, ${customer.phone}` : ''}. ${t('change')}`
+                : t('choose')
+            }
             onPress={() => setPicker(true)}
-            style={styles.retry}
+            style={styles.customerRow}
           >
-            <Text style={styles.retryText}>
-              {customer ? `${customer.name} · ${t('change')}` : t('choose')}
-            </Text>
+            {customer ? (
+              <View style={styles.customerAvatar}>
+                <Text style={styles.customerInitial}>
+                  {initialOf(customer.name)}
+                </Text>
+              </View>
+            ) : (
+              <Icon icon={UserRound} color={colors.accent} />
+            )}
+            <View style={styles.customerText}>
+              <Text style={styles.customerName}>
+                {customer?.name ?? t('choose')}
+              </Text>
+              {customer ? (
+                <>
+                  <Text style={styles.caption}>
+                    {fill(payT('credit.currentDebt'), {
+                      amount: formatVnd(customer.balance),
+                    })}
+                  </Text>
+                  {customer.phone ? (
+                    <Text style={styles.caption}>{customer.phone}</Text>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+            {customer ? (
+              <>
+                <Text style={styles.changeCustomer}>
+                  {payT('credit.change')}
+                </Text>
+                <Icon icon={ChevronRight} size={20} color={colors.accent} />
+              </>
+            ) : null}
           </PressableScale>
-          <Text>{t('paidNow')}</Text>
-          <TextInput
-            accessibilityLabel={t('paidNow')}
-            value={paidText}
-            onChangeText={setPaidText}
-            keyboardType="number-pad"
-            style={styles.paidInput}
-          />
+          <View style={styles.paidRow}>
+            <Text style={styles.customerName}>{t('paidNow')}</Text>
+            <View style={styles.paidChips}>
+              {[0, ...(roundPaid > 0 ? [roundPaid] : [])].map((amount) => (
+                <PressableScale
+                  key={amount}
+                  accessibilityRole="radio"
+                  accessibilityLabel={formatVnd(amount)}
+                  accessibilityState={{ checked: paidNow === amount }}
+                  aria-checked={paidNow === amount}
+                  onPress={() => setPaidText(String(amount))}
+                  style={[styles.paidChip, paidNow === amount && styles.chipOn]}
+                >
+                  <Text
+                    style={[
+                      styles.customerName,
+                      paidNow === amount && styles.chipTextOn,
+                    ]}
+                  >
+                    {amount === 0
+                      ? formatVnd(0)
+                      : formatVnd(amount).replace('đ', '')}
+                  </Text>
+                </PressableScale>
+              ))}
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={payT('credit.other')}
+                onPress={() => setCustomPaid(true)}
+                style={styles.paidChip}
+              >
+                <Text style={styles.customerName}>
+                  {paidNow !== 0 && paidNow !== roundPaid
+                    ? formatVnd(paidNow)
+                    : payT('credit.other')}
+                </Text>
+              </PressableScale>
+            </View>
+          </View>
+          {customer && !invalidPaid ? (
+            <Text style={styles.newDebt}>
+              {fill(payT('credit.newDebt'), {
+                amount: formatVnd(customer.balance + creditAmount),
+              })}
+            </Text>
+          ) : null}
           {invalidPaid ? (
             <Text accessibilityRole="alert">{t('invalidPaid')}</Text>
           ) : null}
@@ -326,12 +457,12 @@ export function PayScreen() {
               </View>
               <View
                 accessible
-                accessibilityLabel={`${bank.account_name}, ${bank.bank_short_name ?? bank.bank_bin} ${groupAccount(bank.account_number)}`}
+                accessibilityLabel={`${bank.account_name}, ${bankLabel(bank)} ${groupAccount(bank.account_number)}`}
                 style={styles.bankRow}
               >
                 <Icon icon={Landmark} size={20} color={colors.inkMuted} />
                 <Text style={styles.bankText} numberOfLines={1}>
-                  {`${bank.bank_short_name ?? bank.bank_bin} · ${groupAccount(bank.account_number)}`}
+                  {`${bankLabel(bank)} · ${groupAccount(bank.account_number)}`}
                 </Text>
               </View>
             </>
@@ -356,9 +487,8 @@ export function PayScreen() {
               <CashChip
                 key={amount}
                 amount={amount}
-                exact={amount === total}
-                pressed={amount === cashGiven}
-                onPick={setTendered}
+                pressed={amount === tendered}
+                onPick={pickNote}
               />
             ))}
           </View>
@@ -377,33 +507,78 @@ export function PayScreen() {
         contentContainerStyle={styles.itemsContent}
       >
         {lines.map((line) => (
-          <OrderItem key={line.productId} line={line} />
+          <View key={cartLineKey(line)} style={styles.cell}>
+            <OrderItem line={line} />
+            <UnitChooser line={line} />
+          </View>
         ))}
       </ScrollView>
 
-      {sale.isError ? (
+      {saveError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           Không lưu được đơn. Giỏ hàng vẫn còn, thử lại.
         </Text>
       ) : null}
-      <CheckButton
-        variant="success"
-        accessibilityLabel="Đã nhận tiền"
-        onPress={received}
-        disabled={
-          sale.isPending ||
-          done ||
-          lines.length === 0 ||
-          short ||
-          (method === 'credit' && (!customer || invalidPaid)) ||
-          picker
-        }
-        block
-        xl
-      />
+      {method === 'credit' ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={creditLabel}
+          onPress={received}
+          disabled={confirmDisabled}
+          accessibilityState={{ disabled: confirmDisabled }}
+          style={[styles.creditButton, confirmDisabled && styles.disabled]}
+        >
+          <Icon icon={BookText} size={28} color={colors.onInk} />
+          <Text style={styles.creditButtonText}>{creditLabel}</Text>
+        </PressableScale>
+      ) : (
+        <CheckButton
+          variant="success"
+          accessibilityLabel="Đã nhận tiền"
+          onPress={received}
+          disabled={confirmDisabled}
+          block
+          xl
+        />
+      )}
+      {customPaid ? (
+        <DebtSheet
+          title={t('paidNow')}
+          onClose={() => setCustomPaid(false)}
+          footer={
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={payT('credit.applyPaid')}
+              disabled={invalidPaid}
+              onPress={() => setCustomPaid(false)}
+              style={[styles.creditButton, invalidPaid && styles.disabled]}
+            >
+              <Text style={styles.creditButtonText}>
+                {payT('credit.applyPaid')}
+              </Text>
+            </PressableScale>
+          }
+        >
+          <TextInput
+            accessibilityLabel={t('paidNow')}
+            value={paidText}
+            onChangeText={setPaidText}
+            keyboardType="number-pad"
+            style={styles.paidInput}
+          />
+          {invalidPaid ? (
+            <Text accessibilityRole="alert">{t('invalidPaid')}</Text>
+          ) : null}
+          <Keypad
+            diameter={64}
+            onKey={(key) => setPaidText((value) => applyKey(value, key, 12))}
+          />
+        </DebtSheet>
+      ) : null}
 
       {picker ? (
         <CustomerPicker
+          createLabel={t('picker.creditCreate')}
           onClose={() => setPicker(false)}
           onSelect={(picked) => {
             setCustomer(picked);
@@ -429,10 +604,62 @@ export function PayScreen() {
 }
 
 const styles = StyleSheet.create({
+  title: { ...typography.heading, flex: 1, color: colors.ink },
+  customerRow: {
+    minHeight: size.tapLg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  customerText: { flex: 1, gap: space[1] },
+  customerName: { ...typography.label, color: colors.ink },
+  caption: { ...typography.caption, color: colors.inkMuted },
+  changeCustomer: { ...typography.caption, color: colors.accent },
+  paidRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  paidChips: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  customerAvatar: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.accentSoft,
+  },
+  customerInitial: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 20,
+    lineHeight: 24,
+    color: colors.accent,
+  },
+  paidChip: {
+    flexGrow: 1,
+    minHeight: size.tapMin,
+    borderRadius: radius.full,
+    paddingHorizontal: space[3],
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
+  newDebt: { ...typography.label, color: colors.ink, textAlign: 'center' },
+  creditButton: {
+    minHeight: size.tapXl,
+    flexDirection: 'row',
+    gap: space[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.ink,
+    padding: space[3],
+  },
+  creditButtonText: { ...typography.heading, color: colors.onInk },
+  disabled: { opacity: 0.4 },
   paidInput: {
     ...typography.body,
     color: colors.ink,
-    minHeight: 48,
+    minHeight: size.tapMin,
     padding: space[3],
     borderRadius: radius.md,
     backgroundColor: colors.surface,
@@ -446,7 +673,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: space[3],
   },
   total: { textAlign: 'center' },
   qrCard: {
@@ -524,9 +751,19 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontVariant: ['tabular-nums'],
   },
-  items: { flex: 1 },
-  itemsContent: { flexDirection: 'row', flexWrap: 'wrap', rowGap: space[2] },
-  item: { width: '25%', alignItems: 'center', gap: space[1] },
+  // Size to the lines (one row of thumb + price is about 96) so the photo and price are never cut.
+  items: { flexGrow: 0, flexShrink: 1, minHeight: 104 },
+  itemsContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: space[3],
+    paddingTop: space[2],
+    paddingRight: space[2],
+  },
+  // The cell (not the item) is the 25% column: a percentage inside a shrink-wrapped parent
+  // collapsed to the content width and cut the photo and price.
+  cell: { width: '25%' },
+  item: { width: '100%', alignItems: 'center', gap: space[1] },
   qtyBadge: {
     position: 'absolute',
     right: -6,

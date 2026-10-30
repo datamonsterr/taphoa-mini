@@ -159,6 +159,23 @@ async fn create(
         return Ok((StatusCode::CREATED, Json(value)));
     }
     let input: Create = serde_json::from_value(raw).map_err(|_| invalid("invalid receipt"))?;
+    // Replays above never reach here, so retries do not spend the budget.
+    crate::ratelimit::enforce(
+        &state,
+        &format!("receipt:{}:{}", actor.store_id, actor.member_id),
+        state.rate_limits.receipt_per_minute,
+        std::time::Duration::from_secs(60),
+        "receipt scans",
+    )
+    .await?;
+    crate::ratelimit::enforce(
+        &state,
+        &format!("receipt-day:{}", actor.store_id),
+        state.rate_limits.receipt_store_per_day,
+        std::time::Duration::from_secs(86_400),
+        "receipt scans for this store today",
+    )
+    .await?;
     let ocr = state.receipt_ocr.clone().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -402,6 +419,10 @@ async fn confirm(
         .iter()
         .try_fold(0i64, |sum, l| sum.checked_add(l.cost))
         .ok_or_else(|| invalid("total overflow"))?;
+    // Same rule as POST /v1/expenses: a receipt that costs nothing is not a purchase.
+    if total <= 0 {
+        return Err(invalid("receipt total must be positive"));
+    }
     let products: Vec<_> = input.lines.iter().map(|l| l.product_id).collect();
     stock::lock_products(&mut tx, actor.store_id, &products)
         .await
@@ -434,7 +455,7 @@ async fn confirm(
     let row = load(&mut tx, actor.store_id, id).await?;
     let expense = CreateExpense {
         id: Uuid::now_v7(),
-        spent_at: input.spent_at.unwrap_or_else(Utc::now),
+        spent_at: input.spent_at.unwrap_or_else(|| state.clock.now()),
         amount: total,
         category: "nhap_hang".into(),
         paid_with: input.paid_with,

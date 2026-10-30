@@ -21,7 +21,16 @@ beforeEach(() => {
   const { useCartStore } = require('@/stores/cart');
   const { useLowStockAlerts } = require('@/stores/lowStockAlerts');
   const { initialSettings, useSettingsStore } = require('@/stores/settings');
+  const {
+    initialVoiceSettings,
+    useVoiceSettings,
+  } = require('@/features/voice/voiceSettings');
   resetMockDb();
+  // The offline cache and the sale outbox persist on purpose: a test never inherits the last one's.
+  require('@react-native-async-storage/async-storage').removeItem(
+    require('@/lib/offline/persist').CACHE_STORAGE_KEY,
+  );
+  require('@/lib/outbox').resetOutbox();
   require('./clerk').resetClerkMock();
   require('@/features/auth/emailFlow').useEmailFlow.getState().reset();
   require('@/features/auth/addPerson').useAddPerson.getState().end();
@@ -58,6 +67,7 @@ beforeEach(() => {
     count: null,
   });
   useSettingsStore.setState(initialSettings);
+  useVoiceSettings.setState(initialVoiceSettings);
 });
 
 afterEach(() => {

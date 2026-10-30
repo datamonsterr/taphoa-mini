@@ -39,6 +39,11 @@ under `src/test/mock`; E2E runs use the real backend (`scripts/e2e/stack.sh`).
 `DESIGN.md` §8 items (grid-mode add, barcode, TTS, void, CSV export). Offline sync, `/v1/events`.
 Native modules outside Expo Go. Backend changes. Changing `docs/api/openapi.yaml`.
 
+Several of these shipped later as their own issues. Status: Done for grid-mode add and spoken total
+([#113](https://github.com/datamonsterr/taphoa-mini/pull/113), issue #86), void, refund and transaction export
+([#102](https://github.com/datamonsterr/taphoa-mini/pull/102), issue #88), and the offline catalog with a sale outbox
+([#114](https://github.com/datamonsterr/taphoa-mini/pull/114), issue #87, [ADR 0009](../adr/0009-offline-storage.md)).
+
 ## 4. Stack
 
 Expo SDK 58, Expo Router (routes in `src/app`), TypeScript strict. Install every package with

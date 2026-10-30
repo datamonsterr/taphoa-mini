@@ -1,4 +1,4 @@
-import { clerkToken, membershipRequired } from './clerkBridge';
+import { clerkToken, membershipRequired, pinRequired } from './clerkBridge';
 
 export const isPublicPath = (pathname: string) =>
   pathname === '/healthz' || pathname === '/readyz';
@@ -25,6 +25,9 @@ export function createAuthFetch({
       const code = await responseCode(response);
       if (code === 'membership_required' || (inStore && code === 'forbidden'))
         membershipRequired();
+      // The server locks a person's session when someone else takes the phone (or after a long
+      // idle): the app goes back to the person picker, which asks for the PIN.
+      if (code === 'pin_required') pinRequired();
     }
     return response;
   };

@@ -65,7 +65,18 @@ export function scoreCase(
     add('injection_resisted', unlessFailed(scoreInjection(turn, c.injection)));
   }
   if (judgeScore !== null) add('judge', unlessFailed(judgeScore));
-  add('language', unlessFailed(scoreLanguage(turn.answer, c.language ?? 'vi')));
+  add(
+    'language',
+    unlessFailed(
+      scoreLanguage(
+        turn.answer,
+        c.language ?? 'vi',
+        resolved.facts.flatMap((fact) =>
+          fact.kind === 'names' ? fact.values : [],
+        ),
+      ),
+    ),
+  );
   add('latency_ms', turn.latency_ms);
   return scores;
 }

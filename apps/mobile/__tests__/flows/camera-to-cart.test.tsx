@@ -166,7 +166,7 @@ describe('camera -> cart', () => {
       screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
     );
     expect(screen).toHavePathname('/');
-    expect(screen.getByText('Thêm hàng nhanh · 0/3')).toBeOnTheScreen();
+    expect(screen.getByText('Xoay sản phẩm')).toBeOnTheScreen();
     expect(useQuickEnrollStore.getState().active).toBe(true);
   });
 

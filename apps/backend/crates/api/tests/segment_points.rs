@@ -77,9 +77,16 @@ struct TestWorld {
 }
 
 async fn setup_world(with_segmenter: bool) -> TestWorld {
+    setup_world_limited(with_segmenter, None).await
+}
+
+async fn setup_world_limited(with_segmenter: bool, segment_limit: Option<&str>) -> TestWorld {
     let config = Config::from_lookup(|key| match key {
         "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
         "CLERK_SECRET_KEY" => None,
+        "RATE_LIMIT_SEGMENT_PER_MINUTE" if segment_limit.is_some() => {
+            segment_limit.map(String::from)
+        }
         k if k.starts_with("RATE_LIMIT_") => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })
@@ -100,6 +107,13 @@ async fn setup_world(with_segmenter: bool) -> TestWorld {
         192,
     ));
     if with_segmenter {
+        state.segmenter = Some(Arc::new(taphoa_recognition::MockSegmenter {
+            segments: vec![Segment {
+                bbox: [1.0, 2.0, 30.0, 40.0],
+                score: 0.9,
+                area: 1200,
+            }],
+        }));
         state.point_segmenter = Some(mock_segmenter.clone() as Arc<dyn PointSegmenter>);
     }
 
@@ -653,4 +667,138 @@ async fn test_segment_points_503_when_inference_slots_busy() {
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["code"], "unavailable");
+}
+
+/// `POST /v1/segment` with a tiny multipart `image`; `token` is optional.
+async fn raw_segment(app: &Router, token: Option<&str>) -> (StatusCode, Value) {
+    raw_segment_with(app, token, "image", &[0x89, b'P', b'N', b'G']).await
+}
+
+async fn raw_segment_with(
+    app: &Router,
+    token: Option<&str>,
+    field: &str,
+    data: &[u8],
+) -> (StatusCode, Value) {
+    let mut body = format!("--b\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"p.png\"\r\nContent-Type: image/png\r\n\r\n").into_bytes();
+    body.extend_from_slice(data);
+    body.extend_from_slice(b"\r\n--b--\r\n");
+    let mut request = Request::post("/v1/segment")
+        .header("content-type", "multipart/form-data; boundary=b")
+        .header("x-forwarded-for", format!("test-{}", Uuid::new_v4()));
+    if let Some(token) = token {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    let (status, bytes) = raw_call(app, request.body(Body::from(body)).unwrap()).await;
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn test_segment_rejects_bad_multipart_and_missing_model_for_members() {
+    let w = setup_world(true).await;
+    let (status, _) = raw_segment_with(&w.app, Some(&w.lead_token), "wrong", b"sample").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = raw_segment_with(&w.app, Some(&w.lead_token), "image", b"").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let big = vec![0u8; 10 * 1024 * 1024 + 1];
+    let (status, _) = raw_segment_with(&w.app, Some(&w.lead_token), "image", &big).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    let bare = setup_world(false).await;
+    let (status, body) = raw_segment(&bare.app, Some(&bare.lead_token)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["code"], "unavailable");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn test_segment_401_without_token() {
+    let w = setup_world(true).await;
+    let (status, body) = raw_segment(&w.app, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], "unauthorized");
+    Contract::load().assert_conforms("/v1/segment", "post", status, &body);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn test_segment_refuses_signed_in_user_without_a_store_membership() {
+    let w = setup_world(true).await;
+    // A valid Clerk identity that never created or joined a store.
+    let stranger = common::clerk::token();
+    let (status, body) = raw_segment(&w.app, Some(&stranger)).await;
+    assert!(
+        status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND,
+        "{status} {body}"
+    );
+    // A seller without the enrollment permission is refused as well.
+    let (status, _) = raw_segment(&w.app, Some(&w.seller_no_enroll_token)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn test_segment_member_of_another_store_gets_only_own_budget() {
+    let w = setup_world_limited(true, Some("2")).await;
+    // Exhaust this store's lead.
+    for _ in 0..2 {
+        let (status, _) = raw_segment(&w.app, Some(&w.lead_token)).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, _) = raw_segment(&w.app, Some(&w.lead_token)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    // The lead of a second store is not affected.
+    let device = json!({"name":"counter","platform":"web","app_version":"1.0"});
+    let (created, other) = call_api(
+        &w.app,
+        "POST",
+        "/v1/stores",
+        None,
+        json!({"store_name":"Other Store","display_name":"Other Lead","device":device}),
+    )
+    .await;
+    assert_eq!(created, StatusCode::CREATED);
+    let other_token = other["access_token"].as_str().unwrap();
+    let (status, _) = raw_segment(&w.app, Some(other_token)).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn test_segment_normal_use_passes_and_over_limit_is_429_with_message() {
+    let w = setup_world_limited(true, Some("3")).await;
+    let contract = Contract::load();
+    let (status, body) = raw_segment(&w.app, Some(&w.lead_token)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    contract.assert_conforms("/v1/segment", "post", status, &body);
+    // /v1/segment/points shares the bucket: one point call, one more raw call, then the limit.
+    let (status, _) = call_api(
+        &w.app,
+        "POST",
+        "/v1/segment/points",
+        Some(&w.lead_token),
+        json!({"image_id": w.photo_image_id, "points": [{"x": 800.0, "y": 600.0, "label": 1}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = raw_segment(&w.app, Some(&w.lead_token)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = raw_segment(&w.app, Some(&w.lead_token)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_requests");
+    assert!(body["error"].as_str().unwrap().contains("try again in"));
+    contract.assert_conforms("/v1/segment", "post", status, &body);
+    let (status, body) = call_api(
+        &w.app,
+        "POST",
+        "/v1/segment/points",
+        Some(&w.lead_token),
+        json!({"image_id": w.photo_image_id, "points": [{"x": 800.0, "y": 600.0, "label": 1}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    contract.assert_conforms("/v1/segment/points", "post", status, &body);
 }

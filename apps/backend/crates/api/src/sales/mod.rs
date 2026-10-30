@@ -89,6 +89,22 @@ impl SaleInput {
                 .is_none_or(|n| money::change_given(self.total - credit, n).is_some())
     }
     fn validate(&self) -> ApiResult<()> {
+        if self.total > money::MAX_AMOUNT {
+            return Err(ApiError::validation_failed(format!(
+                "sale total must be at most {} VND",
+                money::MAX_AMOUNT
+            )));
+        }
+        if self
+            .lines
+            .iter()
+            .any(|l| l.unit_price > money::MAX_UNIT_PRICE)
+        {
+            return Err(ApiError::validation_failed(format!(
+                "unit price must be at most {} VND",
+                money::MAX_UNIT_PRICE
+            )));
+        }
         if self.id.get_version_num() != 7
             || !(1..=200).contains(&self.lines.len())
             || self.total < 0
@@ -107,7 +123,7 @@ impl SaleInput {
                 || line.unit_price < 0
                 || !matches!(
                     line.source.as_str(),
-                    "camera" | "multi_photo" | "barcode" | "grid" | "manual"
+                    "camera" | "multi_photo" | "barcode" | "grid" | "manual" | "voice"
                 )
                 || (line.product_id.is_none()
                     && (line.source != "manual" || line.unit_id.is_some()))
@@ -141,9 +157,7 @@ fn parse_id(id: &str) -> ApiResult<Uuid> {
         .map_err(|_| ApiError::validation_failed("invalid id"))
 }
 fn query<T>(input: Result<Query<T>, QueryRejection>) -> ApiResult<T> {
-    input
-        .map(|Query(v)| v)
-        .map_err(|e| ApiError::validation_failed(e.body_text()))
+    input.map(|Query(v)| v).map_err(ApiError::from)
 }
 fn write_error(error: sqlx::Error) -> ApiError {
     if error
@@ -189,6 +203,38 @@ async fn product_exists(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiRe
         Err(ApiError::not_found())
     }
 }
+/// The time a sale is booked at. The client `sold_at` is only trusted inside a window around
+/// server time: a phone with a wrong clock keeps selling (its sale lands "now"), and nobody can
+/// pick the day. A seller's sale for a business day the Lead already closed lands on today's
+/// books instead of changing the closed figures. A sale after an early close on today's own date
+/// is a normal sale and stays. Replays are not affected: the stored time is returned.
+pub(crate) async fn bounded_sold_at(
+    tx: &mut sqlx::PgConnection,
+    state: &AppState,
+    actor: &Actor,
+    sold_at: DateTime<Utc>,
+) -> ApiResult<DateTime<Utc>> {
+    let now = state.clock.now();
+    if !state.sale_window.contains(sold_at, now) {
+        tracing::warn!(%sold_at, %now, "sold_at outside the accepted window, booked at server time");
+        return Ok(now);
+    }
+    let date = business_date(sold_at);
+    if actor.role != crate::auth::Role::Lead && date != business_date(now) {
+        let closed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM day_closes WHERE store_id=$1 AND business_date=$2)",
+        )
+        .bind(actor.store_id)
+        .bind(date)
+        .fetch_one(tx)
+        .await?;
+        if closed {
+            tracing::warn!(%sold_at, %date, "sale for a closed business day, booked at server time");
+            return Ok(now);
+        }
+    }
+    Ok(sold_at)
+}
 async fn create(
     State(state): State<AppState>,
     actor: Actor,
@@ -215,9 +261,12 @@ async fn create(
         check(&stored, &hash)?;
         return Ok(Idempotent::Replay(sale(&mut tx, actor.store_id, id).await?));
     }
-    let input: SaleInput =
-        serde_json::from_value(raw).map_err(|e| ApiError::validation_failed(e.to_string()))?;
+    let mut input: SaleInput = serde_json::from_value(raw).map_err(|e| {
+        tracing::debug!(detail = %e, "sale body rejected");
+        ApiError::validation_failed("invalid sale")
+    })?;
     input.validate()?;
+    input.sold_at = bounded_sold_at(&mut tx, &state, &actor, input.sold_at).await?;
     let date = business_date(input.sold_at);
     let code = money::sale_code(input.id);
     // Lock order (deadlock rule): products, then the customer row, then the store row, which
@@ -344,7 +393,7 @@ async fn create(
             .execute(&mut *tx)
             .await?;
     }
-    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"manual_lines":input.lines.iter().filter(|line| line.product_id.is_none()).count(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
+    event(&mut tx, &actor, "sale.created", json!({"sale_id":input.id,"code":code,"total":input.total,"payment_method":input.payment_method,"member_id":actor.member_id,"business_date":date,"line_count":input.lines.len(),"manual_lines":input.lines.iter().filter(|line| line.product_id.is_none()).count(),"voice_lines":input.lines.iter().filter(|line| line.source == "voice").count(),"credit_amount":input.credit_amount(),"customer_id":input.customer_id()})).await?;
     if let Some(customer) = input.customer_id() {
         // The customer row is already locked; the sale and its debt entry commit together.
         crate::debts::record_entry(
@@ -464,7 +513,9 @@ async fn list(
 #[derive(Deserialize)]
 struct VoidInput {
     reason: String,
-    voided_at: Option<DateTime<Utc>>,
+    /// Accepted for older clients but ignored: the server stamps the void.
+    #[serde(rename = "voided_at")]
+    _voided_at: Option<DateTime<Utc>>,
 }
 async fn void(
     State(state): State<AppState>,
@@ -481,7 +532,7 @@ async fn void(
     let id = parse_id(&id)?;
     let mut tx = pool(&state)?.begin().await?;
     let (member,date,status,total,credit_amount,customer): (Uuid,NaiveDate,String,i64,i64,Option<Uuid>) = sqlx::query_as("SELECT member_id,business_date,status,total,credit_amount,customer_id FROM sales WHERE store_id=$1 AND id=$2 FOR UPDATE").bind(actor.store_id).bind(id).fetch_optional(&mut *tx).await?.ok_or_else(ApiError::not_found)?;
-    if !money::can_void(&actor, member, date, business_date(Utc::now())) {
+    if !money::can_void(&actor, member, date, state.clock.today()) {
         return Err(ApiError::forbidden());
     }
     if status != "voided" {
@@ -510,13 +561,14 @@ async fn void(
             )
             .await?;
         }
-        let voided_at = input.voided_at.unwrap_or_else(Utc::now);
+        // Server time only: a client-supplied `voided_at` could move the void (and its debt entry) to another day.
+        let voided_at = state.clock.now();
         sqlx::query("UPDATE sales SET status='voided',void_reason=$3,voided_by=$4,voided_at=$5 WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).bind(&input.reason).bind(actor.member_id).bind(voided_at).execute(&mut *tx).await?;
         event(
             &mut tx,
             &actor,
             "sale.voided",
-            json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total,"same_day":date == business_date(Utc::now())}),
+            json!({"sale_id":id,"reason":input.reason,"voided_by":actor.member_id,"total":total,"same_day":date == state.clock.today()}),
         )
         .await?;
         if let Some(customer) = customer.filter(|_| credit_amount > 0) {

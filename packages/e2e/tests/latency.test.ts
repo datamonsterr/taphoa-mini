@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { createStore } from '../src/helpers.js';
+import {
+  decideLatency,
+  latencySampleCount,
+  percentile,
+} from '../src/latency.js';
 
 /**
  * Hot-endpoint latency (epic E5). Excludes recognition, which has its own budget in
  * recognition-latency.test.ts. Sequential requests after a warm-up; p95 over HOT_SAMPLES.
- * The budget applies to the deployed backend as seen from the test runner.
+ * Subtract a per-endpoint /healthz median RTT to estimate backend processing time.
  */
-const SAMPLES = Number(process.env.HOT_SAMPLES ?? 30);
+const SAMPLES = latencySampleCount(process.env.HOT_SAMPLES, 30);
 const BUDGET_MS = Number(process.env.HOT_P95_MS ?? 200);
 
-function p95(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[
-    Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)
-  ];
-}
+// Refresh the baseline for each endpoint to follow changes in runner-to-edge RTT.
+const BASELINE_SAMPLES = 5;
 
 const endpoints = [
   '/v1/me',
@@ -28,7 +29,7 @@ const endpoints = [
 ] as const;
 
 describe('hot endpoint latency', () => {
-  it(`p95 < ${BUDGET_MS} ms over ${SAMPLES} requests per endpoint`, async () => {
+  it(`network-adjusted p95 < ${BUDGET_MS} ms over ${SAMPLES} requests per endpoint`, async () => {
     const { session } = await createStore();
     const base = (process.env.BACKEND_URL ?? 'http://localhost:8080').replace(
       /\/$/,
@@ -40,6 +41,15 @@ describe('hot endpoint latency', () => {
     for (const path of endpoints) {
       const warm = await fetch(base + path, { headers });
       expect(warm.status, `${path} warm-up`).toBeLessThan(500);
+      await warm.arrayBuffer();
+      const baselineSamples: number[] = [];
+      for (let i = 0; i < BASELINE_SAMPLES; i += 1) {
+        const start = performance.now();
+        const response = await fetch(base + '/healthz');
+        await response.arrayBuffer();
+        baselineSamples.push(performance.now() - start);
+        expect(response.status, '/healthz baseline').toBe(200);
+      }
       const samples: number[] = [];
       for (let i = 0; i < SAMPLES; i += 1) {
         const start = performance.now();
@@ -48,11 +58,18 @@ describe('hot endpoint latency', () => {
         samples.push(performance.now() - start);
         expect(response.status, path).toBeLessThan(500);
       }
-      const value = p95(samples);
-      rows.push(`${path} p95=${Math.round(value)}ms`);
-      if (value >= BUDGET_MS) slow.push(`${path} ${Math.round(value)}ms`);
+      const decision = decideLatency(samples, {
+        budgetMs: BUDGET_MS,
+        baselineMs: percentile(baselineSamples, 0.5),
+      });
+      const diagnostic = `${path} estimated-server p95=${Math.round(decision.adjustedMs)}ms client p95=${Math.round(decision.clientMs)}ms network baseline p50=${Math.round(decision.baselineMs)}ms budget=${BUDGET_MS}ms`;
+      rows.push(diagnostic);
+      if (!decision.passes) slow.push(diagnostic);
     }
     console.log(`hot endpoint latency (n=${SAMPLES}):\n${rows.join('\n')}`);
-    expect(slow, `endpoints over ${BUDGET_MS} ms`).toEqual([]);
-  }, 120_000);
+    expect(
+      slow,
+      `estimated server p95 must be < ${BUDGET_MS} ms after subtracting /healthz RTT`,
+    ).toEqual([]);
+  }, 240_000);
 });

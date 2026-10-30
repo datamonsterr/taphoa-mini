@@ -1,0 +1,16 @@
+{
+  "source": "synthetic",
+  "transcript": "ba lon nước ngọt",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "nước ngọt",
+      "quantity": 3,
+      "status": "ambiguous",
+      "candidates": 3
+    }
+  ],
+  "requires_products": ["Coca-Cola lon", "Pepsi lon", "7Up lon"]
+}

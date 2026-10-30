@@ -37,7 +37,7 @@ impl<S: Send + Sync> FromRequestParts<S> for PageParams {
         Query::<Self>::from_request_parts(parts, state)
             .await
             .map(|Query(value)| value)
-            .map_err(|error| ApiError::validation_failed(error.body_text()))
+            .map_err(ApiError::from)
     }
 }
 pub fn encode_cursor<T: Serialize>(key: &T) -> Result<String, serde_json::Error> {

@@ -126,8 +126,39 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify the caller's PIN lock */
+        /**
+         * Verify the caller's PIN lock
+         * @description A right PIN unlocks the calling Clerk session on the server. Until then, every store
+         *     route answers 403 `pin_required` for a person who has a PIN on any membership (see
+         *     `POST /v1/me/pin/lock`). A member without a PIN answers 204 and unlocks nothing.
+         */
         post: operations["verifyPin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/pin/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lock the calling session until its PIN is verified again
+         * @description On a shared phone every signed-in person keeps a live Clerk session, so a session token
+         *     proves nothing about who holds the phone. A person who has a PIN is served only while
+         *     their session is unlocked. A session first seen by the API starts unlocked, and so does
+         *     one that just set a PIN or verified it (`POST /v1/me/pin/verify`). The app calls this
+         *     route for the person who stops being the active one. A locked session gets 403
+         *     `pin_required` on every store route; `GET /v1/me`, this route and the verify route stay
+         *     open. An unlocked session that is idle for 12 hours locks again. Needs no store.
+         */
+        post: operations["lockSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -254,6 +285,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recognition/document-probes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detect receipt text lines in a live camera preview still
+         * @description Authenticated members with checkout scan permissions may send a small JPEG/PNG
+         *     still every 2–3 seconds. Expo Go has no frame processors. Runs only the text
+         *     detector, without SAM, embeddings, scan/image rows or object storage uploads.
+         *     Maximum image size is 512 KB (524288 bytes). Limited to 40 requests per minute
+         *     per member; 429 includes Retry-After. Probes use a separate admission pool
+         *     (DOCUMENT_PROBE_CONCURRENCY, default 1) and never consume scan/enrollment slots.
+         *     When the probe pool is full, returns 200 with the empty signal
+         *     `{detected:false, score:0, text_lines:0, line_boxes:[]}` as a best-effort result.
+         *     Returns 503 `ocr_unavailable` when no text detector is configured.
+         */
+        post: operations["probeDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recognition/scans": {
         parameters: {
             query?: never;
@@ -317,8 +376,9 @@ export interface paths {
         /**
          * Raw class-agnostic segmentation (implemented skeleton)
          * @description Runs the configured `Segmenter` and returns boxes only, without catalog matching.
-         *     Kept for diagnostics and the e2e smoke test. Today it is unauthenticated;
-         *     it moves behind auth once auth lands.
+         *     Kept for diagnostics and the e2e smoke test. Needs a signed-in member of a store
+         *     with the product-enrollment permission, and shares the per-member segmentation
+         *     rate limit with `/v1/segment/points`.
          */
         post: operations["segmentImage"];
         delete?: never;
@@ -357,7 +417,7 @@ export interface paths {
         };
         /**
          * Price list / grid (C6, S3)
-         * @description Phones normally read the catalog from local SQLite fed by `/v1/sync/changes`; this route serves search and first load.
+         * @description Phones normally read the catalog from their persisted query cache (ADR 0009), refreshed from `/v1/sync/changes`; this route serves search and first load.
          */
         get: operations["listProducts"];
         put?: never;
@@ -542,6 +602,13 @@ export interface paths {
          *     cover the paid part (`total − credit.amount`); `change_given` uses that paid part.
          *     Unknown customer returns 404. Archived customers still accept credit sales, and
          *     credit limits never block. The sale and its credit_sale entry commit together.
+         *     `sold_at` is bounded by the server. It is trusted only from 72 hours in the past to 5
+         *     minutes in the future of server time, so an offline queue still syncs. Outside that
+         *     window the sale is booked at server time (a phone with a wrong clock keeps selling, and
+         *     nobody can pick the day). A seller's sale for a past business day the Lead already
+         *     closed is booked at server time too, so closed figures do not change. The stored
+         *     `sold_at` and `business_date` in the response show what was booked. A sale on today's
+         *     date after an early close is a normal sale.
          */
         post: operations["createSale"];
         delete?: never;
@@ -796,7 +863,9 @@ export interface paths {
         put?: never;
         /**
          * Record an expense or a stock purchase (E1, E2)
-         * @description `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`.
+         * @description `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`
+         *     when the caller is the Lead. A seller's purchase lines are recorded with the
+         *     expense but never change cost price, price history or margin alerts.
          *     When the new cost leaves margin below the store threshold, the server creates a
          *     margin alert (E3) and publishes `alert.created`. When lines are present, `amount`
          *     must equal the line sum. Idempotent on `id`.
@@ -963,7 +1032,9 @@ export interface paths {
          * @description All retained lines must map to known products; map or drop unmatched lines (422).
          *     Creates one nhap_hang expense with amount = sum(cost), the receipt image and purchase
          *     lines with unit_cost = ceil(cost / quantity). Adds stock, writes movements with
-         *     reason receipt, runs margin alerts, and emits events in the same transaction.
+         *     reason receipt, and emits events in the same transaction. Only the Lead's
+         *     confirmation updates product cost prices and runs margin alerts; a `can_enroll`
+         *     seller's confirmation records stock and the expense but leaves cost unchanged.
          *     Returns the confirmed receipt with expense_id. The same Idempotency-Key replays
          *     the same result; another attempt to confirm returns 409 already_confirmed.
          */
@@ -1046,7 +1117,8 @@ export interface paths {
          *     transfer sales. `cash_repayments` sums cash repayments of that business date and
          *     `credit_sales` sums credit_amount of completed sales of that date, so the day close
          *     screen can show both before the day is closed. `expected_cash` includes
-         *     `cash_repayments`.
+         *     `cash_repayments`. `expected_cash` and `day_close` are Lead-only: they are omitted
+         *     for sellers.
          */
         get: operations["getDailyReport"];
         put?: never;
@@ -1132,7 +1204,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Past end-of-day closes */
+        /** Past end-of-day closes (Lead only) */
         get: operations["listDayCloses"];
         put?: never;
         post?: never;
@@ -1151,14 +1223,14 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** One day's close */
+        /** One day's close (Lead only) */
         get: operations["getDayClose"];
         /**
          * Enter counted cash; returns expected cash and difference (R2, F5)
          * @description `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
          *     for that business date, computed on the server from synced records. Re-closing the
          *     same date overwrites the count and recomputes; sales synced after a close are
-         *     reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+         *     reported in `late_sales_count` (with repayments recorded after the close). A date after today (store time zone) or before 2024-01-01 is a 400 `validation_failed`. Cash sales/refunds and transfer revenue count only
          *     the paid part (`total − credit_amount`). Repayments are summed by method and business
          *     date; `credit_sales` sums credit_amount of completed sales of that date.
          */
@@ -1379,6 +1451,51 @@ export interface paths {
         get: operations["getAssistantDigest"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/voice/utterances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn one spoken utterance into a transcript and an optional sale draft
+         * @description Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
+         *     1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
+         *     `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
+         *     `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+         *     per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
+         *     back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
+         */
+        post: operations["createVoiceUtterance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/voice/utterances/{utteranceId}/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report what the seller did with a voice draft
+         * @description Idempotent per utterance; the last write wins.
+         */
+        post: operations["postVoiceOutcome"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1681,13 +1798,16 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
-        /** @description Present on every scan; detection runs alongside segmentation on the downsized image. */
-        ScanDocument: {
+        ScanDocument: components["schemas"]["DocumentSignal"];
+        /** @description Text detection signal, returned by preview probes and every scan. */
+        DocumentSignal: {
             /** @description True when text_lines >= 6 and text_area_ratio >= 0.08. */
             detected: boolean;
             /** @description text_area_ratio / 0.2, clamped to [0, 1]. */
             score: number;
             text_lines: number;
+            /** @description Grouped text lines sorted top-to-bottom. Each box is [x, y, width, height], normalized to image dimensions and clamped to [0, 1]. Empty when no text is found; the full text_lines count may exceed the box cap. */
+            line_boxes: number[][];
         };
         Detection: {
             /**
@@ -1809,6 +1929,106 @@ export interface components {
             created_by?: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description Minimal Product subset a voice draft sheet needs. */
+        ProductSummary: {
+            /** Format: uuid */
+            id: string;
+            name: string | null;
+            price: components["schemas"]["Money"];
+            /** @example chai */
+            base_unit: string;
+            units?: components["schemas"]["ProductUnit"][];
+            /** Format: uri */
+            image_url?: string | null;
+        };
+        VoiceUtteranceContext: {
+            /** @enum {string} */
+            entry: "bubble" | "tile" | "shortcut" | "control" | "action_button" | "siri" | "longpress" | "chip" | "chat";
+            /** @example camera */
+            screen: string;
+            /** Format: uuid */
+            thread_id?: string | null;
+        };
+        CustomerMatch: {
+            /** @enum {string} */
+            status: "matched" | "candidates" | "none";
+            customer?: components["schemas"]["Customer"];
+            candidates?: components["schemas"]["Customer"][];
+            spoken_name?: string;
+        };
+        VoiceDraftLine: {
+            /**
+             * Format: uuid
+             * @description Client reuses it as SaleLineInput.id.
+             */
+            id: string;
+            /** @description The product name only, cleaned. Never the quantity, a number word (một, hai), a unit or container word (chai, lon, gói, thùng) or the price. */
+            spoken: string;
+            /**
+             * @description matched is one product. ambiguous is several plausible products, ranked in candidates (the first is preselected). unknown is a name with no product in the catalog; the client must not sell the line until the seller picks a product, adds a new one or removes the line.
+             * @enum {string}
+             */
+            status: "matched" | "ambiguous" | "unknown";
+            product?: components["schemas"]["ProductSummary"];
+            candidates?: components["schemas"]["ProductSummary"][];
+            /** Format: uuid */
+            unit_id?: string | null;
+            quantity: number;
+            /** @description Spoken price, else catalog price, else null. */
+            unit_price?: components["schemas"]["Money"] | null;
+            /** @enum {string} */
+            price_source?: "spoken" | "catalog" | "none";
+            /** @description Spoken price differs from catalog. */
+            price_mismatch?: boolean;
+            needs_price?: boolean;
+        };
+        VoiceSaleDraft: {
+            lines: components["schemas"]["VoiceDraftLine"][];
+            payment_method: components["schemas"]["PaymentMethod"];
+            customer?: components["schemas"]["CustomerMatch"];
+            total: components["schemas"]["Money"];
+        };
+        VoiceUtterance: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            mode: "sale" | "transcribe";
+            transcript: string;
+            /** @enum {string} */
+            language: "vi" | "en";
+            /** @enum {string} */
+            intent: "sale" | "chat" | "none";
+            confidence?: number;
+            sale_draft?: components["schemas"]["VoiceSaleDraft"];
+            /** @description Slug that answered. */
+            model: string;
+            /** @description True when the STT path was used. */
+            stt_fallback?: boolean;
+            latency_ms: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        VoiceCorrection: {
+            /** Format: uuid */
+            line_id: string;
+            /** Format: uuid */
+            chosen_product_id?: string;
+            quantity?: number;
+            unit_price?: components["schemas"]["Money"];
+            removed?: boolean;
+        };
+        VoiceOutcomeRequest: {
+            /** @enum {string} */
+            outcome: "confirmed" | "edited" | "abandoned";
+            /** Format: uuid */
+            sale_id?: string;
+            corrections?: components["schemas"]["VoiceCorrection"][];
+            /**
+             * @description For abandoned.
+             * @enum {string}
+             */
+            stage?: "listening" | "draft" | "pay";
         };
         /** @description Exactly one of references or image_ids is required; both or neither return 422 validation_failed. */
         CreateProductRequest: {
@@ -1953,7 +2173,7 @@ export interface components {
             parser: "decisions" | "fallback";
             /**
              * @description Decision model ID, or null when unused.
-             * @example inception/mercury-decide:free
+             * @example inception/mercury-decide
              */
             model: string | null;
             lines: components["schemas"]["ReceiptLine"][];
@@ -2028,7 +2248,8 @@ export interface components {
             /** Format: uuid */
             unit_id?: string | null;
             old_value?: components["schemas"]["Money"] | null;
-            new_value: components["schemas"]["Money"];
+            /** @description Null only when a cost price was cleared. */
+            new_value: components["schemas"]["Money"] | null;
             /** Format: uuid */
             changed_by: string;
             /** Format: date-time */
@@ -2155,10 +2376,10 @@ export interface components {
         /** @enum {string} */
         PaymentMethod: "cash" | "transfer" | "credit";
         /**
-         * @description How the line entered the cart (S1, S8, S2, S3, S4).
+         * @description How the line entered the cart (S1, S8, S2, S3, S4, voice).
          * @enum {string}
          */
-        LineSource: "camera" | "multi_photo" | "barcode" | "grid" | "manual";
+        LineSource: "camera" | "multi_photo" | "barcode" | "grid" | "manual" | "voice";
         SaleLineInput: {
             /** Format: uuid */
             id: string;
@@ -2307,6 +2528,7 @@ export interface components {
             /** Format: uuid */
             image_id?: string;
             note?: string;
+            /** @description Buying costs are Lead-only, so responses to sellers carry an empty list. */
             purchase_lines?: components["schemas"]["PurchaseLine"][];
         };
         Expense: components["schemas"]["CreateExpenseRequest"] & {
@@ -2354,8 +2576,10 @@ export interface components {
              * @description Revenue minus expenses; may be negative.
              */
             net: number;
-            expected_cash: components["schemas"]["Money"];
+            /** @description Lead only; omitted for sellers. */
+            expected_cash?: components["schemas"]["Money"];
             manual_lines_open?: number;
+            /** @description Lead only; omitted for sellers. */
             day_close?: components["schemas"]["DayClose"] | null;
         };
         SummaryBucket: {
@@ -2378,7 +2602,7 @@ export interface components {
             revenue: components["schemas"]["Money"];
             /**
              * Format: int64
-             * @description Revenue minus quantity × current cost; null when cost unknown.
+             * @description Revenue minus quantity × current cost; null when cost unknown. Omitted for sellers, because it would reveal the cost.
              */
             gross_margin?: number | null;
         };
@@ -2411,7 +2635,7 @@ export interface components {
              */
             difference: number;
             transfer_revenue?: components["schemas"]["Money"];
-            /** @description Sales synced after the close for this date. */
+            /** @description Sales and repayments recorded after the close for this date. */
             late_sales_count?: number;
             note?: string | null;
             /** Format: uuid */
@@ -2502,6 +2726,7 @@ export interface components {
         };
         SendAssistantMessage: {
             content: string;
+            /** @description At most 4; duplicates are ignored. More is a 400 validation_failed. */
             attachments?: components["schemas"]["AssistantAttachment"][];
             language: components["schemas"]["AssistantLanguage"];
         };
@@ -2643,6 +2868,12 @@ export interface components {
             usage: {
                 input_tokens: number;
                 output_tokens: number;
+                /** @description Actual OpenRouter usage costs in USD; absent when accounting is unavailable. */
+                cost?: {
+                    input_usd: number | null;
+                    output_usd: number | null;
+                    total_usd: number;
+                };
             };
         };
         AssistantStreamError: {
@@ -2814,7 +3045,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Upload above 10 MiB. */
+        /** @description Request body exceeds the endpoint limit (2 MiB for JSON bodies; 512 KB for document probes; 10 MiB for image uploads). Always the standard error envelope with code payload_too_large. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -3119,7 +3350,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description PIN matches, or the member has no PIN. */
+            /** @description PIN matches (session unlocked), or the member has no PIN. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3138,6 +3369,25 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    lockSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session locked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getStore: {
@@ -3399,6 +3649,47 @@ export interface operations {
             503: components["responses"]["ServiceUnavailable"];
         };
     };
+    probeDocument: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description JPEG or PNG, at most 524288 bytes.
+                     */
+                    image: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Document detection signal; nothing is persisted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentSignal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     createScan: {
         parameters: {
             query?: never;
@@ -3449,6 +3740,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -3510,7 +3802,10 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["ServiceUnavailable"];
         };
@@ -3545,6 +3840,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -4076,7 +4372,7 @@ export interface operations {
                     reason: string;
                     /**
                      * Format: date-time
-                     * @description Device time; defaults to server time.
+                     * @description Ignored. The server stamps the void with its own time.
                      */
                     voided_at?: string;
                 };
@@ -4171,6 +4467,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
         };
     };
     getCustomer: {
@@ -4783,6 +5080,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -5235,6 +5533,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     pullChanges: {
@@ -5579,6 +5878,8 @@ export interface operations {
             query?: {
                 /** @description Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest. */
                 business_date?: string;
+                /** @description Record that the caller opened the digest. Only the digest screen sets it; reading for the dashboard card leaves `read_at` untouched. The response carries the read time from before this call, so the first open returns null. */
+                mark_read?: boolean;
             };
             header?: {
                 /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
@@ -5600,6 +5901,83 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createVoiceUtterance: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    audio: string;
+                    /** @enum {string} */
+                    mode: "sale" | "transcribe";
+                    /**
+                     * @default vi
+                     * @enum {string}
+                     */
+                    language?: "vi" | "en";
+                    /** @description JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}. */
+                    context?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Utterance understood. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceUtterance"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    postVoiceOutcome: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path: {
+                utteranceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceOutcomeRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };

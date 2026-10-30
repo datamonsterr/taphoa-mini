@@ -94,3 +94,37 @@ test('the strip is named for screen readers in the app language', async () => {
   );
   expect(screen.getByLabelText('Suggested next steps')).toBeOnTheScreen();
 });
+
+test('the two receipt entry points have distinct tones and targets of at least 56 px', async () => {
+  const review: NextStepChipData = {
+    ...device,
+    title: 'Đọc hóa đơn nhập',
+    subtitle: undefined,
+    tone: 'accent',
+    action: { type: 'receipt', destination: 'review' },
+  };
+  const assistant: NextStepChipData = {
+    ...device,
+    id: 'receipt_assistant',
+    title: 'Nhập trong trợ lý',
+    subtitle: undefined,
+    tone: 'neutral',
+    action: { type: 'receipt', destination: 'assistant' },
+  };
+  const onPress = jest.fn();
+  await renderWithProviders(
+    <NextStepStrip chips={[review, assistant]} onPress={onPress} />,
+  );
+  const first = screen.getByRole('button', { name: 'Đọc hóa đơn nhập' });
+  const second = screen.getByRole('button', { name: 'Nhập trong trợ lý' });
+  expect(flat(first)).toMatchObject({ backgroundColor: colors.accent });
+  expect(flat(second)).toMatchObject({ backgroundColor: camera.glass });
+  expect(flat(first).minHeight).toBeGreaterThanOrEqual(56);
+  expect(flat(second).minHeight).toBeGreaterThanOrEqual(56);
+  await fireEvent.press(first);
+  await fireEvent.press(second);
+  expect(onPress.mock.calls).toEqual([
+    [review, 0],
+    [assistant, 1],
+  ]);
+});

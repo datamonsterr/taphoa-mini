@@ -108,11 +108,11 @@ test.describe('camera', () => {
     await tag.click();
     await expect(tag).toHaveAttribute('aria-selected', 'true');
     await expect(tag).toHaveCSS('background-color', 'rgb(90, 67, 232)');
-    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toBeVisible();
+    await expect(page.getByText('Xoay sản phẩm')).toBeVisible();
     await expect(page).not.toHaveURL(/\/enroll/);
     await tag.click();
     await expect(tag).toHaveAttribute('aria-selected', 'false');
-    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toHaveCount(0);
+    await expect(page.getByText('Xoay sản phẩm')).toHaveCount(0);
     await expectLiveVideo(page);
   });
 

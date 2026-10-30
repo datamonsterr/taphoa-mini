@@ -85,6 +85,8 @@ tags:
 
   - name: Assistant
     description: Private chat threads, proposed actions, next steps and daily digest.
+  - name: Voice
+    description: Voice sale drafts from a spoken utterance, and outcome feedback (V0-V6).
   - name: Devices
     description: Expo push token registrations.
 
@@ -232,6 +234,10 @@ paths:
       tags: [Auth]
       operationId: verifyPin
       summary: Verify the caller's PIN lock
+      description: |
+        A right PIN unlocks the calling Clerk session on the server. Until then, every store
+        route answers 403 `pin_required` for a person who has a PIN on any membership (see
+        `POST /v1/me/pin/lock`). A member without a PIN answers 204 and unlocks nothing.
       requestBody:
         required: true
         content:
@@ -244,7 +250,10 @@ paths:
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
       responses:
-        '204': { description: 'PIN matches, or the member has no PIN.' }
+        '204':
+          {
+            description: 'PIN matches (session unlocked), or the member has no PIN.',
+          }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401':
           description: '`invalid_pin` when the PIN does not match; `unauthorized` for missing or invalid Clerk credentials.'
@@ -253,6 +262,22 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/me/pin/lock:
+    post:
+      tags: [Auth]
+      operationId: lockSession
+      summary: Lock the calling session until its PIN is verified again
+      description: |
+        On a shared phone every signed-in person keeps a live Clerk session, so a session token
+        proves nothing about who holds the phone. A person who has a PIN is served only while
+        their session is unlocked. A session first seen by the API starts unlocked, and so does
+        one that just set a PIN or verified it (`POST /v1/me/pin/verify`). The app calls this
+        route for the person who stops being the active one. A locked session gets 403
+        `pin_required` on every store route; `GET /v1/me`, this route and the verify route stay
+        open. An unlocked session that is idle for 12 hours locks again. Needs no store.
+      responses:
+        '204': { description: Session locked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- Store
   /v1/store:
@@ -453,6 +478,52 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Recognition
+  /v1/recognition/document-probes:
+    post:
+      tags: [Recognition]
+      operationId: probeDocument
+      summary: Detect receipt text lines in a live camera preview still
+      description: |
+        Authenticated members with checkout scan permissions may send a small JPEG/PNG
+        still every 2–3 seconds. Expo Go has no frame processors. Runs only the text
+        detector, without SAM, embeddings, scan/image rows or object storage uploads.
+        Maximum image size is 512 KB (524288 bytes). Limited to 40 requests per minute
+        per member; 429 includes Retry-After. Probes use a separate admission pool
+        (DOCUMENT_PROBE_CONCURRENCY, default 1) and never consume scan/enrollment slots.
+        When the probe pool is full, returns 200 with the empty signal
+        `{detected:false, score:0, text_lines:0, line_boxes:[]}` as a best-effort result.
+        Returns 503 `ocr_unavailable` when no text detector is configured.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: JPEG or PNG, at most 524288 bytes.
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+      responses:
+        '200':
+          description: Document detection signal; nothing is persisted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentSignal' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/recognition/scans:
     post:
       tags: [Recognition]
@@ -506,6 +577,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /v1/recognition/scans/{scanId}:
@@ -537,9 +609,9 @@ paths:
       summary: Raw class-agnostic segmentation (implemented skeleton)
       description: |
         Runs the configured `Segmenter` and returns boxes only, without catalog matching.
-        Kept for diagnostics and the e2e smoke test. Today it is unauthenticated;
-        it moves behind auth once auth lands.
-      security: []
+        Kept for diagnostics and the e2e smoke test. Needs a signed-in member of a store
+        with the product-enrollment permission, and shares the per-member segmentation
+        rate limit with `/v1/segment/points`.
       requestBody:
         required: true
         content:
@@ -563,7 +635,10 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Segment' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/segment/points:
@@ -591,6 +666,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
@@ -600,7 +676,7 @@ paths:
       tags: [Catalog]
       operationId: listProducts
       summary: Price list / grid (C6, S3)
-      description: Phones normally read the catalog from local SQLite fed by `/v1/sync/changes`; this route serves search and first load.
+      description: Phones normally read the catalog from their persisted query cache (ADR 0009), refreshed from `/v1/sync/changes`; this route serves search and first load.
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: q
@@ -972,6 +1048,13 @@ paths:
         cover the paid part (`total − credit.amount`); `change_given` uses that paid part.
         Unknown customer returns 404. Archived customers still accept credit sales, and
         credit limits never block. The sale and its credit_sale entry commit together.
+        `sold_at` is bounded by the server. It is trusted only from 72 hours in the past to 5
+        minutes in the future of server time, so an offline queue still syncs. Outside that
+        window the sale is booked at server time (a phone with a wrong clock keeps selling, and
+        nobody can pick the day). A seller's sale for a past business day the Lead already
+        closed is booked at server time too, so closed figures do not change. The stored
+        `sold_at` and `business_date` in the response show what was booked. A sale on today's
+        date after an early close is a normal sale.
       requestBody:
         required: true
         content:
@@ -1038,7 +1121,7 @@ paths:
                   {
                     type: string,
                     format: date-time,
-                    description: Device time; defaults to server time.,
+                    description: Ignored. The server stamps the void with its own time.,
                   }
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
@@ -1116,6 +1199,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/customers/{customerId}:
@@ -1382,7 +1466,9 @@ paths:
       operationId: createExpense
       summary: Record an expense or a stock purchase (E1, E2)
       description: |
-        `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`.
+        `purchase_lines` (category `nhap_hang` only) update each product's `cost_price`
+        when the caller is the Lead. A seller's purchase lines are recorded with the
+        expense but never change cost price, price history or margin alerts.
         When the new cost leaves margin below the store threshold, the server creates a
         margin alert (E3) and publishes `alert.created`. When lines are present, `amount`
         must equal the line sum. Idempotent on `id`.
@@ -1581,6 +1667,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '400': { $ref: '#/components/responses/BadRequest' }
     get:
@@ -1647,7 +1734,9 @@ paths:
         All retained lines must map to known products; map or drop unmatched lines (422).
         Creates one nhap_hang expense with amount = sum(cost), the receipt image and purchase
         lines with unit_cost = ceil(cost / quantity). Adds stock, writes movements with
-        reason receipt, runs margin alerts, and emits events in the same transaction.
+        reason receipt, and emits events in the same transaction. Only the Lead's
+        confirmation updates product cost prices and runs margin alerts; a `can_enroll`
+        seller's confirmation records stock and the expense but leaves cost unchanged.
         Returns the confirmed receipt with expense_id. The same Idempotency-Key replays
         the same result; another attempt to confirm returns 409 already_confirmed.
       parameters:
@@ -1758,7 +1847,8 @@ paths:
         transfer sales. `cash_repayments` sums cash repayments of that business date and
         `credit_sales` sums credit_amount of completed sales of that date, so the day close
         screen can show both before the day is closed. `expected_cash` includes
-        `cash_repayments`.
+        `cash_repayments`. `expected_cash` and `day_close` are Lead-only: they are omitted
+        for sellers.
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: date
@@ -1879,7 +1969,7 @@ paths:
     get:
       tags: [Day close]
       operationId: listDayCloses
-      summary: Past end-of-day closes
+      summary: Past end-of-day closes (Lead only)
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/From'
@@ -1908,7 +1998,7 @@ paths:
     get:
       tags: [Day close]
       operationId: getDayClose
-      summary: One day's close
+      summary: One day's close (Lead only)
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
       responses:
@@ -1929,7 +2019,7 @@ paths:
         `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
         for that business date, computed on the server from synced records. Re-closing the
         same date overwrites the count and recomputes; sales synced after a close are
-        reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+        reported in `late_sales_count` (with repayments recorded after the close). A date after today (store time zone) or before 2024-01-01 is a 400 `validation_failed`. Cash sales/refunds and transfer revenue count only
         the paid part (`total − credit_amount`). Repayments are summed by method and business
         date; `credit_sales` sums credit_amount of completed sales of that date.
       requestBody:
@@ -1954,6 +2044,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
 
   # ---------------------------------------------------------------- Sync
   /v1/sync/changes:
@@ -2318,6 +2409,16 @@ paths:
             type: string
             format: date
           description: Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest.
+        - name: mark_read
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description:
+            Record that the caller opened the digest. Only the digest screen sets it; reading for the
+            dashboard card leaves `read_at` untouched. The response carries the read time from
+            before this call, so the first open returns null.
       responses:
         '200':
           description: Success.
@@ -2331,6 +2432,73 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/voice/utterances:
+    post:
+      tags: [Voice]
+      operationId: createVoiceUtterance
+      summary: Turn one spoken utterance into a transcript and an optional sale draft
+      description: |
+        Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
+        1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
+        `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
+        `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+        per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
+        back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, mode]
+              properties:
+                audio: { type: string, format: binary }
+                mode: { type: string, enum: [sale, transcribe] }
+                language: { type: string, enum: [vi, en], default: vi }
+                context:
+                  type: string
+                  description: 'JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}.'
+            encoding:
+              audio:
+                contentType: audio/mp4, audio/wav, audio/ogg
+      responses:
+        '201':
+          description: Utterance understood.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceUtterance' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/voice/utterances/{utteranceId}/outcome:
+    post:
+      tags: [Voice]
+      operationId: postVoiceOutcome
+      summary: Report what the seller did with a voice draft
+      description: Idempotent per utterance; the last write wins.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+        - name: utteranceId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoiceOutcomeRequest' }
+      responses:
+        '204': { description: Recorded. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /v1/devices:
     post:
       tags:
@@ -2499,7 +2667,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     PayloadTooLarge:
-      description: Upload above 10 MiB.
+      description: Request body exceeds the endpoint limit (2 MiB for JSON bodies; 512 KB for document probes; 10 MiB for image uploads). Always the standard error envelope with code payload_too_large.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2864,9 +3032,11 @@ components:
           items: { $ref: '#/components/schemas/Detection' }
         created_at: { type: string, format: date-time }
     ScanDocument:
+      $ref: '#/components/schemas/DocumentSignal'
+    DocumentSignal:
       type: object
-      description: Present on every scan; detection runs alongside segmentation on the downsized image.
-      required: [detected, score, text_lines]
+      description: Text detection signal, returned by preview probes and every scan.
+      required: [detected, score, text_lines, line_boxes]
       properties:
         detected:
           type: boolean
@@ -2877,6 +3047,15 @@ components:
           maximum: 1
           description: text_area_ratio / 0.2, clamped to [0, 1].
         text_lines: { type: integer, minimum: 0 }
+        line_boxes:
+          type: array
+          description: Grouped text lines sorted top-to-bottom. Each box is [x, y, width, height], normalized to image dimensions and clamped to [0, 1]. Empty when no text is found; the full text_lines count may exceed the box cap.
+          maxItems: 40
+          items:
+            type: array
+            minItems: 4
+            maxItems: 4
+            items: { type: number, minimum: 0, maximum: 1 }
     Detection:
       type: object
       required: [id, bbox, score, match, candidates]
@@ -3037,6 +3216,142 @@ components:
         version: { type: integer, format: int64 }
         created_by: { type: string, format: uuid }
         updated_at: { type: string, format: date-time }
+    ProductSummary:
+      type: object
+      description: Minimal Product subset a voice draft sheet needs.
+      required: [id, name, price, base_unit]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, 'null'] }
+        price: { $ref: '#/components/schemas/Money' }
+        base_unit: { type: string, example: chai }
+        units:
+          type: array
+          items: { $ref: '#/components/schemas/ProductUnit' }
+        image_url: { type: [string, 'null'], format: uri }
+    VoiceUtteranceContext:
+      type: object
+      required: [entry, screen]
+      properties:
+        entry:
+          type: string
+          enum:
+            [
+              bubble,
+              tile,
+              shortcut,
+              control,
+              action_button,
+              siri,
+              longpress,
+              chip,
+              chat,
+            ]
+        screen: { type: string, example: camera }
+        thread_id: { type: [string, 'null'], format: uuid }
+    CustomerMatch:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [matched, candidates, none] }
+        customer: { $ref: '#/components/schemas/Customer' }
+        candidates:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/Customer' }
+        spoken_name: { type: string }
+    VoiceDraftLine:
+      type: object
+      required: [id, spoken, quantity, status]
+      properties:
+        id:
+          {
+            type: string,
+            format: uuid,
+            description: Client reuses it as SaleLineInput.id.,
+          }
+        spoken:
+          type: string
+          description: >-
+            The product name only, cleaned. Never the quantity, a number word (một, hai),
+            a unit or container word (chai, lon, gói, thùng) or the price.
+        status:
+          type: string
+          enum: [matched, ambiguous, unknown]
+          description: >-
+            matched is one product. ambiguous is several plausible products, ranked in
+            candidates (the first is preselected). unknown is a name with no product in the
+            catalog; the client must not sell the line until the seller picks a product, adds
+            a new one or removes the line.
+        product: { $ref: '#/components/schemas/ProductSummary' }
+        candidates:
+          type: array
+          maxItems: 3
+          items: { $ref: '#/components/schemas/ProductSummary' }
+        unit_id: { type: [string, 'null'], format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+        unit_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+          description: Spoken price, else catalog price, else null.
+        price_source: { type: string, enum: [spoken, catalog, none] }
+        price_mismatch:
+          { type: boolean, description: Spoken price differs from catalog. }
+        needs_price: { type: boolean }
+    VoiceSaleDraft:
+      type: object
+      required: [lines, payment_method, total]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/VoiceDraftLine' }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        customer: { $ref: '#/components/schemas/CustomerMatch' }
+        total: { $ref: '#/components/schemas/Money' }
+    VoiceUtterance:
+      type: object
+      required:
+        [id, mode, transcript, language, intent, model, latency_ms, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        mode: { type: string, enum: [sale, transcribe] }
+        transcript: { type: string }
+        language: { type: string, enum: [vi, en] }
+        intent: { type: string, enum: [sale, chat, none] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        sale_draft: { $ref: '#/components/schemas/VoiceSaleDraft' }
+        model: { type: string, description: Slug that answered. }
+        stt_fallback:
+          { type: boolean, description: True when the STT path was used. }
+        latency_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+    VoiceCorrection:
+      type: object
+      required: [line_id]
+      properties:
+        line_id: { type: string, format: uuid }
+        chosen_product_id: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+        unit_price: { $ref: '#/components/schemas/Money' }
+        removed: { type: boolean }
+    VoiceOutcomeRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { type: string, enum: [confirmed, edited, abandoned] }
+        sale_id: { type: string, format: uuid }
+        corrections:
+          type: array
+          items: { $ref: '#/components/schemas/VoiceCorrection' }
+        stage:
+          {
+            type: string,
+            enum: [listening, draft, pay],
+            description: For abandoned.,
+          }
     CreateProductRequest:
       type: object
       description: Exactly one of references or image_ids is required; both or neither return 422 validation_failed.
@@ -3274,7 +3589,7 @@ components:
           {
             type: [string, 'null'],
             description: 'Decision model ID, or null when unused.',
-            example: 'inception/mercury-decide:free',
+            example: 'inception/mercury-decide',
           }
         lines:
           type: array
@@ -3377,7 +3692,11 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
-        new_value: { $ref: '#/components/schemas/Money' }
+        new_value:
+          description: Null only when a cost price was cleared.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
         changed_by: { type: string, format: uuid }
         changed_at: { type: string, format: date-time }
         source: { type: string, enum: [manual, margin_alert, purchase] }
@@ -3556,8 +3875,8 @@ components:
       enum: [cash, transfer, credit]
     LineSource:
       type: string
-      enum: [camera, multi_photo, barcode, grid, manual]
-      description: How the line entered the cart (S1, S8, S2, S3, S4).
+      enum: [camera, multi_photo, barcode, grid, manual, voice]
+      description: How the line entered the cart (S1, S8, S2, S3, S4, voice).
     SaleLineInput:
       type: object
       required: [id, source, quantity, unit_price]
@@ -3737,6 +4056,7 @@ components:
         note: { type: string, maxLength: 500 }
         purchase_lines:
           type: array
+          description: Buying costs are Lead-only, so responses to sellers carry an empty list.
           items: { $ref: '#/components/schemas/PurchaseLine' }
     Expense:
       allOf:
@@ -3791,7 +4111,6 @@ components:
           transfer_revenue,
           expenses,
           net,
-          expected_cash,
           cash_repayments,
           credit_sales,
         ]
@@ -3811,9 +4130,13 @@ components:
             format: int64,
             description: Revenue minus expenses; may be negative.,
           }
-        expected_cash: { $ref: '#/components/schemas/Money' }
+        expected_cash:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+          description: Lead only; omitted for sellers.
         manual_lines_open: { type: integer }
         day_close:
+          description: Lead only; omitted for sellers.
           oneOf:
             - $ref: '#/components/schemas/DayClose'
             - type: 'null'
@@ -3838,7 +4161,9 @@ components:
         gross_margin:
           type: [integer, 'null']
           format: int64
-          description: Revenue minus quantity × current cost; null when cost unknown.
+          description: >-
+            Revenue minus quantity × current cost; null when cost unknown. Omitted for
+            sellers, because it would reveal the cost.
     RecognitionReport:
       type: object
       required: [detections, confirmed_top1, confirmed_top3, corrected, unknown]
@@ -3884,7 +4209,7 @@ components:
         late_sales_count:
           {
             type: integer,
-            description: Sales synced after the close for this date.,
+            description: Sales and repayments recorded after the close for this date.,
           }
         note: { type: [string, 'null'] }
         closed_by: { type: string, format: uuid }
@@ -4097,6 +4422,8 @@ components:
           maxLength: 4000
         attachments:
           type: array
+          maxItems: 4
+          description: At most 4; duplicates are ignored. More is a 400 validation_failed.
           items:
             $ref: '#/components/schemas/AssistantAttachment'
         language:
@@ -4508,6 +4835,22 @@ components:
             output_tokens:
               type: integer
               minimum: 0
+            cost:
+              description: Actual OpenRouter usage costs in USD; absent when accounting is unavailable.
+              type: object
+              additionalProperties: false
+              required: [input_usd, output_usd, total_usd]
+              properties:
+                input_usd:
+                  type: [number, 'null']
+                  minimum: 0
+                output_usd:
+                  type: [number, 'null']
+                  minimum: 0
+                total_usd:
+                  type: number
+                  minimum: 0
+
     AssistantStreamError:
       type: object
       additionalProperties: false

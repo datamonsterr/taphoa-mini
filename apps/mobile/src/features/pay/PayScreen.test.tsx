@@ -1,13 +1,18 @@
+import { seedCustomer } from '@/test/debts';
 import { createCustomer } from '@/lib/api/debts';
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 
 import * as storeApi from '@/lib/api/store';
 import { holdNext } from '@/test/hold';
 import { listSales, setApiTransport } from '@/lib/api';
 import { createMockFetch } from '@/test/mock/fetch';
+import { onlineManager } from '@tanstack/react-query';
+import { flushOutbox, pendingItems } from '@/lib/outbox';
 import * as ledgerApi from '@/lib/api/ledger';
+import { getProduct } from '@/lib/api/products';
 import { resetMockDb } from '@/test/mock/db';
 import { PRODUCT_IDS } from '@/test/mock/fixtures';
 import { useCartStore } from '@/stores/cart';
@@ -49,6 +54,7 @@ function seed() {
 }
 
 beforeEach(() => {
+  onlineManager.setOnline(true);
   jest.clearAllMocks();
   jest.restoreAllMocks();
   mockRouter.canDismiss.mockReturnValue(true);
@@ -69,6 +75,9 @@ async function findNewSale() {
 describe('PayScreen transfer', () => {
   it('shows the total and the VietQR for the store bank account', async () => {
     await renderWithProviders(<PayScreen />);
+    expect(
+      screen.getByRole('header', { name: 'Thanh toán' }),
+    ).toBeOnTheScreen();
     expect(screen.getByText('24.500đ')).toBeOnTheScreen();
     expect(await screen.findByLabelText('Mã VietQR 24.500đ')).toBeOnTheScreen();
     const value = screen.getByTestId('qr-value').props.children as string;
@@ -162,10 +171,10 @@ describe('PayScreen cash', () => {
     await fireEvent.press(screen.getByRole('radio', { name: 'Tiền mặt' }));
   }
 
-  it('lists exact amount and notes, no QR', async () => {
+  it('lists the four notes (2x2 board grid), no QR', async () => {
     await openCash();
     expect(screen.queryByTestId('qr-value')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Đủ tiền' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Đủ tiền' })).toBeNull();
     for (const label of ['50.000', '100.000', '200.000', '500.000']) {
       expect(screen.getByText(label)).toBeOnTheScreen();
     }
@@ -238,34 +247,33 @@ describe('PayScreen received', () => {
     });
   });
 
-  it('keeps the cart and shows an error when the sale fails', async () => {
+  it('records the sale on the device and finishes even when the server fails', async () => {
     jest
       .spyOn(ledgerApi, 'createSale')
-      .mockRejectedValueOnce(new Error('boom'));
+      .mockRejectedValue(new TypeError('Network request failed'));
     await renderWithProviders(<PayScreen />);
     await screen.findByTestId('qr-value');
     await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /Không lưu được đơn/,
-    );
-    expect(useCartStore.getState().lines).toHaveLength(2);
-    expect(mockRouter.dismissAll).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Đã nhận tiền' })).toBeEnabled();
+    expect(await screen.findByLabelText('Đã nhận tiền xong')).toBeOnTheScreen();
+    expect(useCartStore.getState().lines).toEqual([]);
+    await waitFor(() => expect(pendingItems('sale')).toHaveLength(1));
   });
 
-  it('a retry after a failure resends the same request, so the server replays it', async () => {
-    const create = jest
-      .spyOn(ledgerApi, 'createSale')
-      .mockRejectedValueOnce(new Error('offline'));
+  it('offline: no request is made, the sale waits in the outbox and posts once on reconnect', async () => {
+    const create = jest.spyOn(ledgerApi, 'createSale');
     await renderWithProviders(<PayScreen />);
     await screen.findByTestId('qr-value');
+    await act(async () => onlineManager.setOnline(false));
     await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
-    await screen.findByRole('alert');
-    await new Promise((resolve) => setTimeout(resolve, 15));
-    await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
-    const [first, second] = create.mock.calls.map(([body]) => body);
-    expect(second).toEqual(first);
+    expect(await screen.findByLabelText('Đã nhận tiền xong')).toBeOnTheScreen();
+    expect(create).not.toHaveBeenCalled();
+    const [queued] = pendingItems('sale');
+    onlineManager.setOnline(true);
+    await flushOutbox();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(pendingItems()).toEqual([]);
+    const { items } = await listSales({ limit: 200 });
+    expect(items.filter((s) => s.id === queued!.key)).toHaveLength(1);
   });
 
   it('puts the sale id in the Idempotency-Key header and its code in the memo', async () => {
@@ -385,6 +393,7 @@ describe('PayScreen credit', () => {
     const c = await createCustomer({
       id: newUuid(),
       name: 'Chị Lan',
+      phone: '0901234567',
       ...(limit === undefined ? {} : { credit_limit: limit }),
     });
     await renderWithProviders(<PayScreen />);
@@ -394,7 +403,16 @@ describe('PayScreen credit', () => {
   }
   it('sends full credit and preserves success behaviour', async () => {
     const c = await chooseCustomer();
-    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    expect(screen.getByText('Ghi nợ 24.500đ')).toBeOnTheScreen();
+    expect(screen.getAllByTestId('icon-BookText')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Ghi nợ 24.500đ' })).toHaveStyle({
+      backgroundColor: '#111114',
+    });
+    expect(screen.getByText('0901234567')).toBeOnTheScreen();
+    expect(screen.getByText('Đang nợ 0đ')).toBeOnTheScreen();
+    expect(screen.getByText('Đổi')).toBeOnTheScreen();
+    expect(screen.getByText('Nợ mới của khách 24.500đ')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: /^Ghi nợ / }));
     await screen.findByLabelText('Đã nhận tiền xong');
     expect(await findNewSale()).toMatchObject({
       payment_method: 'credit',
@@ -405,8 +423,13 @@ describe('PayScreen credit', () => {
   });
   it('sends partial cash with paid-now amount', async () => {
     await chooseCustomer();
+    await fireEvent.press(screen.getByLabelText('Khác'));
     await fireEvent.changeText(screen.getByLabelText('Trả trước'), '10000');
-    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await fireEvent.press(screen.getByLabelText('Xong'));
+    expect(
+      screen.getByRole('button', { name: 'Ghi nợ 14.500đ' }),
+    ).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: /^Ghi nợ / }));
     await screen.findByLabelText('Đã nhận tiền xong');
     expect(await findNewSale()).toMatchObject({
       payment_method: 'cash',
@@ -418,19 +441,130 @@ describe('PayScreen credit', () => {
   it('warns over the limit and keeps confirm enabled', async () => {
     await chooseCustomer(1000);
     expect(screen.getByText('Vượt hạn mức ghi nợ')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Đã nhận tiền')).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Ghi nợ / })).toBeEnabled();
   });
   it('blocks paid-now above total and treats exact payment as normal cash', async () => {
     await chooseCustomer();
+    await fireEvent.press(screen.getByLabelText('Khác'));
     await fireEvent.changeText(screen.getByLabelText('Trả trước'), '24501');
-    expect(screen.getByLabelText('Đã nhận tiền')).toBeDisabled();
+    expect(screen.getByLabelText('Xong')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Ghi nợ / })).toBeDisabled();
     await fireEvent.changeText(screen.getByLabelText('Trả trước'), '24500');
-    await fireEvent.press(screen.getByLabelText('Đã nhận tiền'));
+    await fireEvent.press(screen.getByLabelText('Xong'));
+    await fireEvent.press(screen.getByRole('button', { name: /^Ghi nợ / }));
     await screen.findByLabelText('Đã nhận tiền xong');
     expect(await findNewSale()).toMatchObject({
       payment_method: 'cash',
       credit_amount: 0,
       cash_received: 24500,
     });
+  });
+
+  it('quick prepayment chips update the projected debt and custom keypad amount', async () => {
+    await chooseCustomer();
+    await fireEvent.press(screen.getByRole('radio', { name: '20.000đ' }));
+    expect(screen.getByText('Nợ mới của khách 4.500đ')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Ghi nợ 4.500đ' })).toBeEnabled();
+    await fireEvent.press(screen.getByRole('radio', { name: '0đ' }));
+    await fireEvent.press(screen.getByLabelText('Khác'));
+    for (const key of ['1', '0', '000'])
+      await fireEvent.press(screen.getByRole('button', { name: key }));
+    await fireEvent.press(screen.getByLabelText('Xong'));
+    expect(
+      screen.getByRole('button', { name: 'Ghi nợ 14.500đ' }),
+    ).toBeEnabled();
+  });
+
+  it('adds the sale to the existing balance and lets the seller change customers', async () => {
+    await seedCustomer({ name: 'Chị Lan', phone: '0901234567', owes: 100000 });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByRole('radio', { name: 'Ghi nợ' }));
+    await fireEvent.press(await screen.findByLabelText('Chị Lan, 100.000đ'));
+    expect(screen.getByText('Đang nợ 100.000đ')).toBeOnTheScreen();
+    expect(screen.getByText('Nợ mới của khách 124.500đ')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('radio', { name: '20.000đ' }));
+    expect(screen.getByText('Nợ mới của khách 104.500đ')).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Đổi khách hàng$/ }),
+    );
+    expect(
+      screen.getByRole('header', { name: 'Chọn khách ghi nợ' }),
+    ).toBeOnTheScreen();
+  });
+});
+
+test('checkout sends chosen unit_id and its price, with separate base and pack lines', async () => {
+  useCartStore.setState({ lines: [] });
+  const product = await getProduct(PRODUCT_IDS.coca);
+  const unit = product.units[0]!;
+  useCartStore
+    .getState()
+    .add({ productId: product.id, name: product.name!, price: product.price });
+  useCartStore.getState().add({
+    productId: product.id,
+    name: product.name!,
+    price: unit.price,
+    unitId: unit.id,
+  });
+  const request = jest.spyOn(ledgerApi, 'createSale');
+  await renderWithProviders(<PayScreen />);
+  await screen.findByTestId('qr-value');
+  await fireEvent.press(screen.getByRole('button', { name: 'Đã nhận tiền' }));
+  await waitFor(() => expect(request).toHaveBeenCalled());
+  const body = request.mock.calls[0]![0];
+  expect(body.lines).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        product_id: product.id,
+        unit_price: product.price,
+      }),
+      expect.objectContaining({
+        product_id: product.id,
+        unit_id: unit.id,
+        unit_price: unit.price,
+      }),
+    ]),
+  );
+  expect(new Set(body.lines.map((line) => line.id)).size).toBe(2);
+  expect(body.total).toBe(product.price + unit.price);
+});
+
+describe('PayScreen spoken total', () => {
+  afterEach(() => useSettingsStore.setState({ speakTotal: false }));
+
+  it('is silent while the setting is off', async () => {
+    await renderWithProviders(<PayScreen />);
+    expect(Speech.speak).not.toHaveBeenCalled();
+  });
+
+  it('reads the total in Vietnamese when the sheet opens, and stops on unmount', async () => {
+    useSettingsStore.setState({ speakTotal: true });
+    const view = await renderWithProviders(<PayScreen />);
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    expect(Speech.speak).toHaveBeenCalledWith(
+      'Tổng cộng hai mươi bốn nghìn năm trăm đồng',
+      { language: 'vi-VN' },
+    );
+    (Speech.stop as jest.Mock).mockClear();
+    await view.unmount();
+    expect(Speech.stop).toHaveBeenCalled();
+  });
+
+  it('reads the change when the cash given exceeds the total', async () => {
+    useSettingsStore.setState({ speakTotal: true });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByRole('radio', { name: 'Tiền mặt' }));
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByText('100.000'));
+    // spoken only once the amount settles, not on every keypad press
+    expect(Speech.speak).toHaveBeenCalledTimes(1);
+    await waitFor(
+      () =>
+        expect(Speech.speak).toHaveBeenLastCalledWith(
+          'Tiền thối bảy mươi lăm nghìn năm trăm đồng',
+          { language: 'vi-VN' },
+        ),
+      { timeout: 2000 },
+    );
   });
 });

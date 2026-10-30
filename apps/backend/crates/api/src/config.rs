@@ -76,6 +76,8 @@ impl ClerkSettings {
 // No Debug: contains the optional Clerk secret key.
 #[derive(Clone)]
 pub struct Config {
+    pub clock: crate::time::Clock,
+    pub sale_window: crate::time::SaleWindow,
     pub port: u16,
     pub database_url: Option<String>,
     pub redis_url: Option<String>,
@@ -87,6 +89,7 @@ pub struct Config {
     pub ocr_decoder: Option<PathBuf>,
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
+    pub document_probe_concurrency: usize,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
@@ -142,18 +145,45 @@ impl Config {
             )?,
             join_per_hour: positive("RATE_LIMIT_JOIN_PER_HOUR", defaults.join_per_hour)?,
             pin_attempts: positive("RATE_LIMIT_PIN_ATTEMPTS", defaults.pin_attempts)?,
+            scan_per_minute: positive("RATE_LIMIT_SCAN_PER_MINUTE", defaults.scan_per_minute)?,
+            segment_per_minute: positive(
+                "RATE_LIMIT_SEGMENT_PER_MINUTE",
+                defaults.segment_per_minute,
+            )?,
+            receipt_per_minute: positive(
+                "RATE_LIMIT_RECEIPT_PER_MINUTE",
+                defaults.receipt_per_minute,
+            )?,
+            receipt_store_per_day: positive(
+                "RATE_LIMIT_RECEIPT_STORE_PER_DAY",
+                defaults.receipt_store_per_day,
+            )?,
         };
         let hops = positive("TRUSTED_PROXY_HOPS", 1)? as usize;
         let client_ip = ClientIpSource::parse(
             &get("CLIENT_IP_SOURCE").unwrap_or_else(|| "peer".into()),
             hops,
         )?;
+        let window_defaults = crate::time::SaleWindow::default();
+        let sale_window = crate::time::SaleWindow {
+            max_age: chrono::Duration::hours(positive(
+                "SALE_MAX_AGE_HOURS",
+                window_defaults.max_age.num_hours() as u32,
+            )? as i64),
+            max_future: chrono::Duration::seconds(positive(
+                "SALE_MAX_FUTURE_SECONDS",
+                window_defaults.max_future.num_seconds() as u32,
+            )? as i64),
+        };
         Ok(Self {
+            clock: crate::time::Clock::from_lookup(&get)?,
+            sale_window,
             ocr_det,
             ocr_encoder,
             ocr_decoder,
             ocr_vocab,
             ocr_threads,
+            document_probe_concurrency: positive("DOCUMENT_PROBE_CONCURRENCY", 1)? as usize,
             rate_limits,
             client_ip,
             port: get("PORT")
@@ -232,6 +262,38 @@ impl Config {
 mod tests {
     use super::*;
     #[test]
+    fn startup_validates_business_clock_override() {
+        for (raw, environment, valid) in [
+            ("2026-01-15T10:00:00+07:00", "test", true),
+            ("10:00", "test", true),
+            ("2026-01-15T10:00:00+07:00", "production", false),
+            ("10:00", "production", false),
+        ] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "TAPHOA_TEST_NOW" => Some(raw.into()),
+                "RAILWAY_ENVIRONMENT_NAME" => Some(environment.into()),
+                _ => None,
+            });
+            assert_eq!(config.is_ok(), valid);
+            if let Ok(config) = config {
+                assert_eq!(
+                    config
+                        .clock
+                        .now()
+                        .with_timezone(&crate::time::STORE_TZ)
+                        .format("%H")
+                        .to_string(),
+                    "10"
+                );
+                if raw != "10:00" {
+                    assert_eq!(config.clock.today().to_string(), "2026-01-15");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn ocr_paths_are_all_or_none_and_threads_are_positive() {
         let keys = [
             "OCR_DET_PATH",
@@ -296,6 +358,7 @@ mod tests {
         .unwrap();
         assert_eq!(defaults.port, 8080);
         assert_eq!(defaults.db_max_connections, 10);
+        assert_eq!(defaults.document_probe_concurrency, 1);
         assert_eq!(defaults.rate_limits, RateLimits::default());
         assert_eq!(defaults.client_ip, ClientIpSource::Peer);
         assert!(defaults.segmenter().unwrap().is_none());
@@ -303,6 +366,9 @@ mod tests {
             ("PORT", "65536"),
             ("DB_MAX_CONNECTIONS", "0"),
             ("DB_MAX_CONNECTIONS", "bad"),
+            ("DOCUMENT_PROBE_CONCURRENCY", "0"),
+            ("DOCUMENT_PROBE_CONCURRENCY", "bad"),
+            ("DOCUMENT_PROBE_CONCURRENCY", "-1"),
             ("RATE_LIMIT_PIN_ATTEMPTS", "0"),
             ("RATE_LIMIT_JOIN_PER_HOUR", "x"),
             ("CLIENT_IP_SOURCE", "spoofable"),
@@ -382,16 +448,26 @@ mod tests {
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
                 "OCR_THREADS" => "4".into(),
+                "DOCUMENT_PROBE_CONCURRENCY" => "2".into(),
                 "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),
                 "TRUSTED_PROXY_HOPS" => "2".into(),
+                "TAPHOA_TEST_NOW" => return None,
+                "SALE_MAX_AGE_HOURS" => "48".into(),
+                "SALE_MAX_FUTURE_SECONDS" => "120".into(),
                 n if n.starts_with("RATE_LIMIT_") => "7".into(),
                 _ => name.into(),
             })
         })
         .unwrap();
         assert_eq!(config.port, 9000);
+        assert_eq!(config.sale_window.max_age, chrono::Duration::hours(48));
+        assert_eq!(
+            config.sale_window.max_future,
+            chrono::Duration::seconds(120)
+        );
         assert_eq!(config.db_max_connections, 24);
+        assert_eq!(config.document_probe_concurrency, 2);
         assert_eq!(config.rate_limits.pin_attempts, 3);
         assert_eq!(config.rate_limits.join_per_hour, 7);
         assert_eq!(config.client_ip, ClientIpSource::XRealIp);
