@@ -40,6 +40,8 @@ test('cart row and customer picker match boards 06 and 07c', async ({
   const sheet = page.getByTestId('cart-sheet');
   await expect(sheet.getByText(COCA.name)).toBeVisible();
   await expect(sheet.getByRole('button', { name: 'Đóng' })).toBeVisible();
+  // let the sheet slide in before the evidence shot
+  await page.waitForTimeout(1_000);
   await page.screenshot({ path: path.join(SHOTS, 'cart-real.png') });
 
   await button(page, 'Hiện mã QR thanh toán').click();
@@ -58,5 +60,6 @@ test('cart row and customer picker match boards 06 and 07c', async ({
   await expect(
     page.getByRole('textbox', { name: 'Tên khách hàng' }),
   ).toBeVisible();
+  await page.waitForTimeout(1_000);
   await page.screenshot({ path: path.join(SHOTS, 'customerpick-real.png') });
 });
