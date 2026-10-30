@@ -437,6 +437,20 @@ export const test = base.extend<Fixtures & Options>({
   },
   context: async ({ context }, use) => {
     await trackApiBodies(context);
+    // The export embeds the PostHog key in CI. Analytics is not under test: answer it locally,
+    // so a flush that lands while a spec is offline cannot fail the console guard (a fulfilled
+    // route keeps working after setOffline) and the suite never sends events to PostHog.
+    // Only the POSTs that send data: the SDK's own scripts (/static/*.js) must still load.
+    if (process.env.POSTHOG_REPLAY_SMOKE !== '1')
+      await context.route(/^https:\/\/[^/]*\.posthog\.com\//, (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: '{"status":1}',
+            })
+          : route.fallback(),
+      );
     await use(context);
   },
   // The browser signs in as the Lead of `store` with Clerk's own session (clerk-auth.ts), the

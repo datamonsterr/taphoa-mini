@@ -376,14 +376,23 @@ test.describe('#178 account load', () => {
         body: JSON.stringify({ error: 'internal' }),
       }),
     );
-    // The persisted offline cache (1 s throttle) would restore /me and open the camera instead.
-    await page.addInitScript(() =>
-      localStorage.removeItem('taphoa-query-cache'),
+    // The app keeps a copy of `me` in storage (stale-while-revalidate: it opens the shop from
+    // that copy and a failing refresh leaves it). The save is throttled by a second, so whether
+    // the copy exists at reload depended on timing. The error screen is for a cold start with
+    // no copy: drop it before the page boots.
+    await page.addInitScript(
+      (key) => localStorage.removeItem(key),
+      // CACHE_STORAGE_KEY in src/lib/offline/persist.ts
+      'taphoa-query-cache',
+    );
+    const answered = page.waitForResponse(
+      (r) => /\/v1\/me(\?|$)/.test(r.url()) && r.status() === 500,
     );
     await page.reload();
+    await answered;
     await expect(
       page.getByText('Máy chủ đang bận, chưa tải được tài khoản. Thử lại sau.'),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await expect(
       page.getByText('Không tải được tài khoản. Kiểm tra mạng rồi thử lại.'),
     ).toHaveCount(0);
