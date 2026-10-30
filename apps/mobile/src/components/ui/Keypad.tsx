@@ -63,6 +63,8 @@ export type KeypadProps = {
   disabled?: boolean;
   /** Accessible name of the delete key; Vietnamese by default. */
   labels?: KeypadLabels;
+  /** Digits 0-9 and delete only (a PIN pad): the "000" slot stays empty. */
+  digitsOnly?: boolean;
 };
 
 const ROWS = [0, 1, 2, 3].map((row) =>
@@ -75,6 +77,7 @@ export const Keypad = memo(function Keypad({
   diameter,
   disabled,
   labels,
+  digitsOnly = false,
 }: KeypadProps) {
   // Board: a 3-column grid, each key centred in its third (1-9, 000, 0, delete).
   return (
@@ -83,13 +86,15 @@ export const Keypad = memo(function Keypad({
         <View key={row[0]} style={styles.row}>
           {row.map((keyId) => (
             <View key={keyId} style={styles.cell}>
-              <KeypadKey
-                keyId={keyId}
-                onPress={onKey}
-                diameter={diameter}
-                disabled={disabled}
-                labels={labels}
-              />
+              {digitsOnly && keyId === '000' ? null : (
+                <KeypadKey
+                  keyId={keyId}
+                  onPress={onKey}
+                  diameter={diameter}
+                  disabled={disabled}
+                  labels={labels}
+                />
+              )}
             </View>
           ))}
         </View>

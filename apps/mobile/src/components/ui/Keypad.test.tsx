@@ -50,10 +50,9 @@ test('lays the keys out as the board does: 4 rows of 3', async () => {
   ).toEqual([3, 3, 3, 3]);
 });
 
-test('digitsOnly is a 3-column pad: 1-9, a gap, 0 and delete', async () => {
-  await renderWithProviders(
-    <Keypad onKey={jest.fn()} digitsOnly diameter={68} />,
-  );
-  const pad = screen.getByRole('button', { name: '1' }).parent!;
-  expect(pad).toHaveStyle({ width: 3 * 68 + 2 * 24, alignSelf: 'center' });
+test('digitsOnly drops the 000 key and keeps the grid', async () => {
+  await renderWithProviders(<Keypad onKey={jest.fn()} digitsOnly />);
+  expect(screen.getAllByRole('button')).toHaveLength(11);
+  expect(screen.queryByRole('button', { name: '000' })).toBeNull();
+  expect(screen.getByRole('button', { name: '0' })).toBeOnTheScreen();
 });
