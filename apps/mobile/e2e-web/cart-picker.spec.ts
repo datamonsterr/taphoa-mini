@@ -8,6 +8,7 @@ import {
   scanAndAdd,
   seedScannableProduct,
   test,
+  uuid7,
 } from './fixtures';
 
 /**
@@ -27,7 +28,7 @@ test('cart row and customer picker match boards 06 and 07c', async ({
   test.setTimeout(120_000);
   const coca = await seedScannableProduct(store.api, COCA);
   await store.api.post('/v1/customers', {
-    id: crypto.randomUUID(),
+    id: uuid7(),
     name: 'Chị Lan',
     phone: '0912345678',
   });
