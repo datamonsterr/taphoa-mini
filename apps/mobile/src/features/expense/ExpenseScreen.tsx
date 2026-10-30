@@ -1,6 +1,5 @@
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
 import {
   Box,
   Droplet,
@@ -30,7 +29,6 @@ import type { ExpenseCategory } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
 import { newUuid } from '@/lib/uuid';
-import { useCanEnroll } from '@/features/auth/useMembership';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { dismissSheet } from '../dashboard/dismiss';
@@ -54,10 +52,9 @@ const keypadLabels = (t: (key: string) => string) => ({
 
 export function ExpenseScreen() {
   const t = useT(expenseStrings);
-  const canEnroll = useCanEnroll();
   const padLabels = useLabels(expenseStrings, keypadLabels);
   const keyDiameter = useKeypadDiameter(76);
-  const [category, setCategory] = useState<ExpenseCategory | null>(null);
+  const [category, setCategory] = useState<ExpenseCategory>('nhap_hang');
   const [digits, setDigits] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [shooting, setShooting] = useState(false);
@@ -73,7 +70,7 @@ export function ExpenseScreen() {
 
   const amount = Number(digits);
   const saving = upload.isPending || create.isPending;
-  const canSave = amount > 0 && category !== null && !saving;
+  const canSave = amount > 0 && !saving;
 
   const onKey = useCallback(
     (key: KeypadKeyId) =>
@@ -88,7 +85,7 @@ export function ExpenseScreen() {
   }, []);
 
   const save = useCallback(async () => {
-    if (!category || amount <= 0) return;
+    if (amount <= 0) return;
     setFailed(false);
     try {
       const image = photoUri
@@ -169,17 +166,6 @@ export function ExpenseScreen() {
             )}
           </View>
 
-          {canEnroll ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={t('receipts')}
-              onPress={() => router.push('/receipts')}
-              style={styles.receipts}
-            >
-              <Icon icon={ReceiptText} color={colors.ink} />
-              <Text style={typography.label}>{t('receipts')}</Text>
-            </PressableScale>
-          ) : null}
           <View
             accessibilityRole="radiogroup"
             accessibilityLabel={t('categories')}
@@ -250,15 +236,6 @@ const CategoryChip = memo(function CategoryChip({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  receipts: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    padding: space[3],
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceSoft,
-  },
   body: { gap: space[3] },
   srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   topRow: {

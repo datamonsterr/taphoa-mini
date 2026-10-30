@@ -8,7 +8,6 @@ import * as images from '@/lib/api/images';
 import * as ledger from '@/lib/api/ledger';
 import { resetMockDb } from '@/test/mock';
 import { renderWithProviders } from '@/test/render';
-import { testSession, setTestMembership } from '@/test/session';
 
 import { ExpenseScreen } from './ExpenseScreen';
 
@@ -36,14 +35,15 @@ const type = async (keys: string[]) => {
 };
 const save = () => screen.getByRole('button', { name: 'Lưu khoản chi' });
 
-test('starts empty: header, four categories, −0đ, save disabled', async () => {
+test('starts as board 11: header, four categories with Nhập selected, −0đ, save disabled', async () => {
   await renderWithProviders(<ExpenseScreen />);
   expect(
     screen.getByRole('header', { name: 'Thêm chi phí' }),
   ).toBeOnTheScreen();
   const group = screen.getByLabelText('Loại chi');
   expect(group).toBeOnTheScreen();
-  for (const name of ['Nhập', 'Điện', 'Nước', 'Khác']) {
+  expect(screen.getByRole('radio', { name: 'Nhập' })).toBeChecked();
+  for (const name of ['Điện', 'Nước', 'Khác']) {
     expect(screen.getByRole('radio', { name })).not.toBeChecked();
   }
   expect(screen.getByLabelText('Số tiền chi')).toHaveTextContent('−0đ');
@@ -70,14 +70,31 @@ test('a category is selected one at a time', async () => {
   expect(screen.getByRole('radio', { name: 'Nước' })).toBeChecked();
 });
 
-test('save needs both an amount and a category', async () => {
+test('save needs an amount; the category is Nhập until another is picked', async () => {
   await renderWithProviders(<ExpenseScreen />);
-  await type(['5']);
   expect(save()).toBeDisabled();
-  await fireEvent.press(screen.getByRole('radio', { name: 'Nhập' }));
+  await type(['5']);
   expect(save()).toBeEnabled();
   await type(['Xóa']);
   expect(save()).toBeDisabled();
+});
+
+test('saving without touching the categories books a Nhập expense', async () => {
+  await renderWithProviders(<ExpenseScreen />);
+  await type(['7', '000']);
+  await fireEvent.press(save());
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const { items } = await ledger.listExpenses();
+  expect(items[0]).toMatchObject({ amount: 7000, category: 'nhap_hang' });
+});
+
+test('keypad is 4 rows of 3, as on the board', async () => {
+  await renderWithProviders(<ExpenseScreen />);
+  const rows = screen.getByTestId('keypad').children;
+  expect(rows).toHaveLength(4);
+  expect(
+    rows.map((row) => (typeof row === 'string' ? 0 : row.children.length)),
+  ).toEqual([3, 3, 3, 3]);
 });
 
 test('save stores the expense, buzzes and dismisses', async () => {
@@ -248,30 +265,8 @@ describe('bill photo', () => {
   });
 });
 
-test('opens import receipt history', async () => {
-  await renderWithProviders(<ExpenseScreen />);
-  await press('Hóa đơn nhập');
-  expect(router.push).toHaveBeenCalledWith('/receipts');
-});
-
-test('hides receipt history from a Seller without can_enroll', async () => {
-  const session = testSession();
-  setTestMembership({
-    ...session!,
-    member: { ...session!.member, role: 'seller', can_enroll: false },
-  });
+test('has no import receipt row: the board shows only categories, amount and keypad', async () => {
   await renderWithProviders(<ExpenseScreen />);
   expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
-});
-
-test('shows receipt history to a Seller with can_enroll', async () => {
-  const session = testSession();
-  setTestMembership({
-    ...session!,
-    member: { ...session!.member, role: 'seller', can_enroll: true },
-  });
-  await renderWithProviders(<ExpenseScreen />);
-  expect(
-    screen.getByRole('button', { name: 'Hóa đơn nhập' }),
-  ).toBeOnTheScreen();
+  expect(screen.getAllByRole('radio')).toHaveLength(4);
 });

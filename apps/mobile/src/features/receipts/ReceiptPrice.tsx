@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { applyKey, Icon, Keypad, PressableScale, Text } from '@/components/ui';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, fontFamily, radius, space, typography } from '@/theme';
 import { strings } from './strings';
 
 export function ReceiptPricePill({
@@ -22,6 +22,7 @@ export function ReceiptPricePill({
   const t = useT(strings);
   return (
     <PressableScale
+      hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={`${t('unitPrice')}: ${name}, ${formatVnd(price)}, ${t('tapToEdit')}`}
       accessibilityState={{ disabled, selected: editing }}
@@ -33,7 +34,7 @@ export function ReceiptPricePill({
         editing && styles.editing,
       ]}
     >
-      <Text style={[typography.label, price <= 0 && { color: colors.warning }]}>
+      <Text style={[styles.pillText, price <= 0 && { color: colors.warning }]}>
         {formatVnd(price)}
       </Text>
     </PressableScale>
@@ -89,14 +90,15 @@ export function ReceiptPriceKeypad({
 
 const styles = StyleSheet.create({
   pill: {
-    minWidth: 96,
-    minHeight: 56,
+    minWidth: 72,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: space[3],
     borderRadius: radius.full,
     backgroundColor: colors.surface,
   },
+  pillText: { fontFamily: fontFamily.bold, fontSize: 17, lineHeight: 22 },
   unknown: { backgroundColor: colors.warningSoft },
   editing: { borderWidth: 3, borderColor: colors.accent },
   panel: {

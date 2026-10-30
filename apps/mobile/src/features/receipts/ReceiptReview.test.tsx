@@ -11,7 +11,12 @@ import { ReceiptReviewScreen } from './ReceiptReviewScreen';
 import { ReceiptToast, useReceiptNotice } from './ReceiptToast';
 
 jest.mock('expo-router', () => ({
-  router: { dismissTo: jest.fn(), back: jest.fn(), canGoBack: () => true },
+  router: {
+    dismissTo: jest.fn(),
+    back: jest.fn(),
+    push: jest.fn(),
+    canGoBack: () => true,
+  },
   useLocalSearchParams: () => ({ id: 'unused' }),
 }));
 let receipt: Receipt;
@@ -70,6 +75,48 @@ test('renders OCR source, status, fix count and photo; summary blocks unmatched 
   expect(screen.getByRole('alert')).toHaveTextContent(
     'Chọn sản phẩm cho: Bánh Chocopie hộp',
   );
+});
+
+test('the summary matches board 19: short date, every line listed, matched product as a badge, unmatched with its action', async () => {
+  await open();
+  await reviewSummary();
+  expect(screen.getByRole('header')).toHaveTextContent('Hóa đơn nhập');
+  expect(screen.getByText(/^\d{1,2}\/\d{1,2} · bản nháp$/)).toBeOnTheScreen();
+  expect(screen.getAllByTestId('receipt-summary-line')).toHaveLength(4);
+  expect(screen.getByLabelText('Tổng tiền')).toHaveTextContent('456.000đ');
+  // The matched product is named in the badge; the unmatched line keeps its place with the action.
+  expect(await screen.findAllByText('Coca-Cola lon 330ml')).toHaveLength(2);
+  expect(screen.queryByText('Khớp')).toBeNull();
+  expect(screen.getByText('Bánh Chocopie hộp')).toBeOnTheScreen();
+  await fireEvent.press(button('Chọn sản phẩm: Bánh Chocopie hộp'));
+  const candidate = receipt.lines[3].candidates[0];
+  await fireEvent.press(
+    await screen.findByRole('button', { name: `${candidate.name} 45%` }),
+  );
+  expect(screen.queryByRole('button', { name: /^Chọn sản phẩm: / })).toBeNull();
+  expect(button('Xác nhận nhập kho')).toBeEnabled();
+});
+
+test('the header offers the assistant on the review and summary steps, not on a confirmed receipt', async () => {
+  await open();
+  await fireEvent.press(button('Sửa trong trợ lý'));
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: '/assistant',
+    params: { entry: 'receipt', screen: 'receipt', receiptId: receipt.id },
+  });
+  await reviewSummary();
+  expect(button('Xử lý trong trợ lý')).toBeOnTheScreen();
+});
+
+test('review lines keep stepper, price and line total in one row, with the status next to the name', async () => {
+  await open();
+  const row = screen.getAllByText('×')[0].parent!;
+  const labels = row.children.map((child) =>
+    typeof child === 'string' ? '' : (child.props.accessibilityLabel ?? ''),
+  );
+  expect(labels.some((l: string) => l.startsWith('Thành tiền:'))).toBe(true);
+  expect(row).not.toHaveStyle({ flexWrap: 'wrap' });
+  expect(screen.getAllByText('Chọn sản phẩm')).toHaveLength(1);
 });
 
 test('candidate probabilities appear first and picking enables confirmation', async () => {
@@ -191,7 +238,7 @@ test('summary and back preserve edits without confirming', async () => {
   await reviewSummary();
   expect(screen.getByRole('header')).toHaveTextContent('Hóa đơn nhập');
   expect(screen.queryByRole('button', { name: 'Thêm dòng' })).toBeNull();
-  expect(screen.getByText('25 × 8.500đ')).toBeOnTheScreen();
+  expect(screen.getByText(/^25( \S+)? × 8\.500đ$/)).toBeOnTheScreen();
   await fireEvent.press(button('Quay lại'));
   expect(screen.getByRole('header')).toHaveTextContent('Kiểm tra hóa đơn');
   expect(
@@ -301,6 +348,10 @@ test('confirmed receipts are read-only and show the linked expense amount', asyn
     screen.queryByRole('button', { name: 'Xác nhận nhập kho' }),
   ).toBeNull();
   expect(screen.queryByRole('button', { name: 'Bỏ bản nháp' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Xử lý trong trợ lý' }),
+  ).toBeNull();
+  expect(screen.getAllByTestId('receipt-summary-line')).toHaveLength(3);
 });
 
 test('discard requires confirmation and deletes the draft', async () => {
