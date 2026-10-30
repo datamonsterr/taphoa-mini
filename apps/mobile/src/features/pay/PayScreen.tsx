@@ -507,7 +507,7 @@ export function PayScreen() {
         contentContainerStyle={styles.itemsContent}
       >
         {lines.map((line) => (
-          <View key={cartLineKey(line)}>
+          <View key={cartLineKey(line)} style={styles.cell}>
             <OrderItem line={line} />
             <UnitChooser line={line} />
           </View>
@@ -760,7 +760,10 @@ const styles = StyleSheet.create({
     paddingTop: space[2],
     paddingRight: space[2],
   },
-  item: { width: '25%', alignItems: 'center', gap: space[1] },
+  // The cell (not the item) is the 25% column: a percentage inside a shrink-wrapped parent
+  // collapsed to the content width and cut the photo and price.
+  cell: { width: '25%' },
+  item: { width: '100%', alignItems: 'center', gap: space[1] },
   qtyBadge: {
     position: 'absolute',
     right: -6,

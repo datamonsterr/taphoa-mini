@@ -49,3 +49,11 @@ test('lays the keys out as the board does: 4 rows of 3', async () => {
     rows.map((row) => (typeof row === 'string' ? 0 : row.children.length)),
   ).toEqual([3, 3, 3, 3]);
 });
+
+test('digitsOnly is a 3-column pad: 1-9, a gap, 0 and delete', async () => {
+  await renderWithProviders(
+    <Keypad onKey={jest.fn()} digitsOnly diameter={68} />,
+  );
+  const pad = screen.getByRole('button', { name: '1' }).parent!;
+  expect(pad).toHaveStyle({ width: 3 * 68 + 2 * 24, alignSelf: 'center' });
+});
