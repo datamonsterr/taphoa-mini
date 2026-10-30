@@ -4418,6 +4418,8 @@ components:
           maxLength: 4000
         attachments:
           type: array
+          maxItems: 4
+          description: At most 4; duplicates are ignored. More is a 400 validation_failed.
           items:
             $ref: '#/components/schemas/AssistantAttachment'
         language:

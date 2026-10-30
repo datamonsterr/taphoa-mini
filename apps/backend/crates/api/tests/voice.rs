@@ -1324,3 +1324,23 @@ async fn an_unknown_product_keeps_only_its_name_in_the_line() {
         assert_eq!((phrase, l["spoken"].as_str()), (phrase, name));
     }
 }
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn header_that_understates_the_duration_is_still_bounded() {
+    let (w, model) = setup(vec![], |c| c.max_seconds = 2).await;
+    // 5 s of PCM whose byte rate claims 1000x, so the container says 5 ms.
+    let mut wav = fixtures::wav(5.0);
+    wav[28..32].copy_from_slice(&32_000_000u32.to_le_bytes());
+    let r = upload(&w, &wav, "sale").await;
+    assert_eq!(
+        (r.status, r.body["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("audio_too_long")),
+        "{}",
+        r.body
+    );
+    assert!(
+        model.calls().is_empty(),
+        "no model call for an overlong clip"
+    );
+}

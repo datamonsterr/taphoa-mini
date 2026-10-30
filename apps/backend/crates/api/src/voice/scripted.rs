@@ -127,6 +127,7 @@ impl VoiceModel for ScriptedVoiceModel {
                 usage,
                 finish_reason: Some("stop".into()),
                 http_status: 200,
+                generation_id: None,
             }),
             Step::Error(e) => Err(e),
             _ => Err(wrong("audio")),
@@ -147,6 +148,7 @@ impl VoiceModel for ScriptedVoiceModel {
                 model: model.into(),
                 text,
                 usage,
+                generation_id: None,
             }),
             Step::Error(e) => Err(e),
             _ => Err(wrong("stt")),
@@ -170,6 +172,7 @@ impl VoiceModel for ScriptedVoiceModel {
                 usage,
                 finish_reason: Some("stop".into()),
                 http_status: 200,
+                generation_id: None,
             }),
             Step::Error(e) => Err(e),
             _ => Err(wrong("text")),
@@ -206,6 +209,7 @@ fn marker_parsed(model: &str, parse: VoiceParse) -> Parsed {
         },
         finish_reason: Some("stop".into()),
         http_status: 200,
+        generation_id: None,
     }
 }
 #[async_trait]
@@ -229,6 +233,7 @@ impl VoiceModel for MarkerVoiceModel {
             model: model.into(),
             text: embedded(&clip.bytes).transcript,
             usage: ModelUsage::default(),
+            generation_id: None,
         })
     }
     async fn parse_text(

@@ -820,6 +820,13 @@ jobs:
         if: failure()
         run: tail -n 200 "$E2E_STATE_DIR/backend.log" || true
       - uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: web-e2e-screenshots
+          path: apps/mobile/e2e-web/screenshots
+          if-no-files-found: ignore
+          retention-days: 3
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: web-e2e-report

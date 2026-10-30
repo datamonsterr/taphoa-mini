@@ -29,6 +29,8 @@ pub struct CallRecord {
     pub finish_reason: Option<String>,
     pub error: Option<ModelError>,
     pub span_id: Option<String>,
+    /// OpenRouter generation id (`gen-...`).
+    pub generation_id: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -169,6 +171,7 @@ pub fn generations(
                     "$ai_stream": false,
                     "fallback_index": call.fallback_index,
                     "voice_call": call.kind,
+                    "openrouter_generation_id": call.generation_id,
                     "$ai_total_cost_usd": call.usage.cost_usd,
                 }),
             );

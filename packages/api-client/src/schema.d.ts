@@ -2725,6 +2725,7 @@ export interface components {
         };
         SendAssistantMessage: {
             content: string;
+            /** @description At most 4; duplicates are ignored. More is a 400 validation_failed. */
             attachments?: components["schemas"]["AssistantAttachment"][];
             language: components["schemas"]["AssistantLanguage"];
         };

@@ -85,12 +85,12 @@ fn retry_last(
     ok
 }
 
-async fn speech_verdict(clip: &AudioClip) -> speech::Verdict {
+async fn speech_verdict(clip: &AudioClip, max_seconds: f64) -> speech::Verdict {
     let Some(format) = audio::detect(&clip.bytes) else {
         return speech::Verdict::Unknown;
     };
     let bytes = clip.bytes.clone();
-    tokio::task::spawn_blocking(move || speech::check(&bytes, format))
+    tokio::task::spawn_blocking(move || speech::check_within(&bytes, format, max_seconds))
         .await
         .unwrap_or(speech::Verdict::Unknown)
 }
@@ -114,6 +114,7 @@ async fn attempt<T>(
         crate::voice::model::ModelUsage,
         Option<String>,
         Option<u16>,
+        Option<String>,
     ),
 ) -> Result<T, ModelError> {
     let (kind, index, deadline) = site;
@@ -136,10 +137,12 @@ async fn attempt<T>(
         finish_reason: None,
         error: None,
         span_id: assistant::span_id(&span),
+        generation_id: None,
     };
     match &result {
         Ok(value) => {
-            let (response_model, usage, finish, status) = describe(value);
+            let (response_model, usage, finish, status, generation_id) = describe(value);
+            record.generation_id = generation_id;
             record.response_model = response_model;
             record.usage = usage;
             record.finish_reason = finish;
@@ -162,12 +165,14 @@ fn describe_parsed(
     super::model::ModelUsage,
     Option<String>,
     Option<u16>,
+    Option<String>,
 ) {
     (
         Some(p.model.clone()),
         p.usage,
         p.finish_reason.clone(),
         Some(p.http_status),
+        p.generation_id.clone(),
     )
 }
 
@@ -231,7 +236,7 @@ async fn run_chain(
         ("stt", stt_index, deadline),
         calls,
         model.transcribe(&cfg.stt_model, &req.clip, req.language),
-        |t| (Some(t.model.clone()), t.usage, None, Some(200)),
+        |t| (Some(t.model.clone()), t.usage, None, Some(200), t.generation_id.clone()),
     )
     .await
     .map_err(|error| tracing::warn!(model = %cfg.stt_model, error = %assistant::error_info(&error).0, "voice STT failed"))
@@ -249,6 +254,7 @@ async fn run_chain(
                 usage: transcript.usage,
                 finish_reason: None,
                 http_status: 200,
+                generation_id: transcript.generation_id.clone(),
             },
             stt_fallback: true,
         });
@@ -266,6 +272,7 @@ async fn run_chain(
             usage: Default::default(),
             finish_reason: None,
             http_status: 200,
+            generation_id: None,
         },
         stt_fallback: true,
     };
@@ -368,7 +375,16 @@ async fn process(
     let voice = &state.voice;
     // Speech gate: silence or steady noise never reaches a model (it would invent a sale from
     // the catalog hint). The unit stays spent; there is no model cost.
-    if speech_verdict(&req.clip).await == speech::Verdict::Silent {
+    let max_seconds = f64::from(voice.config.max_seconds) + super::DURATION_SLACK_SECONDS;
+    let verdict = speech_verdict(&req.clip, max_seconds).await;
+    if verdict == speech::Verdict::TooLong {
+        // The header said the clip was short; the decoded audio is not. The unit stays spent.
+        return Err(ApiError::bad_request(
+            "audio_too_long",
+            "audio is longer than the allowed duration",
+        ));
+    }
+    if verdict == speech::Verdict::Silent {
         telemetry::utterance_finished(
             span,
             req.audio_seconds,

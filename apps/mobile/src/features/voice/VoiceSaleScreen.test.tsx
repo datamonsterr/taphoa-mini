@@ -475,7 +475,7 @@ describe('confirm', () => {
   test('credit uses the matched customer and records the whole total as debt', async () => {
     await speak('credit-sale.m4a');
     expect(screen.getByTestId('voice-customer')).toHaveTextContent(
-      'Khách nợ: Chị Lan · Đổi',
+      /Chị LanĐang nợ 0đĐổi/,
     );
     await fireEvent.press(screen.getByLabelText('Xác nhận bán'));
     await screen.findByTestId('voice-done');
@@ -531,7 +531,7 @@ describe('confirm', () => {
     await fireEvent.press(screen.getByLabelText(/^Tạo/));
     await waitFor(() =>
       expect(screen.getByTestId('voice-customer')).toHaveTextContent(
-        /Khách nợ: chị Mai/,
+        /chị MaiĐang nợ 0đĐổi/,
       ),
     );
     expect(getMockDb().customers.map((c) => c.name)).toContain('chị Mai');

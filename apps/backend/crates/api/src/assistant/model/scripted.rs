@@ -193,6 +193,7 @@ impl ChatModel for ScriptedModel {
                     tool_calls,
                     usage,
                     http_status: 200,
+                    generation_id: None,
                     time_to_first_token,
                 })
             }

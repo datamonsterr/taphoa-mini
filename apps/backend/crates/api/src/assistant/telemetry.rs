@@ -220,7 +220,8 @@ pub(crate) fn turn_finished(state: &AppState, record: &TurnRecord) {
                 "time_to_first_token_ms":attempt.time_to_first_token.map(|t|t.as_secs_f64()*1000.0), "$ai_http_status":attempt.http_status,
                 "$ai_is_error":attempt.error.is_some(), "$ai_error":attempt.error.as_ref().map(|e| {let (kind,message)=error_info(e); json!({"kind":kind,"message":message})}),
                 "$ai_stop_reason":attempt.finish_reason, "$ai_tools":attempt.request.tools.iter().map(|t|masker.text(&t.name)).collect::<Vec<_>>(),
-                "$ai_stream":true, "fallback_index":attempt.fallback_index
+                "$ai_stream":true, "fallback_index":attempt.fallback_index,
+                "openrouter_generation_id":attempt.generation_id
             });
             generation_costs(&mut properties, &attempt.request.model, attempt.usage.cost);
             events.push(turn_event(&record,"$ai_generation",properties));
