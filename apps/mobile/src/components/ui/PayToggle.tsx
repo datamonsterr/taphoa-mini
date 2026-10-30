@@ -1,7 +1,7 @@
-import { Banknote, QrCode, BookOpen } from 'lucide-react-native';
+import { Banknote, BookText, QrCode } from 'lucide-react-native';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { colors, radius, size, space, typography } from '@/theme';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
@@ -34,7 +34,7 @@ const GAP = 4;
 const OPTIONS = [
   { id: 'transfer', icon: QrCode },
   { id: 'cash', icon: Banknote },
-  { id: 'credit', icon: BookOpen },
+  { id: 'credit', icon: BookText },
 ] as const;
 
 export const PayToggle = memo(function PayToggle({
@@ -69,7 +69,10 @@ export const PayToggle = memo(function PayToggle({
               color={on ? colors.onInk : colors.ink}
             />
             {iconOnly ? null : (
-              <Text style={[styles.label, on && styles.labelOn]}>
+              <Text
+                numberOfLines={1}
+                style={[styles.label, on && styles.labelOn]}
+              >
                 {labels[id] ?? DEFAULT_LABELS[id]}
               </Text>
             )}
@@ -91,20 +94,21 @@ const styles = StyleSheet.create({
   selected: { backgroundColor: colors.ink },
   label: {
     ...typography.caption,
-    fontSize: 13,
+    fontFamily: fontFamily.semibold,
+    fontSize: 14,
     lineHeight: 18,
-    flexShrink: 1,
     color: colors.ink,
   },
   labelOn: { color: colors.onInk },
+  // Board 07: 14/18 label that never wraps. Each option is at least as wide as its words.
   option: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 0,
     minWidth: size.tapMin,
     minHeight: size.tapMin,
     flexDirection: 'row',
-    gap: space[1],
+    gap: 6,
     paddingHorizontal: space[2],
-    paddingVertical: space[2],
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,

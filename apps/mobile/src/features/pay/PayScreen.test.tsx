@@ -171,10 +171,10 @@ describe('PayScreen cash', () => {
     await fireEvent.press(screen.getByRole('radio', { name: 'Tiền mặt' }));
   }
 
-  it('lists exact amount and notes, no QR', async () => {
+  it('lists the four notes (2x2 board grid), no QR', async () => {
     await openCash();
     expect(screen.queryByTestId('qr-value')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Đủ tiền' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Đủ tiền' })).toBeNull();
     for (const label of ['50.000', '100.000', '200.000', '500.000']) {
       expect(screen.getByText(label)).toBeOnTheScreen();
     }
@@ -404,7 +404,7 @@ describe('PayScreen credit', () => {
   it('sends full credit and preserves success behaviour', async () => {
     const c = await chooseCustomer();
     expect(screen.getByText('Ghi nợ 24.500đ')).toBeOnTheScreen();
-    expect(screen.getAllByTestId('icon-BookOpen')).toHaveLength(2);
+    expect(screen.getAllByTestId('icon-BookText')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Ghi nợ 24.500đ' })).toHaveStyle({
       backgroundColor: '#111114',
     });

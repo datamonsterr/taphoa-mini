@@ -70,7 +70,6 @@ test.describe('account', () => {
       sheet.getByRole('heading', { name: 'Tài khoản nhận tiền' }),
     ).toBeVisible();
     const bank = sheet.getByRole('textbox', { name: 'Ngân hàng', exact: true });
-    const bin = sheet.getByRole('textbox', { name: 'Mã BIN ngân hàng' });
     const number = sheet.getByRole('textbox', { name: 'Số tài khoản' });
     const holder = sheet.getByRole('textbox', { name: 'Chủ tài khoản' });
 
@@ -79,16 +78,18 @@ test.describe('account', () => {
     page.on('request', (r) => {
       if (r.method() === 'PATCH') patches.push(r.url());
     });
-    await bin.fill('123');
     await number.fill('12');
     await button(sheet, 'Lưu').click();
-    await expect(sheet.getByText('Mã BIN gồm 6 chữ số')).toBeVisible();
+    await expect(
+      sheet.getByText('Chọn ngân hàng trong danh sách'),
+    ).toBeVisible();
     await expect(sheet.getByText('Số tài khoản gồm 4–19 ký tự')).toBeVisible();
     await expect(sheet.getByText('Nhập tên chủ tài khoản')).toBeVisible();
     expect(patches).toEqual([]);
 
-    await bank.fill('Techcombank');
-    await bin.fill('970407');
+    // The owner picks the bank by name; the BIN is never typed.
+    await bank.fill('techcom');
+    await button(sheet, 'Techcombank').click();
     await number.fill('9876543210');
     await holder.fill('Trần Thị Bé');
     await expect(holder).toHaveValue('TRAN THI BE');
@@ -99,13 +100,13 @@ test.describe('account', () => {
       bank_bin: '970407',
       account_number: '9876543210',
       account_name: 'TRAN THI BE',
-      bank_short_name: 'Techcombank',
+      bank_short_name: 'TCB',
     });
     expect(saved.body.bank_account).toMatchObject(
       saved.requestBody.bank_account,
     );
     await expect(sheet).toHaveCount(0);
-    await expect(bankRow(page)).toContainText('Techcombank · 9876 543 210');
+    await expect(bankRow(page)).toContainText('TCB · 9876 543 210');
 
     // the server kept it
     const stored = await store.api.get('/v1/store');

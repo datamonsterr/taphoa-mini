@@ -39,6 +39,25 @@ async function codeScreen(mode: 'signIn' | 'signUp' = 'signIn') {
   await renderWithProviders(<VerifyCodeScreen />);
 }
 
+test('sign-in follows board 24: logo header, subtitle, email pill, or-divider, shared-phone card', async () => {
+  await renderWithProviders(<SignInScreen />);
+  expect(screen.getByRole('header', { name: 'Đăng nhập' })).toBeOnTheScreen();
+  expect(
+    screen.getByText('Nhận mã 6 số qua email, không cần mật khẩu'),
+  ).toBeOnTheScreen();
+  const email = screen.getByTestId('auth-email');
+  expect(email).toHaveProp('placeholder', 'Email');
+  expect(screen.getByLabelText('Địa chỉ email')).toBe(email);
+  expect(
+    screen.getByText('hoặc', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(screen.getByText('G')).toBeOnTheScreen();
+  expect(
+    screen.getByText(
+      'Máy dùng chung: mỗi người có mã PIN riêng để đổi người bán.',
+    ),
+  ).toBeOnTheScreen();
+});
 test('validates the email before requesting a code', async () => {
   await renderWithProviders(<SignInScreen />);
   await fireEvent.press(screen.getByTestId('auth-send-code'));

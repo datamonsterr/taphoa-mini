@@ -5,6 +5,7 @@ import { clerkMock } from '@/test/clerk';
 import * as storeApi from '@/lib/api/store';
 import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
+import { setTestMembership, testSession } from '@/test/session';
 import { typography } from '@/theme';
 
 import { AccountScreen } from './AccountScreen';
@@ -186,10 +187,8 @@ describe('bank account sheet', () => {
   test('prefills the stored account', async () => {
     const field = await openSheet();
     expect(field.props.value).toBe('0123456789');
-    expect(screen.getByLabelText('Ngân hàng').props.value).toBe('VCB');
-    expect(screen.getByLabelText('Mã BIN ngân hàng').props.value).toBe(
-      '970436',
-    );
+    expect(screen.getByLabelText('Ngân hàng').props.value).toBe('Vietcombank');
+    expect(screen.queryByLabelText('Mã BIN ngân hàng')).toBeNull();
     expect(screen.getByLabelText('Chủ tài khoản').props.value).toBe(
       'NGUYEN THI BA',
     );
@@ -197,14 +196,12 @@ describe('bank account sheet', () => {
 
   test('saves a new account through the API and updates the row', async () => {
     await openSheet();
-    await fireEvent.changeText(
-      screen.getByLabelText('Ngân hàng'),
-      'Techcombank',
-    );
-    await fireEvent.changeText(
-      screen.getByLabelText('Mã BIN ngân hàng'),
-      '970407',
-    );
+    await fireEvent.changeText(screen.getByLabelText('Ngân hàng'), 'kỹ thương');
+    expect(
+      screen.getByText('Không thấy ngân hàng này. Thử gõ tên ngắn hơn.'),
+    ).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('Ngân hàng'), 'Techcom');
+    await fireEvent.press(screen.getByRole('button', { name: 'Techcombank' }));
     await fireEvent.changeText(
       screen.getByLabelText('Số tài khoản'),
       '19036666888',
@@ -220,24 +217,26 @@ describe('bank account sheet', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Tài khoản ngân hàng VietQR' }),
-      ).toHaveTextContent('Techcombank · 1903 666 688 8'),
+      ).toHaveTextContent('TCB · 1903 666 688 8'),
     );
     expect((await storeApi.getStore()).bank_account).toEqual({
       bank_bin: '970407',
-      bank_short_name: 'Techcombank',
+      bank_short_name: 'TCB',
       account_number: '19036666888',
       account_name: 'TRAN VAN DUC',
     });
   });
 
-  test('validates BIN, number and holder before saving', async () => {
+  test('validates bank, number and holder before saving', async () => {
     const patch = jest.spyOn(storeApi, 'patchStore');
     await openSheet();
-    await fireEvent.changeText(screen.getByLabelText('Mã BIN ngân hàng'), '12');
+    await fireEvent.changeText(screen.getByLabelText('Ngân hàng'), '');
     await fireEvent.changeText(screen.getByLabelText('Số tài khoản'), '1');
     await fireEvent.changeText(screen.getByLabelText('Chủ tài khoản'), '');
     await fireEvent.press(screen.getByRole('button', { name: 'Lưu' }));
-    expect(screen.getByText('Mã BIN gồm 6 chữ số')).toBeOnTheScreen();
+    expect(
+      screen.getByText('Chọn ngân hàng trong danh sách'),
+    ).toBeOnTheScreen();
     expect(screen.getByText('Số tài khoản gồm 4–19 ký tự')).toBeOnTheScreen();
     expect(screen.getByText('Nhập tên chủ tài khoản')).toBeOnTheScreen();
     expect(patch).not.toHaveBeenCalled();
@@ -296,8 +295,24 @@ describe('setting a PIN', () => {
   };
   const openSheet = async () => {
     await open();
-    await fireEvent.press(screen.getByRole('button', { name: 'Đặt mã PIN' }));
+    // The seeded Lead already has a PIN, so the pill says "Đổi".
+    await fireEvent.press(screen.getByRole('button', { name: 'Đổi mã PIN' }));
   };
+
+  test('the PIN row shows "Đổi" once a PIN exists and "Đặt mã PIN" before', async () => {
+    await open();
+    expect(screen.getByText('Mã PIN khóa máy')).toBeOnTheScreen();
+    expect(screen.getByText('Đổi')).toBeOnTheScreen();
+    const session = testSession();
+    setTestMembership({
+      ...session,
+      member: { ...session.member, has_pin: false },
+    });
+    await renderWithProviders(<AccountScreen />);
+    expect(
+      await screen.findByRole('button', { name: 'Đặt mã PIN' }),
+    ).toBeOnTheScreen();
+  });
 
   test('asks twice, saves through the API and confirms', async () => {
     const spy = jest.spyOn(storeApi, 'setPin').mockResolvedValue();
