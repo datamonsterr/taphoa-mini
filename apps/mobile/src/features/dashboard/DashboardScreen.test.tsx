@@ -343,8 +343,8 @@ describe('debt book card', () => {
       name: 'Sổ nợ, 150.000đ, 1 khách quá hạn',
     });
     expect(within(card).getByText('Sổ nợ')).toBeOnTheScreen();
-    expect(within(card).getByText('150.000đ')).toBeOnTheScreen();
-    expect(within(card).getByText('1 khách quá hạn')).toBeOnTheScreen();
+    // Board 10: a half-width chip with the overdue customers as a red count badge.
+    expect(within(card).getByText('1')).toBeOnTheScreen();
     await fireEvent.press(card);
     expect(router.push).toHaveBeenCalledWith('/debts');
   });

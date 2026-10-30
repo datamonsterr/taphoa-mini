@@ -1,24 +1,40 @@
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
-import { ChevronLeft, Plus } from 'lucide-react-native';
+import { ChevronLeft, Search, UserPlus } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CircleButton, MoneyText, PressableScale, Text } from '@/components/ui';
+import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import { useCustomers, useDebtSummary, type Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
-import { colors, radius, size, space, typography } from '@/theme';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { CustomerPicker } from './CustomerPicker';
-import { useInputStyle } from './DebtInput';
 import { OverdueBadge } from './OverdueBadge';
 import { debtStrings } from './strings';
 
-/** Negative balance: the store holds the customer's money. */
+/** Negative balance: the store holds the customer money, shown as Trả dư, never a bare minus. */
 const balanceColor = (balance: number) =>
   balance < 0 ? colors.success : balance === 0 ? colors.inkMuted : colors.ink;
+
+const AVATAR_TONES = [
+  { background: colors.accentSoft, color: colors.accent },
+  { background: colors.successSoft, color: colors.success },
+  { background: colors.warningSoft, color: colors.warning },
+  { background: colors.surfaceSoft, color: colors.ink },
+] as const;
+
+/** Stable tone per customer so a row keeps its colour between visits. */
+const avatarTone = (id: string) => {
+  let sum = 0;
+  for (const char of id) sum += char.charCodeAt(0);
+  return AVATAR_TONES[sum % AVATAR_TONES.length]!;
+};
+
+const initialOf = (name: string) =>
+  (Array.from(name.trim())[0] ?? '?').toUpperCase();
 
 export function DebtBookScreen() {
   const t = useT(debtStrings);
@@ -27,7 +43,6 @@ export function DebtBookScreen() {
   const [query, setQuery] = useState('');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const inputStyle = useInputStyle();
   const search = query.trim();
   const summary = useDebtSummary();
   const customers = useCustomers({
@@ -53,92 +68,130 @@ export function DebtBookScreen() {
   const overdueLabel = summary.data
     ? fill(t('book.overdue'), { count: summary.data.overdue_count })
     : '';
+  const ageText = (days: number) =>
+    days === 0
+      ? t('book.ageToday')
+      : days === 1
+        ? t('book.ageYesterday')
+        : fill(t('book.ageDays'), { days });
+  const title = t('book.title');
+  const backLabel = t('back');
+  const addLabel = t('book.add');
+  const searchLabel = t('search');
+  const allLabel = t('book.filterAll');
+  const overdueFilterLabel = t('book.filterOverdue');
+  const retryLabel = t('retry');
+  const loadingLabel = t('loading');
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + space[4] }]}>
       <View style={styles.header}>
         <CircleButton
           icon={ChevronLeft}
-          accessibilityLabel={t('back')}
+          accessibilityLabel={backLabel}
           onPress={goBack}
         />
         <Text accessibilityRole="header" style={styles.title}>
-          {t('book.title')}
+          {title}
         </Text>
         <CircleButton
-          icon={Plus}
+          icon={UserPlus}
           variant="ink"
-          accessibilityLabel={t('book.add')}
+          accessibilityLabel={addLabel}
           onPress={() => setCreating(true)}
         />
       </View>
 
-      <View style={styles.summary}>
-        {summary.data ? (
-          <>
-            <View
-              accessible
-              accessibilityLabel={`${t('book.total')} ${formatVnd(summary.data.total_outstanding)}`}
-              style={styles.summaryTotal}
-            >
-              <Text style={styles.caption}>{t('book.total')}</Text>
-              <MoneyText
-                amount={summary.data.total_outstanding}
-                variant="heading"
-              />
-            </View>
-            <View
-              accessible
-              accessibilityLabel={`${overdueLabel}, ${formatVnd(summary.data.overdue_amount)}`}
-              style={styles.summaryOverdue}
-            >
-              <Text style={styles.overdueText}>{overdueLabel}</Text>
-              <MoneyText
-                amount={summary.data.overdue_amount}
-                variant="label"
-                color={colors.warning}
-              />
-            </View>
-          </>
-        ) : summary.isError ? (
-          <View style={styles.summaryError}>
-            <Text accessibilityRole="alert" style={styles.errorText}>
-              {t('book.summaryError')}
+      {summary.data ? (
+        <View style={styles.stats}>
+          <View
+            accessible
+            accessibilityLabel={
+              t('book.total') + ' ' + formatVnd(summary.data.total_outstanding)
+            }
+            style={[styles.stat, styles.statWide]}
+          >
+            <Text style={styles.statCaptionOnInk}>
+              {fill(t('book.totalCaption'), {
+                count: summary.data.customers_with_debt,
+              })}
             </Text>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={t('book.summaryRetry')}
-              onPress={() => void summary.refetch()}
-              style={styles.chip}
-            >
-              <Text style={styles.label}>{t('retry')}</Text>
-            </PressableScale>
+            <Text style={styles.statTotal} numberOfLines={1}>
+              {formatVnd(summary.data.total_outstanding)}
+            </Text>
           </View>
-        ) : (
-          <ActivityIndicator accessibilityLabel={t('loading')} />
-        )}
-      </View>
+          <View
+            accessible
+            accessibilityLabel={
+              overdueLabel + ', ' + formatVnd(summary.data.overdue_amount)
+            }
+            style={[styles.stat, styles.statDanger]}
+          >
+            <Text style={styles.statCaptionDanger}>
+              {fill(t('book.overdueCaption'), {
+                count: summary.data.overdue_count,
+              })}
+            </Text>
+            <Text style={styles.statDangerValue} numberOfLines={1}>
+              {formatVnd(summary.data.overdue_amount)}
+            </Text>
+          </View>
+        </View>
+      ) : summary.isError ? (
+        <View style={styles.summaryError}>
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {t('book.summaryError')}
+          </Text>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('book.summaryRetry')}
+            onPress={() => void summary.refetch()}
+            style={styles.chip}
+          >
+            <Text style={styles.label}>{retryLabel}</Text>
+          </PressableScale>
+        </View>
+      ) : (
+        <View style={styles.summaryLoading}>
+          <ActivityIndicator accessibilityLabel={loadingLabel} />
+        </View>
+      )}
 
-      <View style={styles.filters}>
+      <View style={styles.searchField}>
+        <Icon icon={Search} color={colors.inkMuted} />
         <TextInput
-          accessibilityLabel={t('search')}
-          placeholder={t('search')}
+          accessibilityLabel={searchLabel}
+          placeholder={searchLabel}
           placeholderTextColor={colors.inkMuted}
           value={query}
           onChangeText={setQuery}
           returnKeyType="search"
           autoCorrect={false}
-          style={inputStyle}
+          style={styles.searchInput}
         />
+      </View>
+
+      <View accessibilityRole="radiogroup" style={styles.filters}>
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel={t('book.filterOverdue')}
+          accessibilityLabel={allLabel}
+          accessibilityState={{ selected: !overdueOnly }}
+          onPress={() => setOverdueOnly(false)}
+          style={[styles.chip, !overdueOnly && styles.chipOn]}
+        >
+          <Text style={[styles.label, !overdueOnly && styles.chipTextOn]}>
+            {allLabel}
+          </Text>
+        </PressableScale>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={overdueFilterLabel}
           accessibilityState={{ selected: overdueOnly }}
-          onPress={() => setOverdueOnly((on) => !on)}
+          onPress={() => setOverdueOnly(true)}
           style={[styles.chip, overdueOnly && styles.chipOn]}
         >
           <Text style={[styles.label, overdueOnly && styles.chipTextOn]}>
-            {t('book.filterOverdue')}
+            {overdueFilterLabel}
           </Text>
         </PressableScale>
       </View>
@@ -161,7 +214,7 @@ export function DebtBookScreen() {
         ]}
         ListEmptyComponent={
           customers.isPending ? (
-            <ActivityIndicator accessibilityLabel={t('loading')} />
+            <ActivityIndicator accessibilityLabel={loadingLabel} />
           ) : customers.isError ? (
             <View style={styles.message}>
               <Text accessibilityRole="alert" style={styles.errorText}>
@@ -169,11 +222,11 @@ export function DebtBookScreen() {
               </Text>
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel={t('retry')}
+                accessibilityLabel={retryLabel}
                 onPress={() => void customers.refetch()}
                 style={styles.chip}
               >
-                <Text style={styles.label}>{t('retry')}</Text>
+                <Text style={styles.label}>{retryLabel}</Text>
               </PressableScale>
             </View>
           ) : (
@@ -184,7 +237,7 @@ export function DebtBookScreen() {
         }
         ListFooterComponent={
           customers.isFetchingNextPage ? (
-            <ActivityIndicator accessibilityLabel={t('loading')} />
+            <ActivityIndicator accessibilityLabel={loadingLabel} />
           ) : null
         }
         renderItem={({ item }) => {
@@ -192,36 +245,64 @@ export function DebtBookScreen() {
             item.overdue && item.debt_age_days !== null
               ? item.debt_age_days
               : null;
+          const credit = item.balance < 0;
+          const tone = avatarTone(item.id);
+          const spokenAmount = credit
+            ? fill(t('book.creditSpoken'), {
+                amount: formatVnd(Math.abs(item.balance)),
+              })
+            : formatVnd(item.balance);
           return (
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel={
-                `${item.name}, ${formatVnd(item.balance)}` +
+                item.name +
+                ', ' +
+                spokenAmount +
                 (overdueDays === null
                   ? ''
-                  : `, ${fill(t('book.badgeSpoken'), { days: overdueDays })}`)
+                  : ', ' + fill(t('book.badgeSpoken'), { days: overdueDays }))
               }
               onPress={() => open(item)}
-              style={styles.row}
+              style={[styles.row, overdueDays === null && styles.rowMuted]}
             >
+              <View
+                style={[styles.avatar, { backgroundColor: tone.background }]}
+              >
+                <Text style={[styles.avatarText, { color: tone.color }]}>
+                  {initialOf(item.name)}
+                </Text>
+              </View>
               <View style={styles.rowText}>
-                <Text style={styles.label} numberOfLines={1}>
+                <Text style={styles.name} numberOfLines={1}>
                   {item.name}
                 </Text>
-                {item.phone ? (
+                <Text style={styles.caption} numberOfLines={1}>
+                  {item.phone ?? t('book.noPhone')}
+                </Text>
+              </View>
+              <View style={styles.rowEnd}>
+                <Text
+                  style={[
+                    styles.amount,
+                    credit && styles.amountCredit,
+                    { color: balanceColor(item.balance) },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {credit
+                    ? fill(t('book.credit'), {
+                        amount: formatVnd(Math.abs(item.balance)),
+                      })
+                    : formatVnd(item.balance)}
+                </Text>
+                {item.balance > 0 && item.debt_age_days !== null ? (
                   <Text style={styles.caption} numberOfLines={1}>
-                    {item.phone}
+                    {ageText(item.debt_age_days)}
                   </Text>
                 ) : null}
-                {overdueDays === null ? null : (
-                  <OverdueBadge days={overdueDays} />
-                )}
+                {overdueDays === null ? null : <OverdueBadge compact />}
               </View>
-              <MoneyText
-                amount={item.balance}
-                variant="label"
-                color={balanceColor(item.balance)}
-              />
             </PressableScale>
           );
         }}
@@ -253,25 +334,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
   },
   title: { ...typography.title, color: colors.ink, flex: 1 },
-  summary: {
+  stats: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: space[3],
     marginHorizontal: space[4],
+  },
+  stat: {
     padding: space[4],
     borderRadius: radius.lg,
+    gap: space[1],
+  },
+  statWide: { width: '100%', backgroundColor: colors.ink },
+  statDanger: { width: '100%', backgroundColor: colors.dangerSoft },
+  statCaptionOnInk: { ...typography.caption, color: colors.onInk },
+  statTotal: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 32,
+    lineHeight: 38,
+    color: colors.onInk,
+    fontVariant: ['tabular-nums'],
+  },
+  statCaptionDanger: { ...typography.caption, color: colors.danger },
+  statDangerValue: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 22,
+    lineHeight: 28,
+    color: colors.danger,
+    fontVariant: ['tabular-nums'],
+  },
+  summaryError: { gap: space[3], marginHorizontal: space[4] },
+  summaryLoading: {
+    marginHorizontal: space[4],
+    minHeight: 100,
+    justifyContent: 'center',
+  },
+  searchField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: size.tapMin,
+    marginHorizontal: space[4],
+    paddingHorizontal: 20,
+    borderRadius: radius.full,
     backgroundColor: colors.surfaceSoft,
   },
-  summaryTotal: { flexGrow: 1, flexBasis: '45%', gap: space[1] },
-  summaryOverdue: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    gap: space[1],
-    justifyContent: 'flex-end',
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.ink,
+    ...typography.body,
+    backgroundColor: 'transparent',
   },
-  summaryError: { flex: 1, gap: space[3] },
-  overdueText: { ...typography.caption, color: colors.warning },
-  filters: { gap: space[2], paddingHorizontal: space[4] },
+  filters: {
+    flexDirection: 'row',
+    gap: space[2],
+    paddingHorizontal: space[4],
+  },
   chip: {
     alignSelf: 'flex-start',
     minHeight: size.tapMin,
@@ -290,9 +409,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    minHeight: size.tapMin,
+    minHeight: size.tapLg,
     paddingVertical: space[3],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.surfacePressed,
   },
-  rowText: { flex: 1, gap: space[1] },
+  rowMuted: { opacity: 0.55 },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 22,
+    lineHeight: 26,
+  },
+  rowText: { flex: 1, minWidth: 0, gap: 2 },
+  name: { ...typography.label, color: colors.ink },
+  rowEnd: { alignItems: 'flex-end', gap: space[1], flexShrink: 0 },
+  amount: {
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 26,
+    fontVariant: ['tabular-nums'],
+  },
+  amountCredit: { fontSize: 17, lineHeight: 22 },
   message: { ...typography.body, gap: space[3], padding: space[4] },
 });

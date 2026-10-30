@@ -1,4 +1,11 @@
-import { buildDigestCaption, firstSentence, formatDayMonth } from './utils';
+import {
+  buildDigestCaption,
+  firstSentence,
+  formatDayMonth,
+  formatDigestStamp,
+  summarySegments,
+  weekdayName,
+} from './utils';
 import { DigestCard, DigestScreen, digestStrings } from './index';
 
 describe('index exports', () => {
@@ -69,5 +76,54 @@ describe('buildDigestCaption', () => {
 
   it('returns empty string when both are 0', () => {
     expect(buildDigestCaption(0, 0, fakeT)).toBe('');
+  });
+});
+
+describe('formatDigestStamp', () => {
+  it('writes the weekday, day/month and the local generation time', () => {
+    expect(formatDigestStamp('2026-10-27', '2026-10-26T23:59:00Z')).toBe(
+      'Thứ ba, 27/10 · 06:59',
+    );
+    expect(formatDigestStamp('2026-11-01', '2026-10-31T17:00:00Z')).toBe(
+      'Chủ nhật, 1/11 · 00:00',
+    );
+  });
+
+  it('drops the time when the generation instant is missing or invalid', () => {
+    expect(formatDigestStamp('2026-10-26')).toBe('Thứ hai, 26/10');
+    expect(formatDigestStamp('2026-10-26', 'nope')).toBe('Thứ hai, 26/10');
+  });
+
+  it('falls back to the raw date when it cannot be parsed', () => {
+    expect(weekdayName('bad')).toBe('');
+    expect(formatDigestStamp('bad')).toBe('bad');
+  });
+});
+
+describe('summarySegments', () => {
+  it('bolds money and order counts and keeps the rest plain', () => {
+    expect(
+      summarySegments(
+        'Hôm qua bán 32 đơn, doanh thu 1.240.000đ, tăng 8% so với hôm kia.',
+      ),
+    ).toEqual([
+      { text: 'Hôm qua bán ', bold: false },
+      { text: '32 đơn', bold: true },
+      { text: ', doanh thu ', bold: false },
+      { text: '1.240.000đ', bold: true },
+      { text: ', tăng 8% so với hôm kia.', bold: false },
+    ]);
+  });
+
+  it('also bolds the older 20.000 ₫ wording and passes plain text through', () => {
+    expect(summarySegments('Doanh thu 20.000 ₫.')).toEqual([
+      { text: 'Doanh thu ', bold: false },
+      { text: '20.000 ₫', bold: true },
+      { text: '.', bold: false },
+    ]);
+    expect(summarySegments('Hôm qua chưa có đơn nào.')).toEqual([
+      { text: 'Hôm qua chưa có đơn nào.', bold: false },
+    ]);
+    expect(summarySegments('')).toEqual([]);
   });
 });

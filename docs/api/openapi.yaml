@@ -2408,6 +2408,16 @@ paths:
             type: string
             format: date
           description: Business date in Asia/Ho_Chi_Minh; defaults to the latest available digest.
+        - name: mark_read
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description:
+            Record that the caller opened the digest. Only the digest screen sets it; reading for the
+            dashboard card leaves `read_at` untouched. The response carries the read time from
+            before this call, so the first open returns null.
       responses:
         '200':
           description: Success.
