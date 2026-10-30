@@ -6,10 +6,10 @@ export function computeChange(total: number, tendered: number): number {
   return Math.max(0, tendered - total);
 }
 
-/** "Exact" first, then the banknotes; a note equal to the total is not repeated. */
-export function quickCashOptions(total: number): number[] {
-  return [
-    ...(total > 0 ? [total] : []),
-    ...CASH_NOTES.filter((note) => note !== total),
-  ];
+/**
+ * The four banknote buttons of board 07 (a 2x2 grid). The exact amount is the default, with no
+ * button: tapping the selected note again goes back to it.
+ */
+export function quickCashOptions(): number[] {
+  return [...CASH_NOTES];
 }

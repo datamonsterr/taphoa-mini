@@ -130,7 +130,11 @@ async function run(now: () => number) {
         const attempts = item.attempts + 1;
         const retryAfter = isApiError(error) ? error.retryAfterMs : undefined;
         const next = now() + Math.max(retryAfter ?? 0, backoffMs(attempts));
-        update(item.key, { attempts, nextAttemptAt: next });
+        update(item.key, {
+          attempts,
+          nextAttemptAt: next,
+          lastStatus: isApiError(error) ? error.status : undefined,
+        });
         schedule(next, now());
         return;
       }

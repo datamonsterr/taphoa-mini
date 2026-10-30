@@ -409,3 +409,16 @@ test('browser discard dialog can cancel or confirm', async () => {
     window.confirm = previous;
   }
 });
+
+test('a missing receipt says so at once, with a way back and no retry', async () => {
+  jest
+    .spyOn(receipts, 'getReceipt')
+    .mockRejectedValue(
+      new ApiError(404, { error: 'receipt not found', code: 'not_found' }),
+    );
+  await renderWithProviders(<ReceiptReviewScreen id="missing" />);
+  await screen.findByText('Không tìm thấy hóa đơn này. Có thể nó đã bị xóa.');
+  expect(screen.queryByRole('button', { name: 'Thử lại' })).toBeNull();
+  await fireEvent.press(button('Về danh sách hóa đơn'));
+  expect(router.back).toHaveBeenCalled();
+});

@@ -20,6 +20,7 @@ export const PIN_MAX = 6;
 /** Appends a key's digits (a PIN may start with 0, so it is never a number) or drops the last. */
 export function applyPinKey(pin: string, key: KeypadKeyId): string {
   if (key === 'delete') return pin.slice(0, -1);
+  if (key === '000') return pin;
   return (pin + key).slice(0, PIN_MAX);
 }
 
@@ -95,6 +96,7 @@ export const PinSheet = memo(function PinSheet({
       <View testID={`${testID}-keypad`}>
         <Keypad
           onKey={onKey}
+          digitsOnly
           diameter={diameter}
           disabled={busy}
           labels={{ delete: t('pin.delete') }}

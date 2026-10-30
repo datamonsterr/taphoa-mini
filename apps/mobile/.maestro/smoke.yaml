@@ -8,7 +8,7 @@ appId: com.datamonsterr.taphoamini
 - takeScreenshot: smoke-01-sign-in
 - runFlow: subflows/sign-in.yaml
 - assertVisible: 'Tạo cửa hàng'
-- assertVisible: 'Tham gia bằng mã'
+- assertVisible: 'Tham gia cửa hàng'
 - takeScreenshot: smoke-02-welcome
 - runFlow:
     file: subflows/create-store.yaml

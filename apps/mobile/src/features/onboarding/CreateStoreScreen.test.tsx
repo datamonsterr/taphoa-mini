@@ -54,7 +54,8 @@ test('includes an optional VietQR account when creating the store', async () => 
     'Tạp hóa',
   );
   await fireEvent.changeText(screen.getByTestId('create-display-name'), 'Mẹ');
-  await fireEvent.changeText(screen.getByTestId('create-bank-bin'), '970436');
+  await fireEvent.changeText(screen.getByTestId('create-bank-name'), 'vietcom');
+  await fireEvent.press(screen.getByRole('button', { name: 'Vietcombank' }));
   await fireEvent.changeText(
     screen.getByTestId('create-bank-number'),
     '0123456789',
@@ -69,6 +70,7 @@ test('includes an optional VietQR account when creating the store', async () => 
     display_name: 'Mẹ',
     bank_account: {
       bank_bin: '970436',
+      bank_short_name: 'VCB',
       account_number: '0123456789',
       account_name: 'NGUYEN THI BA',
     },
@@ -95,11 +97,14 @@ test('validates required names and a partial optional bank account before postin
     'Tạp hóa',
   );
   await fireEvent.changeText(screen.getByTestId('create-display-name'), 'Mẹ');
-  await fireEvent.changeText(screen.getByTestId('create-bank-bin'), '123');
+  await fireEvent.changeText(
+    screen.getByTestId('create-bank-number'),
+    '0123456789',
+  );
   await fireEvent.press(screen.getByTestId('create-store-submit'));
   expect(
     screen.getByText(
-      'Nhập đủ mã BIN 6 chữ số, số tài khoản 4–19 ký tự và chủ tài khoản.',
+      'Chọn ngân hàng, nhập số tài khoản 4–19 ký tự và chủ tài khoản.',
     ),
   ).toBeOnTheScreen();
   expect(create).not.toHaveBeenCalled();

@@ -274,7 +274,7 @@ test.describe('#178 onboarding failures', () => {
   }
 
   async function submitJoin(page: Page) {
-    await button(page, 'Tham gia bằng mã').click();
+    await button(page, 'Tham gia cửa hàng').click();
     await field(page, 'Mã mời').fill('K7Q4MZ2P9HXDT3VA');
     await field(page, 'Tên của bạn').fill('Bé Út');
     await byId(page, 'join-store-submit').click();

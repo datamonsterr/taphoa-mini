@@ -8,6 +8,7 @@ export {
 export {
   ApiError,
   RATE_LIMIT_MESSAGE,
+  apiErrorText,
   isApiError,
   isRateLimited,
 } from './errors';

@@ -150,7 +150,12 @@ export function VerifyCodeScreen({ flow }: { flow?: AuthFlow }) {
   };
   return (
     <View style={styles.fill}>
-      <Frame testID="auth-code-screen" title={t('codeTitle')} subtitle={email}>
+      <Frame
+        testID="auth-code-screen"
+        title={t('codeTitle')}
+        subtitle={email}
+        brand
+      >
         <Field
           testID="auth-code"
           label={t('code')}

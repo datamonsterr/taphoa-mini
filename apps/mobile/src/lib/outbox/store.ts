@@ -18,6 +18,8 @@ export type OutboxItem = {
   /** Earliest time (ms epoch) of the next attempt. */
   nextAttemptAt: number;
   status: OutboxStatus;
+  /** HTTP status of the last retryable failure; unset after a network error. */
+  lastStatus?: number;
   /** The permanent failure the seller must see. */
   error?: { status?: number; code?: string; message: string };
 };

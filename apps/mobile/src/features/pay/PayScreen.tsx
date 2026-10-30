@@ -3,7 +3,8 @@ import { debtStrings } from '../debts/strings';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
-  BookOpen,
+  BookText,
+  ChevronRight,
   Check,
   ChevronLeft,
   Landmark,
@@ -50,6 +51,8 @@ import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 import { applyKey } from '@/components/ui/keypad';
 import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
+import { bankLabel } from '@/lib/banks';
+import { initialOf } from '../account/utils';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
 import { useSpokenTotal } from './speak';
@@ -87,14 +90,12 @@ const OrderItem = memo(function OrderItem({ line }: { line: CartLine }) {
 
 type CashChipProps = {
   amount: number;
-  exact: boolean;
   pressed: boolean;
   onPick: (amount: number) => void;
 };
 
 const CashChip = memo(function CashChip({
   amount,
-  exact,
   pressed,
   onPick,
 }: CashChipProps) {
@@ -102,7 +103,6 @@ const CashChip = memo(function CashChip({
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={exact ? 'Đủ tiền' : undefined}
       accessibilityState={{ selected: pressed }}
       aria-selected={pressed}
       onPress={pick}
@@ -170,8 +170,13 @@ export function PayScreen() {
   );
 
   const cashGiven = tendered ?? total;
+  // Tapping the selected note again clears it: back to paying the exact amount.
+  const pickNote = useCallback(
+    (amount: number) => setTendered((now) => (now === amount ? null : amount)),
+    [],
+  );
   const change = computeChange(total, cashGiven);
-  const options = useMemo(() => quickCashOptions(total), [total]);
+  const options = useMemo(() => quickCashOptions(), []);
   const roundStep = total >= 10000 ? 10000 : total >= 1000 ? 1000 : 100;
   const roundPaid = Math.min(
     total,
@@ -327,7 +332,15 @@ export function PayScreen() {
             onPress={() => setPicker(true)}
             style={styles.customerRow}
           >
-            <Icon icon={UserRound} color={colors.accent} />
+            {customer ? (
+              <View style={styles.customerAvatar}>
+                <Text style={styles.customerInitial}>
+                  {initialOf(customer.name)}
+                </Text>
+              </View>
+            ) : (
+              <Icon icon={UserRound} color={colors.accent} />
+            )}
             <View style={styles.customerText}>
               <Text style={styles.customerName}>
                 {customer?.name ?? t('choose')}
@@ -346,43 +359,52 @@ export function PayScreen() {
               ) : null}
             </View>
             {customer ? (
-              <Text style={styles.changeCustomer}>{payT('credit.change')}</Text>
+              <>
+                <Text style={styles.changeCustomer}>
+                  {payT('credit.change')}
+                </Text>
+                <Icon icon={ChevronRight} size={20} color={colors.accent} />
+              </>
             ) : null}
           </PressableScale>
-          <Text style={styles.customerName}>{t('paidNow')}</Text>
-          <View style={styles.paidChips}>
-            {[0, ...(roundPaid > 0 ? [roundPaid] : [])].map((amount) => (
-              <PressableScale
-                key={amount}
-                accessibilityRole="radio"
-                accessibilityLabel={formatVnd(amount)}
-                accessibilityState={{ checked: paidNow === amount }}
-                aria-checked={paidNow === amount}
-                onPress={() => setPaidText(String(amount))}
-                style={[styles.paidChip, paidNow === amount && styles.chipOn]}
-              >
-                <Text
-                  style={[
-                    styles.customerName,
-                    paidNow === amount && styles.chipTextOn,
-                  ]}
+          <View style={styles.paidRow}>
+            <Text style={styles.customerName}>{t('paidNow')}</Text>
+            <View style={styles.paidChips}>
+              {[0, ...(roundPaid > 0 ? [roundPaid] : [])].map((amount) => (
+                <PressableScale
+                  key={amount}
+                  accessibilityRole="radio"
+                  accessibilityLabel={formatVnd(amount)}
+                  accessibilityState={{ checked: paidNow === amount }}
+                  aria-checked={paidNow === amount}
+                  onPress={() => setPaidText(String(amount))}
+                  style={[styles.paidChip, paidNow === amount && styles.chipOn]}
                 >
-                  {formatVnd(amount)}
+                  <Text
+                    style={[
+                      styles.customerName,
+                      paidNow === amount && styles.chipTextOn,
+                    ]}
+                  >
+                    {amount === 0
+                      ? formatVnd(0)
+                      : formatVnd(amount).replace('đ', '')}
+                  </Text>
+                </PressableScale>
+              ))}
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={payT('credit.other')}
+                onPress={() => setCustomPaid(true)}
+                style={styles.paidChip}
+              >
+                <Text style={styles.customerName}>
+                  {paidNow !== 0 && paidNow !== roundPaid
+                    ? formatVnd(paidNow)
+                    : payT('credit.other')}
                 </Text>
               </PressableScale>
-            ))}
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={payT('credit.other')}
-              onPress={() => setCustomPaid(true)}
-              style={styles.paidChip}
-            >
-              <Text style={styles.customerName}>
-                {paidNow !== 0 && paidNow !== roundPaid
-                  ? formatVnd(paidNow)
-                  : payT('credit.other')}
-              </Text>
-            </PressableScale>
+            </View>
           </View>
           {customer && !invalidPaid ? (
             <Text style={styles.newDebt}>
@@ -435,12 +457,12 @@ export function PayScreen() {
               </View>
               <View
                 accessible
-                accessibilityLabel={`${bank.account_name}, ${bank.bank_short_name ?? bank.bank_bin} ${groupAccount(bank.account_number)}`}
+                accessibilityLabel={`${bank.account_name}, ${bankLabel(bank)} ${groupAccount(bank.account_number)}`}
                 style={styles.bankRow}
               >
                 <Icon icon={Landmark} size={20} color={colors.inkMuted} />
                 <Text style={styles.bankText} numberOfLines={1}>
-                  {`${bank.bank_short_name ?? bank.bank_bin} · ${groupAccount(bank.account_number)}`}
+                  {`${bankLabel(bank)} · ${groupAccount(bank.account_number)}`}
                 </Text>
               </View>
             </>
@@ -465,9 +487,8 @@ export function PayScreen() {
               <CashChip
                 key={amount}
                 amount={amount}
-                exact={amount === total}
-                pressed={amount === cashGiven}
-                onPick={setTendered}
+                pressed={amount === tendered}
+                onPick={pickNote}
               />
             ))}
           </View>
@@ -486,7 +507,7 @@ export function PayScreen() {
         contentContainerStyle={styles.itemsContent}
       >
         {lines.map((line) => (
-          <View key={cartLineKey(line)}>
+          <View key={cartLineKey(line)} style={styles.cell}>
             <OrderItem line={line} />
             <UnitChooser line={line} />
           </View>
@@ -507,7 +528,7 @@ export function PayScreen() {
           accessibilityState={{ disabled: confirmDisabled }}
           style={[styles.creditButton, confirmDisabled && styles.disabled]}
         >
-          <Icon icon={BookOpen} size={28} color={colors.onInk} />
+          <Icon icon={BookText} size={28} color={colors.onInk} />
           <Text style={styles.creditButtonText}>{creditLabel}</Text>
         </PressableScale>
       ) : (
@@ -597,7 +618,22 @@ const styles = StyleSheet.create({
   customerName: { ...typography.label, color: colors.ink },
   caption: { ...typography.caption, color: colors.inkMuted },
   changeCustomer: { ...typography.caption, color: colors.accent },
-  paidChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  paidRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  paidChips: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  customerAvatar: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.accentSoft,
+  },
+  customerInitial: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 20,
+    lineHeight: 24,
+    color: colors.accent,
+  },
   paidChip: {
     flexGrow: 1,
     minHeight: size.tapMin,
@@ -715,9 +751,19 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontVariant: ['tabular-nums'],
   },
-  items: { flex: 1 },
-  itemsContent: { flexDirection: 'row', flexWrap: 'wrap', rowGap: space[2] },
-  item: { width: '25%', alignItems: 'center', gap: space[1] },
+  // Size to the lines (one row of thumb + price is about 96) so the photo and price are never cut.
+  items: { flexGrow: 0, flexShrink: 1, minHeight: 104 },
+  itemsContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: space[3],
+    paddingTop: space[2],
+    paddingRight: space[2],
+  },
+  // The cell (not the item) is the 25% column: a percentage inside a shrink-wrapped parent
+  // collapsed to the content width and cut the photo and price.
+  cell: { width: '25%' },
+  item: { width: '100%', alignItems: 'center', gap: space[1] },
   qtyBadge: {
     position: 'absolute',
     right: -6,

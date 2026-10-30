@@ -2,6 +2,10 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     title: 'Đăng nhập',
+    subtitle: 'Nhận mã 6 số qua email, không cần mật khẩu',
+    emailPlaceholder: 'Email',
+    or: 'hoặc',
+    sharedDevice: 'Máy dùng chung: mỗi người có mã PIN riêng để đổi người bán.',
     addTitle: 'Thêm người trên máy này',
     otherEmail: 'Hoặc đăng nhập bằng email khác',
     cancel: 'Hủy',
@@ -39,6 +43,10 @@ export const strings: Dict = {
   },
   en: {
     title: 'Sign in',
+    subtitle: 'Get a 6-digit code by email, no password needed',
+    emailPlaceholder: 'Email',
+    or: 'or',
+    sharedDevice: 'Shared phone: everyone has their own PIN to switch seller.',
     addTitle: 'Add a person on this device',
     otherEmail: 'Or sign in with another email',
     cancel: 'Cancel',

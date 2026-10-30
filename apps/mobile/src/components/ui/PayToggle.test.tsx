@@ -51,7 +51,7 @@ test('each payment method has an icon and visible word with a 56 dp target', asy
     });
   }
   expect(screen.getByRole('radio', { name: 'Ghi nợ' })).toBeChecked();
-  for (const icon of ['QrCode', 'Banknote', 'BookOpen'])
+  for (const icon of ['QrCode', 'Banknote', 'BookText'])
     expect(screen.getByTestId(`icon-${icon}`)).toBeOnTheScreen();
 });
 

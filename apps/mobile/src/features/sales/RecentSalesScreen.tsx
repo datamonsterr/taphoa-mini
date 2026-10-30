@@ -3,7 +3,7 @@ import { PressableScale, Text, MoneyText } from '@/components/ui';
 import { useRecentSales } from '@/lib/api/salesActions';
 import { useT } from '@/lib/i18n';
 import { transactionStrings } from '@/features/dashboard/transactionStrings';
-import { Action, Header, Page, styles } from './kit';
+import { Action, BackPill, Page, StatusPill, saleStamp, styles } from './kit';
 
 export function RecentSalesScreen() {
   const t = useT(transactionStrings);
@@ -11,11 +11,14 @@ export function RecentSalesScreen() {
   const items = sales.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <Page>
-      <Header
-        title={t('recent')}
-        backLabel={t('back')}
-        onBack={() => router.replace('/dashboard')}
+      <BackPill
+        label={t('back')}
+        text={t('reports')}
+        onPress={() => router.replace('/dashboard')}
       />
+      <Text accessibilityRole="header" style={styles.heading}>
+        {t('recent')}
+      </Text>
       {sales.isPending ? (
         <Text accessibilityRole="progressbar">{t('loading')}</Text>
       ) : null}
@@ -41,18 +44,14 @@ export function RecentSalesScreen() {
           style={styles.card}
         >
           <Text style={styles.label}>
-            {sale.code} · {sale.business_date}
+            {sale.code} · {saleStamp(sale.sold_at)}
           </Text>
-          <Text>
-            {new Date(sale.sold_at).toLocaleTimeString('vi-VN', {
-              hour: '2-digit',
-              minute: '2-digit',
-              timeZone: 'Asia/Ho_Chi_Minh',
-            })}{' '}
-            · {t(sale.payment_method)}
-          </Text>
+          <Text style={styles.body}>{t(sale.payment_method)}</Text>
           <MoneyText amount={sale.total} variant="label" />
-          <Text>{t(sale.status)}</Text>
+          <StatusPill
+            label={t(sale.status)}
+            voided={sale.status === 'voided'}
+          />
         </PressableScale>
       ))}
       {sales.hasNextPage ? (
