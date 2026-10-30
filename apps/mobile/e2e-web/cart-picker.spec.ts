@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import path from 'node:path';
 
 import {
@@ -21,6 +22,27 @@ import {
 const COCA = { name: 'Coca-Cola lon 330ml', price: 10_000, cost_price: 7_500 };
 const SHOTS = path.join(__dirname, 'screenshots');
 
+/**
+ * Waits until a sheet has stopped sliding in: the element is visible and its top edge is the same
+ * in two reads 150 ms apart. Reanimated moves the sheet with a JS-driven transform on web, so
+ * `getAnimations()` and Playwright's `animations: 'disabled'` do not see it.
+ */
+async function settled(locator: Locator) {
+  await expect(locator).toBeVisible();
+  let last = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const top = (await locator.boundingBox())?.y ?? Number.NaN;
+        const same = top === last;
+        last = top;
+        return same;
+      },
+      { intervals: [150], timeout: 10_000 },
+    )
+    .toBe(true);
+}
+
 test('cart row and customer picker match boards 06 and 07c', async ({
   page,
   store,
@@ -40,6 +62,8 @@ test('cart row and customer picker match boards 06 and 07c', async ({
   const sheet = page.getByTestId('cart-sheet');
   await expect(sheet.getByText(COCA.name)).toBeVisible();
   await expect(sheet.getByRole('button', { name: 'Đóng' })).toBeVisible();
+  await settled(sheet.getByText(COCA.name));
+  await settled(page.getByRole('button', { name: 'Hiện mã QR thanh toán' }));
   await page.screenshot({ path: path.join(SHOTS, 'cart-real.png') });
 
   await button(page, 'Hiện mã QR thanh toán').click();
@@ -58,5 +82,6 @@ test('cart row and customer picker match boards 06 and 07c', async ({
   await expect(
     page.getByRole('textbox', { name: 'Tên khách hàng' }),
   ).toBeVisible();
+  await settled(page.getByRole('heading', { name: 'Chọn khách hàng' }));
   await page.screenshot({ path: path.join(SHOTS, 'customerpick-real.png') });
 });
