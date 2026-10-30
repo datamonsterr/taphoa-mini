@@ -7,6 +7,7 @@ import { isApiError, unwrap } from '@/lib/api/errors';
 import type { VoiceEntry } from '@/lib/analytics';
 
 import { clipToUpload, type VoiceClip } from './fixture';
+import { useVoiceSettings } from './voiceSettings';
 
 export type VoiceContextEntry = VoiceEntry | 'chat';
 
@@ -17,6 +18,8 @@ export type UtteranceInput = {
   entry: VoiceContextEntry;
   screen: string;
   threadId?: string;
+  /** Defaults to the "Góp giọng nói" switch; only a sale clip is ever kept. */
+  donate?: boolean;
 };
 
 /** POST /v1/voice/utterances: the clip goes up, the transcript (and the draft in sale mode) comes back. */
@@ -30,6 +33,9 @@ export async function uploadUtterance(
       filename,
       mode: input.mode,
       language: input.language,
+      donate:
+        input.mode === 'sale' &&
+        (input.donate ?? useVoiceSettings.getState().donate),
       context: {
         entry: input.entry,
         screen: input.screen,
