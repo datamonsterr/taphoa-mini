@@ -1963,8 +1963,12 @@ export interface components {
              * @description Client reuses it as SaleLineInput.id.
              */
             id: string;
+            /** @description The product name only, cleaned. Never the quantity, a number word (một, hai), a unit or container word (chai, lon, gói, thùng) or the price. */
             spoken: string;
-            /** @enum {string} */
+            /**
+             * @description matched is one product. ambiguous is several plausible products, ranked in candidates (the first is preselected). unknown is a name with no product in the catalog; the client must not sell the line until the seller picks a product, adds a new one or removes the line.
+             * @enum {string}
+             */
             status: "matched" | "ambiguous" | "unknown";
             product?: components["schemas"]["ProductSummary"];
             candidates?: components["schemas"]["ProductSummary"][];

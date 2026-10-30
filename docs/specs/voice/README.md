@@ -34,7 +34,7 @@ names and prices are heard correctly. On-device recognition stays as the offline
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | 1   | Android: after the one-time setup in Tài khoản, the voice bubble shows over the home screen and other apps; a tap opens the voice sale sheet in under 500 ms; after Confirm the previous app returns.       | Maestro on a real Android device + screen recording  |
 | 2   | Voice sale: an utterance of at most 30 s becomes a draft with matched products, quantities and prices; release-to-draft p95 under 3 s on Railway `test`; Confirm records the sale and moves stock.          | Rust integration + e2e `voice.test.ts` + Maestro     |
-| 3   | Unknown products become manual lines at the spoken price and reach the Lead review queue; ambiguous lines show up to three candidates; nothing is written before Confirm.                                   | Rust tests + Jest + golden set                       |
+| 3   | Unknown products warn and must be picked, added or removed before Confirm (never a silent sale line); ambiguous lines show up to three candidates; nothing is written before Confirm.                       | Rust tests + Jest + golden set                       |
 | 4   | Assistant chat microphone uses server transcription on Android and iOS, falls back to on-device recognition offline, and never sends by itself.                                                             | Jest + Maestro                                       |
 | 5   | Voice golden set of at least 40 Vietnamese clips: line accuracy (product, quantity and price all right) at least 90 % and price accuracy at least 97 % on the default model; results in the repo + PostHog. | `pnpm --filter @taphoa/eval run voice` + PostHog     |
 | 6   | Cost at most $0.002 per utterance on the default model; a per-store daily cap; cost per utterance visible in PostHog `$ai_generation`.                                                                      | PostHog insight + eval cost report                   |
@@ -66,10 +66,13 @@ The DoD report lives at `docs/specs/voice/dod-report.md` (written by the last ep
   itself goes through the existing cart store, outbox and `POST /v1/sales`, with
   `source=voice` on each line.
 - **Prices.** A spoken price wins and is stored as spoken (`price_mismatch` flags a catalog
-  difference, as today). Without a spoken price the catalog price applies. An unknown product
-  without a price asks for one on the keypad.
-- **Unknown products** become manual lines (`source=manual`, `manual_label` = spoken words)
-  and reach the review queue; the seller may pick a catalog product on the sheet instead.
+  difference, as today). Without a spoken price the catalog price applies.
+- **Unknown products** (no catalog match) are never sold silently. The sheet warns "Chưa có sản phẩm
+  này trong kho" and offers pick an existing product, add a new product (the add-product form,
+  name and price filled in) or remove the line; Confirm stays off until no unknown line is left.
+  The name on the line is the product name only, without quantity, unit or price (issue 152).
+- **Ambiguous products** (several plausible, or only a generic name such as "nước ngọt") show up
+  to three ranked candidates with the best one preselected (issue 154).
 - **Payment.** Default cash with change entry skipped; "chuyển khoản" opens the VietQR pay
   screen with the draft; "ghi nợ <tên>" makes a credit sale with customer matching.
 - **In-app entry points follow the assistant rule "no new buttons":** long-press on the chat

@@ -3259,8 +3259,19 @@ components:
             format: uuid,
             description: Client reuses it as SaleLineInput.id.,
           }
-        spoken: { type: string }
-        status: { type: string, enum: [matched, ambiguous, unknown] }
+        spoken:
+          type: string
+          description: >-
+            The product name only, cleaned. Never the quantity, a number word (một, hai),
+            a unit or container word (chai, lon, gói, thùng) or the price.
+        status:
+          type: string
+          enum: [matched, ambiguous, unknown]
+          description: >-
+            matched is one product. ambiguous is several plausible products, ranked in
+            candidates (the first is preselected). unknown is a name with no product in the
+            catalog; the client must not sell the line until the seller picks a product, adds
+            a new one or removes the line.
         product: { $ref: '#/components/schemas/ProductSummary' }
         candidates:
           type: array

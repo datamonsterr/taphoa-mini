@@ -232,7 +232,7 @@ describe('draft', () => {
     expect(screen.getByText('gạo ST25')).toBeOnTheScreen();
     expect(screen.getByTestId('voice-total')).toHaveTextContent('35.000đ');
     await fireEvent.press(
-      screen.getByLabelText('Chưa có trong kho, bán theo giá đã nói'),
+      screen.getByLabelText('Chưa có sản phẩm này trong kho'),
     );
     await screen.findByTestId('voice-search');
     expect(screen.getByTestId('voice-search-input').props.value).toBe(
@@ -369,15 +369,59 @@ describe('confirm', () => {
     ]);
   });
 
-  test('an unknown line is sold as a manual line with its spoken label', async () => {
+  test('an unknown line warns and blocks the sale until it is resolved', async () => {
     await speak('unknown-product.m4a');
+    expect(
+      screen.getByText('Chưa có sản phẩm này trong kho'),
+    ).toBeOnTheScreen();
+    expect(screen.getByText(/Có món chưa có trong kho/)).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('Xác nhận bán').props.accessibilityState,
+    ).toMatchObject({ disabled: true });
+    await fireEvent.press(screen.getByLabelText('Xác nhận bán'));
+    expect(screen.queryByTestId('voice-done')).toBeNull();
+    expect(getMockDb().sales.at(-1)?.lines[0]?.source).not.toBe('manual');
+  });
+
+  test('pick an existing product on an unknown line, then the sale is a voice line', async () => {
+    await speak('unknown-product.m4a');
+    await fireEvent.press(screen.getByLabelText('Chọn món có sẵn'));
+    await screen.findByTestId('voice-search');
+    await fireEvent.changeText(
+      screen.getByTestId('voice-search-input'),
+      'coca',
+    );
+    await fireEvent.press(
+      await screen.findByTestId('voice-search-' + PRODUCT_IDS.coca),
+    );
+    await screen.findByTestId('voice-draft');
+    expect(screen.queryByText(/Có món chưa có trong kho/)).toBeNull();
     await fireEvent.press(screen.getByLabelText('Xác nhận bán'));
     await screen.findByTestId('voice-done');
     expect(getMockDb().sales.at(-1)!.lines[0]).toMatchObject({
-      source: 'manual',
-      manual_label: 'gạo ST25',
+      source: 'voice',
+      product_id: PRODUCT_IDS.coca,
       unit_price: 35000,
     });
+  });
+
+  test('add a new product opens the add-product form with the spoken name and price', async () => {
+    await speak('unknown-product.m4a');
+    await fireEvent.press(screen.getByLabelText('Thêm món mới'));
+    expect(mockRouter.push).toHaveBeenCalledWith({
+      pathname: '/enroll',
+      params: { name: 'gạo ST25', price: '35000' },
+    });
+  });
+
+  test('remove drops the unknown line and nothing is sold for it', async () => {
+    await speak('unknown-product.m4a');
+    await fireEvent.press(screen.getByLabelText('Xóa dòng này'));
+    expect(screen.queryByText('gạo ST25')).toBeNull();
+    expect(screen.queryByTestId(/-unknown$/)).toBeNull();
+    expect(
+      screen.getByLabelText('Xác nhận bán').props.accessibilityState,
+    ).toMatchObject({ disabled: true });
   });
 
   test('a failed save keeps the draft and says so', async () => {
@@ -425,9 +469,7 @@ describe('confirm', () => {
     expect(
       screen.getByLabelText('Xác nhận bán').props.accessibilityState,
     ).toMatchObject({ disabled: true });
-    expect(
-      screen.getByText(/Chuyển khoản cần món có trong kho/),
-    ).toBeOnTheScreen();
+    expect(screen.getByText(/Có món chưa có trong kho/)).toBeOnTheScreen();
   });
 
   test('credit uses the matched customer and records the whole total as debt', async () => {

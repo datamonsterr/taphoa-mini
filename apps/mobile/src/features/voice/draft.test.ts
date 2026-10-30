@@ -190,24 +190,35 @@ test('payment or customer changes count as edits', () => {
   );
 });
 
-test('blockers: empty, missing price, credit without customer, transfer with unknown line', () => {
+const rice = { id: 'p-rice', name: 'Gạo ST25', price: 30000 };
+
+test('blockers: empty, unknown line, missing price, credit without customer', () => {
   const draft = start();
-  expect(blocker(draft)).toBeNull();
+  // The rice line is not in the catalog: it never becomes a sale line by itself.
+  expect(blocker(draft)).toBe('unknown');
   expect(
     blocker(draftReducer(draft, { type: 'payment', method: 'transfer' })),
   ).toBe('unknown');
+  const picked = draftReducer(draft, {
+    type: 'resolve',
+    id: 'l3',
+    product: rice,
+  });
+  expect(blocker(picked)).toBeNull();
+  const removed = draftReducer(draft, { type: 'remove', id: 'l3' });
+  expect(blocker(removed)).toBeNull();
   expect(
-    blocker(draftReducer(draft, { type: 'payment', method: 'credit' })),
+    blocker(draftReducer(picked, { type: 'payment', method: 'credit' })),
   ).toBe('customer');
   const noPrice = {
-    ...draft,
-    lines: draft.lines.map((l) => ({
+    ...picked,
+    lines: picked.lines.map((l) => ({
       ...l,
       unitPrice: l.id === 'l1' ? null : l.unitPrice,
     })),
   };
   expect(blocker(noPrice)).toBe('price');
-  const empty = [draft.lines[0]!, draft.lines[1]!, draft.lines[2]!].reduce(
+  const empty = draft.lines.reduce(
     (d, l) => draftReducer(d, { type: 'remove', id: l.id }),
     draft,
   );

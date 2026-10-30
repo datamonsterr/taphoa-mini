@@ -36,7 +36,7 @@ accessibility tool.
   transcription path by default and the same fallbacks.
 - **Confirm before write.** The parsed draft always shows on the voice sale sheet; Confirm
   records the sale through the existing cart, outbox and `POST /v1/sales` with
-  `source=voice` lines. Unknown products become manual lines for Lead review.
+  `source=voice` lines. An unknown product warns on the sheet and is picked, added or removed before Confirm (updated for issue 152, 154).
 - **Android entry point: overlay, not accessibility.** A floating bubble drawn with
   `SYSTEM_ALERT_WINDOW` from a foreground service of type `specialUse`, plus a Quick Settings
   tile. The bubble only launches the app's `/voice` route; recording happens in the

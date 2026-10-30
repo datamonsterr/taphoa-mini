@@ -1,0 +1,64 @@
+# input<TAB>cleaned name. Lines starting with # are comments. Used by clean.rs tests.
+# quantity and unit words
+một chai tương ớt	tương ớt
+chai tương ớt	tương ớt
+hai gói hảo hảo	hảo hảo
+ba lon nước ngọt	nước ngọt
+một thùng bia tiger	bia tiger
+năm bịch đường	đường
+hai hộp sữa	sữa
+một cái bánh bao	bánh bao
+một bao gạo	gạo
+bốn lốc sữa chua	sữa chua
+sáu vỉ trứng	trứng
+một kg đường	đường
+hai ký gạo	gạo
+một chục trứng	trứng
+# fillers and digits
+lấy cho anh hai chai nước mắm	nước mắm
+cho tôi một lon coca	coca
+12 lon bia	bia
+3 gói mì	mì
+mười lăm gói kẹo	kẹo
+hai mươi lon bia	bia
+hai mươi mốt chai nước	nước
+# prices
+một gói bánh bi 15.000	bánh bi
+bánh bi 15000	bánh bi
+bánh bi 15.000đ	bánh bi
+bánh bi mười lăm nghìn	bánh bi
+bánh bi giá hai mươi nghìn	bánh bi
+tương ớt 20k	tương ớt
+tương ớt hai mươi nghìn đồng	tương ớt
+tương ớt giá 20 nghìn	tương ớt
+một chai tương ớt hai mươi nghìn	tương ớt
+hai gói hảo hảo bốn nghìn rưỡi	hảo hảo
+ba cái bia tiger giá hai lăm	bia tiger
+một lon coca ba chục	coca
+hai chai nước mắm sáu chục nghìn	nước mắm
+# sizes, codes and numeric brands stay
+coca 330ml	coca 330ml
+một lon coca 330 ml	coca 330ml
+gạo ST25	gạo ST25
+hai chai nước mắm 500ml	nước mắm 500ml
+nước suối 1.5l	nước suối 1.5l
+bột giặt omo 3kg	bột giặt omo 3kg
+bia 333	bia 333
+nước ngọt Number 1	nước ngọt Number 1
+mì 3 miền	mì 3 miền
+# plain, unaccented and brand phrasings
+tương ớt	tương ớt
+tuong ot chin su	tuong ot chin su
+Hảo Hảo	Hảo Hảo
+nước mắm Nam Ngư	nước mắm Nam Ngư
+mot chai tuong ot	tuong ot
+hai lon coca cola	coca cola
+chai tương ớt Chinsu	tương ớt Chinsu
+một chai tương ớt chin su	tương ớt chin su
+lon Pepsi	Pepsi
+thùng nước ngọt	nước ngọt
+# nothing but noise
+một chai	
+hai	
+15.000	
+ba lon	

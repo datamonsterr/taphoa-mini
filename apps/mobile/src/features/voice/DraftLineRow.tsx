@@ -29,6 +29,7 @@ export type DraftLineRowProps = {
   onPick: (id: string, productId: string) => void;
   onEditPrice: (id: string) => void;
   onSearch: (id: string) => void;
+  onAddNew: (id: string) => void;
 };
 
 const stepperLabels = (t: (key: string) => string): StepperLabels => ({
@@ -49,6 +50,7 @@ export const DraftLineRow = memo(function DraftLineRow({
   onPick,
   onEditPrice,
   onSearch,
+  onAddNew,
 }: DraftLineRowProps) {
   const t = useT(voiceStrings);
   const labels = useLabels(voiceStrings, stepperLabels);
@@ -66,6 +68,8 @@ export const DraftLineRow = memo(function DraftLineRow({
     if (status === 'ambiguous') onToggleCandidates(id);
     else if (status === 'unknown') onSearch(id);
   }, [status, onToggleCandidates, onSearch, id]);
+  const pickExisting = useCallback(() => onSearch(id), [onSearch, id]);
+  const addNew = useCallback(() => onAddNew(id), [onAddNew, id]);
 
   const badgeLabel =
     status === 'matched'
@@ -147,6 +151,44 @@ export const DraftLineRow = memo(function DraftLineRow({
           labels={labels}
         />
       </View>
+      {status === 'unknown' ? (
+        <View
+          testID={`voice-line-${id}-unknown`}
+          accessibilityRole="alert"
+          style={styles.warning}
+        >
+          <Text style={styles.warningTitle}>{t('unknownWarning')}</Text>
+          <View style={styles.warningActions}>
+            <PressableScale
+              testID={`voice-line-${id}-pick`}
+              accessibilityRole="button"
+              accessibilityLabel={t('unknownPick')}
+              onPress={pickExisting}
+              style={styles.warningAction}
+            >
+              <Text style={styles.warningActionText}>{t('unknownPick')}</Text>
+            </PressableScale>
+            <PressableScale
+              testID={`voice-line-${id}-add`}
+              accessibilityRole="button"
+              accessibilityLabel={t('unknownAdd')}
+              onPress={addNew}
+              style={styles.warningAction}
+            >
+              <Text style={styles.warningActionText}>{t('unknownAdd')}</Text>
+            </PressableScale>
+            <PressableScale
+              testID={`voice-line-${id}-remove`}
+              accessibilityRole="button"
+              accessibilityLabel={t('unknownRemove')}
+              onPress={rm}
+              style={styles.warningAction}
+            >
+              <Text style={styles.warningRemoveText}>{t('unknownRemove')}</Text>
+            </PressableScale>
+          </View>
+        </View>
+      ) : null}
       {expanded && status === 'ambiguous' ? (
         <AlternativesStrip
           items={line.candidates.map((c) => ({
@@ -207,4 +249,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dangerSoft,
   },
   pillText: { ...typography.caption, color: colors.danger },
+  warning: {
+    gap: space[2],
+    padding: space[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.warningSoft,
+  },
+  warningTitle: { ...typography.label, color: colors.ink },
+  warningActions: { gap: space[2] },
+  warningActionText: { ...typography.label, color: colors.accent },
+  warningRemoveText: { ...typography.label, color: colors.danger },
+  warningAction: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: space[3],
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+  },
 });

@@ -239,11 +239,11 @@ export type Blocker = 'empty' | 'price' | 'customer' | 'unknown';
 export function blocker(draft: Draft): Blocker | null {
   const lines = activeLines(draft);
   if (lines.length === 0) return 'empty';
+  // A line without a catalog product never becomes a sale line by itself: the seller picks a
+  // product, adds a new one or removes the line first.
+  if (lines.some((l) => !l.product)) return 'unknown';
   if (lines.some((l) => l.unitPrice === null)) return 'price';
   if (draft.paymentMethod === 'credit' && !draft.customer) return 'customer';
-  // The cart holds catalog products only, so a transfer needs every line matched.
-  if (draft.paymentMethod === 'transfer' && lines.some((l) => !l.product))
-    return 'unknown';
   return null;
 }
 

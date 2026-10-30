@@ -1,0 +1,45 @@
+# query<TAB>band<TAB>names, joined with a bar (the first name is the preselected one)
+# exact, any case
+Tương ớt Chinsu 250ml	matched	Tương ớt Chinsu 250ml
+hảo hảo tôm chua cay	matched	Mì Hảo Hảo tôm chua cay
+# without diacritics
+tuong ot chinsu	matched	Tương ớt Chinsu 250ml
+hao hao	matched	Mì Hảo Hảo tôm chua cay
+banh bao	matched	Bánh bao nhân thịt
+sua tuoi vinamilk	matched	Sữa tươi Vinamilk 1L
+# generic name only, brand only
+tương ớt	matched	Tương ớt Chinsu 250ml
+tuong ot	matched	Tương ớt Chinsu 250ml
+chinsu tương ớt	matched	Tương ớt Chinsu 250ml
+sữa vinamilk	matched	Sữa tươi Vinamilk 1L
+omachi	matched	Mì Omachi
+heineken	matched	Bia Heineken lon 330ml
+aquafina	matched	Nước suối Aquafina 500ml
+# brand split or joined, word order, abbreviation
+tương ớt chin su	matched	Tương ớt Chinsu 250ml
+tuong ot chin su	matched	Tương ớt Chinsu 250ml
+ớt tương chinsu	matched	Tương ớt Chinsu 250ml
+vinamilk sữa tươi	matched	Sữa tươi Vinamilk 1L
+coca cola	matched	Coca-Cola lon 330ml
+cocacola	matched	Coca-Cola lon 330ml
+coca	matched	Coca-Cola lon 330ml
+hh	matched	Mì Hảo Hảo tôm chua cay
+# size spoken or not, close spelling
+coca 330ml	matched	Coca-Cola lon 330ml
+bia tiger	matched	Bia Tiger lon 330ml
+tiger	matched	Bia Tiger lon 330ml
+# several plausible products: ambiguous, any of the names may be offered
+pepsy	ambiguous	Pepsi lon 330ml
+nước mắm	ambiguous	Nước mắm Nam Ngư 500ml|Nước mắm Chinsu 500ml
+bia	ambiguous	Bia Tiger lon 330ml|Bia Heineken lon 330ml
+coca 1.5l	ambiguous	Coca-Cola lon 330ml
+# a generic category names no product, the known brands are the candidates (issue 154)
+nước ngọt	ambiguous	Coca-Cola lon 330ml|Pepsi lon 330ml|Sprite lon 330ml|Fanta cam lon 330ml|Number 1 chai 330ml
+nuoc ngot	ambiguous	Coca-Cola lon 330ml|Pepsi lon 330ml|Sprite lon 330ml|Fanta cam lon 330ml|Number 1 chai 330ml
+nước giải khát	ambiguous	Coca-Cola lon 330ml|Pepsi lon 330ml|Sprite lon 330ml|Fanta cam lon 330ml|Number 1 chai 330ml
+# truly unknown
+bánh bi	unknown	
+kẹo dẻo	unknown	
+thuốc lá	unknown	
+bột giặt omo	unknown	
+xúc xích	unknown	
