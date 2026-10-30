@@ -945,6 +945,53 @@ describe('quick enroll capture', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
+  // On Android, expo-camera rebinds CameraX when `onBarcodeScanned` appears or disappears, and
+  // the rebind aborts a picture in flight with "Failed to capture image". This mock cannot rebind,
+  // so the tests pin the native prop instead.
+  it.each([
+    ['quick enroll', true],
+    ['checkout scan', false],
+  ])(
+    'keeps the native barcode handler while a %s photo is in flight',
+    async (_name, quick) => {
+      let release!: (photo: typeof IMAGE & { uri: string }) => void;
+      mockTakePicture.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      await renderWithProviders(<CameraScreen />);
+      if (quick) await fireEvent.press(tag());
+      const handler = screen.getByTestId('camera-view').props.onBarcodeScanned;
+      expect(handler).toEqual(expect.any(Function));
+      await fireEvent.press(shutter());
+      expect(mockTakePicture).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toBe(
+        handler,
+      );
+      await act(async () => release({ uri: 'file:///shot.jpg', ...IMAGE }));
+      expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toBe(
+        handler,
+      );
+    },
+  );
+
+  it('says the camera failed, in Vietnamese, when the native capture rejects', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockTakePicture.mockRejectedValueOnce(new Error('Failed to capture image'));
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(tag());
+    await fireEvent.press(shutter());
+    await waitFor(() =>
+      expect(alert).toHaveBeenCalledWith(
+        'Chưa chụp được ảnh',
+        'Máy ảnh chưa chụp được. Giữ máy yên rồi bấm Chụp lần nữa.',
+      ),
+    );
+    expect(shutter()).toBeEnabled();
+  });
+
   it('asks before discarding shots: cancel keeps them and confirm clears them', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await renderWithProviders(<CameraScreen />);
@@ -1010,7 +1057,7 @@ describe('quick enroll capture', () => {
     await waitFor(() =>
       expect(useQuickEnrollStore.getState().shots[0]).toMatchObject({
         status: 'error',
-        error: 'upload offline',
+        error: 'Ảnh chưa lên được máy chủ. Kiểm tra mạng rồi chụp lại.',
       }),
     );
     expect(getMockDb().scans.size).toBe(0);
