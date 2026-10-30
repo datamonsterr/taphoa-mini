@@ -656,7 +656,9 @@ test('English labels follow the language', async () => {
   expect(await screen.findByLabelText('Owes 105.000đ')).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Collect' })).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Remind' })).toBeOnTheScreen();
-  expect(screen.getByRole('button', { name: 'Adjust balance (Owner)' })).toBeOnTheScreen();
+  expect(
+    screen.getByRole('button', { name: 'Adjust balance (Owner)' }),
+  ).toBeOnTheScreen();
   expect(screen.getByRole('header', { name: 'History' })).toBeOnTheScreen();
   await waitFor(() => expect(ledgerRows()).toHaveLength(5));
   expect(ledgerRows()[1]).toBe(
