@@ -81,4 +81,7 @@ export const keys = {
   },
   digest: (businessDate?: string) =>
     [...keys.all, 'digest', businessDate ?? null] as const,
+  /** The digest screen's own read: it records that the owner opened the digest. */
+  digestOpen: (businessDate?: string) =>
+    [...keys.all, 'digest-open', businessDate ?? null] as const,
 };

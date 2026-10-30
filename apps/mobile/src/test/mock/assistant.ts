@@ -400,7 +400,7 @@ export function getDigest(query: URLSearchParams): S['Digest'] {
     : businessDate();
   if (date !== businessDate()) throw notFound('Digest');
   const readAt = digestReadAt;
-  if (!digestReadAt) {
+  if (query.get('mark_read') === 'true' && !digestReadAt) {
     digestReadAt = nowIso();
   }
   const base: S['Digest'] = {

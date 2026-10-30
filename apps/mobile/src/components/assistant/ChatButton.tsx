@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { Sparkles } from 'lucide-react-native';
+import { MessageCircleText } from 'lucide-react-native';
 import { memo, useCallback } from 'react';
 
 import { CircleButton } from '@/components/ui/CircleButton';
@@ -33,7 +33,7 @@ export const ChatButton = memo(function ChatButton({
   if (!enabled) return null;
   return (
     <CircleButton
-      icon={Sparkles}
+      icon={MessageCircleText}
       accessibilityLabel={t('open')}
       variant="accent"
       floating

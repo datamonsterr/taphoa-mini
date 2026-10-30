@@ -1,5 +1,5 @@
-import { router, type Href } from 'expo-router';
-import { Plus, ReceiptText, SquareCheck } from 'lucide-react-native';
+import { router } from 'expo-router';
+import { Plus, SquareCheck } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,14 +18,13 @@ import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
 import { BarChart } from './BarChart';
-import { DebtCard } from './DebtCard';
 import { DigestCard } from '@/features/digest/DigestCard';
+import { ShortcutChips } from './ShortcutChips';
 import { StatTiles } from './StatTiles';
 import { dashboardStrings } from './strings';
 import { useDashboardData } from './useDashboardData';
 import { ExportSheet } from './ExportSheet';
 import { transactionStrings } from './transactionStrings';
-import { Action } from '@/features/sales/kit';
 
 /** Space under the content for the floating bottom bar (board: 112). */
 const BAR_CLEARANCE = 112;
@@ -48,6 +47,8 @@ export function DashboardScreen() {
   const isLead = useIsLead();
   const canEnroll = useCanEnroll();
 
+  const recentLabel = transactions('recent');
+  const exportLabel = transactions('export');
   const addExpense = useCallback(() => router.push('/expense'), []);
   const closeDay = useCallback(() => router.push('/close'), []);
 
@@ -135,30 +136,10 @@ export function DashboardScreen() {
           </>
         ) : null}
 
-        <Action
-          label={transactions('recent')}
-          onPress={() => router.push('/sales')}
-        />
-        <Action
-          label={transactions('export')}
-          onPress={() => setExporting(true)}
-        />
         <AlertsSection />
 
         <DigestCard />
-        <DebtCard />
-
-        {canEnroll ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t('receipts')}
-            onPress={() => router.push('/receipts' as Href)}
-            style={styles.receiptsButton}
-          >
-            <Icon icon={ReceiptText} color={colors.ink} />
-            <Text style={styles.retryText}>{t('receipts')}</Text>
-          </PressableScale>
-        ) : null}
+        <ShortcutChips showReceipts={canEnroll} />
 
         {isLead ? (
           <PressableScale
@@ -172,6 +153,27 @@ export function DashboardScreen() {
             <Text style={styles.closeText}>{t('close')}</Text>
           </PressableScale>
         ) : null}
+
+        <View style={styles.links}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={recentLabel}
+            pressedScale={0.96}
+            onPress={() => router.push('/sales')}
+            style={styles.link}
+          >
+            <Text style={styles.linkText}>{recentLabel}</Text>
+          </PressableScale>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={exportLabel}
+            pressedScale={0.96}
+            onPress={() => setExporting(true)}
+            style={styles.link}
+          >
+            <Text style={styles.linkText}>{exportLabel}</Text>
+          </PressableScale>
+        </View>
       </ScrollView>
       {exporting ? <ExportSheet onClose={() => setExporting(false)} /> : null}
     </View>
@@ -179,15 +181,18 @@ export function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  receiptsButton: {
+  links: {
     flexDirection: 'row',
+    justifyContent: 'center',
+    gap: space[4],
+  },
+  link: {
+    minHeight: size.tapMin,
+    paddingHorizontal: space[3],
     alignItems: 'center',
     justifyContent: 'center',
-    gap: space[2],
-    minHeight: size.tapMin,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceSoft,
   },
+  linkText: { ...typography.label, color: colors.inkMuted },
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: space[4], gap: 20 },
   header: {

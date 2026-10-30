@@ -122,7 +122,7 @@ test.describe('debt book', () => {
     await expect(page).toHaveURL(new RegExp(`/customer/${customerId}`));
     const balance = page.getByTestId('customer-balance');
     await expect(balance).toHaveAccessibleName(
-      `Còn nợ ${formatVnd(coca.price)}`,
+      `Đang nợ ${formatVnd(coca.price)}`,
     );
     await expect(
       page.getByTestId('ledger-row').filter({ hasText: 'Ghi nợ' }),

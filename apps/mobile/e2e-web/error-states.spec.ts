@@ -526,7 +526,7 @@ test.describe('offline', () => {
     });
     await openInApp(page, `/customer/${customerId}`);
     await expect(byId(page, 'customer-balance')).toHaveAccessibleName(
-      'Còn nợ 50.000đ',
+      'Đang nợ 50.000đ',
     );
     await button(page, 'Thu nợ').click();
     await page.getByRole('textbox', { name: 'Số tiền thu' }).fill('1000');
@@ -553,7 +553,7 @@ test.describe('offline', () => {
     await button(page, 'Xác nhận thu nợ').click();
     expect((await repayment).status).toBe(201);
     await expect(byId(page, 'customer-balance')).toHaveAccessibleName(
-      'Còn nợ 49.000đ',
+      'Đang nợ 49.000đ',
     );
     expect(posts).toHaveLength(1);
   });

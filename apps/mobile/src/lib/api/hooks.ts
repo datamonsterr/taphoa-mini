@@ -311,6 +311,29 @@ export const useDigest = (businessDate?: string) =>
     retry: false,
   });
 
+/**
+ * The digest screen's read: marks the digest read for the caller, then refreshes the dashboard
+ * card (a separate query) so its "Mới" badge goes away only after the digest was opened.
+ */
+export const useOpenDigest = (businessDate?: string) => {
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: keys.digestOpen(businessDate),
+    queryFn: async () => {
+      try {
+        const digest = await getDigest(businessDate, true);
+        void client.invalidateQueries({ queryKey: [...keys.all, 'digest'] });
+        return digest;
+      } catch (error) {
+        if (isApiError(error) && error.status === 404) return null;
+        throw error;
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+};
+
 /** Cursor lists expose flattened items, like useProducts. */
 export const useStock = (status: StockStatus = 'all') =>
   useInfiniteQuery({

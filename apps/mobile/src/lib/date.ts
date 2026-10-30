@@ -47,3 +47,10 @@ export function subMonths(date: string, months: number): string {
   d.setUTCMonth(d.getUTCMonth() - months);
   return toDate(d.getTime());
 }
+
+/** Wall-clock time (HH:mm) of an instant in Asia/Ho_Chi_Minh; empty when unparsable. */
+export function clockTime(at: Date | string | number): string {
+  const ms = new Date(at).getTime();
+  if (Number.isNaN(ms)) return '';
+  return new Date(ms + VN_OFFSET_MS).toISOString().slice(11, 16);
+}

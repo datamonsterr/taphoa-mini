@@ -104,7 +104,7 @@ appId: com.datamonsterr.taphoamini
 - tapOn: 'Chị Lan, 15.000đ'
 # the customer screen: collect the whole balance (the amount starts at the balance)
 - extendedWaitUntil:
-    visible: 'Còn nợ 15.000đ'
+    visible: 'Đang nợ 15.000đ'
     timeout: 20000
 - tapOn: 'Thu nợ'
 - extendedWaitUntil:

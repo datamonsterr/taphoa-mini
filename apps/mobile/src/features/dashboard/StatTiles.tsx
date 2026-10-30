@@ -67,7 +67,7 @@ export const StatTiles = memo(function StatTiles({ totals, labels }: Props) {
         iconColor={colors.danger}
         label={labels.expense}
         amount={totals.expense}
-        prefix="−"
+        prefix={totals.expense > 0 ? '−' : ''}
         background={colors.dangerSoft}
         color={colors.danger}
       />
