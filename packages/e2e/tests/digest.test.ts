@@ -60,10 +60,13 @@ describe('daily digest against the deployed backend', () => {
     expect(plainRes.data!.generated_at).toBe(firstRes.data!.generated_at);
     expect(plainRes.data!.read_at ?? null).toBeNull();
 
-    // Opening it (mark_read) records the read: read_at is now a date string
-    const secondRes = await client.raw.GET('/v1/assistant/digest', {
+    // Opening it (mark_read) records the read. That response still shows the state before
+    // the open, so the next plain read is the one that carries the read_at date string.
+    const openRes = await client.raw.GET('/v1/assistant/digest', {
       params: { query: { mark_read: true } },
     });
+    expect(openRes.response.status).toBe(200);
+    const secondRes = await client.raw.GET('/v1/assistant/digest');
     expect(secondRes.response.status).toBe(200);
     expect(secondRes.data).toBeDefined();
     expect(secondRes.data!.generated_at).toBe(firstRes.data!.generated_at);
