@@ -99,7 +99,7 @@ Maestro screenshots from Android E2E run 40801118589 (real APK, CI emulator):
 
 ## 7. Privacy
 
-- Audio is never stored. `voice_utterances` (migration `1101_voice.sql`) keeps the transcript and
+- Audio is discarded after the model call unless the member turned on "Góp giọng nói để cải thiện" (off by default): the app then sends `donate=true` with a sale clip and the server keeps it in the private bucket under `voice/<store>/<uuid>.m4a`, marks the row `donated` (#163). `voice_utterances` (migration `1101_voice.sql`) keeps the transcript and
   the draft, not the clip. The `voice_retention` job deletes rows older than 30 days unless the
   member donated them.
 - The app explains "Hiện trên ứng dụng khác" before it opens the system permission screen

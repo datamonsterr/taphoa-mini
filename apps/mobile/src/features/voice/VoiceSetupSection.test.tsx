@@ -58,7 +58,7 @@ describe('opt-in to share voice', () => {
     });
     expect(toggle).not.toBeChecked();
     expect(
-      screen.getByText(/Chưa gửi giọng nói đi trong bản này/),
+      screen.getByText(/Giữ lại đoạn ghi âm cho bộ mẫu/),
     ).toBeOnTheScreen();
     await fireEvent.press(toggle);
     expect(useVoiceSettings.getState().donate).toBe(true);
@@ -266,9 +266,7 @@ describe('Android with the native module', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: 'Thêm ô cài đặt nhanh' }),
     );
-    expect(
-      await screen.findByText('Đã thêm ô cài đặt nhanh'),
-    ).toBeOnTheScreen();
+    expect(await screen.findByText('Đã thêm')).toBeOnTheScreen();
     expect(tile.requestAdd).toHaveBeenCalledTimes(1);
     expect(events).toEqual([
       {

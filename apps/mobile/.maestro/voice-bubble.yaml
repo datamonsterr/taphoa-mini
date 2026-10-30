@@ -20,7 +20,7 @@ appId: com.datamonsterr.taphoamini
     element:
       id: 'voice-bubble-row'
 - assertVisible: 'Nút nói nhanh'
-- assertVisible: 'Thêm ô cài đặt nhanh'
+- assertVisible: 'Ô cài đặt nhanh'
 # 1. the explainer comes before any Settings jump; "Để sau" closes it
 - scrollUntilVisible:
     element:

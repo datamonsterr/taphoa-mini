@@ -347,6 +347,7 @@ impl Completion {
                 usage: Usage::default(),
                 http_status,
                 time_to_first_token: None,
+                generation_id: None,
             },
             calls: BTreeMap::new(),
             text_sent: false,
@@ -369,6 +370,13 @@ impl Completion {
         }
         let value: Value =
             serde_json::from_str(data).map_err(|_| self.failed("invalid stream JSON"))?;
+        if self.response.generation_id.is_none()
+            && let Some(id) = value["id"].as_str().map(str::trim)
+            && !id.is_empty()
+            && id.len() <= 128
+        {
+            self.response.generation_id = Some(id.to_owned());
+        }
         let choice = &value["choices"][0];
         if value.get("error").is_some_and(|error| !error.is_null())
             || choice["finish_reason"] == "error"
@@ -579,7 +587,7 @@ mod tests {
     #[tokio::test]
     async fn text_comments_split_lines_and_usage() {
         let usage = event(
-            json!({"model":"served/model:free", "choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7}}),
+            json!({"id":"gen-stream-1","model":"served/model:free", "choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7}}),
         );
         let body = format!(
             ": OPENROUTER PROCESSING\r\n\r\n{}{}{}data: [DONE]\r\n\r\n",
@@ -595,6 +603,7 @@ mod tests {
         assert_eq!(deltas, ["Chào", "!"]);
         assert_eq!(response.content, "Chào!");
         assert_eq!(response.model, "served/model:free");
+        assert_eq!(response.generation_id.as_deref(), Some("gen-stream-1"));
         assert_eq!(response.finish_reason, "stop");
         assert_eq!(
             response.usage,

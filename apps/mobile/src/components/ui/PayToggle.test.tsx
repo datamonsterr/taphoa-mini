@@ -54,3 +54,12 @@ test('each payment method has an icon and visible word with a 56 dp target', asy
   for (const icon of ['QrCode', 'Banknote', 'BookOpen'])
     expect(screen.getByTestId(`icon-${icon}`)).toBeOnTheScreen();
 });
+
+test('icon-only keeps the accessible names but hides the words', async () => {
+  await renderWithProviders(
+    <PayToggle iconOnly value="cash" onChange={jest.fn()} />,
+  );
+  expect(screen.queryByText('Tiền mặt')).toBeNull();
+  expect(screen.getByRole('radio', { name: 'Tiền mặt' })).toBeChecked();
+  expect(screen.getByTestId('icon-Banknote')).toBeOnTheScreen();
+});

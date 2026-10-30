@@ -78,3 +78,18 @@ test('elder mode grows the button to the 80px tap target', async () => {
     minHeight: size.tapXl,
   });
 });
+
+test('an optional label shows next to the check', async () => {
+  await renderWithProviders(
+    <CheckButton
+      variant="ink"
+      accessibilityLabel="Xong, hiểu lời vừa nói"
+      label="Xong"
+      onPress={jest.fn()}
+    />,
+  );
+  expect(screen.getByText('Xong')).toBeOnTheScreen();
+  expect(
+    screen.getByRole('button', { name: 'Xong, hiểu lời vừa nói' }),
+  ).toBeOnTheScreen();
+});

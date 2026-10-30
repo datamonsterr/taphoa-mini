@@ -3,10 +3,11 @@ import { memo } from 'react';
 import { StyleSheet } from 'react-native';
 
 import { useSettingsStore } from '@/stores/settings';
-import { colors, radius, size } from '@/theme';
+import { colors, radius, size, space, typography } from '@/theme';
 
 import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
+import { Text } from './ScaledText';
 
 export type CheckButtonVariant = 'success' | 'ink';
 
@@ -20,6 +21,8 @@ export type CheckButtonProps = {
   block?: boolean;
   /** 80px pay button with a 32px check (board 07). */
   xl?: boolean;
+  /** Visible word next to the check (board 15 stop button: "Xong"). */
+  label?: string;
 };
 
 export const CheckButton = memo(function CheckButton({
@@ -29,6 +32,7 @@ export const CheckButton = memo(function CheckButton({
   disabled = false,
   block = false,
   xl = false,
+  label,
 }: CheckButtonProps) {
   const elder = useSettingsStore((s) => s.elderMode);
   return (
@@ -48,6 +52,7 @@ export const CheckButton = memo(function CheckButton({
       ]}
     >
       <Icon icon={Check} size={xl ? 32 : undefined} color={colors.onInk} />
+      {label ? <Text style={styles.label}>{label}</Text> : null}
     </PressableScale>
   );
 });
@@ -58,6 +63,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: size.tapLg,
     paddingHorizontal: 40,
+    flexDirection: 'row',
+    gap: space[3],
     borderRadius: radius.full,
   },
   success: { backgroundColor: colors.success },
@@ -65,4 +72,5 @@ const styles = StyleSheet.create({
   block: { alignSelf: 'stretch' },
   xl: { minHeight: size.tapXl },
   disabled: { opacity: 0.4 },
+  label: { ...typography.heading, color: colors.onInk },
 });

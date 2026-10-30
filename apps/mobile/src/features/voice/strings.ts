@@ -10,6 +10,7 @@ export const voiceStrings: Dict = {
     example: '“một chai tương ớt hai mươi nghìn”',
     stop: 'Xong',
     stopLabel: 'Xong, hiểu lời vừa nói',
+    stopText: 'Xong',
     seconds: '{s} giây',
     countdown: 'Còn {s} giây',
     level: 'Mức âm thanh',
@@ -46,6 +47,7 @@ export const voiceStrings: Dict = {
     'customer.choose': 'Chọn khách',
     'customer.change': 'Đổi',
     'customer.named': 'Khách nợ: {name}',
+    'customer.debt': 'Đang nợ {amount}',
     'customer.spoken': 'Bạn nói: {name}',
     'stepper.remove': 'Xóa món',
     'stepper.decrement': 'Bớt một',
@@ -88,7 +90,11 @@ export const voiceStrings: Dict = {
     // account
     'quick.title': 'Nút nói nhanh',
     'quick.bubble': 'Hiện nút nói trên màn hình',
+    'quick.bubbleHint': 'Cần quyền "Hiện trên ứng dụng khác"',
     'quick.tile': 'Thêm ô cài đặt nhanh',
+    'quick.tileLabel': 'Ô cài đặt nhanh',
+    'quick.add': 'Thêm',
+    'quick.added': 'Đã thêm',
     'quick.tileAdded': 'Đã thêm ô cài đặt nhanh',
     'quick.error': 'Chưa bật được. Thử lại.',
     'quick.overlayDenied':
@@ -100,8 +106,7 @@ export const voiceStrings: Dict = {
     'quick.explainContinue': 'Mở cài đặt',
     'quick.explainLater': 'Để sau',
     donate: 'Góp giọng nói để cải thiện',
-    'donate.hint':
-      'Chỉ lưu lựa chọn trên máy này. Chưa gửi giọng nói đi trong bản này.',
+    'donate.hint': 'Giữ lại đoạn ghi âm cho bộ mẫu',
   },
   en: {
     title: 'Sell by voice',
@@ -111,6 +116,7 @@ export const voiceStrings: Dict = {
     example: '“one bottle of chili sauce twenty thousand”',
     stop: 'Done',
     stopLabel: 'Done, understand what I said',
+    stopText: 'Done',
     seconds: '{s} s',
     countdown: '{s} seconds left',
     level: 'Sound level',
@@ -145,6 +151,7 @@ export const voiceStrings: Dict = {
     'customer.choose': 'Choose customer',
     'customer.change': 'Change',
     'customer.named': 'Customer: {name}',
+    'customer.debt': 'Owes {amount}',
     'customer.spoken': 'You said: {name}',
     'stepper.remove': 'Remove item',
     'stepper.decrement': 'One less',
@@ -183,7 +190,11 @@ export const voiceStrings: Dict = {
     chatWaiting: 'Turning your speech into text',
     'quick.title': 'Quick voice button',
     'quick.bubble': 'Show the voice button on screen',
+    'quick.bubbleHint': 'Needs the "Display over other apps" permission',
     'quick.tile': 'Add the quick settings tile',
+    'quick.tileLabel': 'Quick settings tile',
+    'quick.add': 'Add',
+    'quick.added': 'Added',
     'quick.tileAdded': 'Quick settings tile added',
     'quick.error': "Couldn't turn it on. Try again.",
     'quick.overlayDenied':
@@ -195,7 +206,6 @@ export const voiceStrings: Dict = {
     'quick.explainContinue': 'Open settings',
     'quick.explainLater': 'Not now',
     donate: 'Share my voice to improve it',
-    'donate.hint':
-      'Only saves your choice on this phone. This version does not upload any voice yet.',
+    'donate.hint': 'Keeps the recording for the sample set',
   },
 };

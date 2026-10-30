@@ -40,6 +40,8 @@ pub struct Request {
     pub entry: String,
     pub clip: AudioClip,
     pub audio_seconds: Option<f64>,
+    /// The member opted in to keep this clip for the golden set (donate=true).
+    pub donate: bool,
     /// Eval runs pin the chain to one slug (`X-Taphoa-Eval-Model`, only when eval headers are on).
     pub model_override: Option<String>,
     /// Handler start, so `latency_ms` includes reading the upload.
@@ -85,12 +87,12 @@ fn retry_last(
     ok
 }
 
-async fn speech_verdict(clip: &AudioClip) -> speech::Verdict {
+async fn speech_verdict(clip: &AudioClip, max_seconds: f64) -> speech::Verdict {
     let Some(format) = audio::detect(&clip.bytes) else {
         return speech::Verdict::Unknown;
     };
     let bytes = clip.bytes.clone();
-    tokio::task::spawn_blocking(move || speech::check(&bytes, format))
+    tokio::task::spawn_blocking(move || speech::check_within(&bytes, format, max_seconds))
         .await
         .unwrap_or(speech::Verdict::Unknown)
 }
@@ -114,6 +116,7 @@ async fn attempt<T>(
         crate::voice::model::ModelUsage,
         Option<String>,
         Option<u16>,
+        Option<String>,
     ),
 ) -> Result<T, ModelError> {
     let (kind, index, deadline) = site;
@@ -136,10 +139,12 @@ async fn attempt<T>(
         finish_reason: None,
         error: None,
         span_id: assistant::span_id(&span),
+        generation_id: None,
     };
     match &result {
         Ok(value) => {
-            let (response_model, usage, finish, status) = describe(value);
+            let (response_model, usage, finish, status, generation_id) = describe(value);
+            record.generation_id = generation_id;
             record.response_model = response_model;
             record.usage = usage;
             record.finish_reason = finish;
@@ -162,12 +167,14 @@ fn describe_parsed(
     super::model::ModelUsage,
     Option<String>,
     Option<u16>,
+    Option<String>,
 ) {
     (
         Some(p.model.clone()),
         p.usage,
         p.finish_reason.clone(),
         Some(p.http_status),
+        p.generation_id.clone(),
     )
 }
 
@@ -231,7 +238,7 @@ async fn run_chain(
         ("stt", stt_index, deadline),
         calls,
         model.transcribe(&cfg.stt_model, &req.clip, req.language),
-        |t| (Some(t.model.clone()), t.usage, None, Some(200)),
+        |t| (Some(t.model.clone()), t.usage, None, Some(200), t.generation_id.clone()),
     )
     .await
     .map_err(|error| tracing::warn!(model = %cfg.stt_model, error = %assistant::error_info(&error).0, "voice STT failed"))
@@ -249,6 +256,7 @@ async fn run_chain(
                 usage: transcript.usage,
                 finish_reason: None,
                 http_status: 200,
+                generation_id: transcript.generation_id.clone(),
             },
             stt_fallback: true,
         });
@@ -266,6 +274,7 @@ async fn run_chain(
             usage: Default::default(),
             finish_reason: None,
             http_status: 200,
+            generation_id: None,
         },
         stt_fallback: true,
     };
@@ -313,6 +322,36 @@ async fn run_chain(
         offset += 1;
     }
     None
+}
+
+/// With the member's opt-in, keep the clip for the golden set under `voice/<store>/<uuid>.<ext>`
+/// and mark the row. Best effort: a storage failure leaves the clip unkept and the row not donated.
+async fn donate_clip(state: &AppState, actor: &Actor, req: &Request, pool: &sqlx::PgPool) {
+    let Some(storage) = state.storage.as_deref().filter(|_| req.donate) else {
+        return;
+    };
+    let format = req.clip.format;
+    let key = format!("voice/{}/{}.{}", actor.store_id, req.id, format);
+    let content_type = match format {
+        "m4a" => "audio/mp4",
+        "wav" => "audio/wav",
+        _ => "audio/ogg",
+    };
+    if let Err(error) = storage
+        .put(&key, content_type, req.clip.bytes.clone())
+        .await
+    {
+        tracing::warn!(error = %error, "donated voice clip was not stored");
+        return;
+    }
+    let marked = sqlx::query("UPDATE voice_utterances SET donated=true WHERE id=$1")
+        .bind(req.id)
+        .execute(pool)
+        .await;
+    if let Err(error) = marked {
+        tracing::warn!(error = %error, "donated voice clip was not marked");
+        let _ = storage.delete(&key).await;
+    }
 }
 
 pub async fn create(
@@ -368,7 +407,16 @@ async fn process(
     let voice = &state.voice;
     // Speech gate: silence or steady noise never reaches a model (it would invent a sale from
     // the catalog hint). The unit stays spent; there is no model cost.
-    if speech_verdict(&req.clip).await == speech::Verdict::Silent {
+    let max_seconds = f64::from(voice.config.max_seconds) + super::DURATION_SLACK_SECONDS;
+    let verdict = speech_verdict(&req.clip, max_seconds).await;
+    if verdict == speech::Verdict::TooLong {
+        // The header said the clip was short; the decoded audio is not. The unit stays spent.
+        return Err(ApiError::bad_request(
+            "audio_too_long",
+            "audio is longer than the allowed duration",
+        ));
+    }
+    if verdict == speech::Verdict::Silent {
         telemetry::utterance_finished(
             span,
             req.audio_seconds,
@@ -458,6 +506,7 @@ async fn process(
     .fetch_one(pool)
     .await
     .map_err(db)?;
+    donate_clip(state, actor, req, pool).await;
     finish(parse.intent.as_str(), counts, Some(&answered));
     if draft_out.is_some() {
         telemetry::drafted(state, actor, &trace, counts, latency_ms, stt_fallback);

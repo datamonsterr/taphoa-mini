@@ -81,6 +81,9 @@ const BubbleRow = memo(function BubbleRow() {
         <Icon icon={Mic} color={colors.inkMuted} />
         <View style={styles.grow}>
           <ScaledText variant="label">{t('quick.bubble')}</ScaledText>
+          <ScaledText variant="caption" style={styles.hint}>
+            {t('quick.bubbleHint')}
+          </ScaledText>
           {failed ? (
             <ScaledText
               variant="caption"
@@ -120,7 +123,7 @@ const BubbleRow = memo(function BubbleRow() {
         </View>
         <Switch
           testID="voice-bubble-switch"
-          value={on || explaining}
+          value={on}
           onValueChange={toggle}
           accessibilityLabel={t('quick.bubble')}
         />
@@ -183,21 +186,10 @@ const TileRow = memo(function TileRow() {
     );
   }, []);
   return (
-    <PressableScale
-      testID="voice-tile-row"
-      accessibilityRole="button"
-      accessibilityLabel={t('quick.tile')}
-      accessibilityState={{ disabled: added }}
-      disabled={added}
-      pressedScale={0.98}
-      onPress={press}
-      style={[styles.row, styles.rowRight16]}
-    >
+    <View testID="voice-tile-row" style={[styles.row, styles.rowRight12]}>
       <Icon icon={LayoutGrid} color={colors.inkMuted} />
       <View style={styles.grow}>
-        <ScaledText variant="label">
-          {added ? t('quick.tileAdded') : t('quick.tile')}
-        </ScaledText>
+        <ScaledText variant="label">{t('quick.tileLabel')}</ScaledText>
         {failed ? (
           <ScaledText
             variant="caption"
@@ -208,7 +200,20 @@ const TileRow = memo(function TileRow() {
           </ScaledText>
         ) : null}
       </View>
-    </PressableScale>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={added ? t('quick.tileAdded') : t('quick.tile')}
+        accessibilityState={{ disabled: added }}
+        disabled={added}
+        pressedScale={0.97}
+        onPress={press}
+        style={styles.pill}
+      >
+        <ScaledText variant="label">
+          {added ? t('quick.added') : t('quick.add')}
+        </ScaledText>
+      </PressableScale>
+    </View>
   );
 });
 
@@ -302,4 +307,12 @@ const styles = StyleSheet.create({
   hint: { color: colors.inkMuted },
   error: { color: colors.danger },
   retry: { minHeight: 48, justifyContent: 'center' },
+  pill: {
+    minHeight: 48,
+    paddingHorizontal: space[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+  },
 });
