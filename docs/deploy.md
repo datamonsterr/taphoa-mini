@@ -35,6 +35,38 @@ railway config apply   # review the plan first; never add --confirm-destructive 
 
 `railway config plan --detailed-exit-code` exits 2 when Railway has drifted from the file.
 
+### Variable drift check in the deploy workflow
+
+The "Deploy backend" workflow does not apply `.railway/railway.ts`. It only sets
+`SERVICE_VERSION` and deploys the image, so a changed managed variable never reaches Railway
+by itself (this is how `DECISIONS_MODEL` went stale, issue #278). Instead it checks drift and
+fails when Railway differs:
+
+- The `test` job runs `python3 -I scripts/ci/railway_drift.py test` before the deploy, and the
+  `production` job runs `railway_drift.py production` before its deploy.
+- The script runs `railway config plan --detailed-exit-code` (read-only) and keeps only the
+  `backend` variable lines. It prints variable names and `set` / `change` / `delete`, never
+  values: the plan is redacted, `--show-values` is never passed, and the raw plan is not logged,
+  so `preserve()`d database and API secrets cannot leak. If the plan itself errors (token,
+  CLI), the job fails rather than passing blind.
+- Apply is not automated because `railway config apply` is project-wide, not scoped to backend
+  variables. The plan also lists volume regions, `source.*`, `restartPolicyType` and buckets
+  (for example `- Delete bucket images`) that must not be applied blindly. The check ignores
+  those lines; reconcile them separately.
+
+When the check turns the deploy red, a human fixes it, then re-runs the workflow:
+
+1. Locally, `railway link`, then `railway config plan --environment <env>` and read the
+   `backend` variable lines.
+2. Either edit `.railway/railway.ts` to match Railway (use `preserve()` for per-environment
+   values and secrets), or set the variable, for example
+   `railway variable set --service backend --environment <env> NAME=value`.
+3. Run `python3 -I scripts/ci/railway_drift.py <env>` locally; it must print "match".
+
+Do not run `railway config apply` for this: it would also apply the non-variable plan lines.
+The `railway/iac` SDK finds the CLI through `$_`, so always run the script through `python3`
+as above (the script sets `_` itself).
+
 ## One-time project bootstrap (already done)
 
 ```sh

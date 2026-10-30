@@ -86,6 +86,15 @@ jobs:
       - name: Install Railway CLI
         if: steps.railway.outputs.configured == 'true'
         run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+      - name: Check Railway test variable drift
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        # Read-only `railway config plan`; fails with variable names (never values) when the
+        # backend variables differ from .railway/railway.ts. A human applies them (docs/deploy.md).
+        run: |
+          bash scripts/ci/install-railway-sdk.sh
+          python3 -I scripts/ci/railway_drift.py test
       - name: Deploy to Railway test
         if: steps.railway.outputs.configured == 'true'
         env:
@@ -187,6 +196,13 @@ jobs:
       - name: Install Railway CLI
         if: steps.railway.outputs.configured == 'true'
         run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+      - name: Check Railway production variable drift
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          bash scripts/ci/install-railway-sdk.sh
+          python3 -I scripts/ci/railway_drift.py production
       - name: Deploy the tested backend revision
         if: steps.railway.outputs.configured == 'true'
         env:

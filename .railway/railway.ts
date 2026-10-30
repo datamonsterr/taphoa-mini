@@ -76,9 +76,10 @@ export default defineRailway((ctx) => {
       RUST_LOG: 'info',
       LOG_FORMAT: 'json',
       // Four decoder sessions measured fastest on 8 vCPU (docs/specs/recognition-latency.md).
-      SAM_DECODERS: '4',
-      // OCR paths are inherited from the Dockerfile; cap intra-op workers.
-      OCR_THREADS: '4',
+      // Production sets it; `test` leaves it unset (the recognizer's automatic default).
+      SAM_DECODERS: preserve(),
+      // OCR paths are inherited from the Dockerfile; the backend defaults intra-op workers to 4.
+      OCR_THREADS: preserve(),
       // Telemetry credentials and routing are managed in Railway in both environments.
       POSTHOG_PROJECT_TOKEN: preserve(),
       POSTHOG_HOST: preserve(),
@@ -107,8 +108,8 @@ export default defineRailway((ctx) => {
       ASSISTANT_FEEDBACK_QUESTION_ID: preserve(),
       // Optional per-environment survey comment question.
       ASSISTANT_FEEDBACK_COMMENT_QUESTION_ID: preserve(),
-      // Voice always uses OpenRouter on Railway; never deploy the scripted provider.
-      VOICE_MODEL_PROVIDER: 'openrouter',
+      // Unset means openrouter; the backend refuses `scripted` unless VOICE_ALLOW_SCRIPTED=1.
+      VOICE_MODEL_PROVIDER: preserve(),
       // Per-environment audio-native model order (default google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite).
       VOICE_MODELS: preserve(),
       // Text-only parse models used after the STT fallback.
@@ -135,6 +136,7 @@ export default defineRailway((ctx) => {
       // Set only on the test environment (high limits for e2e); preserved, never managed here.
       RATE_LIMIT_STORE_CREATE_PER_HOUR: preserve(),
       RATE_LIMIT_JOIN_PER_HOUR: preserve(),
+      RATE_LIMIT_RECOVER_PER_10MIN: preserve(),
       S3_CREATE_BUCKET: 'false',
       IMAGE_URL_TTL_SECONDS: '900',
     },
