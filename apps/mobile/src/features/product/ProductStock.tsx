@@ -1,7 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 
 import { Text, PressableScale } from '@/components/ui';
-import { StockBadge } from '@/components/ui/StockBadge';
 import { useStore } from '@/lib/api/hooks';
 import type { Product } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
@@ -25,25 +24,27 @@ export function ProductStock({
     product.low_stock_threshold ?? store.data?.low_stock_threshold;
   return (
     <View style={styles.card}>
-      <Text style={styles.heading}>{t('stock')}</Text>
+      <Text accessibilityRole="header" style={styles.heading}>
+        {t('stock')}
+      </Text>
       {product.stock_quantity === null ? (
-        <Text>{t('untracked')}</Text>
-      ) : (
-        <StockBadge
-          quantity={product.stock_quantity}
-          status={product.stock_status}
-        />
-      )}
+        <Text style={styles.body}>{t('untracked')}</Text>
+      ) : null}
       {threshold !== undefined ? (
-        <Text>{fill(t('threshold'), { n: threshold })}</Text>
+        <Text style={styles.body}>
+          {fill(t('threshold'), { n: threshold })}
+        </Text>
       ) : null}
       {store.isError && product.low_stock_threshold === null ? (
-        <Text accessibilityRole="alert">{t('thresholdError')}</Text>
+        <Text accessibilityRole="alert" style={styles.error}>
+          {t('thresholdError')}
+        </Text>
       ) : null}
       {isLead ? (
         <ProductThreshold
           key={`${product.id}:${product.low_stock_threshold}`}
           product={product}
+          defaultThreshold={store.data?.low_stock_threshold}
         />
       ) : null}
       {isLead ? (
@@ -66,7 +67,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceSoft,
   },
-  heading: { ...typography.label, color: colors.ink },
+  heading: { ...typography.heading, color: colors.ink },
+  body: { ...typography.body, color: colors.ink },
+  error: { ...typography.body, color: colors.danger },
   button: {
     minHeight: 56,
     paddingHorizontal: space[4],

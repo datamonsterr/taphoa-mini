@@ -1565,13 +1565,14 @@ paths:
       operationId: listStock
       summary: Tracked stock quantities and status
       description: |
-        Sorted by status (out, low, ok), then name. `all` excludes untracked products.
+        Sorted by status (out, low, ok), then name. `all` excludes untracked products. `low`
+        includes out of stock; `ok` is the products above their threshold.
         Threshold is the effective product override or store default. Quantities are in base units.
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: status
           in: query
-          schema: { type: string, enum: [all, low, out], default: all }
+          schema: { type: string, enum: [all, low, out, ok], default: all }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:

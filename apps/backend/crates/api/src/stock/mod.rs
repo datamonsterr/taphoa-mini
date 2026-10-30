@@ -249,12 +249,12 @@ async fn list(
 ) -> ApiResult<Json<Page<Value>>> {
     let filters = filters.map_err(ApiError::from)?.0;
     let status = filters.status.as_deref().unwrap_or("all");
-    if !matches!(status, "all" | "low" | "out") {
+    if !matches!(status, "all" | "low" | "out" | "ok") {
         return Err(ApiError::validation_failed("invalid stock status"));
     }
     let cursor: Option<(i32, String, Uuid)> =
         page.cursor.as_deref().map(decode_cursor).transpose()?;
-    let mut rows:Vec<StockRow>=sqlx::query_as("WITH stock AS (SELECT p.id product_id,p.name,p.stock_quantity,coalesce(p.low_stock_threshold,s.low_stock_threshold) low_stock_threshold,p.updated_at,coalesce(p.name,'') sort_name,CASE WHEN p.stock_quantity<=0 THEN 0 WHEN p.stock_quantity<=coalesce(p.low_stock_threshold,s.low_stock_threshold) THEN 1 ELSE 2 END rank,(SELECT i.object_key FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=p.store_id WHERE pi.product_id=p.id ORDER BY pi.position,pi.image_id LIMIT 1) image_key FROM products p JOIN stores s ON s.id=p.store_id WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL) SELECT * FROM stock WHERE ($2='all' OR ($2='low' AND stock_quantity<=low_stock_threshold) OR ($2='out' AND stock_quantity<=0)) AND ($3::int IS NULL OR (rank,sort_name,product_id)>($3,$4,$5)) ORDER BY rank,sort_name,product_id LIMIT $6").bind(actor.store_id).bind(status).bind(cursor.as_ref().map(|c|c.0)).bind(cursor.as_ref().map(|c|c.1.as_str())).bind(cursor.as_ref().map(|c|c.2)).bind(i64::from(page.limit)+1).fetch_all(pool(&state)?).await?;
+    let mut rows:Vec<StockRow>=sqlx::query_as("WITH stock AS (SELECT p.id product_id,p.name,p.stock_quantity,coalesce(p.low_stock_threshold,s.low_stock_threshold) low_stock_threshold,p.updated_at,coalesce(p.name,'') sort_name,CASE WHEN p.stock_quantity<=0 THEN 0 WHEN p.stock_quantity<=coalesce(p.low_stock_threshold,s.low_stock_threshold) THEN 1 ELSE 2 END rank,(SELECT i.object_key FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=p.store_id WHERE pi.product_id=p.id ORDER BY pi.position,pi.image_id LIMIT 1) image_key FROM products p JOIN stores s ON s.id=p.store_id WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL) SELECT * FROM stock WHERE ($2='all' OR ($2='low' AND stock_quantity<=low_stock_threshold) OR ($2='out' AND stock_quantity<=0) OR ($2='ok' AND stock_quantity>low_stock_threshold)) AND ($3::int IS NULL OR (rank,sort_name,product_id)>($3,$4,$5)) ORDER BY rank,sort_name,product_id LIMIT $6").bind(actor.store_id).bind(status).bind(cursor.as_ref().map(|c|c.0)).bind(cursor.as_ref().map(|c|c.1.as_str())).bind(cursor.as_ref().map(|c|c.2)).bind(i64::from(page.limit)+1).fetch_all(pool(&state)?).await?;
     let next_cursor = if rows.len() > page.limit as usize {
         rows.pop();
         rows.last()

@@ -318,6 +318,32 @@ test('products segment is selected and stock segment opens the stock route', asy
   expect(screen.getByLabelText('Tồn kho 20, Còn hàng')).toBeOnTheScreen();
 });
 
+test('board 08: the Sản phẩm / Tồn kho segment is a compact pill on the left', async () => {
+  await renderWithProviders(<InventoryScreen />);
+  await screen.findByRole('button', { name: COCA });
+  const segment = Object.assign(
+    {},
+    ...[screen.getByRole('radio', { name: 'Sản phẩm' }).parent!.props.style]
+      .flat(5)
+      .filter(Boolean),
+  );
+  expect(segment).toMatchObject({ alignSelf: 'flex-start' });
+});
+
+test("board 08: the stock chip is the count alone, at the photo's top left", async () => {
+  await renderWithProviders(<InventoryScreen />);
+  await screen.findByRole('button', { name: COCA });
+  const chip = screen.getByLabelText('Tồn kho 20, Còn hàng');
+  expect(chip).toHaveTextContent('20');
+  expect(within(chip).queryByText('Còn hàng')).toBeNull();
+  const place = Object.assign(
+    {},
+    ...[chip.parent!.props.style].flat(5).filter(Boolean),
+  );
+  expect(place).toMatchObject({ position: 'absolute', top: 10, left: 10 });
+  expect(place.right).toBeUndefined();
+});
+
 test('offline with nothing cached says so with a retry instead of a skeleton (#246)', async () => {
   await renderOffline(<InventoryScreen />);
   expect(await screen.findByTestId('inventory-offline')).toBeOnTheScreen();

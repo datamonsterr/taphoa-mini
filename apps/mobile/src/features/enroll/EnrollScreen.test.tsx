@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories require lazily */
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react-native';
 import * as Haptics from 'expo-haptics';
 
 import { ApiError, listProducts } from '@/lib/api';
@@ -292,6 +298,34 @@ describe('EnrollScreen save', () => {
         code: 'duplicate_suspected',
         details: { candidates: [LOOKALIKE] },
       });
+
+    it('replaces the keypad with the prompt instead of covering its rows (board 05)', async () => {
+      jest
+        .spyOn(productsApi, 'createProduct')
+        .mockRejectedValueOnce(duplicate());
+      await renderWithProviders(<EnrollScreen />);
+      await typePrice('9', '000');
+      expect(screen.getByTestId('keypad')).toBeOnTheScreen();
+      await fireEvent.press(save());
+      await screen.findByRole('alert');
+      expect(screen.queryByTestId('keypad')).toBeNull();
+      const slot = screen.getByTestId('keypad-replacement');
+      expect(slot).toBeOnTheScreen();
+      expect(
+        within(slot).getByRole('button', { name: 'Vẫn tạo món mới' }),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText('Giá bán')).toHaveTextContent('9.000đ');
+      // the footer holds only the save button: nothing grows over the sheet
+      expect(
+        within(screen.getByTestId('sheet-footer')).queryByText(/Gộp ảnh/),
+      ).toBeNull();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Vẫn tạo món mới' }),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('keypad')).toBeOnTheScreen(),
+      );
+    });
 
     it('offers to merge the photos into the look-alike and adds it to the cart', async () => {
       jest
