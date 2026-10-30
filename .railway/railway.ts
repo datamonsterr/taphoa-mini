@@ -1,6 +1,7 @@
 import {
   bucket,
   defineRailway,
+  github,
   image,
   preserve,
   project,
@@ -19,7 +20,9 @@ export default defineRailway((ctx) => {
   const redisVolume = volume('redis-volume', {
     alerts: { usage: { '100': {}, '80': {}, '95': {} } },
     allowOnlineResize: true,
-    region: 'sin',
+    // Live volumes are in San Francisco (sfo) in both environments. Declaring another region
+    // would plan a volume move; keep this equal to `railway config pull`.
+    region: 'sfo',
     sizeMB: 5000,
   });
 
@@ -27,7 +30,9 @@ export default defineRailway((ctx) => {
   const postgresVolume = volume('postgres-volume', {
     alerts: { usage: { '100': {}, '80': {}, '95': {} } },
     allowOnlineResize: true,
-    region: 'sin',
+    // Live volumes are in San Francisco (sfo) in both environments. Declaring another region
+    // would plan a volume move; keep this equal to `railway config pull`.
+    region: 'sfo',
     sizeMB: 5000,
   });
   const Postgres = service('Postgres', {
@@ -62,7 +67,19 @@ export default defineRailway((ctx) => {
     replicas: { sin: 1 },
     healthcheck: '/healthz',
     healthcheckTimeout: 300,
-    deploy: { restartPolicyType: 'ON_FAILURE', restartPolicyMaxRetries: 5 },
+    // Railway's default restart policy is on failure; live leaves the type unset, so only the
+    // retry cap is declared (declaring `ON_FAILURE` plans a no-op change).
+    deploy: { restartPolicyMaxRetries: 5 },
+    // Only production deploys from GitHub; `test` deploys with `railway up` and has no source.
+    // Declaring it keeps a full plan from clearing the repo link.
+    ...(ctx.isEnvironment('production')
+      ? {
+          source: github('datamonsterr/taphoa-mini', {
+            branch: 'main',
+            checkSuites: true,
+          }),
+        }
+      : {}),
     env: {
       DATABASE_URL: Postgres.env.DATABASE_URL,
       REDIS_URL: Redis.env.REDIS_URL,
@@ -142,12 +159,21 @@ export default defineRailway((ctx) => {
     },
   });
 
-  // Private S3-compatible bucket for product and checkout photos (ADR 0002).
-  // Production runs in Singapore (sin), close to shops in Vietnam; the image bucket sits in the
-  // same region so original-photo uploads stay off the scan's critical path. IaC has no
-  // per-environment buckets, so the `test` environment keeps its own `images-sjc` bucket outside
-  // this file; plan `test` with care.
-  const images = bucket('images-sin', { region: 'sin' });
+  // Private S3-compatible buckets for product and checkout photos (ADR 0002). Railway deletes any
+  // bucket the file does not declare, so every live bucket is declared per environment, matching
+  // `railway config pull`. Never remove one here without migrating its objects first.
+  //   production: `images-prod` (sjc, the live image store) and `images-sin` (sin).
+  //   test:       `images` (sin) and `images-sjc` (sjc).
+  // Which bucket the backend uses is set by AWS_S3_BUCKET_NAME (preserved above).
+  const buckets = ctx.isEnvironment('production')
+    ? [
+        bucket('images-prod', { region: 'sjc' }),
+        bucket('images-sin', { region: 'sin' }),
+      ]
+    : [
+        bucket('images', { region: 'sin' }),
+        bucket('images-sjc', { region: 'sjc' }),
+      ];
 
   const resources = [
     Redis,
@@ -155,7 +181,7 @@ export default defineRailway((ctx) => {
     backend,
     redisVolume,
     postgresVolume,
-    images,
+    ...buckets,
   ];
 
   // One shared telemetry collector: test exports through the production collector's public domain.
