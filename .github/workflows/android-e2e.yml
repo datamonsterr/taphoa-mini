@@ -242,7 +242,7 @@ jobs:
           # day-close prompt cannot appear mid-flow.
           clock="$(scripts/e2e/pin-clock.sh "${CLOCK_PIN:-10:00}")"
           echo "$clock" | tee -a "$GITHUB_ENV"
-          while IFS= read -r line; do export "$line"; done <<<"$clock"
+          while IFS= read -r line; do export "${line?}"; done <<<"$clock"
           scripts/e2e/stack.sh up
 
       - name: Install Maestro CLI
