@@ -24,6 +24,11 @@ on:
       - '!**/*.md'
       - '!apps/mobile/e2e-web/**'
   workflow_dispatch:
+    inputs:
+      clock_pin:
+        description: Business time HH:MM (Asia/Ho_Chi_Minh) both clocks start at, default 10:00; use 23:58 to prove a shard survives midnight
+        required: false
+        default: '10:00'
 
 permissions:
   contents: read
@@ -224,14 +229,21 @@ jobs:
         env:
           BACKEND_BIN: ${{ github.workspace }}/ci-bin/taphoa-api
           E2E_PUBLIC_HOST: 10.0.2.2
-          # Start at 10:00 on today's store date to match the emulator; time then advances.
-          TAPHOA_TEST_NOW: '10:00'
+          CLOCK_PIN: ${{ inputs.clock_pin }}
           # Request lines (method, path, status) so a failed save in a flow shows in the log.
           RUST_LOG: info,tower_http=debug
           # The backend verifies the app's Clerk session JWTs (issuer from the publishable key).
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-        run: scripts/e2e/stack.sh up
+        run: |
+          # One clock for backend and emulator: the backend pins to this store-time instant and
+          # e2e-android.sh moves the emulator by the same offset, so a shard that crosses 00:00
+          # ICT (17:00 UTC) never splits "today" between them. The default pin is before 20:00 so the
+          # day-close prompt cannot appear mid-flow.
+          clock="$(scripts/e2e/pin-clock.sh "${CLOCK_PIN:-10:00}")"
+          echo "$clock" | tee -a "$GITHUB_ENV"
+          export $clock
+          scripts/e2e/stack.sh up
 
       - name: Install Maestro CLI
         run: |

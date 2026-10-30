@@ -15,6 +15,25 @@ apk="$(realpath "$apk")"
 app_id=com.datamonsterr.taphoamini
 cd "$(dirname "$0")/.."
 
+# Move the emulator onto the backend pinned business clock (scripts/e2e/pin-clock.sh), so both
+# agree on today even when the run crosses 00:00 Asia/Ho_Chi_Minh. Needs root, which the
+# google_apis image allows; fail loudly, since a silent mismatch reappears as a midnight flake.
+if [ -n "${E2E_CLOCK_OFFSET_SECS:-}" ]; then
+  adb root
+  adb wait-for-device
+  adb shell settings put global auto_time 0
+  adb shell settings put global auto_time_zone 0
+  target=$(($(date +%s) + E2E_CLOCK_OFFSET_SECS))
+  adb shell "date -u $(date -u -d "@$target" +%m%d%H%M%Y.%S)" >/dev/null
+  actual="$(adb shell date +%s | tr -d '\r')"
+  drift=$((actual - target))
+  echo "emulator clock: target=$target actual=$actual drift=${drift}s"
+  if [ "${drift#-}" -gt 60 ]; then
+    echo "could not set the emulator clock" >&2
+    exit 1
+  fi
+fi
+
 adb install -r "$apk"
 adb shell pm grant "$app_id" android.permission.CAMERA
 # The Pixel Launcher keeps hitting ANRs on the CI emulator and its system dialog covers the
