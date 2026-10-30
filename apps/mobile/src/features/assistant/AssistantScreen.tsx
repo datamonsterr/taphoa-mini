@@ -10,7 +10,6 @@ import {
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -219,8 +218,11 @@ export function AssistantScreen() {
         onPress={() => router.back()}
         style={styles.scrim}
       />
+      {/* Android is always edge-to-edge (target SDK 35+), so `adjustResize` no longer shrinks the
+          window: without `padding` the keyboard covers the composer. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        testID="assistant-keyboard-avoid"
+        behavior="padding"
         pointerEvents="box-none"
         style={styles.avoid}
       >

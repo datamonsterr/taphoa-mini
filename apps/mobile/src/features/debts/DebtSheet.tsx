@@ -1,6 +1,6 @@
 import { X } from 'lucide-react-native';
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
 
 import { CircleButton, Sheet, Text } from '@/components/ui';
 import { useT } from '@/lib/i18n';
@@ -23,7 +23,7 @@ export function DebtSheet({
   const t = useT(debtStrings);
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       pointerEvents="box-none"
       style={StyleSheet.absoluteFill}
     >

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   StyleSheet,
   TextInput,
   View,
@@ -59,7 +58,7 @@ export function AdjustStockSheet({
   ];
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       pointerEvents="box-none"
       style={StyleSheet.absoluteFill}
     >

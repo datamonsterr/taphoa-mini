@@ -33,18 +33,31 @@ appId: com.datamonsterr.taphoamini
       - assertVisible: 'Giữ để nói'
       - takeScreenshot: assistant-01-open
       # a scripted exchange: anything else gets the fixed greeting
+      # Keyboard regression: the composer must sit above the soft keyboard. Check the input and
+      # Send while the keyboard is open, then tap Send: a covered button would take the tap on the
+      # keyboard instead. Enter alone sends blind and closes the keyboard, so it hid this bug.
       - tapOn:
           id: 'assistant-input'
-      # Enter sends via onSubmitEditing (multiline uses blurAndSubmit). Android Back can
-      # close the chat, and the keyboard covers the send button.
       - inputText: 'Xin chào'
-      - pressKey: Enter
+      - assertVisible:
+          id: 'assistant-input'
+          text: 'Xin chào'
+      - assertVisible:
+          id: 'assistant-send'
+          enabled: true
+      - takeScreenshot: assistant-02-keyboard
+      - tapOn:
+          id: 'assistant-send'
       - assertVisible:
           id: 'assistant-screen'
       - extendedWaitUntil:
+          visible:
+            id: 'user-message'
+          timeout: 20000
+      - extendedWaitUntil:
           visible: 'Xin chào! Mình là trợ lý của cửa hàng.'
           timeout: 60000
-      - takeScreenshot: assistant-02-reply
+      - takeScreenshot: assistant-03-reply
       # a proposal, when the scripted model makes one (it needs a tracked product): confirm it.
       # A new chat, so the thumbs below belong to this turn's reply only.
       - tapOn:
@@ -69,7 +82,7 @@ appId: com.datamonsterr.taphoamini
             - extendedWaitUntil:
                 visible: 'Đã thực hiện'
                 timeout: 30000
-            - takeScreenshot: assistant-03-confirmed
+            - takeScreenshot: assistant-04-confirmed
       - tapOn:
           id: 'assistant-close'
       - extendedWaitUntil:
@@ -93,4 +106,4 @@ appId: com.datamonsterr.taphoamini
                 visible:
                   id: 'feedback-up'
                 timeout: 60000
-            - takeScreenshot: assistant-04-chip
+            - takeScreenshot: assistant-05-chip

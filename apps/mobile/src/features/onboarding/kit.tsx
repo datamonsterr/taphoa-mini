@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -64,7 +63,7 @@ export function Frame({
   return (
     <KeyboardAvoidingView
       testID={testID}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       style={styles.screen}
     >
       <ScrollView
