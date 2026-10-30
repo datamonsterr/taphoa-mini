@@ -238,6 +238,32 @@ test('zero unit price warns but remains a valid stock import', async () => {
   expect(confirm.mock.calls[0][1].lines[0].cost).toBe(0);
 });
 
+test('a receipt whose total is 0đ cannot be confirmed and says what to do', async () => {
+  const confirm = jest.spyOn(receipts, 'confirmReceipt');
+  await open();
+  await dropUnmatched();
+  for (const name of [
+    'Coca-Cola lon 330ml',
+    'Mì Hảo Hảo tôm chua cay',
+    'Nước suối Aquafina 500ml',
+  ])
+    await setPrice(name, '0');
+  await reviewSummary();
+  expect(button('Xác nhận nhập kho')).toBeDisabled();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Tổng tiền đang là 0đ. Chạm vào giá nhập của từng dòng và nhập số tiền thật trước khi xác nhận.',
+  );
+  expect(confirm).not.toHaveBeenCalled();
+});
+
+test('a receipt read by the rule fallback warns that names may not match', async () => {
+  getMockDb().receipts[0].parser = 'fallback';
+  await open();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    /^Chưa dùng được gợi ý thông minh cho hóa đơn này/,
+  );
+});
+
 test('adding lines respects the confirmation API limit of 100', async () => {
   const original = getMockDb().receipts[0].lines[0];
   getMockDb().receipts[0].lines = Array.from({ length: 100 }, (_, index) => ({

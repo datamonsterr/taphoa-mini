@@ -77,8 +77,7 @@ impl DecisionsConfig {
             .ok_or(DecisionError::Config(
                 "DECISIONS_TIMEOUT_MS must be a positive integer",
             ))?;
-        let model =
-            get("DECISIONS_MODEL").unwrap_or_else(|| "inception/mercury-decide:free".into());
+        let model = get("DECISIONS_MODEL").unwrap_or_else(|| "inception/mercury-decide".into());
         if model.trim().is_empty() {
             return Err(DecisionError::Config("DECISIONS_MODEL"));
         }
@@ -261,7 +260,7 @@ mod tests {
         })
         .unwrap()
         .unwrap();
-        assert_eq!(default.model, "inception/mercury-decide:free");
+        assert_eq!(default.model, "inception/mercury-decide");
         assert_eq!(default.url, "https://openrouter.ai/api/alpha/decisions");
         assert_eq!(default.timeout, Duration::from_millis(2500));
         for timeout in ["0", "bad", "-1"] {

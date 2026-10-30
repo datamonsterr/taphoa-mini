@@ -88,7 +88,7 @@ export default defineRailway((ctx) => {
       SERVICE_VERSION: preserve(),
       OPENROUTER_API_KEY: preserve(),
       EXPO_ACCESS_TOKEN: preserve(),
-      DECISIONS_MODEL: 'inception/mercury-decide:free',
+      DECISIONS_MODEL: 'inception/mercury-decide',
       // Railway always uses real models; never deploy the scripted provider.
       ASSISTANT_MODEL_PROVIDER: 'openrouter',
       // Per-environment free-model order, updated by X7 comparisons.

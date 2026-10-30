@@ -2173,7 +2173,7 @@ export interface components {
             parser: "decisions" | "fallback";
             /**
              * @description Decision model ID, or null when unused.
-             * @example inception/mercury-decide:free
+             * @example inception/mercury-decide
              */
             model: string | null;
             lines: components["schemas"]["ReceiptLine"][];
@@ -2248,7 +2248,8 @@ export interface components {
             /** Format: uuid */
             unit_id?: string | null;
             old_value?: components["schemas"]["Money"] | null;
-            new_value: components["schemas"]["Money"];
+            /** @description Null only when a cost price was cleared. */
+            new_value: components["schemas"]["Money"] | null;
             /** Format: uuid */
             changed_by: string;
             /** Format: date-time */
