@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { onlineManager } from '@tanstack/react-query';
 import { router } from 'expo-router';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useOutboxStore, type OutboxItem } from '@/lib/outbox';
@@ -90,4 +91,16 @@ test('a 5xx retry says the server failed, not that the network is down', async (
   await view();
   expect(screen.getByText(/Máy chủ đang lỗi/)).toBeOnTheScreen();
   expect(screen.queryByText(/chờ gửi khi có mạng/)).toBeNull();
+});
+
+test('the cards start under the photo/grid toggle, never over it', async () => {
+  await view();
+  await act(async () => onlineManager.setOnline(false));
+  const card = screen.getByRole('button', { name: /Mở Kho để bán/ });
+  let wrap = card.parent;
+  while (wrap && StyleSheet.flatten(wrap.props.style)?.top === undefined)
+    wrap = wrap.parent;
+  const { top } = StyleSheet.flatten(wrap!.props.style);
+  // Board: the toggle ends 76 below the top inset.
+  expect(top).toBeGreaterThanOrEqual(76);
 });

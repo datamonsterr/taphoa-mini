@@ -2,14 +2,20 @@ import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
 import { Camera, Pencil, X } from 'lucide-react-native';
 import { memo, useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import {
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   CheckButton,
   CircleButton,
   Icon,
   Keypad,
-  useKeypadDiameter,
   PressableScale,
   Sheet,
   applyKey,
@@ -27,6 +33,29 @@ const MAX_DIGITS = 9;
 // on a 411x914 dp screen; at 740 the 000 row sat below the scrolled fold and nothing could tap it.
 export const ENROLL_SHEET_HEIGHT = 840;
 export const QUICK_ENROLL_SHEET_HEIGHT = 880;
+/** Height of everything in the sheet except the keypad keys (header, fields, price, footer, gaps). */
+const FORM_OVERHEAD = 450;
+const TITLE_OVERHEAD = 40;
+/** Row gap of the keypad (space[3]) times its three gaps. */
+const KEY_GAPS = 36;
+const MIN_KEY = 48;
+const BOARD_KEY = 76;
+const SHEET_TOP_GAP = 8;
+
+/**
+ * Key diameter that fits all four keypad rows (1-9, 000, 0, delete) in a sheet of this height, so
+ * the last row never scrolls below the fold on a short phone. Board size when there is room.
+ */
+export function enrollKeyDiameter(
+  sheetHeight: number,
+  bottomInset: number,
+  titled: boolean,
+) {
+  const overhead =
+    FORM_OVERHEAD + (titled ? TITLE_OVERHEAD : 0) + bottomInset + KEY_GAPS;
+  const fit = Math.floor((sheetHeight - overhead) / 4);
+  return Math.min(BOARD_KEY, Math.max(MIN_KEY, fit));
+}
 export type ProductValues = { name: string; price: number; barcode?: string };
 export type ProductPhoto = { id: string; uri: string };
 type Props = {
@@ -99,7 +128,14 @@ export function ProductForm({
   const [digits, setDigits] = useState(() =>
     String(Math.min(Number(initialPrice) || 0, 10 ** MAX_DIGITS - 1) || ''),
   );
-  const keyDiameter = useKeypadDiameter(76);
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Same clamp as `Sheet`: the preferred height never passes the window below the top inset.
+  const sheetHeight = Math.min(
+    title ? QUICK_ENROLL_SHEET_HEIGHT : ENROLL_SHEET_HEIGHT,
+    Math.max(0, windowHeight - insets.top - SHEET_TOP_GAP),
+  );
+  const keyDiameter = enrollKeyDiameter(sheetHeight, insets.bottom, !!title);
   const price = Number(digits || '0');
   const canSave =
     price > 0 &&
@@ -109,7 +145,7 @@ export function ProductForm({
     (!barcode || validBarcode(barcode));
   return (
     <Sheet
-      height={title ? QUICK_ENROLL_SHEET_HEIGHT : ENROLL_SHEET_HEIGHT}
+      height={sheetHeight}
       onClose={onClose}
       testID={testID}
       footer={

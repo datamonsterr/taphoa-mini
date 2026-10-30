@@ -94,9 +94,7 @@ describe('camera -> cart', () => {
     const scan = await create.mock.results[0]!.value;
     const alt = scan.detections[0].candidates[1];
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
+    // the strip is open under the viewfinder after a single-item scan
     await fireEvent.press(screen.getAllByRole('radio')[1]!);
     await fireEvent.press(screen.getByRole('button', { name: 'Thêm vào giỏ' }));
 
@@ -224,9 +222,7 @@ describe('camera -> cart', () => {
     const scan = await create.mock.results[0]!.value;
     const [top, second] = scan.detections[0].candidates;
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
+    // the strip is open under the viewfinder after a single-item scan
     await fireEvent.press(
       screen.getByRole('radio', { name: new RegExp(second.name) }),
     );

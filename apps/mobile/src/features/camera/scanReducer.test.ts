@@ -215,3 +215,30 @@ describe('scanReducer', () => {
     );
   });
 });
+
+describe('single-item strip', () => {
+  const afterPhoto = run(toResult.slice(0, 2));
+  it('opens the strip of the first matched box when the scan asks for it', () => {
+    const next = scanReducer(afterPhoto, {
+      type: 'scanned',
+      token: 1,
+      scan: result,
+      open: true,
+    });
+    expect(next.openId).toBe('d1');
+  });
+  it('leaves it closed otherwise, and for a scan with only unknown boxes', () => {
+    expect(scanReducer(afterPhoto, toResult[2]).openId).toBeNull();
+    const unknown = scan([
+      detection('u', { match: 'unknown', candidates: [] }),
+    ]);
+    expect(
+      scanReducer(afterPhoto, {
+        type: 'scanned',
+        token: 1,
+        scan: unknown,
+        open: true,
+      }).openId,
+    ).toBeNull();
+  });
+});

@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { Alert, Linking } from 'react-native';
 import {
@@ -35,6 +36,7 @@ import {
 } from '@/test/render';
 
 import { uploadPartsAsBlobs } from './testing';
+import { SCAN_TIMEOUT_MS } from './useScanSession';
 import { CameraScreen } from './CameraScreen';
 import { useDocumentProbe } from './useDocumentProbe';
 import { useCaptureModeStore } from './modeStore';
@@ -442,12 +444,9 @@ describe('single item', () => {
     });
   });
 
-  it('the strip sits below the viewfinder; price opens and closes it', async () => {
+  it('the strip opens under the viewfinder at once (board 02); price closes and reopens it', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    expect(screen.queryByTestId('alternatives-strip')).toBeNull();
-    const price = screen.getByRole('button', { name: /xem món khác$/ });
-    await fireEvent.press(price);
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
     expect(screen.getAllByRole('radio').length).toBeGreaterThan(1);
     expect(screen.getAllByRole('radio')[0]).toBeChecked();
@@ -458,6 +457,10 @@ describe('single item', () => {
       screen.getByRole('button', { name: /xem món khác$/ }),
     );
     expect(screen.queryByTestId('alternatives-strip')).toBeNull();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /xem món khác$/ }),
+    );
+    expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
   });
 
   it('choosing a chip replaces the price and product, keeping the box selected', async () => {
@@ -465,9 +468,6 @@ describe('single item', () => {
     await capture();
     const before = screen.getByRole('button', { name: /xem món khác$/ }).props
       .accessibilityLabel as string;
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
     const second = screen.getAllByRole('radio')[1]!;
     const chosenLabel = second.props.accessibilityLabel as string;
     await fireEvent.press(second);
@@ -491,9 +491,6 @@ describe('single item', () => {
   it('+ adds the chosen product, buzzes, flies a dot and returns to the live camera', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
     const second = screen.getAllByRole('radio')[1]!;
     const label = second.props.accessibilityLabel as string;
     await fireEvent.press(second);
@@ -756,6 +753,64 @@ describe('errors', () => {
     expect(screen.queryByText('Chưa nhận diện được')).toBeNull();
   });
 
+  it('gives up on a scan nobody answers: Vietnamese message, retry, shutter free', async () => {
+    setMockScenario('match');
+    const create = jest
+      .spyOn(images, 'createScan')
+      .mockImplementationOnce(() => new Promise(() => {}));
+    await renderWithProviders(<CameraScreen />);
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(SCAN_TIMEOUT_MS - 1000);
+      });
+      expect(screen.getByTestId('scan-busy')).toBeOnTheScreen();
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1000);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(
+      screen.getByText('Mạng chậm, chưa nhận diện được. Thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByTestId('scan-busy')).toBeNull();
+    expect(shutter()).toBeEnabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Thử lại' }));
+    expect(
+      await screen.findByRole('button', { name: /đã chọn$/ }),
+    ).toBeOnTheScreen();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('offline: says so at once without sending the scan', async () => {
+    const create = jest.spyOn(images, 'createScan');
+    try {
+      await renderWithProviders(<CameraScreen />);
+      onlineManager.setOnline(false);
+      await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+      expect(
+        await screen.findByText('Không có mạng. Kiểm tra kết nối rồi thử lại.'),
+      ).toBeOnTheScreen();
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it('says there is no network when the request cannot leave the phone', async () => {
+    jest
+      .spyOn(images, 'createScan')
+      .mockRejectedValueOnce(new TypeError('Network request failed'));
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+    expect(
+      await screen.findByText('Không có mạng. Kiểm tra kết nối rồi thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Thử lại' })).toBeOnTheScreen();
+  });
+
   it('says to slow down when the scan answers 429', async () => {
     setMockScenario('match');
     jest
@@ -833,6 +888,33 @@ describe('ambiguous match', () => {
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
     await fireEvent.press(screen.getByRole('button', { name: /bỏ chọn$/ }));
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeEnabled();
+  });
+});
+
+describe('ambiguous look', () => {
+  beforeEach(() => setMockScenario('ambiguous'));
+
+  it('single mode: amber badge and ? pill, never a green check', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    expect(screen.getByTestId('confidence-badge')).toHaveStyle({
+      backgroundColor: colors.warningSoft,
+    });
+    expect(screen.getByText('?')).toBeOnTheScreen();
+    expect(screen.getByTestId('box-frame')).toHaveStyle({
+      borderStyle: 'dashed',
+      borderColor: colors.warningSoft,
+    });
+  });
+
+  it('turns solid once the seller picks the box', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await fireEvent.press(screen.getByRole('button', { name: /bỏ chọn$/ }));
+    expect(screen.getByTestId('confidence-badge')).toHaveStyle({
+      backgroundColor: colors.successSoft,
+    });
+    expect(screen.queryByText('?')).toBeNull();
   });
 });
 
@@ -1404,10 +1486,6 @@ describe('assistant entry points', () => {
   it('yields the slot to the alternatives strip and to quick enroll', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await strip();
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
     expect(screen.queryByTestId('next-step-strip')).toBeNull();
     await fireEvent.press(

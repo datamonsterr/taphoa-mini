@@ -17,6 +17,8 @@ export type Detection = {
   bbox: BBox;
   /** Top-1 below the match threshold. */
   lowMatch?: boolean;
+  /** Server verdict `ambiguous`: looks low (amber) until the seller picks a candidate. */
+  ambiguous?: boolean;
   /** Top-1 first, then look-alikes. */
   alternatives?: readonly StripItem[];
 };
@@ -39,6 +41,8 @@ type Props = {
 };
 
 const PILL_HEIGHT = 40;
+/** Keeps the pill clear of the viewfinder's bottom edge and corner marks. */
+const EDGE = 16;
 
 /** Boxes, price pills and the floating strip, positioned over the frozen photo. */
 export const DetectionOverlay = memo(function DetectionOverlay({
@@ -71,6 +75,7 @@ export const DetectionOverlay = memo(function DetectionOverlay({
         detection,
         box: boxes[index]!,
         isSelected,
+        guess: !!detection.ambiguous && !isSelected,
         number: isSelected && mode === 'many' ? ++counter : undefined,
       };
     });
@@ -85,20 +90,26 @@ export const DetectionOverlay = memo(function DetectionOverlay({
       style={[StyleSheet.absoluteFill, styles.overlay]}
       pointerEvents="box-none"
     >
-      {placed.map(({ detection, box, isSelected, number }) => (
+      {placed.map(({ detection, box, isSelected, guess, number }) => (
         <DetectionBox
           key={detection.id}
           id={detection.id}
           box={box}
           state={
-            detection.lowMatch ? 'low' : isSelected ? 'selected' : 'deselected'
+            detection.lowMatch
+              ? 'low'
+              : guess
+                ? 'guess'
+                : isSelected
+                  ? 'selected'
+                  : 'deselected'
           }
           number={number}
           name={detection.name}
           onPress={onToggle}
         />
       ))}
-      {placed.map(({ detection, box, isSelected }) => (
+      {placed.map(({ detection, box, isSelected, guess }) => (
         <View
           key={detection.id}
           pointerEvents="box-none"
@@ -106,7 +117,10 @@ export const DetectionOverlay = memo(function DetectionOverlay({
             styles.pillAnchor,
             {
               left: box.x,
-              top: box.y + box.height - PILL_HEIGHT / 2,
+              top: Math.min(
+                box.y + box.height - PILL_HEIGHT / 2,
+                viewSize.height - PILL_HEIGHT - EDGE,
+              ),
               width: box.width,
             },
           ]}
@@ -121,7 +135,7 @@ export const DetectionOverlay = memo(function DetectionOverlay({
           ) : (
             <PricePill
               id={detection.id}
-              variant={isSelected ? 'selected' : 'deselected'}
+              variant={guess ? 'guess' : isSelected ? 'selected' : 'deselected'}
               price={detection.price}
               name={detection.name}
               expanded={detection.id === openId}
