@@ -158,6 +158,25 @@ async fn repayment_and_adjustment_times_are_bounded() {
     let body = json!({"amount":500,"reason":"x","adjusted_at":"2099-01-01T00:00:00Z"});
     let (_, adjusted) = entry(&app, &w.lead, c, "adjustments", body).await;
     assert_eq!(adjusted["business_date"], today);
+    // The Lead moving a paper debt book in dates adjustments freely into the past (overdue
+    // tracking needs the real date), down to the books' floor, but not into the future.
+    for (at, want) in [
+        (Utc::now() - Duration::days(10), Some(10)),
+        (Utc::now() - Duration::days(200), Some(200)),
+        (Utc::now() - Duration::days(365 * 30), None),
+        (Utc::now() + Duration::minutes(30), None),
+    ] {
+        let body = json!({"amount":500,"reason":"x","adjusted_at":at.to_rfc3339()});
+        let (status, got) = entry(&app, &w.lead, c, "adjustments", body).await;
+        assert_eq!(status, StatusCode::CREATED, "{at}: {}", got);
+        let expect = want.map_or(today.clone(), |days| day(-24 * days).to_string());
+        assert_eq!(got["business_date"], expect, "{at}");
+    }
+    // Repayments are cash: even the Lead keeps the window (10 days ago lands today).
+    let ten = (Utc::now() - Duration::days(10)).to_rfc3339();
+    let body = json!({"amount":10,"method":"cash","paid_at":ten});
+    let (_, old) = entry(&app, &w.lead, c, "repayments", body).await;
+    assert_eq!(old["business_date"], today);
     // Inside the window and on an open day the client time is kept.
     let recent = Utc::now() - Duration::minutes(10);
     let body = json!({"amount":10,"method":"cash","paid_at":recent.to_rfc3339()});

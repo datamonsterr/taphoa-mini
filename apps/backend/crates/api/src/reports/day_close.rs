@@ -109,8 +109,6 @@ struct Cash {
     transfer_revenue: i64,
     closed_at: DateTime<Utc>,
 }
-/// Oldest business date a day can be closed for: before the app shipped.
-const EARLIEST_CLOSE: NaiveDate = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
 fn out_of_range() -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -136,7 +134,7 @@ pub(super) async fn put(
             "cannot close a business day in the future",
         ));
     }
-    if day < EARLIEST_CLOSE {
+    if day < crate::time::EARLIEST_BUSINESS_DATE {
         return Err(ApiError::validation_failed(
             "business date is too far in the past to close",
         ));
