@@ -22,8 +22,6 @@ import {
   signInAs,
   signInScreen,
   test,
-  shutter,
-  warmRoutes,
   typeAmount,
   unknownPill,
   uuid7,
@@ -506,42 +504,8 @@ test.describe('issue #87 screenshots', () => {
     store,
   }, testInfo) => {
     const { coca } = await seedShelf(store.api);
-    // Product photos come from object storage with a fresh signed URL on every read, so a photo
-    // first shown after the network drops would fail. The screens under test do not depend on
-    // the pixels: answer every remote image with a 1x1 PNG, online and offline alike.
-    const dot = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg==',
-      'base64',
-    );
-    await page.route(
-      (url) =>
-        url.hostname !== 'localhost' &&
-        /\.(jpe?g|png|webp)$/.test(url.pathname),
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'image/png', body: dot }),
-    );
-    // Start on the camera: the pay screen returns to it, and it loads its chunk and the lazy
-    // barcode reader once the preview is live. Offline, those fetches would fail.
-    await openCamera(page);
-    await expect(shutter(page)).toBeVisible();
-    await page.waitForLoadState('networkidle');
-    await warmRoutes(page, [], '/inventory');
+    await openShop(page, '/inventory');
     const add = page.getByRole('button', { name: `Thêm ${coca.name} vào giỏ` });
-    await expect(add).toBeVisible();
-    // cart and pay are separate chunks: fetch them now, not offline
-    // and so are the line thumbnails: walk the whole sale once online, then empty the cart
-    await add.click();
-    await cartPill(page).click();
-    await expect(button(page, 'Hiện mã QR thanh toán')).toBeVisible();
-    await page.waitForLoadState('networkidle');
-    await button(page, 'Hiện mã QR thanh toán').click();
-    await expect(page).toHaveURL(/\/pay/);
-    await page.waitForLoadState('networkidle');
-    await page.goBack();
-    await button(page, 'Xóa').click();
-    await expect(page.getByText('Giỏ hàng trống')).toBeVisible();
-    await warmRoutes(page, [], '/inventory');
-    await page.waitForLoadState('networkidle');
     await expect(add).toBeVisible();
     await goOffline(page);
     await add.click();

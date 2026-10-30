@@ -744,31 +744,6 @@ export async function goOffline(page: Page) {
   await page.context().setOffline(true);
 }
 
-/**
- * Opens routes through the client router so their lazy bundle chunks are downloaded while the
- * network is still up, then returns to `back`. Use before `goOffline` when the test walks screens
- * it has not shown yet: a chunk fetched offline fails with ERR_INTERNET_DISCONNECTED.
- */
-export async function warmRoutes(
-  page: Page,
-  routes: [url: string, landmark: Locator][],
-  back: string,
-) {
-  const go = async (to: string) => {
-    await page.evaluate((url) => {
-      window.history.pushState({}, '', url);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }, to);
-    await page.waitForLoadState('networkidle');
-  };
-  for (const [url, landmark] of routes) {
-    await go(url);
-    // networkidle can fire before a lazy chunk is requested: the screen itself proves it loaded
-    await expect(landmark).toBeVisible();
-  }
-  await go(back);
-}
-
 export const shutter = (page: Page) => button(page, 'Chụp');
 export const enrollTag = (page: Page) => button(page, 'Thêm vào kho với giá');
 export const reshoot = (page: Page) => button(page, 'Chụp lại');
