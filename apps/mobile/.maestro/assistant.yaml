@@ -31,6 +31,10 @@ appId: com.datamonsterr.taphoamini
           timeout: 20000
       # hold-to-talk mic: always present on Android (disabled when the device has no recognizer)
       - assertVisible: 'Giữ để nói'
+      # board 17: the header says Trợ lý (no thread title) and has the collapse chevron
+      - assertVisible: 'Trợ lý'
+      - assertVisible:
+          id: 'assistant-close'
       - takeScreenshot: assistant-01-open
       # a scripted exchange: anything else gets the fixed greeting
       # Keyboard regression: the composer must sit above the soft keyboard. Check the input and

@@ -34,7 +34,7 @@ function toBody(error: unknown, response: Response): ApiErrorBody {
   return { error: response.statusText || `HTTP ${response.status}` };
 }
 
-function retryAfterMs(response: Response): number | undefined {
+export function retryAfterMs(response: Response): number | undefined {
   const raw = response.headers?.get('retry-after');
   if (raw == null || raw.trim() === '') return undefined;
   const seconds = Number(raw);

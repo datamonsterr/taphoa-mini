@@ -1,11 +1,11 @@
-import { ArrowUp } from 'lucide-react-native';
+import { ArrowRight } from 'lucide-react-native';
 import { memo, useRef, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { Platform, StyleSheet, TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
 import { Text } from '@/components/ui/ScaledText';
 import { PressableScale } from '@/components/ui/PressableScale';
-import { useT } from '@/lib/i18n';
+import { t as translate, useT } from '@/lib/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import {
   colors,
@@ -18,7 +18,9 @@ import {
 } from '@/theme';
 
 import { dict } from '../strings';
+import { voiceStrings } from '../voice/strings';
 import { VoiceButton } from '../voice/VoiceButton';
+import { ListeningMeter } from './ListeningMeter';
 
 export type ComposerProps = {
   streaming: boolean;
@@ -44,6 +46,10 @@ export const Composer = memo(function Composer({
   const [text, setText] = useState('');
   /** A recording is being transcribed on the server: the input shows three dots. */
   const [pending, setPending] = useState(false);
+  /** The microphone is held: the input shows level bars and the timer (board 17b). */
+  const [listening, setListening] = useState(false);
+  /** A screen reader (and the web) toggles the microphone with a tap instead of a hold. */
+  const [tapToStop, setTapToStop] = useState(false);
   const [seenPrefill, setSeenPrefill] = useState(prefill?.id);
   /** Text typed before the current hold; null between holds. */
   const heldBase = useRef<string | null>(null);
@@ -80,66 +86,100 @@ export const Composer = memo(function Composer({
   };
 
   return (
-    <View style={styles.row}>
-      <View style={styles.field}>
-        <TextInput
-          testID="assistant-input"
-          accessibilityLabel={t('inputPlaceholder')}
-          accessibilityHint={pending ? t('transcribing') : undefined}
-          placeholder={pending ? DOTS : t('inputPlaceholder')}
-          placeholderTextColor={colors.inkMuted}
-          multiline
-          // Enter sends and closes the keyboard.
-          submitBehavior="blurAndSubmit"
-          returnKeyType="send"
-          onSubmitEditing={send}
-          value={text}
-          onChangeText={(next) => {
-            heldBase.current = null;
-            setText(next);
-          }}
-          style={[
-            styles.input,
-            scaleText({ fontSize: 18, lineHeight: 24 }, scale),
-          ]}
-        />
-        {pending ? (
-          <Text
-            testID="assistant-transcribing"
-            accessibilityRole="progressbar"
-            accessibilityLabel={t('transcribing')}
-            accessibilityLiveRegion="polite"
-            style={styles.dots}
-          >
-            {DOTS}
-          </Text>
+    <View style={styles.root}>
+      {listening ? (
+        <Text
+          testID="assistant-listening-hint"
+          accessibilityLiveRegion="polite"
+          style={styles.hint}
+        >
+          {translate(
+            voiceStrings,
+            tapToStop ? 'tapToStop' : 'listening',
+            language,
+          )}
+        </Text>
+      ) : null}
+      <View style={styles.row}>
+        {listening ? (
+          <ListeningMeter
+            label={translate(voiceStrings, 'listeningField', language)}
+          />
         ) : null}
+        <View style={[styles.field, listening && styles.hidden]}>
+          <TextInput
+            testID="assistant-input"
+            accessibilityLabel={t('inputPlaceholder')}
+            accessibilityHint={pending ? t('transcribing') : undefined}
+            placeholder={pending ? DOTS : t('inputPlaceholder')}
+            placeholderTextColor={colors.inkMuted}
+            multiline
+            // Enter sends and closes the keyboard.
+            // One row on the web too (its textarea defaults to two); the native input grows.
+            {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+            submitBehavior="blurAndSubmit"
+            returnKeyType="send"
+            onSubmitEditing={send}
+            value={text}
+            onChangeText={(next) => {
+              heldBase.current = null;
+              setText(next);
+            }}
+            style={[
+              styles.input,
+              scaleText({ fontSize: 17, lineHeight: 24 }, scale),
+            ]}
+          />
+          {pending ? (
+            <Text
+              testID="assistant-transcribing"
+              accessibilityRole="progressbar"
+              accessibilityLabel={t('transcribing')}
+              accessibilityLiveRegion="polite"
+              style={styles.dots}
+            >
+              {DOTS}
+            </Text>
+          ) : null}
+        </View>
+        <VoiceButton
+          language={language}
+          onPartial={onPartial}
+          onFinal={onFinal}
+          disabled={streaming}
+          onPendingChange={setPending}
+          onListeningChange={(on, tap) => {
+            setListening(on);
+            setTapToStop(tap);
+          }}
+        />
+        <PressableScale
+          testID="assistant-send"
+          accessibilityRole="button"
+          accessibilityLabel={t('send')}
+          accessibilityState={{ disabled: !canSend }}
+          disabled={!canSend}
+          onPress={send}
+          style={[styles.send, !canSend && styles.disabled]}
+        >
+          <Icon icon={ArrowRight} color={colors.onInk} />
+        </PressableScale>
       </View>
-      <VoiceButton
-        language={language}
-        onPartial={onPartial}
-        onFinal={onFinal}
-        disabled={streaming}
-        onPendingChange={setPending}
-      />
-      <PressableScale
-        testID="assistant-send"
-        accessibilityRole="button"
-        accessibilityLabel={t('send')}
-        accessibilityState={{ disabled: !canSend }}
-        disabled={!canSend}
-        onPress={send}
-        style={[styles.send, !canSend && styles.disabled]}
-      >
-        <Icon icon={ArrowUp} color={colors.onAccent} />
-      </PressableScale>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
+  root: { gap: space[3] },
+  hint: {
+    ...typography.caption,
+    textAlign: 'center',
+    color: colors.inkMuted,
+  },
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: space[2] },
   field: { flex: 1, justifyContent: 'center' },
+  /** Kept mounted (the typed text and the focus survive the hold) but out of sight. */
+  hidden: { position: 'absolute', width: 0, height: 0, opacity: 0 },
   dots: {
     ...typography.body,
     position: 'absolute',
@@ -150,6 +190,8 @@ const styles = StyleSheet.create({
     ...typography.body,
     minHeight: size.tapMin,
     maxHeight: 140,
+    // 16, not the board's 20: Be Vietnam Pro 17 needs 192 dp for the placeholder, which a 20 dp
+    // padding (186 dp) would wrap onto a second line.
     paddingHorizontal: space[4],
     paddingVertical: space[3],
     borderRadius: radius.lg,
@@ -162,7 +204,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.ink,
   },
   disabled: { opacity: 0.4 },
 });

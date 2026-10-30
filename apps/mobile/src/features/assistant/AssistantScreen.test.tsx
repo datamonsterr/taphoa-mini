@@ -127,9 +127,9 @@ test('the first send creates a thread, then streams the text and the tool line',
   await typeAndSend('Doanh thu hôm nay?');
   expect(await screen.findByText('Doanh thu hôm nay?')).toBeTruthy();
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
-  expect(screen.getByText('Doanh thu hôm nay: 1.234.000 ₫')).toBeTruthy();
+  expect(screen.getByText('Doanh thu hôm nay: 1.234.000đ')).toBeTruthy();
   const [thread] = await threads();
   expect(thread.context).toEqual({ screen: 'chat' });
   expect(sink.capture).toHaveBeenCalledWith('assistant_message_sent', {
@@ -205,7 +205,7 @@ test('Retry after an interrupted stream sends the message again', async () => {
   const retry = await screen.findByTestId('assistant-retry');
   await fireEvent.press(retry);
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   expect(screen.queryByTestId('assistant-retry')).toBeNull();
   // The list shows what the server stores (it keeps the user message of the cut turn too),
@@ -222,7 +222,8 @@ test('opens the newest thread when there is no thread id', async () => {
   await seedThread('Mới', 'câu hỏi mới');
   await renderWithProviders(<AssistantScreen />);
   expect(await screen.findByText('câu hỏi mới')).toBeTruthy();
-  expect(screen.getByRole('header', { name: 'Mới' })).toBeTruthy();
+  // Board 17: the header always says Trợ lý; the thread title is in the list.
+  expect(screen.getByRole('header', { name: 'Trợ lý' })).toBeTruthy();
   expect(screen.queryByText('câu hỏi cũ')).toBeNull();
 });
 
@@ -367,7 +368,7 @@ test('a failed thread creation shows a Retry that sends again', async () => {
   await typeAndSend('Doanh thu?');
   await fireEvent.press(await screen.findByTestId('assistant-retry'));
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   jest.restoreAllMocks();
 });
@@ -439,7 +440,7 @@ test('two rapid presses of Send create one thread and one turn', async () => {
     press();
   });
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   const all = await threads();
   expect(all).toHaveLength(1);
@@ -454,13 +455,13 @@ test('reopening the sheet shows the turns of the thread created in the last visi
     expect(screen.getByTestId('assistant-empty')).toBeTruthy(),
   );
   await typeAndSend('Doanh thu?');
-  await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.');
+  await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.');
   await waitFor(() => expect(screen.getByTestId('feedback-up')).toBeTruthy());
   await first.unmount();
   await renderWithProviders(<AssistantScreen />, queryClient);
   expect(await screen.findByText('Doanh thu?')).toBeTruthy();
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
 });
 
@@ -483,7 +484,7 @@ test('Retry after a failure mid-reply keeps the stored turn without a second Ret
   await typeAndSend('Doanh thu?');
   await fireEvent.press(await screen.findByTestId('assistant-retry'));
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   expect(screen.getAllByText('Doanh thu?')).toHaveLength(2);
   expect(screen.getByText('Lỗi giữa chừng')).toBeTruthy();
