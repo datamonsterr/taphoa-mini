@@ -6,7 +6,6 @@ import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import { useCreateCustomer, useCustomers, type Customer } from '@/lib/api';
 import { listCustomers } from '@/lib/api/debts';
-import { businessDate, daysBetween } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { newUuid } from '@/lib/uuid';
@@ -145,20 +144,11 @@ export function CustomerPicker({
   };
 
   const ageText = (days: number) =>
-    days <= 0
+    days === 0
       ? t('book.ageToday')
       : days === 1
         ? t('book.ageYesterday')
-        : days < 7
-          ? fill(t('book.ageDays'), { days })
-          : t('picker.lastWeek');
-  /** Debt age while owing, else how long ago the profile last changed. */
-  const rowAge = (customer: Customer) =>
-    ageText(
-      customer.balance > 0 && customer.debt_age_days !== null
-        ? customer.debt_age_days
-        : daysBetween(businessDate(customer.updated_at), businessDate()),
-    );
+        : fill(t('book.ageDays'), { days });
 
   const customerRow = (customer: Customer, duplicate = false) => {
     const tone = avatarTone(customer.id);
@@ -207,9 +197,11 @@ export function CustomerPicker({
                 : formatVnd(customer.balance)}
             </Text>
           )}
-          <Text style={styles.caption} numberOfLines={1}>
-            {rowAge(customer)}
-          </Text>
+          {customer.balance > 0 && customer.debt_age_days !== null ? (
+            <Text style={styles.caption} numberOfLines={1}>
+              {ageText(customer.debt_age_days)}
+            </Text>
+          ) : null}
         </View>
       </PressableScale>
     );
