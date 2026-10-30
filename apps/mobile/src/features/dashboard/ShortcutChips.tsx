@@ -65,6 +65,7 @@ function ReceiptsChip() {
   const open = () => router.push('/receipts' as Href);
   return (
     <PressableScale
+      testID="dashboard-receipts-chip"
       accessibilityRole="button"
       accessibilityLabel={t('receipts')}
       onPress={open}
