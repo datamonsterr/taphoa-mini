@@ -247,9 +247,7 @@ async fn list(
     page: PageParams,
     filters: Result<Query<Filters>, QueryRejection>,
 ) -> ApiResult<Json<Page<Value>>> {
-    let filters = filters
-        .map_err(|e| ApiError::validation_failed(e.body_text()))?
-        .0;
+    let filters = filters.map_err(ApiError::from)?.0;
     let status = filters.status.as_deref().unwrap_or("all");
     if !matches!(status, "all" | "low" | "out") {
         return Err(ApiError::validation_failed("invalid stock status"));
