@@ -1,5 +1,10 @@
 import { resetApiClient, setApiTransport } from './client';
-import { BUSY_RETRY_DELAY_MS, createScan } from './images';
+import {
+  BUSY_RETRY_DELAY_MS,
+  SCAN_TIMEOUT_MS,
+  createScan,
+  isScanTimeout,
+} from './images';
 
 const json = (status: number, body: unknown, headers: HeadersInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -103,5 +108,36 @@ describe('createScan busy retry', () => {
     const result = await run(createScan({ image_id: 'img-1' }));
     expect(result).toMatchObject({ e: { status: 429 } });
     expect(t).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #180: a stalled server or lost connection must not leave the camera spinning forever.
+describe('createScan timeout', () => {
+  test('gives up after SCAN_TIMEOUT_MS with a Vietnamese message and aborts the request', async () => {
+    let signal: AbortSignal | undefined;
+    setApiTransport((async (req: Request) => {
+      signal = req.signal;
+      return new Promise<Response>(() => {});
+    }) as unknown as typeof fetch);
+    const settled = createScan({ image_id: 'img-1' }).then(
+      () => 'resolved',
+      (e: unknown) => e,
+    );
+    await jest.advanceTimersByTimeAsync(SCAN_TIMEOUT_MS - 1);
+    expect(signal?.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    const error = await settled;
+    expect(isScanTimeout(error)).toBe(true);
+    expect((error as Error).message).toBe(
+      'Mạng chậm, chưa nhận diện được. Thử lại.',
+    );
+    expect(signal?.aborted).toBe(true);
+  });
+
+  test('a scan that answers in time is untouched by the timer', async () => {
+    transportOf(() => json(200, scan));
+    const p = createScan({ image_id: 'img-1' });
+    await expect(p).resolves.toMatchObject({ id: 'scan-1' });
+    expect(jest.getTimerCount()).toBe(0);
   });
 });

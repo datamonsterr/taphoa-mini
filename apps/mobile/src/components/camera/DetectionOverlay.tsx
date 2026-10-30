@@ -17,6 +17,8 @@ export type Detection = {
   bbox: BBox;
   /** Top-1 below the match threshold. */
   lowMatch?: boolean;
+  /** Server verdict `ambiguous`: a guess the seller must confirm, drawn amber until selected. */
+  unsure?: boolean;
   /** Top-1 first, then look-alikes. */
   alternatives?: readonly StripItem[];
 };
@@ -39,6 +41,8 @@ type Props = {
 };
 
 const PILL_HEIGHT = 40;
+/** Room kept under the pill so a box that reaches the frame's bottom edge keeps it whole. */
+const PILL_MARGIN = 12;
 
 /** Boxes, price pills and the floating strip, positioned over the frozen photo. */
 export const DetectionOverlay = memo(function DetectionOverlay({
@@ -91,7 +95,13 @@ export const DetectionOverlay = memo(function DetectionOverlay({
           id={detection.id}
           box={box}
           state={
-            detection.lowMatch ? 'low' : isSelected ? 'selected' : 'deselected'
+            detection.lowMatch
+              ? 'low'
+              : isSelected
+                ? 'selected'
+                : detection.unsure
+                  ? 'unsure'
+                  : 'deselected'
           }
           number={number}
           name={detection.name}
@@ -101,12 +111,16 @@ export const DetectionOverlay = memo(function DetectionOverlay({
       {placed.map(({ detection, box, isSelected }) => (
         <View
           key={detection.id}
+          testID="price-pill-anchor"
           pointerEvents="box-none"
           style={[
             styles.pillAnchor,
             {
               left: box.x,
-              top: box.y + box.height - PILL_HEIGHT / 2,
+              top: Math.min(
+                box.y + box.height - PILL_HEIGHT / 2,
+                viewSize.height - PILL_HEIGHT - PILL_MARGIN,
+              ),
               width: box.width,
             },
           ]}
@@ -121,7 +135,13 @@ export const DetectionOverlay = memo(function DetectionOverlay({
           ) : (
             <PricePill
               id={detection.id}
-              variant={isSelected ? 'selected' : 'deselected'}
+              variant={
+                isSelected
+                  ? 'selected'
+                  : detection.unsure
+                    ? 'unsure'
+                    : 'deselected'
+              }
               price={detection.price}
               name={detection.name}
               expanded={detection.id === openId}

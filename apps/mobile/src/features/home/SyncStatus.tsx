@@ -44,7 +44,7 @@ function Banner({ online, items }: { online: boolean; items: OutboxItem[] }) {
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.wrap, { top: space[3] + insets.top }]}
+      style={[styles.wrap, { top: BELOW_MODE_TOGGLE + insets.top }]}
     >
       {!online ? (
         <PressableScale
@@ -106,6 +106,9 @@ function Banner({ online, items }: { online: boolean; items: OutboxItem[] }) {
     </View>
   );
 }
+
+/** Camera top padding (20) + mode toggle (56) + a gap: the banner never covers the toggle. */
+const BELOW_MODE_TOGGLE = 20 + 56 + space[2];
 
 const styles = StyleSheet.create({
   wrap: {

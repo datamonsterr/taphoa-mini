@@ -35,11 +35,48 @@ export const isSegmenterBusy = (error: unknown): boolean =>
   error.status === 503 &&
   /segmenter busy/i.test(error.body.error);
 
+/** A scan that has not answered by then (stalled server, lost mobile data) gives up. */
+export const SCAN_TIMEOUT_MS = 20_000;
+
+/** What the seller reads when a scan timed out; the shutter and retry work again. */
+export const SCAN_TIMEOUT_MESSAGE = 'Mạng chậm, chưa nhận diện được. Thử lại.';
+
+/** The scan got no answer within `SCAN_TIMEOUT_MS`. */
+export class ScanTimeoutError extends Error {
+  constructor() {
+    super(SCAN_TIMEOUT_MESSAGE);
+    this.name = 'ScanTimeoutError';
+  }
+}
+
+export const isScanTimeout = (error: unknown): error is ScanTimeoutError =>
+  error instanceof ScanTimeoutError;
+
 /** POST /v1/recognition/scans (multipart: image file + mode + purpose + top_k). */
 export async function createScan(input: CreateScanInput): Promise<Scan> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The race settles even when a transport ignores the abort signal.
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ScanTimeoutError());
+    }, SCAN_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([scanOnce(input, controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function scanOnce(
+  input: CreateScanInput,
+  signal: AbortSignal,
+): Promise<Scan> {
   const image = input.image ? await resolveUpload(input.image) : undefined;
   try {
-    return await postScan(input, image);
+    return await postScan(input, image, signal);
   } catch (error) {
     if (!isSegmenterBusy(error)) throw error;
     const wait = Math.min(
@@ -47,17 +84,20 @@ export async function createScan(input: CreateScanInput): Promise<Scan> {
       BUSY_RETRY_MAX_MS,
     );
     await new Promise((resolve) => setTimeout(resolve, wait));
+    if (signal.aborted) throw new ScanTimeoutError();
     // Exactly one retry: same image / image_id, so the server sees the same scan again.
-    return postScan(input, image);
+    return postScan(input, image, signal);
   }
 }
 
 function postScan(
   input: CreateScanInput,
   image: Awaited<ReturnType<typeof resolveUpload>> | undefined,
+  signal: AbortSignal,
 ): Promise<Scan> {
   return unwrap(
     getApiClient().raw.POST('/v1/recognition/scans', {
+      signal,
       body: {
         image_id: input.image_id,
         mode: input.mode,

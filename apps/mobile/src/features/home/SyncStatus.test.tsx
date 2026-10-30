@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { onlineManager } from '@tanstack/react-query';
 import { router } from 'expo-router';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useOutboxStore, type OutboxItem } from '@/lib/outbox';
@@ -90,4 +91,17 @@ test('a 5xx retry says the server failed, not that the network is down', async (
   await view();
   expect(screen.getByText(/Máy chủ đang lỗi/)).toBeOnTheScreen();
   expect(screen.queryByText(/chờ gửi khi có mạng/)).toBeNull();
+});
+
+// #182: the banner covered the camera's photo/grid toggle (20 top padding + 56 toggle).
+test('sits below the camera mode toggle', async () => {
+  useOutboxStore.setState({ items: [item({})] });
+  await view();
+  const card = screen.getByText('1 đơn chờ gửi khi có mạng');
+  let wrap = card.parent;
+  while (wrap && !('top' in StyleSheet.flatten(wrap.props.style ?? {})))
+    wrap = wrap.parent;
+  expect(StyleSheet.flatten(wrap!.props.style).top).toBeGreaterThanOrEqual(
+    20 + 56,
+  );
 });

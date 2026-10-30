@@ -9,13 +9,16 @@ import { fontFamily } from '@/theme/typography';
 
 type Props = {
   box: Rect;
-  /** Whole percent. */
-  percent: number;
+  /** Whole percent; null when the server had no candidate at all. */
+  percent: number | null;
+  /** Unknown or ambiguous: amber alert instead of the green check. */
   low: boolean;
 };
 
 const HEIGHT = 24;
 const GAP = 6;
+/** Viewfinder corner mark (inset 14 + arm 22) plus a gap: a badge near the top starts right of it. */
+const CORNER_CLEAR = 44;
 
 /** Single-item board: green check and score above the box, amber alert when low. */
 export const ConfidenceBadge = memo(function ConfidenceBadge({
@@ -24,15 +27,18 @@ export const ConfidenceBadge = memo(function ConfidenceBadge({
   low,
 }: Props) {
   const tint = low ? colors.warning : colors.success;
+  const top = Math.max(GAP, box.y - HEIGHT - GAP);
   return (
     <View
       testID="confidence-badge"
-      accessibilityLabel={`Độ chắc chắn ${percent}%`}
+      accessibilityLabel={
+        percent === null ? 'Chưa nhận ra món này' : `Độ chắc chắn ${percent}%`
+      }
       style={[
         styles.badge,
         {
-          left: box.x,
-          top: Math.max(GAP, box.y - HEIGHT - GAP),
+          left: Math.max(box.x, top < CORNER_CLEAR ? CORNER_CLEAR : GAP),
+          top,
           backgroundColor: low ? colors.warningSoft : colors.successSoft,
         },
       ]}
@@ -43,7 +49,9 @@ export const ConfidenceBadge = memo(function ConfidenceBadge({
         strokeWidth={3}
         color={tint}
       />
-      <Text style={[styles.text, { color: tint }]}>{percent}</Text>
+      {percent === null ? null : (
+        <Text style={[styles.text, { color: tint }]}>{percent}</Text>
+      )}
     </View>
   );
 });

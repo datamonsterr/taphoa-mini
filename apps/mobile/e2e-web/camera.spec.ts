@@ -56,9 +56,8 @@ test.describe('camera', () => {
     );
     await expect(addButton(page)).toBeEnabled();
 
+    // Board 02: the look-alikes show under the viewfinder without a tap (#182).
     const strip = page.getByRole('radiogroup', { name: 'Chọn đúng món' });
-    await expect(strip).toHaveCount(0);
-    await pricePill(page).click();
     await expect(strip).toBeVisible();
     await expect(strip.getByRole('radio')).toHaveCount(
       detection.candidates.length,

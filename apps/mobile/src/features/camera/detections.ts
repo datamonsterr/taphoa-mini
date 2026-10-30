@@ -51,6 +51,7 @@ export function toOverlayDetections(
       price: top!.price,
       bbox,
       lowMatch: false,
+      unsure: detection.match === 'ambiguous',
       alternatives: [items[first]!, ...items.filter((_, i) => i !== first)],
     };
   });
@@ -81,7 +82,8 @@ export function toCartLines(
   return lines;
 }
 
-/** Top-1 similarity as a whole percent, for the confidence badge. */
-export function confidencePercent(detection: ApiDetection): number {
-  return Math.round((detection.candidates[0]?.similarity ?? 0) * 100);
+/** Top-1 similarity as a whole percent, for the confidence badge; null without a candidate. */
+export function confidencePercent(detection: ApiDetection): number | null {
+  const top = detection.candidates[0];
+  return top ? Math.round(top.similarity * 100) : null;
 }

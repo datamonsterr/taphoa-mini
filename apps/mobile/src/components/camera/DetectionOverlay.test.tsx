@@ -280,4 +280,49 @@ describe('DetectionOverlay', () => {
     );
     expect(mockBoxRenders.mock.calls.map(([id]) => id)).toEqual(['water']);
   });
+
+  // #182: a box that fills the photo used to push the pill half outside the frame.
+  it('keeps the price pill whole inside the viewfinder', async () => {
+    const whole: Detection = { ...water, bbox: [0, 0, 1080, 1440] };
+    await renderWithProviders(
+      <DetectionOverlay
+        imageSize={imageSize}
+        viewSize={viewSize}
+        detections={[whole]}
+        selected={{ water: true }}
+        mode="one"
+        onToggle={noop}
+        onPricePress={noop}
+        onChoose={noop}
+      />,
+    );
+    // 360 view - 40 pill - 12 margin.
+    expect(screen.getByTestId('price-pill-anchor')).toHaveStyle({ top: 308 });
+  });
+
+  it('draws an ambiguous guess amber with a "?" price until it is selected', async () => {
+    const guess: Detection = { ...sting, unsure: true };
+    const props = {
+      imageSize,
+      viewSize,
+      detections: [guess],
+      mode: 'one' as const,
+      onToggle: noop,
+      onPricePress: noop,
+      onChoose: noop,
+    };
+    const { rerender } = await renderWithProviders(
+      <DetectionOverlay {...props} selected={{}} />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Sting đỏ, chưa chắc, chạm để chọn' }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: /xem món khác$/ }),
+    ).toHaveTextContent('? 10.000');
+    await rerender(<DetectionOverlay {...props} selected={{ sting: true }} />);
+    expect(
+      screen.getByRole('button', { name: 'Sting đỏ, đã chọn' }),
+    ).toBeOnTheScreen();
+  });
 });

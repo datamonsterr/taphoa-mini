@@ -766,7 +766,9 @@ export const addButton = (page: Page) =>
 export const cartPill = (page: Page) =>
   page.getByRole('button', { name: /^Giỏ hàng/ });
 export const detectionBoxes = (page: Page) =>
-  page.getByRole('button', { name: /, (đã chọn|bỏ chọn|chưa có trong kho)$/ });
+  page.getByRole('button', {
+    name: /, (đã chọn|bỏ chọn|chưa có trong kho|chưa chắc, chạm để chọn)$/,
+  });
 
 /** Waits until a <video> in the scope plays the fake webcam. */
 export async function expectLiveVideo(scope: Page | Locator) {

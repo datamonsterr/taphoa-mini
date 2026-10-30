@@ -46,6 +46,7 @@ import { CircleButton } from '@/components/ui';
 import {
   useCreateReceipt,
   RATE_LIMIT_MESSAGE,
+  SCAN_TIMEOUT_MESSAGE,
   isApiError,
   isRateLimited,
   useProduct,
@@ -442,6 +443,13 @@ export function CameraScreen() {
   const document = hasResult ? scan.document : probe?.document;
   const documentDetected =
     !!document?.detected && !quickActive && !barcodeResult;
+  // Single-item board 02: the look-alikes sit under the viewfinder as soon as a match shows.
+  const stripDetection =
+    hasResult && !documentDetected && mode === 'one'
+      ? openDetection?.alternatives
+        ? openDetection
+        : detections.find((d) => d.alternatives)
+      : undefined;
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
   const goEnroll = useCallback(
@@ -766,7 +774,7 @@ export function CameraScreen() {
                           percent={confidencePercent(
                             scan.detections.find((x) => x.id === d.id)!,
                           )}
-                          low={!!d.lowMatch}
+                          low={!!d.lowMatch || !!d.unsure}
                         />
                       ))
                     : null}
@@ -796,8 +804,9 @@ export function CameraScreen() {
           {phase === 'error' ? (
             <ScanError
               message={
-                state.error === RATE_LIMIT_MESSAGE
-                  ? RATE_LIMIT_MESSAGE
+                state.error === RATE_LIMIT_MESSAGE ||
+                state.error === SCAN_TIMEOUT_MESSAGE
+                  ? state.error
                   : t('scanError')
               }
               retryLabel={t('retry')}
@@ -823,23 +832,15 @@ export function CameraScreen() {
         !readingReceipt &&
         !notice &&
         created.length === 0 &&
-        !(
-          hasResult &&
-          !documentDetected &&
-          mode === 'one' &&
-          openDetection?.alternatives
-        ) ? (
+        !stripDetection?.alternatives ? (
           <NextStepStrip chips={chips} onPress={onChipPress} />
         ) : null}
-        {hasResult &&
-        !documentDetected &&
-        mode === 'one' &&
-        openDetection?.alternatives ? (
+        {stripDetection?.alternatives ? (
           <AlternativesStrip
-            items={openDetection.alternatives}
-            currentId={openDetection.alternatives[0]!.id}
+            items={stripDetection.alternatives}
+            currentId={stripDetection.alternatives[0]!.id}
             placement="below"
-            onChoose={(productId) => choose(openDetection.id, productId)}
+            onChoose={(productId) => choose(stripDetection.id, productId)}
           />
         ) : null}
       </View>

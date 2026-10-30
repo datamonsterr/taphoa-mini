@@ -150,6 +150,6 @@ describe('confidencePercent', () => {
         detection('a', { candidates: [candidate('x', 1, 0.964)] }),
       ),
     ).toBe(96);
-    expect(confidencePercent(detection('a', { candidates: [] }))).toBe(0);
+    expect(confidencePercent(detection('a', { candidates: [] }))).toBeNull();
   });
 });

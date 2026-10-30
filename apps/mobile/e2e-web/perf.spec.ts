@@ -153,7 +153,7 @@ function frameStats(stamps: number[]): Frames {
 }
 
 const box =
-  '[aria-label$=", đã chọn"],[aria-label$=", bỏ chọn"],[aria-label$=", chưa có trong kho"]';
+  '[aria-label$=", đã chọn"],[aria-label$=", bỏ chọn"],[aria-label$=", chưa có trong kho"],[aria-label$=", chưa chắc, chạm để chọn"]';
 const pillLabel = (page: Page) => cartPill(page).getAttribute('aria-label');
 /** Grid tiles are named "<name>, <price>"; the camera's cart pill ("Giỏ hàng: ...đ") is not one. */
 const tiles = '[role="button"][aria-label$="đ"]:not([aria-label^="Giỏ hàng"])';

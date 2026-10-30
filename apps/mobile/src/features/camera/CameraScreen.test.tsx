@@ -442,12 +442,10 @@ describe('single item', () => {
     });
   });
 
-  it('the strip sits below the viewfinder; price opens and closes it', async () => {
+  // Board 02 Match: the look-alikes show under the viewfinder without a tap.
+  it('#182 the strip sits below the viewfinder as soon as the match shows', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    expect(screen.queryByTestId('alternatives-strip')).toBeNull();
-    const price = screen.getByRole('button', { name: /xem món khác$/ });
-    await fireEvent.press(price);
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
     expect(screen.getAllByRole('radio').length).toBeGreaterThan(1);
     expect(screen.getAllByRole('radio')[0]).toBeChecked();
@@ -457,7 +455,7 @@ describe('single item', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: /xem món khác$/ }),
     );
-    expect(screen.queryByTestId('alternatives-strip')).toBeNull();
+    expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
   });
 
   it('choosing a chip replaces the price and product, keeping the box selected', async () => {
@@ -772,6 +770,25 @@ describe('errors', () => {
     ).toBeOnTheScreen();
   });
 
+  it('#180 a scan with no answer says the network is slow and offers retry', async () => {
+    setMockScenario('match');
+    const create = jest
+      .spyOn(images, 'createScan')
+      .mockRejectedValueOnce(new images.ScanTimeoutError());
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+    expect(
+      await screen.findByText('Mạng chậm, chưa nhận diện được. Thử lại.'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByTestId('scan-busy')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Chụp lại' })).toBeEnabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Thử lại' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(
+      screen.queryByText('Mạng chậm, chưa nhận diện được. Thử lại.'),
+    ).toBeNull();
+  });
+
   it('tapping the frozen photo abandons a failed scan', async () => {
     jest.spyOn(images, 'createScan').mockRejectedValue(new Error('503'));
     await renderWithProviders(<CameraScreen />);
@@ -829,10 +846,32 @@ describe('ambiguous match', () => {
   it('is never picked for the seller: + stays off until the box is tapped', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
-    expect(screen.getByRole('button', { name: /bỏ chọn$/ })).toBeOnTheScreen();
+    const box = screen.getByRole('button', {
+      name: /chưa chắc, chạm để chọn$/,
+    });
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
-    await fireEvent.press(screen.getByRole('button', { name: /bỏ chọn$/ }));
+    await fireEvent.press(box);
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeEnabled();
+  });
+
+  // #182: a guess below the threshold must not look certain (board 04 Low match).
+  it('#182 draws the amber low-match look, never the green check', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    const frame = within(
+      screen.getByRole('button', { name: /chưa chắc, chạm để chọn$/ }),
+    ).getByTestId('box-frame');
+    expect(frame).toHaveStyle({
+      borderStyle: 'dashed',
+      borderColor: colors.warningSoft,
+    });
+    expect(screen.getByTestId('confidence-badge')).toHaveStyle({
+      backgroundColor: colors.warningSoft,
+    });
+    expect(
+      screen.getByRole('button', { name: /xem món khác$/ }),
+    ).toHaveTextContent(/^\? /);
+    expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
   });
 });
 
@@ -1403,16 +1442,11 @@ describe('assistant entry points', () => {
 
   it('yields the slot to the alternatives strip and to quick enroll', async () => {
     await renderWithProviders(<CameraScreen />);
-    await capture();
     await strip();
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
+    await capture();
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
     expect(screen.queryByTestId('next-step-strip')).toBeNull();
-    await fireEvent.press(
-      screen.getByRole('button', { name: /xem món khác$/ }),
-    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Chụp lại' }));
     expect(await strip()).toBeOnTheScreen();
     await fireEvent.press(
       screen.getByRole('button', { name: 'Thêm vào kho với giá' }),
