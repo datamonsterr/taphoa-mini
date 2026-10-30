@@ -266,9 +266,7 @@ describe('Android with the native module', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: 'Thêm ô cài đặt nhanh' }),
     );
-    expect(
-      await screen.findByText('Đã thêm ô cài đặt nhanh'),
-    ).toBeOnTheScreen();
+    expect(await screen.findByText('Đã thêm')).toBeOnTheScreen();
     expect(tile.requestAdd).toHaveBeenCalledTimes(1);
     expect(events).toEqual([
       {

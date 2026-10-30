@@ -1,3 +1,6 @@
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
 import type { Locator, Page } from '@playwright/test';
 import {
   API_URL,
@@ -13,6 +16,8 @@ import {
   test,
   waitForApi,
 } from './fixtures';
+
+const SHOTS = path.join(__dirname, 'screenshots');
 
 const elderSwitch = (page: Page, name = 'Chế độ người lớn tuổi') =>
   page.getByRole('switch', { name });
@@ -164,6 +169,21 @@ const tapKeys = async (scope: Page | Locator, digits: string) => {
 test.describe('the PIN of this member (U3)', () => {
   // The multi-session switcher and its PIN lock sheet are covered by their own spec; this one
   // covers setting a PIN and the endpoint the lock verifies it with.
+  test('the voice section keeps the sample-set hint and shows the opt-in switch off', async ({
+    page,
+  }) => {
+    await openShop(page, '/account');
+    const row = page.getByTestId('voice-donate-row');
+    await row.scrollIntoViewIfNeeded();
+    await expect(row.getByText('Góp giọng nói để cải thiện')).toBeVisible();
+    await expect(row.getByText('Giữ lại đoạn ghi âm cho bộ mẫu')).toBeVisible();
+    await expect(
+      page.getByRole('switch', { name: 'Góp giọng nói để cải thiện' }),
+    ).not.toBeChecked();
+    mkdirSync(SHOTS, { recursive: true });
+    await page.screenshot({ path: path.join(SHOTS, 'account-web-voice.png') });
+  });
+
   test('"Đặt mã PIN": two matching entries, PUT /v1/me/pin, and the server verifies exactly that PIN', async ({
     page,
     store,

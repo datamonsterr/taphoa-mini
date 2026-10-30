@@ -26,6 +26,8 @@ export type PayToggleProps = {
   onChange: (method: PayMethod) => void;
   /** Visible words and accessible names; Vietnamese by default. */
   labels?: PayToggleLabels;
+  /** Icons only (board 16); the labels stay as accessible names. */
+  iconOnly?: boolean;
 };
 
 const GAP = 4;
@@ -39,6 +41,7 @@ export const PayToggle = memo(function PayToggle({
   value,
   onChange,
   labels = DEFAULT_LABELS,
+  iconOnly = false,
 }: PayToggleProps) {
   return (
     <View
@@ -65,9 +68,11 @@ export const PayToggle = memo(function PayToggle({
               size={20}
               color={on ? colors.onInk : colors.ink}
             />
-            <Text style={[styles.label, on && styles.labelOn]}>
-              {labels[id] ?? DEFAULT_LABELS[id]}
-            </Text>
+            {iconOnly ? null : (
+              <Text style={[styles.label, on && styles.labelOn]}>
+                {labels[id] ?? DEFAULT_LABELS[id]}
+              </Text>
+            )}
           </PressableScale>
         );
       })}

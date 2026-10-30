@@ -1,16 +1,18 @@
-import { ChevronDown } from 'lucide-react-native';
+import { ChevronDown, ChevronRight, User } from 'lucide-react-native';
 import { memo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import {
   CheckButton,
   CircleButton,
+  Icon,
   MoneyText,
   PayToggle,
   PressableScale,
   Text,
   type PayMethod,
 } from '@/components/ui';
+import { formatVnd } from '@/lib/format';
 import { fill, useLabels, useT } from '@/lib/i18n';
 import { colors, radius, size, space, typography } from '@/theme';
 
@@ -130,39 +132,63 @@ export const DraftView = memo(function DraftView({
         ))}
       </ScrollView>
       <View style={styles.footer}>
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>{t('total')}</Text>
-          <MoneyText
-            testID="voice-total"
-            amount={draftTotal(draft)}
-            variant="price"
-          />
-        </View>
         <View style={styles.toggle}>
           <PayToggle
+            iconOnly
             value={draft.paymentMethod as PayMethod}
             onChange={(method) => dispatch({ type: 'payment', method })}
             labels={pay}
           />
         </View>
         {draft.paymentMethod === 'credit' ? (
-          <PressableScale
-            testID="voice-customer"
-            accessibilityRole="button"
-            accessibilityLabel={
-              draft.customer ? t('customer.change') : t('customer.choose')
-            }
-            onPress={onChooseCustomer}
-            style={styles.customer}
-          >
-            <Text numberOfLines={1} style={styles.customerText}>
-              {draft.customer
-                ? `${fill(t('customer.named'), { name: draft.customer.name })} · ${t('customer.change')}`
-                : draft.spokenCustomer
-                  ? `${t('customer.choose')} (${fill(t('customer.spoken'), { name: draft.spokenCustomer })})`
-                  : t('customer.choose')}
-            </Text>
-          </PressableScale>
+          <View style={styles.customerBox}>
+            <PressableScale
+              testID="voice-customer"
+              accessibilityRole="button"
+              accessibilityLabel={
+                draft.customer
+                  ? `${fill(t('customer.named'), { name: draft.customer.name })}, ${fill(t('customer.debt'), { amount: formatVnd(draft.customer.balance) })}. ${t('customer.change')}`
+                  : t('customer.choose')
+              }
+              onPress={onChooseCustomer}
+              style={styles.customer}
+            >
+              <View style={styles.avatar}>
+                {draft.customer ? (
+                  <Text style={styles.avatarLetter}>
+                    {draft.customer.name.trim().charAt(0).toUpperCase()}
+                  </Text>
+                ) : (
+                  <Icon icon={User} size={24} color={colors.accent} />
+                )}
+              </View>
+              <View style={styles.customerBody}>
+                <Text numberOfLines={1} style={styles.customerName}>
+                  {draft.customer ? draft.customer.name : t('customer.choose')}
+                </Text>
+                {draft.customer ? (
+                  <Text numberOfLines={1} style={styles.customerCaption}>
+                    {[
+                      fill(t('customer.debt'), {
+                        amount: formatVnd(draft.customer.balance),
+                      }),
+                      draft.customer.phone,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                ) : draft.spokenCustomer ? (
+                  <Text numberOfLines={1} style={styles.customerCaption}>
+                    {fill(t('customer.spoken'), { name: draft.spokenCustomer })}
+                  </Text>
+                ) : null}
+              </View>
+              {draft.customer ? (
+                <Text style={styles.change}>{t('customer.change')}</Text>
+              ) : null}
+              <Icon icon={ChevronRight} size={20} color={colors.accent} />
+            </PressableScale>
+          </View>
         ) : null}
         {reason && reason !== 'empty' ? (
           <Text accessibilityRole="alert" style={styles.blocker}>
@@ -187,15 +213,21 @@ export const DraftView = memo(function DraftView({
               {t('understanding')}
             </Text>
           ) : (
-            <View style={styles.grow}>
+            <>
+              <View style={styles.sum}>
+                <MoneyText
+                  testID="voice-total"
+                  amount={draftTotal(draft)}
+                  variant="price"
+                />
+              </View>
               <CheckButton
                 variant="success"
                 accessibilityLabel={t('confirm')}
                 onPress={onConfirm}
                 disabled={disabled}
-                block
               />
-            </View>
+            </>
           )}
         </View>
       </View>
@@ -215,23 +247,45 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { gap: space[1] },
   footer: { gap: space[2] },
-  totalRow: {
+  toggle: { alignItems: 'center' },
+  customerBox: {
+    padding: space[3],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  customer: {
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: space[3],
+    paddingVertical: space[2],
+    paddingLeft: space[2],
+    paddingRight: space[3],
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
   },
-  toggle: { alignItems: 'center' },
-  totalLabel: { ...typography.label, color: colors.inkMuted },
-  customer: {
-    minHeight: size.tapMin,
+  avatar: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: space[4],
+    borderRadius: radius.full,
+    backgroundColor: colors.accentSoft,
+  },
+  avatarLetter: { ...typography.heading, color: colors.accent },
+  customerBody: { flex: 1, minWidth: 0 },
+  customerName: { ...typography.label, color: colors.ink },
+  customerCaption: { ...typography.caption, color: colors.inkMuted },
+  change: { ...typography.caption, color: colors.accent },
+  blocker: { ...typography.caption, color: colors.danger },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    padding: space[2],
     borderRadius: radius.full,
     backgroundColor: colors.surfaceSoft,
   },
-  customerText: { ...typography.label, color: colors.ink },
-  blocker: { ...typography.caption, color: colors.danger },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  grow: { flex: 1 },
+  sum: { flex: 1, alignItems: 'center' },
   adding: { ...typography.label, flex: 1, color: colors.inkMuted },
 });

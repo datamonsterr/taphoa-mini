@@ -156,6 +156,28 @@ test('fixture clip: listening, draft with two lines, cash confirm records a voic
   await expect(page.getByTestId('voice-draft')).toHaveCount(0);
 });
 
+/** #166 evidence: the credit draft shows board 16's customer card and the one-pill footer. */
+test('fixture clip: a credit draft shows the customer card and the pill footer', async ({
+  page,
+  request,
+  store,
+}) => {
+  await requireVoiceRoutes(request, store);
+  await seedCatalog(store);
+  await openFixture(page, 'credit-sale.m4a');
+  await callApi(
+    page,
+    'POST',
+    '/v1/voice/utterances',
+    () => stop(page).click(),
+    201,
+  );
+  await expect(page.getByTestId('voice-draft')).toBeVisible();
+  await expect(page.getByTestId('voice-customer')).toBeVisible();
+  await expect(page.getByTestId('voice-total')).toBeVisible();
+  await page.screenshot({ path: path.join(DIR, 'voice-web-4-credit.png') });
+});
+
 test('a silent clip asks to say it again', async ({ page, request, store }) => {
   await requireVoiceRoutes(request, store);
   await openFixture(page, 'no-speech.m4a');

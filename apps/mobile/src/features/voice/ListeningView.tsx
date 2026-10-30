@@ -106,6 +106,7 @@ export const ListeningView = memo(function ListeningView({
       <CheckButton
         variant="ink"
         accessibilityLabel={t('stopLabel')}
+        label={t('stopText')}
         onPress={onStop}
         block
         xl
