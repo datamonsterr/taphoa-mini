@@ -6,6 +6,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { DeviceEventEmitter, Platform, StyleSheet } from 'react-native';
 
 import { setAnalyticsSink } from '@/lib/analytics';
 import { getApiClient } from '@/lib/api/client';
@@ -90,6 +91,32 @@ test('opens an empty new chat, captures the open event and closes', async () => 
   await fireEvent.press(screen.getByTestId('assistant-close'));
   expect(router.back).toHaveBeenCalled();
   expect(await threads()).toHaveLength(0);
+});
+
+test('on Android the open keyboard lifts the composer above it', async () => {
+  // Android is edge-to-edge, so the window no longer shrinks for the keyboard: the screen must
+  // pad itself by the keyboard height, or the input stays behind the keyboard.
+  jest.replaceProperty(Platform, 'OS', 'android');
+  await renderWithProviders(<AssistantScreen />);
+  const avoid = screen.getByTestId('assistant-keyboard-avoid');
+  await fireEvent(avoid, 'layout', {
+    persist: () => {},
+    nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } },
+  });
+  await act(async () => {
+    DeviceEventEmitter.emit('keyboardDidShow', {
+      endCoordinates: { screenX: 0, screenY: 614, width: 411, height: 300 },
+    });
+  });
+  await waitFor(() =>
+    expect(StyleSheet.flatten(avoid.props.style).paddingBottom).toBe(300),
+  );
+  await act(async () => {
+    DeviceEventEmitter.emit('keyboardDidHide', null);
+  });
+  await waitFor(() =>
+    expect(StyleSheet.flatten(avoid.props.style).paddingBottom).toBe(0),
+  );
 });
 
 test('the first send creates a thread, then streams the text and the tool line', async () => {

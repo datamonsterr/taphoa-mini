@@ -1,7 +1,6 @@
 import { memo, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   StyleSheet,
   TextInput,
   View,
@@ -97,7 +96,7 @@ export const BankSheet = memo(function BankSheet({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       pointerEvents="box-none"
       style={StyleSheet.absoluteFill}
     >
