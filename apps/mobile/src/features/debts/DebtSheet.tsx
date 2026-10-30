@@ -1,4 +1,4 @@
-import { X } from 'lucide-react-native';
+import { ChevronDown, X } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
 
@@ -13,11 +13,14 @@ export function DebtSheet({
   title,
   onClose,
   footer,
+  back = false,
   children,
 }: {
   title: string;
   onClose: () => void;
   footer?: ReactNode;
+  /** Board 07c: a chevron-down close before the title instead of an X after it. */
+  back?: boolean;
   children: ReactNode;
 }) {
   const t = useT(debtStrings);
@@ -29,14 +32,23 @@ export function DebtSheet({
     >
       <Sheet onClose={onClose} footer={footer}>
         <View style={styles.header}>
+          {back ? (
+            <CircleButton
+              icon={ChevronDown}
+              accessibilityLabel={t('sheet.close')}
+              onPress={onClose}
+            />
+          ) : null}
           <Text accessibilityRole="header" style={styles.title}>
             {title}
           </Text>
-          <CircleButton
-            icon={X}
-            accessibilityLabel={t('sheet.close')}
-            onPress={onClose}
-          />
+          {back ? null : (
+            <CircleButton
+              icon={X}
+              accessibilityLabel={t('sheet.close')}
+              onPress={onClose}
+            />
+          )}
         </View>
         {children}
       </Sheet>

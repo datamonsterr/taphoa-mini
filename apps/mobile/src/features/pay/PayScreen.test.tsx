@@ -488,7 +488,7 @@ describe('PayScreen credit', () => {
       screen.getByRole('button', { name: /Đổi khách hàng$/ }),
     );
     expect(
-      screen.getByRole('header', { name: 'Chọn khách ghi nợ' }),
+      screen.getByRole('header', { name: 'Chọn khách hàng' }),
     ).toBeOnTheScreen();
   });
 });

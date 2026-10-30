@@ -169,10 +169,10 @@ describe('CartScreen on a narrow window', () => {
   });
   afterEach(() => jest.restoreAllMocks());
 
-  it('truncates the name to one line and never wraps the price', async () => {
+  it('shows the name on at most two lines and never wraps the price', async () => {
     await renderWithProviders(<CartScreen />);
     const name = screen.getByText(/Sting đỏ chai lớn/);
-    expect(name.props.numberOfLines).toBe(1);
+    expect(name.props.numberOfLines).toBe(2);
     expect(flat(name as never).flexShrink).toBe(1);
     const price = screen.getAllByText('100.000đ')[0];
     expect(price.props.numberOfLines).toBe(1);
