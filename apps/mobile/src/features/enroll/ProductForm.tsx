@@ -56,6 +56,8 @@ export function enrollKeyDiameter(
   const fit = Math.floor((sheetHeight - overhead) / 4);
   return Math.min(BOARD_KEY, Math.max(MIN_KEY, fit));
 }
+/** Height of the 4-row keypad: four keys and three 12 dp gaps (the Keypad's `rowGap`). */
+const keypadHeight = (diameter: number) => diameter * 4 + space[3] * 3;
 export type ProductValues = { name: string; price: number; barcode?: string };
 export type ProductPhoto = { id: string; uri: string };
 type Props = {
@@ -78,6 +80,8 @@ type Props = {
   saveLabel?: string;
   testID?: string;
   footer?: ReactNode;
+  /** Takes the keypad's place, at the keypad's height, so the form never shifts or hides a row. */
+  replaceKeypad?: ReactNode;
   children?: ReactNode;
 };
 
@@ -121,6 +125,7 @@ export function ProductForm({
   saveLabel = 'Lưu vào kho và thêm vào giỏ',
   testID = 'enroll-sheet',
   footer,
+  replaceKeypad,
   children,
 }: Props) {
   const [barcode, setBarcode] = useState(initialBarcode);
@@ -246,20 +251,29 @@ export function ProductForm({
       >
         {formatVnd(price)}
       </Text>
-      <View style={styles.keypad}>
-        <Keypad
-          onKey={(key) => {
-            const next = applyKey(digits, key, MAX_DIGITS);
-            setDigits(next);
-            onValuesChange?.({
-              name,
-              price: Number(next || '0'),
-              ...(barcode ? { barcode } : {}),
-            });
-          }}
-          diameter={keyDiameter}
-        />
-      </View>
+      {replaceKeypad ? (
+        <View
+          testID="keypad-replacement"
+          style={[styles.keypad, { minHeight: keypadHeight(keyDiameter) }]}
+        >
+          {replaceKeypad}
+        </View>
+      ) : (
+        <View style={styles.keypad}>
+          <Keypad
+            onKey={(key) => {
+              const next = applyKey(digits, key, MAX_DIGITS);
+              setDigits(next);
+              onValuesChange?.({
+                name,
+                price: Number(next || '0'),
+                ...(barcode ? { barcode } : {}),
+              });
+            }}
+            diameter={keyDiameter}
+          />
+        </View>
+      )}
       {children}
     </Sheet>
   );

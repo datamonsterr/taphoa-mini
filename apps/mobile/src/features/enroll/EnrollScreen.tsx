@@ -311,33 +311,35 @@ export function EnrollScreen() {
       barcodeError={barcodeError}
       onBarcodeChange={() => setBarcodeError('')}
       onClose={close}
+      replaceKeypad={
+        duplicate ? (
+          <View style={styles.duplicate}>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {`Giống "${duplicate.name ?? FALLBACK_NAME}" (${formatVnd(duplicate.price)}). Gộp ảnh vào món đó?`}
+            </Text>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Gộp ảnh vào món có sẵn"
+              disabled={saving}
+              onPress={onMerge}
+              style={styles.choice}
+            >
+              <Text style={styles.choiceText}>Gộp ảnh vào món có sẵn</Text>
+            </PressableScale>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Vẫn tạo món mới"
+              disabled={saving}
+              onPress={onForce}
+              style={[styles.choice, styles.choiceAlt]}
+            >
+              <Text style={styles.choiceAltText}>Vẫn tạo món mới</Text>
+            </PressableScale>
+          </View>
+        ) : undefined
+      }
       footer={
         <View style={styles.footer}>
-          {duplicate ? (
-            <View style={styles.duplicate}>
-              <Text accessibilityRole="alert" style={styles.error}>
-                {`Giống "${duplicate.name ?? FALLBACK_NAME}" (${formatVnd(duplicate.price)}). Gộp ảnh vào món đó?`}
-              </Text>
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Gộp ảnh vào món có sẵn"
-                disabled={saving}
-                onPress={onMerge}
-                style={styles.choice}
-              >
-                <Text style={styles.choiceText}>Gộp ảnh vào món có sẵn</Text>
-              </PressableScale>
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Vẫn tạo món mới"
-                disabled={saving}
-                onPress={onForce}
-                style={[styles.choice, styles.choiceAlt]}
-              >
-                <Text style={styles.choiceAltText}>Vẫn tạo món mới</Text>
-              </PressableScale>
-            </View>
-          ) : null}
           {failed ? (
             <Text accessibilityRole="alert" style={styles.error}>
               {enrollFailureText[failed]}

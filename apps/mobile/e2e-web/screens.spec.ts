@@ -133,6 +133,18 @@ test.describe('board screenshots', () => {
     await capture(page, testInfo, 'Inventory');
   });
 
+  test('Stock: tồn kho list', async ({ page, store }, testInfo) => {
+    await seedTradingDay(store.api);
+    await openShop(page, '/inventory');
+    await expect(button(page, /^Coca-Cola lon 330ml, /)).toBeVisible();
+    await page.getByRole('radio', { name: 'Tồn kho' }).click();
+    await expect(page.getByTestId('stock-list')).toBeVisible();
+    for (const name of ['Tất cả', 'Sắp hết', 'Hết hàng', 'Còn hàng'])
+      await expect(button(page, name)).toBeVisible();
+    await expect(page.getByTestId('stock-summary')).toBeVisible();
+    await capture(page, testInfo, 'Stock');
+  });
+
   test('Product: detail', async ({ page, store }, testInfo) => {
     await seedTradingDay(store.api);
     await openShop(page, '/inventory');
@@ -226,11 +238,13 @@ test.describe('issue #88 screenshots', () => {
     await expect(
       page.getByRole('heading', { name: 'Coca-Cola lon 330ml' }),
     ).toBeVisible();
+    // board 09: one compact row opens the units page (board 09b)
+    await button(page, /^Sửa đơn vị bán: /).click();
     await expect(
       page.getByRole('heading', { name: 'Đơn vị bán' }),
     ).toBeVisible();
     await button(page, 'Thêm đơn vị').click();
-    await expect(page.getByTestId('unit-sheet')).toBeVisible();
+    await expect(page.getByTestId('unit-form')).toBeVisible();
     await expect(page.getByLabel('Tên đơn vị')).toBeInViewport();
     await capture(page, testInfo, 'ProductUnits');
   });

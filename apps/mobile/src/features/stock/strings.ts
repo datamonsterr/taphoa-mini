@@ -8,6 +8,10 @@ export const strings: Dict = {
     low: 'Sắp hết',
     out: 'Hết hàng',
     ok: 'Còn hàng',
+    threshold: 'Ngưỡng {n}',
+    summary: '{count} món sắp hết hoặc hết',
+    restock: 'Nhập hàng',
+    restockPrompt: 'Tôi nên nhập thêm hàng gì?',
     empty: 'Chưa có sản phẩm theo dõi tồn kho',
     error: 'Không tải được tồn kho',
     offline:
@@ -24,6 +28,10 @@ export const strings: Dict = {
     low: 'Low stock',
     out: 'Out of stock',
     ok: 'In stock',
+    threshold: 'Threshold {n}',
+    summary: '{count} items low or out',
+    restock: 'Restock',
+    restockPrompt: 'What should I restock?',
     empty: 'No tracked products yet',
     error: 'Could not load stock',
     offline:

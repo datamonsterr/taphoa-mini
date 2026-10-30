@@ -30,7 +30,7 @@ export function stockStatus(product: Product): StockItem['status'] {
 }
 
 export function listStock(status = 'all'): StockItem[] {
-  if (!['all', 'low', 'out'].includes(status))
+  if (!['all', 'low', 'out', 'ok'].includes(status))
     throw unprocessableEntity('Invalid stock status');
   const rank = { out: 0, low: 1, ok: 2, untracked: 3 };
   return getMockDb()
