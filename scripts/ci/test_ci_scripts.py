@@ -294,6 +294,84 @@ FAKE_RAILWAY = textwrap.dedent(
 )
 
 
+FAKE_RAILWAY_PLAN = textwrap.dedent(
+    """\
+    #!/usr/bin/env python3
+    import os, sys
+    sys.stdout.write(open(os.environ["FAKE_PLAN"]).read())
+    sys.stderr.write(os.environ.get("FAKE_STDERR", ""))
+    sys.exit(int(os.environ["FAKE_EXIT"]))
+    """
+)
+
+PLAN_DRIFT = (
+    "Plan: 1 to add, 2 to change, 1 to destroy\n"
+    "  + Set variable backend.SAM_DECODERS\n"
+    "    └ backend.SAM_DECODERS (unset → «hidden»)\n"
+    "  ~ Update variable backend.DECISIONS_MODEL\n"
+    "    └ backend.DECISIONS_MODEL («hidden» → «hidden»)\n"
+    "  - Delete variable backend.RATE_LIMIT_RECOVER_PER_10MIN\n"
+    "  ~ Update backend deploy.restartPolicyType\n"
+    "  + Set variable otel-collector.POSTHOG_HOST\n"
+    "  - Delete bucket images\n"
+)
+
+
+class RailwayDrift(unittest.TestCase):
+    def check(self, plan, code, stderr=""):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "railway")
+            fake.write_text(FAKE_RAILWAY_PLAN)
+            fake.chmod(0o755)
+            pathlib.Path(tmp, "plan.txt").write_text(plan)
+            return run(
+                ["python3", "-I", str(HERE / "railway_drift.py"), "test"],
+                env={
+                    "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "FAKE_PLAN": str(pathlib.Path(tmp, "plan.txt")),
+                    "FAKE_EXIT": str(code),
+                    "FAKE_STDERR": stderr,
+                },
+            )
+
+    def test_parse_keeps_only_backend_variables(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("railway_drift", HERE / "railway_drift.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(
+            module.parse_plan(PLAN_DRIFT),
+            [
+                ("DECISIONS_MODEL", "change"),
+                ("RATE_LIMIT_RECOVER_PER_10MIN", "delete"),
+                ("SAM_DECODERS", "set"),
+            ],
+        )
+
+    def test_drift_fails_listing_names_only(self):
+        out = self.check(PLAN_DRIFT, 2)
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        for name in ("SAM_DECODERS", "DECISIONS_MODEL", "RATE_LIMIT_RECOVER_PER_10MIN"):
+            self.assertIn(name, out.stdout)
+        self.assertNotIn("images", out.stdout)
+        self.assertNotIn("hidden", out.stdout)
+
+    def test_other_resource_drift_passes(self):
+        out = self.check("Plan: 1 to change\n  - Delete bucket images\n  ~ Update redis-volume config.region\n", 2)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("match", out.stdout)
+
+    def test_clean_plan_passes(self):
+        out = self.check("No changes.\n", 0)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+    def test_plan_failure_is_not_a_pass(self):
+        out = self.check("", 1, stderr="Unauthorized")
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("Unauthorized", out.stdout)
+
+
 class RailwayDeploy(unittest.TestCase):
     def deploy(self, statuses, timeout="5"):
         with tempfile.TemporaryDirectory() as tmp:
