@@ -13,7 +13,12 @@ appId: com.datamonsterr.taphoamini
 - runScript: subflows/receipt-seed.js
 - tapOn: 'Vuốt lên: cửa hàng'
 - tapOn: 'Báo cáo'
-- tapOn: 'Hóa đơn nhập'
+# The shortcut chip sits under the digest card: scroll to it, as the Android tree names it by text or label.
+- scrollUntilVisible:
+    element:
+      text: 'Hóa đơn.*'
+    direction: DOWN
+- tapOn: 'Hóa đơn.*'
 - extendedWaitUntil:
     visible:
       id: 'receipt-history-row'
