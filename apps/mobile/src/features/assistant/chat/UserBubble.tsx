@@ -33,9 +33,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     paddingVertical: space[3],
     borderRadius: radius.md,
-    borderBottomRightRadius: radius.sm,
-    backgroundColor: colors.accent,
+    // Board 17: the tail corner is 6 px.
+    borderBottomRightRadius: 6,
+    backgroundColor: colors.accentSoft,
   },
-  text: { ...typography.body, color: colors.onAccent },
+  text: { ...typography.body, color: colors.ink },
   failed: { ...typography.caption, color: colors.danger },
 });

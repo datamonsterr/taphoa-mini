@@ -9,6 +9,7 @@ import {
 
 import { capture } from '@/lib/analytics';
 import { getApiClient } from '@/lib/api/client';
+import { retryAfterMs } from '@/lib/api/errors';
 import { newUuid } from '@/lib/uuid';
 import type { Language } from '@/stores/settings';
 
@@ -47,16 +48,13 @@ const isAbort = (error: unknown) =>
  * What a non-OK response to a message means for the seller. The request reached the server, so
  * "check your network" is wrong: 429 is the quota, 502/503/504 a busy server, other 5xx a fault.
  */
-export function httpError(status: number, body: unknown): ChatError {
+export function httpError(status: number, retryAfterMs?: number): ChatError {
   if (status === 429) return { code: 'quota' };
   if (status === 502 || status === 503 || status === 504)
     return { code: 'busy' };
   if (status >= 500) return { code: 'internal' };
-  const message = (body as { error?: unknown } | undefined)?.error;
-  return {
-    code: 'network',
-    ...(typeof message === 'string' ? { message } : {}),
-  };
+  // The server's English text (`body.error`) is for logs only; the notice maps the status.
+  return { code: 'http', status, ...(retryAfterMs ? { retryAfterMs } : {}) };
 }
 
 /**
@@ -165,7 +163,9 @@ export function useAssistantChat({
           { signal: abort.signal },
         );
         if (!result.events) {
-          fail(httpError(result.response.status, result.error));
+          fail(
+            httpError(result.response.status, retryAfterMs(result.response)),
+          );
         } else {
           for await (const event of result.events) {
             if (abort.signal.aborted) return;

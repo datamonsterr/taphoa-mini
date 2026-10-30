@@ -211,6 +211,156 @@ test('chat from the tab bar: a greeting streams back and the thread is listed', 
   ).toHaveCount(1);
 });
 
+/**
+ * Board 17 (docs/design/canvas/Assistant.dc.html) on the real screen at 390x844: sheet with a
+ * grabber 56 px from the top, header (threads, title, new chat, collapse), lavender user bubble,
+ * plain tool row, grey thumbs, one-line placeholder, grey send. The screenshot is the evidence
+ * posted on the issue.
+ */
+test('chat looks like board 17: sheet, header, bubble, tool row, thumbs, composer', async ({
+  page,
+  store,
+}) => {
+  await seedTracked(store.api, 5);
+  await openChat(page);
+  const box = async (id: string) => {
+    const found = await page.getByTestId(id).boundingBox();
+    expect(found, id).not.toBeNull();
+    return found!;
+  };
+
+  // The sheet starts 56 px down and shows a 40x5 grabber.
+  expect((await box('assistant-panel')).y).toBe(56);
+  const grabber = await box('assistant-grabber');
+  expect([grabber.width, grabber.height]).toEqual([40, 5]);
+
+  // Header, left to right: threads, "Trợ lý", new chat, collapse.
+  const threads = await box('assistant-threads');
+  const title = await page
+    .getByRole('heading', { name: 'Trợ lý' })
+    .boundingBox();
+  const fresh = await box('assistant-new-chat');
+  const close = await box('assistant-close');
+  expect(threads.x).toBeLessThan(title!.x);
+  expect(title!.x).toBeLessThan(fresh.x);
+  expect(fresh.x).toBeLessThan(close.x);
+
+  // Composer: a 56 px pill whose placeholder stays on one line, a grey 40% send.
+  const field = await box('assistant-input');
+  expect(field.height).toBe(56);
+  await expect(page.getByTestId('assistant-input')).toHaveAttribute(
+    'placeholder',
+    'Hỏi trợ lý về cửa hàng…',
+  );
+  await expect(send(page)).toHaveCSS('background-color', 'rgb(17, 17, 20)');
+  await expect(send(page)).toHaveCSS('opacity', '0.4');
+
+  await ask(page, 'Điều chỉnh tồn kho');
+  await expect(page.getByTestId('feedback-up')).toBeVisible();
+  // user bubble: soft lavender with dark text
+  const bubble = page.getByTestId('user-message').locator('div').first();
+  await expect(bubble).toHaveCSS('background-color', 'rgb(238, 236, 253)');
+  // tool row: no pill behind it
+  const tool = page.getByTestId(/^tool-line-.*-ok$/).first();
+  await expect(tool).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  // thumbs: 56 px grey circles
+  const thumb = await box('feedback-up');
+  expect([thumb.width, thumb.height]).toEqual([56, 56]);
+  await expect(page.getByTestId('feedback-up')).toHaveCSS(
+    'background-color',
+    'rgb(243, 243, 245)',
+  );
+  await page.screenshot({
+    path: path.join(__dirname, 'screenshots', 'assistant-board17-real.png'),
+  });
+});
+
+/**
+ * A refusal of the message request (here a 403 with English text) reads as a Vietnamese sentence
+ * by status and offers Retry; the server's text is never shown.
+ */
+test('a refused message shows a Vietnamese notice, not the server text', async ({
+  page,
+}) => {
+  await openChat(page);
+  await page.route(/\/v1\/assistant\/threads\/[^/]+\/messages$/, (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'forbidden: store mismatch' }),
+    }),
+  );
+  await ask(page, 'Xin chào');
+  await expect(page.getByRole('alert')).toHaveText(
+    'Bạn không có quyền làm việc này.',
+  );
+  await expect(page.getByText(/store mismatch/)).toHaveCount(0);
+  await expect(page.getByTestId('assistant-retry')).toBeVisible();
+});
+
+/**
+ * Board 17b (ChatVoice.dc.html) on the real screen: while the microphone is held the composer
+ * shows the hint, level bars with a timer and the accent mic with its halo. Chromium has no
+ * recognizer in CI, so a stand-in webkitSpeechRecognition fires `start` and `end`; the chat
+ * button, its hold gesture and the composer are the real ones.
+ */
+test('holding the microphone looks like board 17b: hint, bars with timer, halo', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      lang = 'vi-VN';
+      interimResults = false;
+      maxAlternatives = 1;
+      continuous = false;
+      start() {
+        setTimeout(() => this.dispatchEvent(new Event('start')), 0);
+      }
+      stop() {
+        setTimeout(() => this.dispatchEvent(new Event('end')), 0);
+      }
+      abort() {
+        this.stop();
+      }
+    }
+    Object.assign(window, { webkitSpeechRecognition: FakeRecognition });
+  });
+  await openChat(page);
+  const mic = page.getByTestId('voice-button');
+  await expect(page.getByTestId('assistant-listening')).toHaveCount(0);
+  await expect(page.getByTestId('voice-halo')).toHaveCount(0);
+
+  const center = (await mic.boundingBox())!;
+  await page.mouse.move(
+    center.x + center.width / 2,
+    center.y + center.height / 2,
+  );
+  await page.mouse.down();
+  await expect(page.getByTestId('assistant-listening-hint')).toHaveText(
+    'Đang nghe, thả tay để dừng',
+  );
+  await expect(page.getByLabel('Ô nhập, đang nghe')).toBeVisible();
+  // the timer reaches the board's 0:04
+  await expect(page.getByTestId('assistant-listening-time')).toHaveText(
+    '0:04',
+    { timeout: 10_000 },
+  );
+  // a 56 px accent mic inside a 76 px soft halo
+  const halo = (await page.getByTestId('voice-halo').boundingBox())!;
+  expect([halo.width, halo.height]).toEqual([76, 76]);
+  const held = (await mic.boundingBox())!;
+  expect([held.width, held.height]).toEqual([56, 56]);
+  await expect(mic).toHaveCSS('background-color', 'rgb(90, 67, 232)');
+  await page.screenshot({
+    path: path.join(__dirname, 'screenshots', 'assistant-board17b-real.png'),
+  });
+
+  await page.mouse.up();
+  await expect(page.getByTestId('assistant-listening')).toHaveCount(0);
+  await expect(page.getByTestId('assistant-listening-hint')).toHaveCount(0);
+  await expect(input(page)).toBeVisible();
+});
+
 test('stock adjustment: tool line, action card, confirm changes the stock once', async ({
   page,
   store,

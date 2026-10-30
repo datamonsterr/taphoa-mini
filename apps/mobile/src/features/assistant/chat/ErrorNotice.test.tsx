@@ -12,6 +12,7 @@ const retryCodes: ChatError['code'][] = [
   'timeout',
   'model_unavailable',
   'internal',
+  'http',
 ];
 
 test.each(retryCodes)('%s offers Retry', async (code) => {
