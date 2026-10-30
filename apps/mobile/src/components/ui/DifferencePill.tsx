@@ -27,7 +27,7 @@ const DEFAULT_LABELS: DifferenceLabels = {
 export type DifferencePillProps = {
   /** counted - expected, in đồng. */
   difference: number;
-  /** Visible words; Vietnamese board wording by default. */
+  /** Words read by screen readers; Vietnamese board wording by default. */
   labels?: DifferenceLabels;
 };
 
@@ -37,7 +37,7 @@ const tone = {
   extra: { bg: colors.warningSoft, fg: colors.warning },
 } as const;
 
-/** Close-of-day difference: icon + word + amount, so colour is never alone. */
+/** Close-of-day difference: icon + signed amount (the word is read aloud), so colour is never alone. */
 export const DifferencePill = memo(function DifferencePill({
   difference,
   labels = DEFAULT_LABELS,
@@ -46,6 +46,9 @@ export const DifferencePill = memo(function DifferencePill({
   const { bg, fg } = tone[status];
   const word = labels[status];
   const amount = formatVnd(Math.abs(difference));
+  // The board shows the signed amount ("−10.000đ"); the words live in the accessibility label.
+  const signed =
+    status === 'match' ? amount : `${status === 'short' ? '−' : '+'}${amount}`;
   return (
     <View
       accessible
@@ -59,9 +62,7 @@ export const DifferencePill = memo(function DifferencePill({
         size={22}
         color={fg}
       />
-      <Text style={[styles.text, { color: fg }]}>
-        {status === 'match' ? word : `${word} ${amount}`}
-      </Text>
+      <Text style={[styles.text, { color: fg }]}>{signed}</Text>
     </View>
   );
 });

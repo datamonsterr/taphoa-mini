@@ -40,3 +40,12 @@ test('labels override the delete key name', async () => {
   expect(screen.getByRole('button', { name: 'Delete' })).toBeOnTheScreen();
   expect(screen.queryByRole('button', { name: 'Xóa' })).toBeNull();
 });
+
+test('lays the keys out as the board does: 4 rows of 3', async () => {
+  await renderWithProviders(<Keypad onKey={jest.fn()} />);
+  const rows = screen.getByTestId('keypad').children;
+  expect(rows).toHaveLength(4);
+  expect(
+    rows.map((row) => (typeof row === 'string' ? 0 : row.children.length)),
+  ).toEqual([3, 3, 3, 3]);
+});

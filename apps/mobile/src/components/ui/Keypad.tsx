@@ -65,6 +65,10 @@ export type KeypadProps = {
   labels?: KeypadLabels;
 };
 
+const ROWS = [0, 1, 2, 3].map((row) =>
+  KEYPAD_LAYOUT.slice(row * 3, row * 3 + 3),
+);
+
 /** 3x4 pad: 1-9, 000, 0, delete. Pair with `applyKey`. */
 export const Keypad = memo(function Keypad({
   onKey,
@@ -72,29 +76,32 @@ export const Keypad = memo(function Keypad({
   disabled,
   labels,
 }: KeypadProps) {
+  // Board: a 3-column grid, each key centred in its third (1-9, 000, 0, delete).
   return (
-    <View style={styles.grid}>
-      {KEYPAD_LAYOUT.map((keyId) => (
-        <KeypadKey
-          key={keyId}
-          keyId={keyId}
-          onPress={onKey}
-          diameter={diameter}
-          disabled={disabled}
-          labels={labels}
-        />
+    <View testID="keypad" style={styles.grid}>
+      {ROWS.map((row) => (
+        <View key={row[0]} style={styles.row}>
+          {row.map((keyId) => (
+            <View key={keyId} style={styles.cell}>
+              <KeypadKey
+                keyId={keyId}
+                onPress={onKey}
+                diameter={diameter}
+                disabled={disabled}
+                labels={labels}
+              />
+            </View>
+          ))}
+        </View>
       ))}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: space[3],
-  },
+  grid: { rowGap: space[3] },
+  row: { flexDirection: 'row' },
+  cell: { flex: 1, alignItems: 'center' },
   key: {
     alignItems: 'center',
     justifyContent: 'center',
