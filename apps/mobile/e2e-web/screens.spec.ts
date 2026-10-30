@@ -134,7 +134,17 @@ test.describe('board screenshots', () => {
   });
 
   test('Stock: tồn kho list', async ({ page, store }, testInfo) => {
-    await seedTradingDay(store.api);
+    const { coca, pepsi } = await seedTradingDay(store.api);
+    // a count starts stock tracking: one product in stock, one out
+    for (const [product, count] of [
+      [coca, 20],
+      [pepsi, 0],
+    ] as const)
+      await store.api.post(
+        `/v1/products/${product.id}/stock-adjustments`,
+        { count },
+        { 'Idempotency-Key': uuid7() },
+      );
     await openShop(page, '/inventory');
     await expect(button(page, /^Coca-Cola lon 330ml, /)).toBeVisible();
     await page.getByRole('radio', { name: 'Tồn kho' }).click();
