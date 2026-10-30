@@ -5,8 +5,10 @@ import {
   Banknote,
   Check,
   ChevronRight,
+  MessageCircleText,
   Plus,
   QrCode,
+  ReceiptText,
   Trash2,
   X,
   ZoomIn,
@@ -25,6 +27,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
+import { useAssistantEnabled } from '@/features/assistant/flags';
+import { assistantHref } from '@/features/assistant/route';
+import { formatDayMonth } from '@/features/digest/utils';
 import {
   useConfirmReceipt,
   useDiscardReceipt,
@@ -38,11 +43,12 @@ import {
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { businessDate } from '@/lib/date';
-import { colors, radius, space, typography } from '@/theme';
+import { camera, colors, fontFamily, radius, space, typography } from '@/theme';
 import { ProductPicker } from './ProductPicker';
 import { ReceiptLineStatus, receiptLineStatus } from './ReceiptLineStatus';
 import { ReceiptPriceKeypad, ReceiptPricePill } from './ReceiptPrice';
 import { ReceiptQuantityStepper } from './ReceiptQuantityStepper';
+import { ReceiptSummaryLine } from './ReceiptSummaryLine';
 import { useReceiptNotice } from './ReceiptToast';
 import { strings } from './strings';
 
@@ -156,7 +162,9 @@ function ProductChip({
       onPress={onPress}
       style={styles.product}
     >
-      <Text style={[typography.label, styles.grow]}>{name}</Text>
+      <Text numberOfLines={1} style={[styles.name, styles.grow]}>
+        {name}
+      </Text>
       <Icon icon={ChevronRight} size={20} color={colors.inkMuted} />
     </PressableScale>
   );
@@ -265,6 +273,7 @@ function Review({ receipt }: { receipt: Receipt }) {
       ]);
     }
   };
+  const assistant = useAssistantEnabled() && !readonly;
   const chosenLine = lines.find((line) => line.key === picker);
   const priceLine = lines.find((line) => line.key === editingPrice);
   return (
@@ -286,10 +295,28 @@ function Review({ receipt }: { receipt: Receipt }) {
           </Text>
           <Text accessibilityLiveRegion="polite" style={styles.meta}>
             {summary
-              ? `${businessDate(receipt.created_at)} · ${t(receipt.status)}`
+              ? `${formatDayMonth(businessDate(receipt.created_at))} · ${t(receipt.status).toLocaleLowerCase()}`
               : fill(t('fixCount'), { count: lines.length, fixes })}
           </Text>
         </View>
+        {assistant ? (
+          <CircleButton
+            icon={MessageCircleText}
+            accessibilityLabel={t(
+              summary ? 'assistantSummary' : 'assistantEdit',
+            )}
+            disabled={busy}
+            onPress={() =>
+              router.push(
+                assistantHref({
+                  entry: 'receipt',
+                  screen: 'receipt',
+                  receiptId: receipt.id,
+                }),
+              )
+            }
+          />
+        ) : null}
       </View>
       <ScrollView
         contentContainerStyle={styles.content}
@@ -301,65 +328,76 @@ function Review({ receipt }: { receipt: Receipt }) {
           onPress={() => setPhoto(true)}
           style={[styles.photoStrip, summary && styles.summaryPhoto]}
         >
-          <Image
-            source={{ uri: receipt.image_url }}
-            style={styles.thumbnail}
-            contentFit="cover"
-          />
-          <Text style={styles.photoLabel}>{t('photo')}</Text>
-          <Icon icon={ZoomIn} color={colors.cameraInk} />
-        </PressableScale>
-        {lines.map((line) => (
-          <View
-            key={line.key}
-            style={[
-              styles.line,
-              !line.productId && styles.unmatched,
-              summary && styles.summaryLine,
-            ]}
+          {summary ? (
+            <Icon icon={ReceiptText} color={colors.cameraMuted} />
+          ) : (
+            <Image
+              source={{ uri: receipt.image_url }}
+              style={styles.thumbnail}
+              contentFit="cover"
+            />
+          )}
+          <Text
+            numberOfLines={1}
+            style={[styles.photoLabel, summary && styles.photoLabelCentre]}
           >
-            <View style={styles.fields}>
-              <View style={styles.grow}>
-                <ProductChip
-                  line={line}
-                  readonly={readonly}
-                  disabled={busy}
-                  onPress={() => setPicker(line.key)}
-                />
+            {t('photo')}
+          </Text>
+          {summary ? null : <Icon icon={ZoomIn} color={colors.cameraMuted} />}
+        </PressableScale>
+        {lines.map((line, index) =>
+          summary ? (
+            <ReceiptSummaryLine
+              key={line.key}
+              line={line}
+              total={lineTotal(line)}
+              readonly={readonly}
+              disabled={busy}
+              first={index === 0}
+              onPick={() => setPicker(line.key)}
+            />
+          ) : (
+            <View
+              key={line.key}
+              style={[styles.line, !line.productId && styles.unmatched]}
+            >
+              <View style={styles.fields}>
+                <View style={styles.grow}>
+                  <ProductChip
+                    line={line}
+                    readonly={readonly}
+                    disabled={busy}
+                    onPress={() => setPicker(line.key)}
+                  />
+                </View>
                 <ReceiptLineStatus
                   productId={line.productId}
                   price={line.unitPrice}
                 />
+                {!readonly ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={`${t('drop')} ${line.name}`}
+                    accessibilityState={{ disabled: busy }}
+                    disabled={busy}
+                    hitSlop={10}
+                    onPress={() => {
+                      setLines((current) =>
+                        current.filter((l) => l.key !== line.key),
+                      );
+                      if (editingPrice === line.key) setEditingPrice(null);
+                    }}
+                    style={styles.drop}
+                  >
+                    <Icon icon={Trash2} size={20} color={colors.inkMuted} />
+                  </PressableScale>
+                ) : null}
               </View>
-              {!readonly && !summary ? (
-                <CircleButton
-                  icon={Trash2}
-                  accessibilityLabel={`${t('drop')} ${line.name}`}
-                  disabled={busy}
-                  onPress={() => {
-                    setLines((current) =>
-                      current.filter((l) => l.key !== line.key),
-                    );
-                    if (editingPrice === line.key) setEditingPrice(null);
-                  }}
-                />
+              {line.line?.raw_text ? (
+                <Text style={styles.meta}>
+                  {fill(t('source'), { text: line.line.raw_text })}
+                </Text>
               ) : null}
-            </View>
-            {!summary && line.line?.raw_text ? (
-              <Text style={styles.meta}>
-                {fill(t('source'), { text: line.line.raw_text })}
-              </Text>
-            ) : null}
-            {summary ? (
-              <View style={styles.fields}>
-                <Text style={[styles.meta, styles.grow]}>
-                  {line.quantity} × {formatVnd(line.unitPrice)}
-                </Text>
-                <Text style={styles.lineTotal}>
-                  {formatVnd(lineTotal(line))}
-                </Text>
-              </View>
-            ) : (
               <View style={styles.amounts}>
                 <ReceiptQuantityStepper
                   name={line.name}
@@ -376,15 +414,18 @@ function Review({ receipt }: { receipt: Receipt }) {
                   onPress={() => setEditingPrice(line.key)}
                 />
                 <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
                   accessibilityLabel={`${t('cost')}: ${line.name}`}
                   style={styles.lineTotal}
                 >
                   {formatVnd(lineTotal(line))}
                 </Text>
               </View>
-            )}
-          </View>
-        ))}
+            </View>
+          ),
+        )}
         {!readonly && !summary ? (
           <PressableScale
             accessibilityRole="button"
@@ -449,12 +490,12 @@ function Review({ receipt }: { receipt: Receipt }) {
           <>
             <View style={styles.fields}>
               <Text style={[typography.label, styles.grow]}>
-                {fill(t('itemTotal'), { count })}
+                {summary ? t('total') : fill(t('itemTotal'), { count })}
               </Text>
               <Text
                 accessibilityLabel={t('total')}
                 accessibilityLiveRegion="polite"
-                style={typography.price}
+                style={styles.total}
               >
                 {formatVnd(total)}
               </Text>
@@ -607,6 +648,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   grow: { flex: 1, minWidth: 0 },
+  name: { fontFamily: fontFamily.semibold, fontSize: 17, lineHeight: 22 },
   meta: { ...typography.caption, color: colors.inkMuted },
   thumbnail: {
     width: 32,
@@ -616,15 +658,22 @@ const styles = StyleSheet.create({
   },
   photoStrip: {
     minHeight: 64,
-    padding: space[3],
+    paddingHorizontal: space[4],
     borderRadius: radius.md,
-    backgroundColor: colors.cameraBg,
+    backgroundColor: camera.viewfinderBg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
   },
-  summaryPhoto: { minHeight: 96 },
-  photoLabel: { ...typography.caption, color: colors.cameraInk, flex: 1 },
+  summaryPhoto: { minHeight: 96, justifyContent: 'center' },
+  photoLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: colors.cameraMuted,
+    flex: 1,
+  },
+  photoLabelCentre: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
   line: {
     gap: space[2],
     padding: space[3],
@@ -632,25 +681,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   unmatched: { backgroundColor: colors.warningSoft },
-  summaryLine: { backgroundColor: colors.surface },
   product: {
-    minHeight: 56,
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
   },
   fields: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  amounts: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: space[2],
-  },
+  // Board 19b: stepper, ×, unit price and line total share one row.
+  amounts: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   lineTotal: {
-    ...typography.heading,
+    fontFamily: fontFamily.extrabold,
+    fontSize: 16,
+    lineHeight: 22,
     textAlign: 'right',
-    flexGrow: 1,
+    flex: 1,
+    flexShrink: 0,
+    minWidth: 0,
     fontVariant: ['tabular-nums'],
+  },
+  drop: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
   },
   addLine: {
     minHeight: 56,
@@ -663,8 +718,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   footer: { padding: space[4], gap: space[3] },
+  total: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 28,
+    lineHeight: 32,
+    fontVariant: ['tabular-nums'],
+  },
   toggle: {
-    minWidth: 56,
+    minWidth: 72,
     minHeight: 56,
     borderRadius: radius.full,
     alignItems: 'center',

@@ -10,7 +10,8 @@ test('price pill opens editing and signals unknown price', async () => {
   const pill = screen.getByRole('button', {
     name: 'Giá nhập: Coca, 0đ, chạm để sửa',
   });
-  expect(pill).toHaveStyle({ minHeight: 56 });
+  expect(pill).toHaveStyle({ height: 40 });
+  expect(pill.props.hitSlop).toBe(8);
   await fireEvent.press(pill);
   expect(onPress).toHaveBeenCalledTimes(1);
 });

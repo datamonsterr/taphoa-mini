@@ -41,12 +41,13 @@ test.describe('add expense', () => {
     expect(posts).toEqual([]);
   });
 
-  test('save needs a category and an amount; the keypad edits the amount', async ({
+  test('save needs an amount (Nhập is preselected); the keypad edits the amount', async ({
     page,
   }) => {
     await openExpense(page);
     await expect(page.getByLabel('Số tiền chi')).toHaveText('−0đ');
     await expect(save(page)).toBeDisabled();
+    await expect(category(page, 'Nhập')).toBeChecked();
     for (const name of ['Nhập', 'Điện', 'Nước', 'Khác']) {
       await category(page, name).click();
       await expect(category(page, name)).toBeChecked();
