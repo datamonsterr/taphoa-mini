@@ -13,8 +13,9 @@ appId: com.datamonsterr.taphoamini
 # The picker's PIN sheet (`auth-switch-pin`) is left to the Jest route tests: A and B end for good
 # when they sign out, so reaching a person with a PIN through the picker as well would take a
 # third Clerk sign-in in the same run.
-# PIN digits avoid 5: the account tab shows the low-stock threshold (default 5) as a text of its
-# own, so a tap on keypad key "5" would be ambiguous while a PIN sheet is open.
+# PIN digits avoid 2 and 5: the account tab shows the low-stock threshold (default 5) and, with two
+# people on the phone, the people count (2) as texts of their own, so a tap on keypad key "2" or
+# "5" would be ambiguous (it can hit the badge behind the scrim and close the sheet).
 # Store and owner names are plain ASCII (inputText on Android does not do Unicode reliably).
 
 # 1. Person A
@@ -29,12 +30,12 @@ appId: com.datamonsterr.taphoamini
 - extendedWaitUntil:
     visible: 'Tiem A Maestro'
     timeout: 20000
-# New PIN 2468, then the same again.
+# New PIN 7468, then the same again.
 - tapOn: 'Đặt mã PIN'
 - extendedWaitUntil:
     visible: 'Mã PIN mới.*'
     timeout: 15000
-- tapOn: '2'
+- tapOn: '7'
 - tapOn: '4'
 - tapOn: '6'
 - tapOn: '8'
@@ -42,14 +43,17 @@ appId: com.datamonsterr.taphoamini
 - extendedWaitUntil:
     visible: 'Nhập lại mã PIN'
     timeout: 15000
-- tapOn: '2'
+- tapOn: '7'
 - tapOn: '4'
 - tapOn: '6'
 - tapOn: '8'
 - tapOn: 'Xác nhận'
-- extendedWaitUntil:
-    visible: 'Đã đặt mã PIN'
+# The confirmation sits under the 'Mã PIN khóa máy' row, below the fold of the account tab, so
+# scroll to it: an element outside the viewport is not visible to Maestro.
+- scrollUntilVisible:
+    element: 'Đã đặt mã PIN'
     timeout: 30000
+- assertVisible: 'Đã đặt mã PIN'
 - takeScreenshot: multi-session-01-pin-set
 
 # 2. Add person B. A is the only one on the phone for now.
@@ -120,8 +124,8 @@ appId: com.datamonsterr.taphoamini
     timeout: 30000
 - assertVisible: 'Mã PIN của .*'
 - takeScreenshot: multi-session-05-wrong-pin
-# Right PIN 2468 (the wrong digits were cleared): A's screens replace B's.
-- tapOn: '2'
+# Right PIN 7468 (the wrong digits were cleared): A's screens replace B's.
+- tapOn: '7'
 - tapOn: '4'
 - tapOn: '6'
 - tapOn: '8'
