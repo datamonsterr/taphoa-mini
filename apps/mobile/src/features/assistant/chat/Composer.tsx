@@ -1,6 +1,6 @@
 import { ArrowRight } from 'lucide-react-native';
 import { memo, useRef, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { Platform, StyleSheet, TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
 import { Text } from '@/components/ui/ScaledText';
@@ -48,6 +48,8 @@ export const Composer = memo(function Composer({
   const [pending, setPending] = useState(false);
   /** The microphone is held: the input shows level bars and the timer (board 17b). */
   const [listening, setListening] = useState(false);
+  /** A screen reader (and the web) toggles the microphone with a tap instead of a hold. */
+  const [tapToStop, setTapToStop] = useState(false);
   const [seenPrefill, setSeenPrefill] = useState(prefill?.id);
   /** Text typed before the current hold; null between holds. */
   const heldBase = useRef<string | null>(null);
@@ -91,7 +93,11 @@ export const Composer = memo(function Composer({
           accessibilityLiveRegion="polite"
           style={styles.hint}
         >
-          {translate(voiceStrings, 'listening', language)}
+          {translate(
+            voiceStrings,
+            tapToStop ? 'tapToStop' : 'listening',
+            language,
+          )}
         </Text>
       ) : null}
       <View style={styles.row}>
@@ -109,6 +115,8 @@ export const Composer = memo(function Composer({
             placeholderTextColor={colors.inkMuted}
             multiline
             // Enter sends and closes the keyboard.
+            // One row on the web too (its textarea defaults to two); the native input grows.
+            {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
             submitBehavior="blurAndSubmit"
             returnKeyType="send"
             onSubmitEditing={send}
@@ -140,7 +148,10 @@ export const Composer = memo(function Composer({
           onFinal={onFinal}
           disabled={streaming}
           onPendingChange={setPending}
-          onListeningChange={setListening}
+          onListeningChange={(on, tap) => {
+            setListening(on);
+            setTapToStop(tap);
+          }}
         />
         <PressableScale
           testID="assistant-send"

@@ -330,14 +330,10 @@ test('holding the microphone looks like board 17b: hint, bars with timer, halo',
   await expect(page.getByTestId('assistant-listening')).toHaveCount(0);
   await expect(page.getByTestId('voice-halo')).toHaveCount(0);
 
-  const center = (await mic.boundingBox())!;
-  await page.mouse.move(
-    center.x + center.width / 2,
-    center.y + center.height / 2,
-  );
-  await page.mouse.down();
+  // react-native-web reports a screen reader, so the mic toggles on a tap (hint: chạm để dừng)
+  await mic.click();
   await expect(page.getByTestId('assistant-listening-hint')).toHaveText(
-    'Đang nghe, thả tay để dừng',
+    'Đang nghe, chạm để dừng',
   );
   await expect(page.getByLabel('Ô nhập, đang nghe')).toBeVisible();
   // the timer reaches the board's 0:04
@@ -355,7 +351,7 @@ test('holding the microphone looks like board 17b: hint, bars with timer, halo',
     path: path.join(__dirname, 'screenshots', 'assistant-board17b-real.png'),
   });
 
-  await page.mouse.up();
+  await mic.click();
   await expect(page.getByTestId('assistant-listening')).toHaveCount(0);
   await expect(page.getByTestId('assistant-listening-hint')).toHaveCount(0);
   await expect(input(page)).toBeVisible();

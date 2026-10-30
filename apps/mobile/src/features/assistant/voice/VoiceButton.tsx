@@ -40,7 +40,7 @@ export type VoiceButtonProps = {
   /** True while a recorded clip is being transcribed on the server (the composer shows dots). */
   onPendingChange?: (pending: boolean) => void;
   /** True while the button is held and the engine is recording (the composer shows the meter). */
-  onListeningChange?: (listening: boolean) => void;
+  onListeningChange?: (listening: boolean, tapToStop: boolean) => void;
 };
 
 const HINT_MS = 4000;
@@ -125,7 +125,7 @@ type ViewProps = {
   /** A message above the button for a few seconds (for example the server fallback). */
   notice?: string;
   onPendingChange?: (pending: boolean) => void;
-  onListeningChange?: (listening: boolean) => void;
+  onListeningChange?: (listening: boolean, tapToStop: boolean) => void;
 };
 
 function VoiceButtonView({
@@ -141,9 +141,6 @@ function VoiceButtonView({
   useEffect(() => {
     onPendingChange?.(transcribing);
   }, [transcribing, onPendingChange]);
-  useEffect(() => {
-    onListeningChange?.(listening);
-  }, [listening, onListeningChange]);
 
   const pulse = useSharedValue(0);
   useEffect(() => {
@@ -180,6 +177,10 @@ function VoiceButtonView({
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    onListeningChange?.(listening, screenReader);
+  }, [listening, screenReader, onListeningChange]);
 
   const [noticeOpen, setNoticeOpen] = useState(Boolean(notice));
   useEffect(() => {
