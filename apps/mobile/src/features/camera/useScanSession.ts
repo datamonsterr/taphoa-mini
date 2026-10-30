@@ -1,3 +1,4 @@
+import { onlineManager } from '@tanstack/react-query';
 import type { CameraView } from 'expo-camera';
 import { useCallback, useReducer, useRef, type RefObject } from 'react';
 
@@ -15,7 +16,8 @@ export const SCAN_OFFLINE_MESSAGE =
 export const SCAN_FAILED_MESSAGE = 'Chưa nhận diện được';
 
 const offline = () =>
-  typeof navigator !== 'undefined' && navigator.onLine === false;
+  !onlineManager.isOnline() ||
+  (typeof navigator !== 'undefined' && navigator.onLine === false);
 
 /** What the seller reads on the error pill: what failed; the retry button says what to do. */
 const message = (error: unknown) =>
@@ -37,6 +39,11 @@ export function useScanSession(
 
   const submit = useCallback(
     async (token: number, shot: Photo) => {
+      // React Query parks a mutation while offline, so say so now instead of after the timeout.
+      if (offline()) {
+        dispatch({ type: 'failed', token, message: SCAN_OFFLINE_MESSAGE });
+        return;
+      }
       // A late answer after the timeout is dropped: the reducer only takes `scanning` + same token.
       const timer = setTimeout(
         () => dispatch({ type: 'failed', token, message: SCAN_SLOW_MESSAGE }),

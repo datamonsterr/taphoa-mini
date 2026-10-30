@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { Alert, Linking } from 'react-native';
 import {
@@ -781,6 +782,21 @@ describe('errors', () => {
       await screen.findByRole('button', { name: /đã chọn$/ }),
     ).toBeOnTheScreen();
     expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('offline: says so at once without sending the scan', async () => {
+    const create = jest.spyOn(images, 'createScan');
+    try {
+      await renderWithProviders(<CameraScreen />);
+      onlineManager.setOnline(false);
+      await fireEvent.press(screen.getByRole('button', { name: 'Chụp' }));
+      expect(
+        await screen.findByText('Không có mạng. Kiểm tra kết nối rồi thử lại.'),
+      ).toBeOnTheScreen();
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('says there is no network when the request cannot leave the phone', async () => {
