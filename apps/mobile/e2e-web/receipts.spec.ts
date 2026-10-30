@@ -161,7 +161,10 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
   ).toBeVisible();
   await expect(button(page, 'Xác nhận nhập kho')).toHaveCount(0);
   expect(receipt.lines.at(-1)?.product_id).toBeNull();
-  await expect(page.getByText('Chọn sản phẩm', { exact: true })).toBeVisible();
+  // Fallback mapping is deliberately strict, so more than one line may still need a pick.
+  await expect(
+    page.getByText('Chọn sản phẩm', { exact: true }).first(),
+  ).toBeVisible();
   products.push(
     await store.api.createProduct({
       name: fixture.lines.at(-1)!.product_name,

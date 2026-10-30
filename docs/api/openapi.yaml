@@ -3589,7 +3589,7 @@ components:
           {
             type: [string, 'null'],
             description: 'Decision model ID, or null when unused.',
-            example: 'inception/mercury-decide:free',
+            example: 'inception/mercury-decide',
           }
         lines:
           type: array
@@ -3692,7 +3692,11 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
-        new_value: { $ref: '#/components/schemas/Money' }
+        new_value:
+          description: Null only when a cost price was cleared.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
         changed_by: { type: string, format: uuid }
         changed_at: { type: string, format: date-time }
         source: { type: string, enum: [manual, margin_alert, purchase] }

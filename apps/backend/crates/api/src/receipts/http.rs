@@ -419,6 +419,10 @@ async fn confirm(
         .iter()
         .try_fold(0i64, |sum, l| sum.checked_add(l.cost))
         .ok_or_else(|| invalid("total overflow"))?;
+    // Same rule as POST /v1/expenses: a receipt that costs nothing is not a purchase.
+    if total <= 0 {
+        return Err(invalid("receipt total must be positive"));
+    }
     let products: Vec<_> = input.lines.iter().map(|l| l.product_id).collect();
     stock::lock_products(&mut tx, actor.store_id, &products)
         .await

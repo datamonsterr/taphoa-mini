@@ -309,7 +309,8 @@ pub(crate) async fn create_in_transaction(
             .bind(actor.store_id).bind(input.id).bind(line.product_id).bind(line.unit_id).bind(line.quantity).bind(line.unit_cost).bind(cost).execute(&mut *conn).await?;
         // Only the Lead changes a product cost price; seller purchases record the
         // expense and lines but leave cost, price history and margin alerts alone.
-        if !lead {
+        // A free line (cost 0, e.g. a promotional gift) adds stock but is not a price.
+        if !lead || cost == 0 {
             continue;
         }
         sqlx::query("UPDATE products SET cost_price=$3,version=version+1,updated_at=now() WHERE store_id=$1 AND id=$2")

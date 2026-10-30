@@ -192,6 +192,7 @@ function Review({ receipt }: { receipt: Receipt }) {
     lines.length <= 100 &&
     lines.every(valid) &&
     Number.isSafeInteger(total) &&
+    total > 0 &&
     !busy;
   const change = (key: string, patch: Partial<EditableLine>) =>
     setLines((current) =>
@@ -398,6 +399,16 @@ function Review({ receipt }: { receipt: Receipt }) {
             <Icon icon={Plus} />
             <Text style={typography.label}>{t('addLine')}</Text>
           </PressableScale>
+        ) : null}
+        {!readonly && receipt.parser === 'fallback' ? (
+          <Text accessibilityRole="alert" style={styles.notice}>
+            {t('fallbackNotice')}
+          </Text>
+        ) : null}
+        {summary && !readonly && missing.length === 0 && total <= 0 ? (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {t('zeroTotal')}
+          </Text>
         ) : null}
         {summary && missing.length > 0 && !readonly ? (
           <Text accessibilityRole="alert" style={styles.error}>
@@ -665,6 +676,7 @@ const styles = StyleSheet.create({
   actionText: { ...typography.label, color: colors.onInk },
   disabled: { opacity: 0.4 },
   error: { ...typography.caption, color: colors.danger },
+  notice: { ...typography.caption, color: colors.warning },
   discard: {
     minHeight: 56,
     alignItems: 'center',

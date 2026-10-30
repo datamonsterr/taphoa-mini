@@ -502,7 +502,7 @@ fn plan_required_action(plan: &model::PatchPlan) -> Option<crate::auth::Action> 
     use crate::auth::Action;
     let price_changed = plan.price.is_some()
         || plan.cost_price.is_some()
-        || plan.cost_clear
+        || plan.cost_clear.is_some()
         // Units carry the prices customers pay, so every insert, update and delete is a
         // price change, not only an update whose price differs.
         || !plan.unit_ops.is_empty();
@@ -562,7 +562,7 @@ async fn history_row(
     unit_id: Option<Uuid>,
     field: &str,
     old_value: Option<i64>,
-    new_value: i64,
+    new_value: Option<i64>,
 ) -> ApiResult<()> {
     sqlx::query(
         "INSERT INTO price_history (store_id, product_id, unit_id, field, old_value, new_value, \
@@ -680,13 +680,13 @@ pub(crate) async fn patch_product(
     if let Some((old, new)) = plan.price {
         set(&mut updates, "price = ");
         updates.push_bind(new);
-        history_row(&mut tx, &actor, id, None, "price", Some(old), new).await?;
+        history_row(&mut tx, &actor, id, None, "price", Some(old), Some(new)).await?;
         price_changed_event(&mut tx, &actor, id, None, "price", json!(old), new, via).await?;
     }
     if let Some((old, new)) = plan.cost_price {
         set(&mut updates, "cost_price = ");
         updates.push_bind(new);
-        history_row(&mut tx, &actor, id, None, "cost_price", old, new).await?;
+        history_row(&mut tx, &actor, id, None, "cost_price", old, Some(new)).await?;
         price_changed_event(
             &mut tx,
             &actor,
@@ -699,8 +699,9 @@ pub(crate) async fn patch_product(
         )
         .await?;
     }
-    if plan.cost_clear {
+    if let Some(old) = plan.cost_clear {
         set(&mut updates, "cost_price = NULL");
+        history_row(&mut tx, &actor, id, None, "cost_price", Some(old), None).await?;
     }
     if let Some(archived) = plan.archived {
         set(&mut updates, "archived = ");
@@ -764,7 +765,7 @@ pub(crate) async fn patch_product(
                         Some(unit.id),
                         "unit_price",
                         Some(*old),
-                        *new,
+                        Some(*new),
                     )
                     .await?;
                     price_changed_event(
