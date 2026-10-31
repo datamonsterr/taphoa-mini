@@ -3,9 +3,15 @@ export const unitStrings: Dict = {
   vi: {
     title: 'Đơn vị bán',
     add: 'Thêm đơn vị',
+    editUnits: 'Sửa đơn vị bán',
+    editShort: 'Sửa',
+    back: 'Quay lại {name}',
+    or: 'hoặc',
+    footnote:
+      'Lead thêm/sửa/xóa đơn vị phụ. Giữ barcode đang có. Khi bán, giỏ hàng và thanh toán cho chọn {choices}; giá và mã đơn vị đi cùng dòng hàng.',
     edit: 'Sửa đơn vị',
     name: 'Tên đơn vị',
-    quantity: 'Số đơn vị gốc',
+    quantity: 'Số {base} trong một đơn vị',
     price: 'Giá bán (đ)',
     save: 'Lưu đơn vị',
     delete: 'Xóa đơn vị',
@@ -23,9 +29,15 @@ export const unitStrings: Dict = {
   en: {
     title: 'Selling units',
     add: 'Add unit',
+    editUnits: 'Edit selling units',
+    editShort: 'Edit',
+    back: 'Back to {name}',
+    or: 'or',
+    footnote:
+      'Only the Lead adds, edits or deletes extra units. The existing barcode is kept. At the sale, cart and payment let you choose {choices}; the price and unit code travel with the line.',
     edit: 'Edit unit',
     name: 'Unit name',
-    quantity: 'Base units',
+    quantity: 'Number of {base} in one unit',
     price: 'Price (VND)',
     save: 'Save unit',
     delete: 'Delete unit',

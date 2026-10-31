@@ -1,7 +1,7 @@
 appId: com.datamonsterr.taphoamini
 ---
 # Virtual camera cannot show a receipt. Seed a real OCR draft through the host API,
-# then use the existing Expense → receipt history entry (no camera or test route).
+# then use the dashboard "Hóa đơn nhập" shortcut to the receipt history (no camera or test route).
 # Requires MAESTRO_CLERK_SECRET_KEY in the CLI environment, as configured in CI.
 - runFlow: subflows/launch.yaml
 - runFlow: subflows/sign-in.yaml
@@ -13,8 +13,12 @@ appId: com.datamonsterr.taphoamini
 - runScript: subflows/receipt-seed.js
 - tapOn: 'Vuốt lên: cửa hàng'
 - tapOn: 'Báo cáo'
-- tapOn: 'Thêm khoản chi'
-- tapOn: 'Hóa đơn nhập'
+# The shortcut chip sits under the digest card: scroll to it, as the Android tree names it by text or label.
+- scrollUntilVisible:
+    element:
+      text: 'Hóa đơn.*'
+    direction: DOWN
+- tapOn: 'Hóa đơn.*'
 - extendedWaitUntil:
     visible:
       id: 'receipt-history-row'
@@ -59,7 +63,7 @@ appId: com.datamonsterr.taphoamini
 - takeScreenshot: receipts-01-review
 - tapOn: 'Xong, xem lại'
 - assertVisible: 'Hóa đơn nhập'
-- assertVisible: ${output.receipt.quantity + ' × 9.000đ'}
+- assertVisible: ${output.receipt.quantity + '.* × 9.000đ'}
 - takeScreenshot: receipts-02-summary
 - tapOn: 'Xác nhận nhập kho'
 - extendedWaitUntil:

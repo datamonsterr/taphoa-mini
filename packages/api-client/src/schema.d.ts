@@ -913,7 +913,8 @@ export interface paths {
         };
         /**
          * Tracked stock quantities and status
-         * @description Sorted by status (out, low, ok), then name. `all` excludes untracked products.
+         * @description Sorted by status (out, low, ok), then name. `all` excludes untracked products. `low`
+         *     includes out of stock; `ok` is the products above their threshold.
          *     Threshold is the effective product override or store default. Quantities are in base units.
          */
         get: operations["listStock"];
@@ -4921,7 +4922,7 @@ export interface operations {
     listStock: {
         parameters: {
             query?: {
-                status?: "all" | "low" | "out";
+                status?: "all" | "low" | "out" | "ok";
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };

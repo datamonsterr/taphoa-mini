@@ -11,7 +11,8 @@ import type { Rect } from '@/lib/bbox';
 import { camera, colors, radius } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
-export type BoxState = 'selected' | 'deselected' | 'low';
+/** `guess`: an ambiguous top-1 nobody picked yet. Amber like `low`, but still tappable. */
+export type BoxState = 'selected' | 'deselected' | 'low' | 'guess';
 
 type Props = {
   /** Detection id, handed back to `onPress` so the parent can pass one stable callback. */
@@ -29,6 +30,7 @@ const LABEL_SUFFIX: Record<BoxState, string> = {
   selected: 'đã chọn',
   deselected: 'bỏ chọn',
   low: 'chưa có trong kho',
+  guess: 'bỏ chọn',
 };
 
 /** Tappable frame around a detected product. */
@@ -135,6 +137,11 @@ const FRAME = StyleSheet.create({
     borderColor: camera.boxOffLine,
   },
   low: {
+    borderWidth: 3,
+    borderStyle: 'dashed',
+    borderColor: colors.warningSoft,
+  },
+  guess: {
     borderWidth: 3,
     borderStyle: 'dashed',
     borderColor: colors.warningSoft,

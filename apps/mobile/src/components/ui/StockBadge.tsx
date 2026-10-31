@@ -5,7 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { strings } from '@/features/stock/strings';
 import type { Product } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, fontFamily, radius, space } from '@/theme';
 
 import { Icon } from './Icon';
 import { Text } from './ScaledText';
@@ -13,11 +13,14 @@ import { Text } from './ScaledText';
 export type StockBadgeProps = {
   quantity: number | null;
   status: Product['stock_status'];
+  /** On a product photo the normal chip is white; elsewhere it is the soft grey. */
+  onPhoto?: boolean;
 };
 
 export const StockBadge = memo(function StockBadge({
   quantity,
   status,
+  onPhoto = false,
 }: StockBadgeProps) {
   const t = useT(strings);
   if (quantity === null || status === 'untracked') return null;
@@ -32,18 +35,19 @@ export const StockBadge = memo(function StockBadge({
       ? colors.dangerSoft
       : status === 'low'
         ? colors.warningSoft
-        : colors.surfaceSoft;
+        : onPhoto
+          ? colors.surface
+          : colors.surfaceSoft;
   return (
     <View
       accessible
       accessibilityLabel={`${t('stock')} ${quantity}, ${t(status)}`}
       style={[styles.badge, { backgroundColor }]}
     >
-      {status !== 'ok' ? (
-        <Icon icon={TriangleAlert} size={16} color={color} />
+      {status === 'low' ? (
+        <Icon icon={TriangleAlert} size={18} color={color} />
       ) : null}
       <Text style={[styles.text, { color }]}>{quantity}</Text>
-      <Text style={[styles.text, { color }]}>{t(status)}</Text>
     </View>
   );
 });
@@ -53,11 +57,16 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: space[1],
+    minHeight: 32,
     borderRadius: radius.full,
     paddingHorizontal: space[3],
-    paddingVertical: space[2],
   },
-  text: { ...typography.caption, fontVariant: ['tabular-nums'] },
+  /** Board chip: 15/20 at weight 600, the count only. The status is the colour, the icon and the label. */
+  text: {
+    fontFamily: fontFamily.semibold,
+    fontSize: 15,
+    lineHeight: 20,
+    fontVariant: ['tabular-nums'],
+  },
 });

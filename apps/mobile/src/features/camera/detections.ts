@@ -51,6 +51,7 @@ export function toOverlayDetections(
       price: top!.price,
       bbox,
       lowMatch: false,
+      ambiguous: detection.match === 'ambiguous',
       alternatives: [items[first]!, ...items.filter((_, i) => i !== first)],
     };
   });
@@ -82,6 +83,7 @@ export function toCartLines(
 }
 
 /** Top-1 similarity as a whole percent, for the confidence badge. */
-export function confidencePercent(detection: ApiDetection): number {
-  return Math.round((detection.candidates[0]?.similarity ?? 0) * 100);
+export function confidencePercent(detection: ApiDetection): number | undefined {
+  const top = detection.candidates[0];
+  return top ? Math.round(top.similarity * 100) : undefined;
 }

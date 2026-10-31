@@ -24,7 +24,7 @@ export type ScanState = {
 export type ScanAction =
   | { type: 'shutter'; token: number }
   | { type: 'captured'; token: number; photo: Photo }
-  | { type: 'scanned'; token: number; scan: Scan }
+  | { type: 'scanned'; token: number; scan: Scan; open?: boolean }
   | { type: 'failed'; token: number; message: string }
   | { type: 'retry'; token: number }
   | { type: 'toggle'; id: string }
@@ -64,7 +64,17 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
           selected[detection.id] = true;
         }
       }
-      return { ...state, phase: 'result', scan: action.scan, selected };
+      // Board 02: a single-item scan opens the candidate strip at once.
+      const first = action.open
+        ? action.scan.detections.find((d) => !isLowMatch(d))
+        : undefined;
+      return {
+        ...state,
+        phase: 'result',
+        scan: action.scan,
+        selected,
+        openId: first?.id ?? null,
+      };
     }
 
     case 'failed':

@@ -766,7 +766,9 @@ export function CameraScreen() {
                           percent={confidencePercent(
                             scan.detections.find((x) => x.id === d.id)!,
                           )}
-                          low={!!d.lowMatch}
+                          low={
+                            !!d.lowMatch || (!!d.ambiguous && !selected[d.id])
+                          }
                         />
                       ))
                     : null}
@@ -795,11 +797,7 @@ export function CameraScreen() {
           {barcodeResult ? <BarcodeIndicator {...barcodeResult} /> : null}
           {phase === 'error' ? (
             <ScanError
-              message={
-                state.error === RATE_LIMIT_MESSAGE
-                  ? RATE_LIMIT_MESSAGE
-                  : t('scanError')
-              }
+              message={state.error ?? t('scanError')}
               retryLabel={t('retry')}
               onRetry={onRetry}
             />

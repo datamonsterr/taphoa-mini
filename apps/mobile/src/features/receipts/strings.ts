@@ -23,6 +23,8 @@ export const strings: Dict = {
       'Tổng tiền đang là 0đ. Chạm vào giá nhập của từng dòng và nhập số tiền thật trước khi xác nhận.',
     fallbackNotice:
       'Chưa dùng được gợi ý thông minh cho hóa đơn này, tên sản phẩm có thể chưa khớp. Kiểm tra kỹ từng dòng.',
+    assistantEdit: 'Sửa trong trợ lý',
+    assistantSummary: 'Xử lý trong trợ lý',
     expenseHint: '→ khoản chi Nhập hàng',
     back: 'Quay lại',
     photo: 'Ảnh hóa đơn',
@@ -86,6 +88,8 @@ export const strings: Dict = {
       'The total is 0đ. Tap each line cost and enter the real amount before confirming.',
     fallbackNotice:
       'Smart suggestions were unavailable for this receipt, so product names may be wrong. Check every line.',
+    assistantEdit: 'Edit in the assistant',
+    assistantSummary: 'Handle in the assistant',
     expenseHint: '→ stock purchase expense',
     back: 'Back',
     photo: 'Receipt photo',

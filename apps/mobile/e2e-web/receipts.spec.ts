@@ -10,6 +10,7 @@ import {
   expect,
   keypad,
   openCamera,
+  openShop,
   recordApi,
   test,
   withScanSlot,
@@ -209,7 +210,9 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
     page.getByRole('heading', { name: 'Hóa đơn nhập' }),
   ).toBeVisible();
   await expect(button(page, /^Thêm một:/)).toHaveCount(0);
-  await expect(page.getByText(`${first.quantity + 1} × 9.000đ`)).toBeVisible();
+  await expect(
+    page.getByText(new RegExp(`^${first.quantity + 1}( \\S+)? × 9\\.000đ$`)),
+  ).toBeVisible();
   await screenshot('receipts-03-summary');
   const confirmed = await callApi<Receipt>(
     page,
@@ -242,14 +245,37 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
   }
 });
 
-test('Expense opens receipt history and shows the real empty list', async ({
+test('the dashboard opens receipt history and shows the real empty list', async ({
   page,
 }) => {
-  await page.goto('/expense');
+  await openShop(page, '/dashboard');
   const history = await callApi(page, 'GET', '/v1/receipts', () =>
     button(page, 'Hóa đơn nhập').click(),
   );
   expect(history.body.items).toEqual([]);
   await expect(page).toHaveURL(/\/receipts$/);
   await expect(page.getByText('Chưa có hóa đơn nhập')).toBeVisible();
+});
+
+test('the expense sheet matches board 11: Nhập selected, no receipt row, 3-column keypad', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/expense');
+  await expect(page.getByRole('radio', { name: 'Nhập' })).toBeChecked();
+  await expect(button(page, 'Hóa đơn nhập')).toHaveCount(0);
+  const keys = page.getByTestId('keypad').getByRole('button');
+  await expect(keys).toHaveCount(12);
+  const boxes = await keys.evaluateAll((nodes) =>
+    nodes.map((n) => n.getBoundingClientRect().left),
+  );
+  expect(new Set(boxes.map((x) => Math.round(x))).size).toBe(3);
+  const file = path.join(
+    process.env.G1_SCREENSHOT_DIR ?? testInfo.outputDir,
+    'expense-board-11.png',
+  );
+  await page.screenshot({ path: file });
+  await testInfo.attach('expense-board-11', {
+    path: file,
+    contentType: 'image/png',
+  });
 });

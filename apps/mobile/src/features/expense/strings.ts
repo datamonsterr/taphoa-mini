@@ -3,7 +3,6 @@ import type { Dict } from '@/lib/i18n';
 export const expenseStrings: Dict = {
   vi: {
     screen: 'Thêm chi phí',
-    receipts: 'Hóa đơn nhập',
     close: 'Đóng',
     bill: 'Chụp hóa đơn',
     billPhoto: 'Ảnh hóa đơn',
@@ -26,7 +25,6 @@ export const expenseStrings: Dict = {
   },
   en: {
     screen: 'Add expense',
-    receipts: 'Import receipts',
     close: 'Close',
     bill: 'Photo of bill',
     billPhoto: 'Bill photo',

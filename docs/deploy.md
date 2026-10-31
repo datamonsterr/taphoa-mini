@@ -35,6 +35,55 @@ railway config apply   # review the plan first; never add --confirm-destructive 
 
 `railway config plan --detailed-exit-code` exits 2 when Railway has drifted from the file.
 
+> **Warning: a full `railway config apply` is destructive.** The apply is project-wide and
+> the plan deletes any bucket the file does not declare, so a stale file can
+> destroy product photos (issue #295). Read the whole plan, not only the variable lines, and
+> stop on any `- Delete`, any `region` change or any `source.*` change. Never pass
+> `--confirm-destructive` to get past one. Apply one environment at a time with
+> `--environment <env>`.
+>
+> The file declares every live bucket per environment (production: `images-prod`, `images-sin`;
+> test: `images`, `images-sjc`) and the live volume region (`sfo`). When a bucket or volume is
+> added or removed in Railway, update `.railway/railway.ts` in the same change.
+>
+> How the file was verified (issue #295): `railway config pull --json --environment <env>`
+> (read-only; inspect resource names, regions and sources only) showed the live shape, the file
+> was edited to match it, and `railway config plan --environment test` and `--environment
+production` both then printed "Your Railway configuration is already up to date" (no
+> creates, updates or deletes). Repeat that check after every IaC change.
+
+### Variable drift check in the deploy workflow
+
+The "Deploy backend" workflow does not apply `.railway/railway.ts`. It only sets
+`SERVICE_VERSION` and deploys the image, so a changed managed variable never reaches Railway
+by itself (this is how `DECISIONS_MODEL` went stale, issue #278). Instead it checks drift and
+fails when Railway differs:
+
+- The `test` job runs `python3 -I scripts/ci/railway_drift.py test` before the deploy, and the
+  `production` job runs `railway_drift.py production` before its deploy.
+- The script runs `railway config plan --detailed-exit-code` (read-only) and keeps only the
+  `backend` variable lines. It prints variable names and `set` / `change` / `delete`, never
+  values: the plan is redacted, `--show-values` is never passed, and the raw plan is not logged,
+  so `preserve()`d database and API secrets cannot leak. If the plan itself errors (token,
+  CLI), the job fails rather than passing blind.
+- Apply is not automated because `railway config apply` is project-wide, not scoped to backend
+  variables. The check ignores non-variable plan lines (volumes, buckets, `source.*`); since
+  #295 the file matches live for those, so a full plan should be empty. If one reappears, treat it
+  as drift to reconcile in `.railway/railway.ts`, never as something to apply blindly.
+
+When the check turns the deploy red, a human fixes it, then re-runs the workflow:
+
+1. Locally, `railway link`, then `railway config plan --environment <env>` and read the
+   `backend` variable lines.
+2. Either edit `.railway/railway.ts` to match Railway (use `preserve()` for per-environment
+   values and secrets), or set the variable, for example
+   `railway variable set --service backend --environment <env> NAME=value`.
+3. Run `python3 -I scripts/ci/railway_drift.py <env>` locally; it must print "match".
+
+Do not run `railway config apply` for this: it would also apply the non-variable plan lines.
+The `railway/iac` SDK finds the CLI through `$_`, so always run the script through `python3`
+as above (the script sets `_` itself).
+
 ## One-time project bootstrap (already done)
 
 ```sh
@@ -153,9 +202,9 @@ configuration.
 `ctx.isEnvironment('production')`. Never duplicate it into test. Review `railway config plan --environment production` and
 `railway config plan --environment test` after every IaC change. **Never apply a
 plan that deletes X2 resources or backend telemetry variables.** A mirror-only
-change must produce no X2 creates, updates or deletes in either plan. Existing
-unrelated drift (Clerk variables, backend source/restart settings, application
-volume regions and image buckets) needs separate review before any apply.
+change must produce no X2 creates, updates or deletes in either plan. Any
+new drift (Clerk variables, backend source/restart settings, volume regions or image
+buckets) needs separate review before any apply.
 
 Deploy the collector once its configuration has landed and its three variables
 are set. From the **worktree root**:
@@ -237,7 +286,7 @@ Created once with:
 
 ```sh
 railway environment create test --duplicate production --json
-railway bucket create images --region sin --environment test      # test-only bucket
+railway bucket create images --region sin --environment test      # test-only bucket (declared in railway.ts)
 railway config plan --environment test                              # review, then:
 railway config apply --environment test                             # applies .railway/railway.ts
 railway tcp-proxy create --port 5432 --service Postgres --environment test
