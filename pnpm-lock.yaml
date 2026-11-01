@@ -51,8 +51,8 @@ importers:
         specifier: ^0.4.1
         version: 0.4.1
       '@posthog/react-native-plugin':
-        specifier: ^2.12.6
-        version: 2.12.6(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+        specifier: ^2.12.7
+        version: 2.12.7(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))
@@ -166,7 +166,7 @@ importers:
         version: 1.440.0(@types/react@19.3.0)(react@19.3.0)
       posthog-react-native:
         specifier: ^4.83.0
-        version: 4.83.0(c6500e3203f6441aeb8a3e57bcdef9ca)
+        version: 4.83.0(0e7482fe29231f4a7b00bb4c56549483)
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -1733,8 +1733,8 @@ packages:
   '@posthog/core@1.61.1':
     resolution: {integrity: sha512-qyMTxPfjeJkHIhpcukOgBN3BWXbCyFRPz8/Voy5qZtVh9NZqj3EhC6LLeYZuJhL3WpqhQTgn2FMIwAo/ag6fmw==}
 
-  '@posthog/react-native-plugin@2.12.6':
-    resolution: {integrity: sha512-S8EHblTSRkVDVI8r9aeTp9btyYMB5A4RI3CROVuQLfntsT2y0/HVG+5lRRQhFvZeRQ0gPXwhDbUvkv/j9lHKOA==}
+  '@posthog/react-native-plugin@2.12.7':
+    resolution: {integrity: sha512-YnnVKC0+0yMgggjNLP+kEdXnPEgsIGip6xb32e6pT3L01kgZpOcs6Q10mjVD65ZhxQkBnC2FgbgQstZgJdNolw==}
     peerDependencies:
       react: '*'
       react-native: '*'
@@ -9225,7 +9225,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.417.0
 
-  '@posthog/react-native-plugin@2.12.6(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
+  '@posthog/react-native-plugin@2.12.7(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)
@@ -14217,12 +14217,12 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-react-native@4.83.0(c6500e3203f6441aeb8a3e57bcdef9ca):
+  posthog-react-native@4.83.0(0e7482fe29231f4a7b00bb4c56549483):
     dependencies:
       '@posthog/core': 1.60.1
       '@posthog/types': 1.416.0
     optionalDependencies:
-      '@posthog/react-native-plugin': 2.12.6(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+      '@posthog/react-native-plugin': 2.12.7(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))
       expo-application: 58.1.2(expo@58.0.19)
       expo-device: 58.0.5(expo@58.0.19)
