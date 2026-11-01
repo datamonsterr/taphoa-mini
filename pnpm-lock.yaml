@@ -22,8 +22,8 @@ importers:
         specifier: ^21.2.4
         version: 21.2.4
       '@redocly/cli':
-        specifier: ^2.71.0
-        version: 2.71.0
+        specifier: ^2.71.1
+        version: 2.71.1
       '@stoplight/prism-cli':
         specifier: ^5.16.0
         version: 5.16.0
@@ -2008,8 +2008,8 @@ packages:
   '@redocly/ajv@8.11.2':
     resolution: {integrity: sha512-io1JpnwtIcvojV7QKDUSIuMN/ikdOUd1ReEnUnMKGfDVridQZ31J0MmIuqwuRjWDZfmvr+Q0MqCcfHM2gTivOg==}
 
-  '@redocly/cli@2.71.0':
-    resolution: {integrity: sha512-QaAo5zdmvtK2GCJzLNZYCn5q3tm2MYImvRt/kDJdwd/zYJsTjNrGl+aindv63tFBrh0FWckXeUnOM5aM+7NQuA==}
+  '@redocly/cli@2.71.1':
+    resolution: {integrity: sha512-oGJZuFi44K4ehsrPsqeh72k1rVEnqFrFuHPwk8mR0fHenNT6NARrZsPpBvCkNEm71tvBA6JU8ZqRzK/l2bmzkg==}
     engines: {node: '>=22.12.0 || >=20.19.0 <21.0.0', npm: '>=10'}
     hasBin: true
 
@@ -9537,7 +9537,7 @@ snapshots:
       require-from-string: 2.0.2
       uri-js-replace: 1.0.1
 
-  '@redocly/cli@2.71.0': {}
+  '@redocly/cli@2.71.1': {}
 
   '@redocly/config@0.22.0': {}
 
