@@ -1783,8 +1783,11 @@ export interface components {
             /** @enum {string} */
             purpose: "checkout" | "enrollment";
             pipeline: {
-                /** @example mobilesam-onnx@1 */
-                segmenter: string;
+                /**
+                 * @example mobilesam-onnx@1
+                 * @enum {string}
+                 */
+                segmenter: "mobilesam-onnx@1" | "client";
                 /** @example dinov2-vits14-onnx@1/112 */
                 embedder: string;
                 /** Format: int64 */
@@ -1794,6 +1797,7 @@ export interface components {
                 segment?: number;
                 embed?: number;
                 search?: number;
+                tta?: number;
                 total?: number;
             };
             document: components["schemas"]["ScanDocument"];
@@ -1821,6 +1825,8 @@ export interface components {
             id: string;
             bbox: number[];
             score: number;
+            /** Format: int64 */
+            track_id?: number;
             /**
              * Format: uri
              * @description Presigned URL of the crop thumbnail, null when none was stored. Thumbnails upload in the background after the response, so the object can answer 404 for about a second; retry.
@@ -3732,6 +3738,8 @@ export interface operations {
                     purpose?: "checkout" | "enrollment";
                     /** @default 4 */
                     top_k?: number;
+                    /** @description JSON array of at most 10 normalized boxes in the EXIF-oriented image; each has x, y, width, height and optional integer track_id. */
+                    boxes?: string;
                 };
             };
         };

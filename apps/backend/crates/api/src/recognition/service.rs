@@ -72,11 +72,52 @@ impl ScanPurpose {
 pub(crate) enum StageError {
     #[error("invalid image: {0}")]
     InvalidImage(String),
+    #[error("invalid boxes")]
+    InvalidBoxes,
     #[error("inference failed: {0}")]
     Inference(String),
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ClientBox {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    pub track_id: Option<i64>,
+}
+impl ClientBox {
+    fn segment(&self, width: u32, height: u32) -> Result<Segment, StageError> {
+        let values = [self.x, self.y, self.width, self.height];
+        if values
+            .iter()
+            .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        {
+            return Err(StageError::InvalidBoxes);
+        }
+        let x1 = (self.x + self.width).min(1.0);
+        let y1 = (self.y + self.height).min(1.0);
+        let w = x1 - self.x;
+        let h = y1 - self.y;
+        if w + 1e-6 < 0.01 || h + 1e-6 < 0.01 {
+            return Err(StageError::InvalidBoxes);
+        }
+        Ok(Segment {
+            bbox: [
+                self.x * width as f32,
+                self.y * height as f32,
+                w * width as f32,
+                h * height as f32,
+            ],
+            score: 1.0,
+            area: (w * width as f32 * h * height as f32) as u32,
+        })
+    }
+}
+
 pub(crate) struct BlockedDetection {
+    pub track_id: Option<i64>,
+    pub crop: RgbImage,
     pub bbox: [f32; 4],
     pub score: f32,
     pub area: u32,
@@ -88,6 +129,7 @@ pub(crate) struct BlockingResult {
     pub detections: Vec<BlockedDetection>,
     pub segment_ms: f64,
     pub embed_ms: f64,
+    pub whole_embedding: Option<Vec<f32>>,
 }
 
 /// Runs on the blocking thread pool while the inference permit is held:
@@ -99,43 +141,53 @@ pub(crate) fn block_pipeline(
     image_bytes: &[u8],
     mode: ScanMode,
     max_detections: usize,
+    boxes: Option<Vec<ClientBox>>,
 ) -> Result<BlockingResult, StageError> {
     let started = std::time::Instant::now();
-    let decoded = decode_rgb(image_bytes)?;
-    let segments = segmenter
-        .segment(image_bytes)
-        .map_err(|error| match error {
-            taphoa_recognition::SegmentError::InvalidImage(_) => {
-                StageError::InvalidImage(error.to_string())
+    let client = boxes.filter(|boxes| !boxes.is_empty());
+    let decoded = decode_rgb(image_bytes, client.is_some())?;
+    let chosen: Vec<(Segment, Option<i64>)> = if let Some(ref boxes) = client {
+        boxes
+            .iter()
+            .map(|b| Ok((b.segment(decoded.width(), decoded.height())?, b.track_id)))
+            .collect::<Result<_, StageError>>()?
+    } else {
+        let segments = segmenter
+            .segment(image_bytes)
+            .map_err(|error| match error {
+                taphoa_recognition::SegmentError::InvalidImage(_) => {
+                    StageError::InvalidImage(error.to_string())
+                }
+                other => StageError::Inference(other.to_string()),
+            })?;
+        let segments = match mode {
+            ScanMode::Multi => {
+                let mut segments = segments;
+                segments.sort_by(|a, b| b.score.total_cmp(&a.score));
+                segments.truncate(max_detections);
+                if segments.is_empty() {
+                    segments.push(classify::whole_image_box(decoded.width(), decoded.height()));
+                }
+                segments
             }
-            other => StageError::Inference(other.to_string()),
-        })?;
-    let segment_ms = started.elapsed().as_secs_f64() * 1000.0;
-    let chosen = match mode {
-        ScanMode::Multi => {
-            let mut segments = segments;
-            // Keep the strongest boxes when the segmenter reports more than we accept.
-            segments.sort_by(|a, b| b.score.total_cmp(&a.score));
-            segments.truncate(max_detections);
-            segments
-        }
-        ScanMode::Single => {
-            let (width, height) = (decoded.width(), decoded.height());
-            vec![
-                classify::pick_single(&segments, width, height)
-                    .unwrap_or_else(|| classify::whole_image_box(width, height)),
-            ]
-        }
+            ScanMode::Single => vec![
+                classify::pick_single(&segments, decoded.width(), decoded.height()).unwrap_or_else(
+                    || classify::whole_image_box(decoded.width(), decoded.height()),
+                ),
+            ],
+        };
+        segments.into_iter().map(|s| (s, None)).collect()
     };
+    let segment_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started_embed = std::time::Instant::now();
     let mut picks = Vec::with_capacity(chosen.len());
-    for segment in chosen {
+    for (segment, track_id) in chosen {
         let Some(crop) =
             taphoa_recognition::crop::crop_with_padding(&decoded, segment.bbox, CROP_PADDING)
         else {
             continue;
         };
-        picks.push((segment, crop));
+        picks.push((segment, track_id, crop));
     }
     let thumbnails: Result<Vec<Vec<u8>>, StageError> = picks
         .iter()
@@ -143,35 +195,76 @@ pub(crate) fn block_pipeline(
         .collect();
     let thumbnails = thumbnails?;
     // One embedding call for all crops; ownership moves instead of copying.
-    let (segments, crops): (Vec<Segment>, Vec<RgbImage>) = picks.into_iter().unzip();
-    let vectors: Vec<Vec<f32>> = embedder
-        .embed_crops(&crops)
+    let mut segments = Vec::new();
+    let mut tracks = Vec::new();
+    let mut crops = Vec::new();
+    for (segment, track, crop) in picks {
+        segments.push(segment);
+        tracks.push(track);
+        crops.push(crop);
+    }
+    let whole = mode == ScanMode::Multi && client.as_ref().is_some_and(|b| b.len() == 1);
+    let mut inputs = crops.clone();
+    if whole {
+        inputs.push(decoded);
+    }
+    let mut vectors: Vec<Vec<f32>> = embedder
+        .embed_crops(&inputs)
         .map_err(|error| StageError::Inference(error.to_string()))?;
-    if vectors.len() != segments.len() {
+    if vectors.len() != segments.len() + usize::from(whole) {
         return Err(StageError::Inference("incomplete crop embeddings".into()));
     }
-    drop(crops);
+    let whole_embedding = if whole { vectors.pop() } else { None };
     let embed_ms = started_embed.elapsed().as_secs_f64() * 1000.0;
     Ok(BlockingResult {
-        detections: std::iter::zip(segments, std::iter::zip(vectors, thumbnails))
-            .map(|(segment, (embedding, thumbnail))| BlockedDetection {
+        detections: std::iter::zip(
+            segments,
+            std::iter::zip(
+                tracks,
+                std::iter::zip(crops, std::iter::zip(vectors, thumbnails)),
+            ),
+        )
+        .map(
+            |(segment, (track_id, (crop, (embedding, thumbnail))))| BlockedDetection {
+                track_id,
+                crop,
                 bbox: segment.bbox,
                 score: segment.score,
                 area: segment.area,
                 embedding,
                 thumbnail,
-            })
-            .collect(),
+            },
+        )
+        .collect(),
         segment_ms,
         embed_ms,
+        whole_embedding,
     })
 }
 
 /// Decodes the original photo within the same limits segmentation uses.
-fn decode_rgb(bytes: &[u8]) -> Result<RgbImage, StageError> {
-    taphoa_recognition::crop::decode_limited(bytes)
-        .map(|image| image.to_rgb8())
-        .map_err(StageError::InvalidImage)
+fn decode_rgb(bytes: &[u8], orient: bool) -> Result<RgbImage, StageError> {
+    use image::ImageDecoder;
+    let format = taphoa_recognition::crop::sniff_format(bytes)
+        .ok_or_else(|| StageError::InvalidImage("expected JPEG or PNG".into()))?;
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(taphoa_recognition::crop::MAX_DECODE_SIDE);
+    limits.max_image_height = Some(taphoa_recognition::crop::MAX_DECODE_SIDE);
+    limits.max_alloc = Some(taphoa_recognition::crop::MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|e| StageError::InvalidImage(e.to_string()))?;
+    let orientation = decoder
+        .orientation()
+        .map_err(|e| StageError::InvalidImage(e.to_string()))?;
+    let mut image = image::DynamicImage::from_decoder(decoder)
+        .map_err(|e| StageError::InvalidImage(e.to_string()))?;
+    if orient {
+        image.apply_orientation(orientation);
+    }
+    Ok(image.to_rgb8())
 }
 
 /// JPEG quality 80, longest side at most 256 (architecture 5.3).
@@ -214,6 +307,7 @@ pub(crate) struct CandidateDisplay {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RatedDetection {
+    pub track_id: Option<i64>,
     pub bbox: [f32; 4],
     pub score: f32,
     pub area: u32,
@@ -311,13 +405,18 @@ pub(crate) fn timings_value(
 }
 
 /// Keeps the strongest repeated-product crops and reorders for display.
-pub(crate) fn arrange_display_order(mut rated: Vec<RatedDetection>) -> Vec<RatedDetection> {
-    rated = classify::dedupe(rated, |detection| DedupeKey {
-        score: detection.score,
-        bbox: detection.bbox,
-        top_product: detection.candidates.first().map(|c| c.snapshot.product_id),
-        class: detection.class,
-    });
+pub(crate) fn arrange_display_order(
+    mut rated: Vec<RatedDetection>,
+    client: bool,
+) -> Vec<RatedDetection> {
+    if !client {
+        rated = classify::dedupe(rated, |detection| DedupeKey {
+            score: detection.score,
+            bbox: detection.bbox,
+            top_product: detection.candidates.first().map(|c| c.snapshot.product_id),
+            class: detection.class,
+        });
+    }
     let boxes: Vec<[f32; 4]> = rated.iter().map(|d| d.bbox).collect();
     classify::order_row_major(&boxes)
         .into_iter()
@@ -344,6 +443,7 @@ pub(crate) struct ScanDisplay {
 
 #[derive(Debug, Clone)]
 pub(crate) struct DetectionDisplay {
+    pub track_id: Option<i64>,
     pub id: Uuid,
     pub bbox: [f32; 4],
     pub score: f32,
@@ -394,6 +494,8 @@ struct PipelineJson {
 
 #[derive(Serialize)]
 pub(crate) struct DetectionJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track_id: Option<i64>,
     id: Uuid,
     bbox: [f32; 4],
     score: f32,
@@ -471,6 +573,7 @@ pub(crate) async fn render_scan(
             });
         }
         answer.push(DetectionJson {
+            track_id: detection.track_id,
             id: detection.id,
             bbox: detection.bbox,
             score: detection.score,
@@ -513,6 +616,7 @@ pub(crate) async fn render_scan(
 /// Persists thumbnail `images` rows, the scan and all detections atomically.
 /// Crop bytes were already written to the bucket; keys come prepared.
 pub(crate) struct PersistDetection {
+    pub track_id: Option<i64>,
     pub id: Uuid,
     pub bbox: [f32; 4],
     pub score: f32,
@@ -529,6 +633,7 @@ pub(crate) struct ScanDraft {
     pub image_id: Uuid,
     pub mode: ScanMode,
     pub purpose: ScanPurpose,
+    pub segmenter: String,
     pub embedder_model: String,
     pub wall_time_ms: u64,
     pub timings_ms: serde_json::Value,
@@ -551,6 +656,7 @@ pub(crate) async fn persist_scan(
         mode,
         purpose,
         embedder_model,
+        segmenter,
         wall_time_ms,
         timings_ms,
     } = draft;
@@ -586,7 +692,7 @@ pub(crate) async fn persist_scan(
     .bind(actor.member_id)
     .bind(mode.as_str())
     .bind(purpose.as_str())
-    .bind(SCAN_SEGMENTER)
+    .bind(segmenter)
     .bind(&embedder_model)
     .bind(&timings_ms)
     .fetch_one(&mut *tx)
@@ -606,6 +712,7 @@ async fn write_detections(
     detections: &[PersistDetection],
     crop_ids: &[Uuid],
 ) -> Result<(), sqlx::Error> {
+    let mut tracks = Vec::with_capacity(detections.len());
     let mut ids = Vec::with_capacity(detections.len());
     let mut positions = Vec::with_capacity(detections.len());
     // SQLx 0.9 supports one-dimensional arrays, not Vec<Vec<f32>>. Bind
@@ -620,6 +727,7 @@ async fn write_detections(
     let mut classes = Vec::with_capacity(detections.len());
     let mut candidates = Vec::with_capacity(detections.len());
     for (position, detection) in detections.iter().enumerate() {
+        tracks.push(detection.track_id);
         ids.push(detection.id);
         positions.push(position as i16);
         xs.push(detection.bbox[0]);
@@ -639,11 +747,11 @@ async fn write_detections(
         candidates.push(serde_json::to_value(&detection.candidates).unwrap_or_else(|_| json!([])));
     }
     sqlx::query(
-        "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates) \
-         SELECT id, $2, $3, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates \
+        "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates, track_id) \
+         SELECT id, $2, $3, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates, track_id \
          FROM UNNEST($1::uuid[], $4::smallint[], $5::real[], $6::real[], $7::real[], $8::real[], \
-                     $9::real[], $10::integer[], $11::uuid[], $12::vector[], $13::text[], $14::jsonb[]) \
-         AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates)",
+                     $9::real[], $10::integer[], $11::uuid[], $12::vector[], $13::text[], $14::jsonb[], $15::bigint[]) \
+         AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates, track_id)",
     )
     .bind(&ids)
     .bind(actor.store_id)
@@ -659,6 +767,7 @@ async fn write_detections(
     .bind(&embeddings)
     .bind(&classes)
     .bind(&candidates)
+    .bind(&tracks)
     .execute(&mut *tx)
     .await?;
     Ok(())
@@ -729,6 +838,7 @@ pub(crate) async fn load_scan(
 
 /// A persisted detection row joined with the crop object key.
 pub(crate) struct StoredDetection {
+    pub track_id: Option<i64>,
     pub id: Uuid,
     pub bbox: Vec<f32>,
     pub score: f32,
@@ -748,9 +858,10 @@ pub(crate) async fn load_detections(
         Option<String>,
         String,
         serde_json::Value,
+        Option<i64>,
     );
     let rows: Vec<DetectionRow> = sqlx::query_as(
-        "SELECT d.id, d.bbox, d.score, i.object_key, d.match, d.candidates \
+        "SELECT d.id, d.bbox, d.score, i.object_key, d.match, d.candidates, d.track_id \
          FROM detections d LEFT JOIN images i ON i.id = d.crop_image_id \
          WHERE d.scan_id = $1 ORDER BY d.position",
     )
@@ -759,7 +870,7 @@ pub(crate) async fn load_detections(
     .await
     .map_err(database_failure)?;
     rows.into_iter()
-        .map(|(id, bbox, score, crop_key, class, candidates)| {
+        .map(|(id, bbox, score, crop_key, class, candidates, track_id)| {
             let class = to_class(&class)?;
             let mut snapshots = Vec::new();
             for candidate in candidates.as_array().map(Vec::as_slice).unwrap_or(&[]) {
@@ -769,6 +880,7 @@ pub(crate) async fn load_detections(
                 );
             }
             Ok(StoredDetection {
+                track_id,
                 id,
                 bbox,
                 score,

@@ -56,8 +56,7 @@ in the neighborhood. A strong prototype cannot override weak reference evidence.
 is by product score, then product ID; the match margin compares the first two products.
 
 Existing thresholds are unchanged: `MATCH_THRESHOLD=0.80`, `MATCH_MARGIN=0.05`,
-`MATCH_FLOOR=0.60`, and `DUPLICATE_THRESHOLD=0.88`. They remain configurable. No threshold
-retuning, segmentation change, model change, mobile change, or response change is included.
+`MATCH_FLOOR=0.60`, and `DUPLICATE_THRESHOLD=0.88`. They remain configurable. No threshold retuning or model change is included.
 
 ## Model backfill and latency
 
@@ -69,7 +68,7 @@ idempotent; failed jobs retain the normal bounded retry policy. Successful publi
 removes incompatible old model vectors and prototypes. Historical scans keep their model
 identity and recorded candidate scores.
 
-Queries still embed exactly once per crop, with no query augmentation. Indexing adds
+Scans accept a JSON multipart `boxes` array (up to 10 normalized, EXIF-oriented boxes with optional `track_id`); nonempty arrays skip SAM. A single multi-mode phone box also compares a whole-frame embedding. Ambiguous detections use three augmented views, capped at 12 additional embeddings per scan; `SCAN_TTA=0` disables them. Indexing adds
 background work and vector storage. The 224 px latency measurements and reproduction
 commands live in [recognition-latency.md](recognition-latency.md).
 
