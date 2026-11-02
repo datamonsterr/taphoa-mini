@@ -134,32 +134,16 @@ pub(crate) fn vector_text(vector: &[f32]) -> String {
     )
 }
 
-const SQL_SEARCH: &str = crate::recognition::pgvector::SEARCH_SQL;
-
 async fn search_sql(
     state: &AppState,
     store_id: Uuid,
     model_name: &str,
     vector: &[f32],
 ) -> ApiResult<Vec<DuplicateHit>> {
-    let (fetch, votes) = crate::vector::search_limits(5, crate::vector::embed_knn());
-    let rows: Vec<(Uuid, f32)> = sqlx::query_as(SQL_SEARCH)
-        .bind(vector_text(vector))
-        .bind(store_id)
-        .bind(model_name)
-        .bind(i64::try_from(fetch).unwrap_or(i64::MAX))
-        .bind(5_i64)
-        .bind(i64::try_from(votes).unwrap_or(i64::MAX))
-        .fetch_all(pool(state)?)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .filter(|(_, similarity)| *similarity >= state.recognition.duplicate_threshold)
-        .map(|(product_id, similarity)| DuplicateHit {
-            product_id,
-            similarity: f64::from(similarity),
-        })
-        .collect())
+    let index = Arc::new(crate::recognition::pgvector::PgVectorIndex::new(
+        pool(state)?.clone(),
+    ));
+    search_index(state, index, store_id, model_name, vector).await
 }
 
 async fn search_index(

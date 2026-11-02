@@ -1,4 +1,4 @@
-# ADR 0010: Hybrid object capture: ML Kit on the phone, DINOv2 kNN on the server
+# ADR 0010: Hybrid object capture: ML Kit on the phone, SigLIP2 kNN on the server
 
 Status: Proposed · Date: 2026-11-02 · Spec: `docs/specs/object-capture.md`
 
@@ -21,8 +21,10 @@ Options for the phone detector:
 
 - **Phone:** VisionCamera v5 with a local ML Kit object detection and tracking frame plugin.
   The plugin drives live boxes, tap-to-lock and auto keyframes.
-- **Server:** keeps DINOv2 ViT-S/14 (Apache-2.0) with 224 px letterbox crops, one vector per
-  keyframe, index-time augmentation and kNN voting.
+- **Server (B5 amendment):** defaults to SigLIP2 B/16 224 (Apache-2.0), its learned
+  768-d pooled output and mean/std 0.5, with letterbox preprocessing, keyframe/index
+  augmentation and kNN voting. `EMBEDDER=dinov2` retains the 384-d DINOv2-S CLS path
+  for rollback; both use one ONNX model-spec implementation.
 - **Detection boxes:** the server uses the phone's boxes when it gets them. MobileSAM remains
   the fallback when no boxes arrive.
 - **Training:** none per store.
@@ -40,3 +42,29 @@ Options for the phone detector:
   touching the server contract, because the contract carries boxes, not model outputs.
 - Embedding storage grows about 6x per reference (augmentation). pgvector handles about 450k
   vectors per large store.
+
+## Embedder evidence and migration (B5, 2026-11-02)
+
+The [K=8 comparison](../../apps/backend/eval/results/2026-11-02-embedders.md)
+measured SigLIP2 top-1 at 76.2% versus DINOv2-S at 51.5%; packaged goods improved
+from 18.7% to 67.3%. The old 0.05 margin alone withheld 71.4% of correct SigLIP2
+top-ranked answers. This justifies model-specific calibration, not removing the
+margin without precision evidence. Neither model reaches C2's 90% target.
+
+B5 uses a seeded, class-disjoint fit/report split and gallery-vs-gallery duplicate
+calibration; the [method, selected defaults and held-half counts](../specs/retrieval-v2.md)
+are explicit. Defaults maximize coverage at 95% fit precision and keep >=95% of
+known fit queries above the unknown floor. Both 95% and 97% policies miss their
+held-class precision targets, so this is a measured coverage/unknown tradeoff,
+not a validated precision guarantee. Pinned dynamic INT8 loses 19.0 points of
+top-1 (76.2% to 57.1%) and is rejected; production uses the reproduced FP32 export. The dataset is synthetic GroceryStoreDataset transformations, exact
+cosine retrieval differs from production HNSW, and the results do not prove shop-photo
+accuracy or the 8 s C3 device/WAN latency gate.
+
+Additive migrations keep 384-d data alongside nullable 768-d columns and concurrent
+cosine HNSW indexes. Backfill remains bounded by the existing worker rate/admission;
+publication replaces only the active model's rows. The image includes both encoders,
+so `EMBEDDER=dinov2` restores existing DINOv2 search without deleting SigLIP2 data.
+Dropping old dimensions is a later migration after the rollback window. Weights stay
+outside git in a versioned, checksum-pinned artifact release; downloads happen while
+building the image. No deployment is part of B5.

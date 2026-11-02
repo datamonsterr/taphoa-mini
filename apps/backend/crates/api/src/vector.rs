@@ -218,6 +218,15 @@ impl VectorIndex for InMemoryVectorIndex {
         Ok(())
     }
 }
+/// SQL identifiers are selected only from this fixed allow-list, never from environment input.
+pub fn embedding_column(dim: usize) -> anyhow::Result<&'static str> {
+    match dim {
+        384 => Ok("embedding"),
+        768 => Ok("embedding_768"),
+        _ => anyhow::bail!("unsupported embedding dimension {dim}; expected 384 or 768"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

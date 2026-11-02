@@ -101,14 +101,24 @@ fn fit_dimensions(image: &RgbImage, longest: u32) -> (u32, u32) {
 /// Preserve aspect ratio, centre on an ImageNet mean square, then write normalized CHW.
 /// Queries and every reference view use this same preprocessing in the embedder.
 pub fn normalize_into(crop: &RgbImage, out: &mut [f32], side_px: u32) {
+    normalize_with_stats(crop, out, side_px, IMAGENET_MEAN, IMAGENET_STD);
+}
+
+/// Letterbox with the rounded model mean, then normalize CHW using that model's statistics.
+pub fn normalize_with_stats(
+    crop: &RgbImage,
+    out: &mut [f32],
+    side_px: u32,
+    mean: [f32; 3],
+    std: [f32; 3],
+) {
     let side = side_px as usize;
+    let background = mean.map(|v| (v * 255.).round().clamp(0., 255.) as u8);
     assert!(side_px > 0 && crop.width() > 0 && crop.height() > 0);
     assert_eq!(out.len(), 3 * side * side);
     for channel in 0..3 {
-        out[channel * side * side..(channel + 1) * side * side].fill(
-            (f32::from(LETTERBOX_BACKGROUND[channel]) / 255. - IMAGENET_MEAN[channel])
-                / IMAGENET_STD[channel],
-        );
+        out[channel * side * side..(channel + 1) * side * side]
+            .fill((f32::from(background[channel]) / 255. - mean[channel]) / std[channel]);
     }
     let (width, height) = fit_dimensions(crop, side_px);
     let resized = image::imageops::resize(crop, width, height, FilterType::CatmullRom);
@@ -116,8 +126,7 @@ pub fn normalize_into(crop: &RgbImage, out: &mut [f32], side_px: u32) {
     for (x, y, pixel) in resized.enumerate_pixels() {
         for channel in 0..3 {
             out[channel * side * side + (top + y) as usize * side + (left + x) as usize] =
-                (f32::from(pixel[channel]) / 255.0 - IMAGENET_MEAN[channel])
-                    / IMAGENET_STD[channel];
+                (f32::from(pixel[channel]) / 255.0 - mean[channel]) / std[channel];
         }
     }
 }
@@ -245,6 +254,20 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn siglip_letterbox_uses_model_mean_and_half_normalization() {
+        let crop = RgbImage::from_pixel(4, 8, image::Rgb([255, 0, 128]));
+        let mut output = vec![0.; 3 * 8 * 8];
+        normalize_with_stats(&crop, &mut output, 8, [0.5; 3], [0.5; 3]);
+        for c in 0..3 {
+            assert!((output[c * 64] - (128. / 255. - 0.5) / 0.5).abs() < 1e-6);
+            assert!(
+                (output[c * 64 + 3] - (f32::from([255_u8, 0, 128][c]) / 255. - 0.5) / 0.5).abs()
+                    < 1e-6
+            );
         }
     }
 

@@ -161,6 +161,11 @@ async fn build_state_limited(
         .await
         .unwrap();
     common::clerk::install(&mut state);
+    // Synthetic scores exercise the historical mock decision boundaries.
+    state.recognition = taphoa_api::recognition::classify::RecognitionConfig::from_lookup(|name| {
+        (name == "EMBEDDER").then(|| "mock".into())
+    })
+    .unwrap();
     state.rate_limits = limits;
     let index = Arc::new(InMemoryVectorIndex::default());
     state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
@@ -1449,4 +1454,49 @@ async fn tta_only_embeds_ambiguous_crops_and_respects_cap_and_disable() {
     }
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(*recorder.0.lock().unwrap(), vec![5]);
+}
+
+struct WideScanEmbedder;
+impl Embedder for WideScanEmbedder {
+    fn model(&self) -> &str {
+        "siglip2-b16-224-onnx@1/lb224"
+    }
+    fn dim(&self) -> usize {
+        768
+    }
+    fn embed(&self, _: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        let mut v = vec![0.; 768];
+        v[767] = 1.;
+        Ok(v)
+    }
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn siglip_scan_persists_768_detection_and_model_identity() {
+    let Some((_, mut state, _)) = build_state(vec![]).await else {
+        return;
+    };
+    state.embedder = Some(Arc::new(WideScanEmbedder));
+    let pool = state.postgres.clone().unwrap();
+    let app = router(state);
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, _) =
+        post_scan(&app, &token, Some(&draw_photo()), &[("mode", "single")]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let scan: Uuid = body["id"].as_str().unwrap().parse().unwrap();
+    let model: String = sqlx::query_scalar("SELECT embedder FROM scans WHERE id=$1")
+        .bind(scan)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(model, WideScanEmbedder.model());
+    let (legacy, wide): (Option<pgvector::Vector>, Option<pgvector::Vector>) =
+        sqlx::query_as("SELECT embedding, embedding_768 FROM detections WHERE scan_id=$1")
+            .bind(scan)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(legacy.is_none());
+    assert_eq!(wide.unwrap().as_slice().len(), 768);
 }

@@ -4,6 +4,8 @@
 !apps/backend/
 !apps/backend/**
 apps/backend/target/
+apps/backend/target-local/
+apps/backend/.cache/
 # Worktree-specific target paths are not portable inside the build image.
 apps/backend/.cargo/
 apps/backend/models/

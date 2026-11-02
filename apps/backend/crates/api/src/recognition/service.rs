@@ -724,6 +724,7 @@ async fn write_detections(
     let mut scores = Vec::with_capacity(detections.len());
     let mut areas = Vec::with_capacity(detections.len());
     let mut embeddings = Vec::with_capacity(detections.len());
+    let mut embeddings_768 = Vec::with_capacity(detections.len());
     let mut classes = Vec::with_capacity(detections.len());
     let mut candidates = Vec::with_capacity(detections.len());
     for (position, detection) in detections.iter().enumerate() {
@@ -738,20 +739,24 @@ async fn write_detections(
         areas.push(detection.area.min(i32::MAX as u32) as i32);
         // pgvector 0.4.2 implements PgHasArrayType for Vector; SQLx 0.9
         // also supports Option<T> array elements, so native vector[] preserves
-        // NULL for non-384 adapters without a text serialization/cast fallback.
+        // NULL in the inactive column; historical scans retain their original model identity.
         embeddings.push(
             (detection.embedding.len() == 384)
+                .then(|| pgvector::Vector::from(detection.embedding.clone())),
+        );
+        embeddings_768.push(
+            (detection.embedding.len() == 768)
                 .then(|| pgvector::Vector::from(detection.embedding.clone())),
         );
         classes.push(detection.class.to_string());
         candidates.push(serde_json::to_value(&detection.candidates).unwrap_or_else(|_| json!([])));
     }
     sqlx::query(
-        "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates, track_id) \
-         SELECT id, $2, $3, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates, track_id \
+        "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates, track_id, embedding_768) \
+         SELECT id, $2, $3, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates, track_id, embedding_768 \
          FROM UNNEST($1::uuid[], $4::smallint[], $5::real[], $6::real[], $7::real[], $8::real[], \
-                     $9::real[], $10::integer[], $11::uuid[], $12::vector[], $13::text[], $14::jsonb[], $15::bigint[]) \
-         AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates, track_id)",
+                     $9::real[], $10::integer[], $11::uuid[], $12::vector[], $13::text[], $14::jsonb[], $15::bigint[], $16::vector[]) \
+         AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates, track_id, embedding_768)",
     )
     .bind(&ids)
     .bind(actor.store_id)
@@ -768,6 +773,7 @@ async fn write_detections(
     .bind(&classes)
     .bind(&candidates)
     .bind(&tracks)
+    .bind(&embeddings_768)
     .execute(&mut *tx)
     .await?;
     Ok(())

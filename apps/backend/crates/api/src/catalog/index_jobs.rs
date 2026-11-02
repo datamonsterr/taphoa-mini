@@ -4,6 +4,7 @@ use crate::{
     events::{self, Event},
     recognition::service::CROP_PADDING,
     storage::ObjectStore,
+    vector::embedding_column,
 };
 use anyhow::{Context, ensure};
 use serde_json::json;
@@ -479,31 +480,33 @@ async fn run_job(
         "references changed during indexing"
     );
     // Replace the complete view set atomically: prune removed photos, disabled variants,
-    // and incompatible model identities without leaving stale rows in HNSW.
-    sqlx::query("DELETE FROM product_embeddings WHERE product_id=$1 AND store_id=$2")
-        .bind(job.product_id)
-        .bind(job.store_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM product_prototypes WHERE product_id=$1 AND store_id=$2 AND model<>$3")
+    // for this model; retain other models for an immediate environment-only rollback.
+    sqlx::query("DELETE FROM product_embeddings WHERE product_id=$1 AND store_id=$2 AND model=$3")
         .bind(job.product_id)
         .bind(job.store_id)
         .bind(&model)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM product_prototypes WHERE product_id=$1 AND store_id=$2 AND model=$3")
+        .bind(job.product_id)
+        .bind(job.store_id)
+        .bind(&model)
+        .execute(&mut *tx)
+        .await?;
+    let column = embedding_column(embedder.dim())?;
     for embedding in &embeddings {
-        sqlx::query(
-            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, augmentation, embedding)
-             VALUES ($1,$2,$3,$4,$5,$6,$7::vector)",
-        ).bind(job.store_id).bind(job.product_id).bind(embedding.image_id).bind(&model)
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, augmentation, {column})
+             VALUES ($1,$2,$3,$4,$5,$6,$7::vector)"
+        ))).bind(job.store_id).bind(job.product_id).bind(embedding.image_id).bind(&model)
             .bind(embedding.kind).bind(embedding.augmentation).bind(vector_text(&embedding.vector)).execute(&mut *tx).await?;
     }
     if let Some(prototype) = prototype {
-        sqlx::query(
-            "INSERT INTO product_prototypes (store_id,product_id,model,embedding,reference_count)
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO product_prototypes (store_id,product_id,model,{column},reference_count)
              VALUES ($1,$2,$3,$4::vector,$5) ON CONFLICT (product_id,model)
-             DO UPDATE SET embedding=EXCLUDED.embedding, reference_count=EXCLUDED.reference_count, updated_at=now()",
-        ).bind(job.store_id).bind(job.product_id).bind(&model).bind(vector_text(&prototype))
+             DO UPDATE SET {column}=EXCLUDED.{column}, reference_count=EXCLUDED.reference_count, updated_at=now()"
+        ))).bind(job.store_id).bind(job.product_id).bind(&model).bind(vector_text(&prototype))
             .bind(reference_count).execute(&mut *tx).await?;
     } else {
         sqlx::query(
@@ -624,7 +627,7 @@ async fn embed_image(
         );
         for vector in &vectors {
             ensure!(
-                vector.len() == 384 && vector.len() == embedder.dim(),
+                matches!(vector.len(), 384 | 768) && vector.len() == embedder.dim(),
                 "invalid embedding dimension"
             );
             ensure!(vector.iter().all(|v| v.is_finite()), "non-finite embedding");
@@ -686,7 +689,7 @@ fn compute_prototype(embeddings: &[Embedding]) -> Option<Vec<f32>> {
     if embeddings.is_empty() {
         return None;
     }
-    let mut mean = vec![0f64; 384];
+    let mut mean = vec![0f64; embeddings[0].vector.len()];
     for embedding in embeddings {
         for (sum, value) in mean.iter_mut().zip(&embedding.vector) {
             *sum += f64::from(*value);
@@ -703,6 +706,21 @@ fn compute_prototype(embeddings: &[Embedding]) -> Option<Vec<f32>> {
 #[cfg(test)]
 mod keyframe_tests {
     use super::*;
+
+    #[test]
+    fn prototype_keeps_all_768_dimensions() {
+        let mut vector = vec![0.; 768];
+        vector[767] = 1.;
+        let result = compute_prototype(&[Embedding {
+            image_id: Uuid::nil(),
+            kind: "crop",
+            augmentation: "original",
+            vector,
+        }])
+        .unwrap();
+        assert_eq!(result.len(), 768);
+        assert_eq!(result[767], 1.);
+    }
 
     #[test]
     fn selection_starts_near_mean_and_spreads_deterministically() {
