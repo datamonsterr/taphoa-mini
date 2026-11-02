@@ -790,6 +790,27 @@ async fn image_id_path_reuses_the_row() {
 
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL and REDIS_URL"]
+async fn scan_waits_for_inflight_inference_instead_of_returning_busy() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        panic!("recognition integration services must be configured");
+    };
+    let (_, _, token) = create_store(&app).await;
+    let permit = state.inference_slots.clone().acquire_owned().await.unwrap();
+    let mut request =
+        tokio::spawn(async move { post_scan(&app, &token, Some(&draw_photo()), &[]).await });
+    let premature = tokio::time::timeout(std::time::Duration::from_millis(100), &mut request).await;
+    drop(permit);
+    assert!(
+        premature.is_err(),
+        "short contention must queue, not return 503"
+    );
+    let (status, body, _) = request.await.unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(state.inference_slots.available_permits(), 1);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL and REDIS_URL"]
 async fn busy_returns_retry_after() {
     let Some((app, state, _)) = build_state(scan_segments()).await else {
         return;

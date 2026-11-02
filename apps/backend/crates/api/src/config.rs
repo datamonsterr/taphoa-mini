@@ -294,6 +294,17 @@ impl Config {
 mod tests {
     use super::*;
     #[test]
+    fn inference_queue_wait_requires_positive_milliseconds() {
+        for value in ["0", "-1", "invalid", "4294967296"] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "INFERENCE_QUEUE_WAIT_MS" => Some(value.into()),
+                _ => None,
+            });
+            assert!(config.is_err(), "invalid inference wait accepted: {value}");
+        }
+    }
+    #[test]
     fn embedder_selection_defaults_to_siglip_and_reads_only_its_path() {
         let config = Config::from_lookup(|name| match name {
             "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),

@@ -192,6 +192,24 @@ fn confirm_body(receipt: &Value) -> Value {
 }
 #[tokio::test]
 #[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
+async fn receipt_waits_for_scan_or_index_inference_instead_of_returning_busy() {
+    let (w, photo, _, _) = setup(false).await;
+    let slots = w.state.inference_slots.clone();
+    let permit = slots.clone().acquire_owned().await.unwrap();
+    let mut pending = tokio::spawn(async move { create(&w, photo, "queued-receipt").await });
+    let premature = tokio::time::timeout(std::time::Duration::from_millis(100), &mut pending).await;
+    drop(permit);
+    assert!(
+        premature.is_err(),
+        "receipt OCR must wait for a brief scan/index job"
+    );
+    let receipt = pending.await.unwrap();
+    assert_eq!(receipt["status"], "draft");
+    assert_eq!(slots.available_permits(), 1);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
 async fn create_shape_timings_prefilter_and_concurrent_replay() {
     let (w, photo, products, decisions) = setup(false).await;
     let (a, b) = tokio::join!(create(&w, photo, "same"), create(&w, photo, "same"));
