@@ -289,6 +289,37 @@ mod tests {
     }
 
     #[test]
+    fn recognition_defaults_follow_selected_model_and_keep_env_overrides() {
+        let siglip = RecognitionConfig::from_lookup(|_| None).unwrap();
+        let dino =
+            RecognitionConfig::from_lookup(|name| (name == "EMBEDDER").then(|| "dinov2".into()))
+                .unwrap();
+        assert_ne!(
+            siglip, dino,
+            "different score distributions require different model defaults"
+        );
+        assert_eq!(dino.match_threshold, 0.80);
+        assert_eq!(dino.match_margin, 0.05);
+        assert_eq!(dino.match_floor, 0.60);
+        assert_eq!(dino.duplicate_threshold, 0.88);
+        for model in ["siglip2", "dinov2"] {
+            let configured = RecognitionConfig::from_lookup(|name| match name {
+                "EMBEDDER" => Some(model.into()),
+                MATCH_THRESHOLD => Some("0.93".into()),
+                MATCH_MARGIN => Some("0.02".into()),
+                MATCH_FLOOR => Some("0.8".into()),
+                DUPLICATE_THRESHOLD => Some("0.96".into()),
+                _ => None,
+            })
+            .unwrap();
+            assert_eq!(configured.match_threshold, 0.93);
+            assert_eq!(configured.match_margin, 0.02);
+            assert_eq!(configured.match_floor, 0.8);
+            assert_eq!(configured.duplicate_threshold, 0.96);
+        }
+    }
+
+    #[test]
     fn config_env_parsing_validates_ranges() {
         let defaults = RecognitionConfig::from_lookup(|_| None).unwrap();
         assert_eq!(
