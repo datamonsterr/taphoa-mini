@@ -14,6 +14,9 @@ import {
 } from './quickEnroll';
 import { uploadPartsAsBlobs } from './testing';
 
+// Screen regressions keep exercising the Expo web path; native outputs have their own suite.
+jest.mock('./CameraPreview', () => jest.requireActual('./CameraPreview.web'));
+
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
   useIsFocused: () => true,

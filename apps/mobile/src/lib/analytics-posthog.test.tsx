@@ -65,6 +65,7 @@ afterEach(() => {
 });
 
 const samples = {
+  scan_result_received: { latency_ms: 4200, trigger: 'auto' },
   $screen: { $screen_name: '/product/[id]' },
   signed_in: { method: 'email_code' },
   signed_out: { method: 'google' },
@@ -97,6 +98,7 @@ const samples = {
   voice_sale_abandoned: { stage: 'draft' },
 } satisfies AppEventProps;
 const requiredKeys: Record<keyof AppEventProps, string[]> = {
+  scan_result_received: ['latency_ms', 'trigger'],
   $screen: ['$screen_name'],
   signed_in: ['method'],
   signed_out: ['method'],

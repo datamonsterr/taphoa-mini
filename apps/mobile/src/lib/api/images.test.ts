@@ -107,10 +107,15 @@ describe('createScan busy retry', () => {
 });
 
 test('serializes phone boxes as JSON in multipart and omits an empty set', async () => {
-  const forms: FormData[] = [];
+  const forms: { get(key: string): unknown; has(key: string): boolean }[] = [];
   setApiTransport(
     jest.fn(async (req: Request) => {
-      forms.push(await req.formData());
+      forms.push(
+        (await req.formData()) as unknown as {
+          get(key: string): unknown;
+          has(key: string): boolean;
+        },
+      );
       return json(200, scan);
     }) as unknown as typeof fetch,
   );

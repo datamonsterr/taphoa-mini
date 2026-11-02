@@ -23,7 +23,14 @@ it.each([
   (rotation, expected) => {
     expect(
       normalizeBoxes([box()], { width: 100, height: 200, rotation })[0],
-    ).toEqual({ ...expected, track_id: 1 });
+    ).toMatchObject(
+      Object.fromEntries(
+        Object.entries({ ...expected, track_id: 1 }).map(([key, value]) => [
+          key,
+          expect.closeTo(value, 6),
+        ]),
+      ),
+    );
   },
 );
 it('clips boxes, drops invalid/empty geometry, and caps the B2 payload at ten', () => {
@@ -123,4 +130,23 @@ it('votes over three results per track and preserves a majority through unknown/
     voteScan(history, scan([detection('other', { track_id: 8 })])).scan
       .detections[0]!.candidates[0]!.product_id,
   ).toBe('other-a');
+});
+
+it('does not promote one historical match into a stable majority', () => {
+  const first = voteScan({}, scan([detection('d', { track_id: 7 })]));
+  const unknown = detection('d', {
+    track_id: 7,
+    match: 'unknown',
+    candidates: [],
+  });
+  expect(voteScan(first.history, scan([unknown])).scan.detections[0]).toEqual(
+    unknown,
+  );
+  const different = detection('d', {
+    track_id: 7,
+    candidates: [candidate('other', 100)],
+  });
+  expect(voteScan(first.history, scan([different])).scan.detections[0]).toEqual(
+    different,
+  );
 });

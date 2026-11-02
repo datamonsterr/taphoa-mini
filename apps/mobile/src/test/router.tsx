@@ -5,6 +5,12 @@ import {
 import { renderRouter } from 'expo-router/testing-library';
 import path from 'node:path';
 
+// Route regressions use the Expo web camera double. Device output/capture behavior is
+// exercised separately in CameraPreview.native and CameraScreen.native suites.
+jest.mock('@/features/camera/CameraPreview', () =>
+  jest.requireActual('@/features/camera/CameraPreview.web'),
+);
+
 /**
  * Renders the real `src/app` route tree (root layout, providers, fonts, stack) at `initialUrl`.
  * The root layout owns the query client, so every call starts with an empty cache.

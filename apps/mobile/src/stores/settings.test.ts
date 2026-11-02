@@ -32,6 +32,7 @@ test('persists choices to AsyncStorage', async () => {
   useSettingsStore.getState().setLanguage('en');
   const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
   expect(JSON.parse(raw!).state).toEqual({
+    autoIdentify: true,
     elderMode: false,
     speakTotal: false,
     fontScale: 1.5,

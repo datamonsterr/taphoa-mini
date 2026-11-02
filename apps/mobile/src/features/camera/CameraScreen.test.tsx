@@ -44,6 +44,9 @@ import { initialQuickEnroll, useQuickEnrollStore } from './quickEnroll';
 import * as downsizing from '@/lib/api/downsize';
 import { useVoiceSettings } from '@/features/voice/voiceSettings';
 
+// Screen regressions keep exercising the Expo web path; native outputs have their own suite.
+jest.mock('./CameraPreview', () => jest.requireActual('./CameraPreview.web'));
+
 jest.mock('./useDocumentProbe', () => ({
   useDocumentProbe: jest.fn(() => null),
 }));
