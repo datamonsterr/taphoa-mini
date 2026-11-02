@@ -238,19 +238,33 @@ async fn quick_enroll_schema_and_constraints() {
     .await;
     assert!(pos7.is_ok(), "position 7 should be accepted: {pos7:?}");
 
-    // product_images position 8 rejected
-    sqlx::query("SAVEPOINT sp2")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    let pos8 = sqlx::query(
-        "INSERT INTO product_images(product_id, image_id, position) VALUES ($1, $2, 8)",
+    // The widened position range accepts the final keyframe and rejects 24.
+    let pos23 = sqlx::query(
+        "INSERT INTO product_images(product_id, image_id, position) VALUES ($1, $2, 23)",
     )
     .bind(product)
     .bind(img2)
     .execute(&mut *tx)
     .await;
-    assert!(pos8.is_err(), "position 8 should be rejected");
+    assert!(pos23.is_ok(), "position 23 should be accepted: {pos23:?}");
+    sqlx::query("DELETE FROM product_images WHERE product_id=$1 AND image_id=$2")
+        .bind(product)
+        .bind(img2)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SAVEPOINT sp2")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let pos8 = sqlx::query(
+        "INSERT INTO product_images(product_id, image_id, position) VALUES ($1, $2, 24)",
+    )
+    .bind(product)
+    .bind(img2)
+    .execute(&mut *tx)
+    .await;
+    assert!(pos8.is_err(), "position 24 should be rejected");
     sqlx::query("ROLLBACK TO SAVEPOINT sp2")
         .execute(&mut *tx)
         .await

@@ -230,6 +230,50 @@ async fn cleanup(pool: &PgPool, store_id: Uuid) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+#[sqlx::test(migrator = "MIGRATOR")]
+#[ignore = "requires DATABASE_URL"]
+async fn keyframes_keep_only_sixteen_four_view_crops(pool: PgPool) {
+    let storage = Arc::new(MemStore::default());
+    let store_id = new_store(&pool).await;
+    let product_id = new_product(&pool, store_id).await;
+    for position in 0..24 {
+        let image_id = new_image(&pool, store_id, &storage, &format!("frame/{position}")).await;
+        sqlx::query("INSERT INTO product_images(product_id,image_id,position,bbox,source) VALUES ($1,$2,$3,$4,'keyframe')")
+            .bind(product_id).bind(image_id).bind(position as i16).bind(&[0.0_f32,0.0,2.0,2.0][..]).execute(&pool).await.unwrap();
+    }
+    let mut tx = pool.begin().await.unwrap();
+    enqueue(&mut tx, store_id, product_id).await.unwrap();
+    tx.commit().await.unwrap();
+    assert!(
+        process_next(
+            &pool,
+            Arc::new(MockEmbedder),
+            storage,
+            Arc::new(tokio::sync::Semaphore::new(2)),
+            &test_config()
+        )
+        .await
+        .unwrap()
+    );
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT kind, augmentation FROM product_embeddings WHERE product_id=$1 ORDER BY kind, augmentation")
+        .bind(product_id).fetch_all(&pool).await.unwrap();
+    assert_eq!(rows.len(), 64);
+    for name in ["original", "rotate90", "rotate270", "far48"] {
+        assert_eq!(
+            rows.iter()
+                .filter(|(kind, view)| kind == "crop" && view == name)
+                .count(),
+            16
+        );
+    }
+    let images: i64 = sqlx::query_scalar("SELECT count(*) FROM product_images WHERE product_id=$1")
+        .bind(product_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(images, 24);
+}
+
 /// Test 1: happy path — enqueue → process_next → job done, product ready, embeddings + prototype.
 #[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
