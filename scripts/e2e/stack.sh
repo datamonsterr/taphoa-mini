@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Real-backend stack for the web/Android E2E suites: postgres + redis + storage in docker compose
 # (project taphoa-e2e, so it never touches another stack) and the taphoa-api binary on the host
-# with SAM + DINO models loaded.
+# with SAM and the selected embedder loaded.
 #
 #   scripts/e2e/stack.sh up     start everything and wait for /readyz
 #   scripts/e2e/stack.sh down   stop the backend and remove containers and volumes
@@ -22,7 +22,7 @@
 #   E2E_STATE_DIR        pid and log directory (default <repo>/.e2e-stack, gitignored)
 #   (the stack always runs the scripted assistant and voice models: the app's fixture clips carry
 #   their own answer as VOICE_PARSE=<json>)
-#   E2E_SKIP_MODELS=1    start without SAM/DINO (recognition returns 503)
+#   E2E_SKIP_MODELS=1    start without recognition/OCR models (recognition returns 503)
 #   CLERK_PUBLISHABLE_KEY  Clerk instance whose session JWTs the backend accepts (default: the
 #                        development instance; its publishable key is public by design)
 #   CLERK_SECRET_KEY     optional; handed to the backend when non-empty (profile reads). Other
@@ -99,6 +99,7 @@ up() {
       SAM_ENCODER_PATH="$models/mobile_sam_image_encoder.onnx"
       SAM_DECODER_PATH="$models/sam_mask_decoder_multi.onnx"
       DINO_MODEL_PATH="$models/dinov2_small.onnx"
+      SIGLIP2_MODEL_PATH="$models/siglip2_base_patch16_224.onnx"
       OCR_DET_PATH="$models/ocr_det.onnx"
       OCR_ENCODER_PATH="$models/ocr_vietocr_encoder.onnx"
       OCR_DECODER_PATH="$models/ocr_vietocr_decoder.onnx"
