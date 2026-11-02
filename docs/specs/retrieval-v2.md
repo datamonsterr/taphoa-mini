@@ -33,7 +33,7 @@ retain `sqrt(0.7)` of each edge, rounded to pixels. Tiny inputs remain at least 
 `INDEX_AUGMENT=0` disables the six extra views for subsequent jobs. A configuration change
 requires explicitly re-enqueuing products already indexed with that model identity.
 
-Migration `0502_retrieval_v2.sql` adds `augmentation` (default `original`) beside the
+Migration `1303_retrieval_v2.sql` adds `augmentation` (default `original`) beside the
 existing `kind` (`crop`/`cutout`). The unique key includes both, while existing rows keep
 their meaning. `index_jobs.target_model` records attempts so an exhausted job is
 not repeatedly reset by background backfill. No vector column or dimension changes.
