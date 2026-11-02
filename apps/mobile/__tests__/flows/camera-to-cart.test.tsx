@@ -204,7 +204,7 @@ describe('camera -> cart', () => {
     expect(body.lines).toHaveLength(1);
     expect(body.lines[0]).toMatchObject({
       product_id: detection.candidates[0].product_id,
-      source: 'multi_photo',
+      source: 'camera',
       detection_id: detection.id,
       suggested_product_id: detection.candidates[0].product_id,
     });
