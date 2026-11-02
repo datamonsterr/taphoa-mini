@@ -121,7 +121,10 @@ verified by the CI APK build (`android-apk.yml`) because there is no local Andro
   stale boxes are omitted, preserving the server SAM fallback. The receipt probe shares this adapter.
 - Auto identify defaults on, persists in settings, and is exposed as “Tự nhận diện” in Account.
   A nonempty track set must stay above .8 IoU for 700 ms, with no new/missing tracks. It fires
-  once per stable set, only in the live Object view; frozen results and enrollment block it.
+  once per stable set, only in the live Object view. One shared gate blocks it for a detected
+  receipt, receipt reading, Code mode, armed/capturing enrollment, any enrollment sheet/modal,
+  a routed overlay taking focus, and frozen results. Already queued native callbacks consult
+  the latest committed gate and synchronous receipt/enrollment pending flags before capture.
 - The last three answers per track vote only for `matched` products. Ambiguous/unknown answers
   cannot replace an established majority. `scan_result_received` records `latency_ms` from
   shutter/auto trigger through the result, with `trigger=tap|auto|retry`, via the analytics sink.
