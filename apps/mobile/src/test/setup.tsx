@@ -290,3 +290,6 @@ jest.mock('react-native-worklets', () =>
 jest.mock('@taphoa/mlkit-object-detection', () => ({
   createObjectDetector: () => require('./visionCamera').visionMock.detector,
 }));
+jest.mock('react-native-vision-camera-resizer', () => ({
+  createResizer: jest.fn(async () => require('./visionCamera').visionMock.resizer),
+}));

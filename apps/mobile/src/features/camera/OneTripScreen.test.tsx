@@ -78,7 +78,7 @@ it('tap box -> eight keyframes -> voice prefill -> one save with keyframe refere
   await fireEvent.press(screen.getByLabelText('Lưu sản phẩm'));
   await screen.findByText('Đã thêm Mì gói');
   expect(requests).toHaveLength(1);
-  expect(requests[0]).toMatchObject({ name: 'Mì gói', price: 5000, base_unit: 'gói', references: Array.from({ length: 8 }, () => ({ image_id: expect.any(String), source: 'keyframe', bbox: [76.8, 204.8, 384, 409.6] })) });
+  expect(requests[0]).toMatchObject({ name: 'Mì gói', price: 5000, base_unit: 'gói', references: Array.from({ length: 8 }, () => ({ image_id: expect.any(String), source: 'keyframe', bbox: [expect.closeTo(76.8), 204.8, 384, 409.6] })) });
   expect(analytics).toHaveBeenCalledWith('one_trip_enrollment_completed', { duration_ms: expect.any(Number), keyframe_count: 8, voice_success: true });
   expect(screen.queryByTestId('point-overlay-canvas')).toBeNull();
 });

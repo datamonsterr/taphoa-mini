@@ -19,6 +19,10 @@ export const visionMock = {
   },
   barcodeOutput: { dispose: jest.fn() },
   frame: { dispose: jest.fn() },
+  asyncRunner: { isBusy: jest.fn(() => false), runAsync: jest.fn((task: () => void) => { task(); return true; }) },
+  thumb: { width: 160, height: 160, getPixelBuffer: jest.fn(() => new Uint8Array(160 * 160 * 4).buffer), dispose: jest.fn() },
+  image: { width: 1280, height: 960, resize: jest.fn(), saveToTemporaryFileAsync: jest.fn(async () => '/keyframe.jpg'), dispose: jest.fn() },
+  resizer: { resize: jest.fn(), dispose: jest.fn() },
   detector: {
     dispose: jest.fn(),
     getFrameMetadata: jest.fn(() => ({
@@ -46,6 +50,10 @@ export const visionMock = {
     this.barcodeOutput.dispose.mockClear();
     this.detector.detectObjects.mockReset().mockReturnValue([]);
     this.detector.dispose.mockClear();
+    this.asyncRunner.runAsync.mockClear();
+    this.asyncRunner.isBusy.mockReturnValue(false);
+    this.resizer.resize.mockReturnValue(this.thumb);
+    this.image.resize.mockReturnValue(this.image);
   },
 };
 
@@ -72,6 +80,8 @@ export function createVisionCameraMock() {
       return visionMock.frameOutput;
     },
     usePhotoOutput: () => visionMock.photoOutput,
+    useAsyncRunner: () => visionMock.asyncRunner,
+    HybridFrameConverter: { convertFrameToImage: () => visionMock.image },
   };
 }
 export function createBarcodeMock() {
@@ -94,6 +104,6 @@ export function createWorkletsMock() {
       };
     },
     scheduleOnUI: (fn: () => void) => fn(),
-    scheduleOnRN: (fn: () => void) => fn(),
+    scheduleOnRN: <T extends unknown[],>(fn: (...args: T) => void, ...args: T) => fn(...args),
   };
 }
