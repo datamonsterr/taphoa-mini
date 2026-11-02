@@ -1,0 +1,16 @@
+{
+  "name": "@taphoa/mlkit-object-detection",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "react-native": "index.ts",
+  "scripts": {
+    "codegen": "nitrogen"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-nitro-modules": "0.37.1",
+    "react-native-vision-camera": "5.2.4"
+  }
+}

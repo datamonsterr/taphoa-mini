@@ -13,6 +13,7 @@ import { AnalyticsProvider } from '@/lib/analyticsPostHog';
 import { AuthGate } from '@/features/auth/AuthGate';
 import { apiConfigured } from '@/lib/api/client';
 import { ConfigurationError } from '@/features/auth/ConfigurationError';
+import { visionDevEnabled } from '@/features/camera/vision/dev';
 import {
   configureNotificationHandler,
   useNotificationObserver,
@@ -54,6 +55,9 @@ function NavigationTree({
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Protected guard={visionDevEnabled()}>
+        <Stack.Screen name="dev/vision" />
+      </Stack.Protected>
       <Stack.Protected
         guard={hasMembership}
         redirectTo={signedIn ? '/welcome' : '/sign-in'}

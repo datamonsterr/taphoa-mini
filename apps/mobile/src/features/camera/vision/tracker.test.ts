@@ -1,13 +1,21 @@
 import { createTracker, intersectionOverUnion, trackObjects } from './tracker';
 
-const box = (x = 0, trackingId: number | null = null) => ({ trackingId, x, y: 0, width: 100, height: 100 });
+const box = (x = 0, trackingId: number | null = null) => ({
+  trackingId,
+  x,
+  y: 0,
+  width: 100,
+  height: 100,
+});
 
 describe('IoU fallback tracker', () => {
   it('computes overlap and handles empty or disjoint boxes', () => {
     expect(intersectionOverUnion(box(), box())).toBe(1);
     expect(intersectionOverUnion(box(), box(50))).toBeCloseTo(1 / 3);
     expect(intersectionOverUnion(box(), box(200))).toBe(0);
-    expect(intersectionOverUnion({ ...box(), width: 0 }, { ...box(), width: 0 })).toBe(0);
+    expect(
+      intersectionOverUnion({ ...box(), width: 0 }, { ...box(), width: 0 }),
+    ).toBe(0);
   });
 
   it('keeps native ids, uses a separate fallback namespace, and does not mutate state', () => {

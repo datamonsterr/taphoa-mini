@@ -29,6 +29,9 @@ Options for the phone detector:
 
 ## Consequences
 
+- Android's minimum supported version rises from API 24 to API 26 (Android 8.0),
+  required by VisionCamera Resizer 5.2.4. `expo-build-properties` sets
+  `android.minSdkVersion=26` during CNG; generated native projects remain uncommitted.
 - New native dependencies: VisionCamera v5, Nitro modules, and a local Kotlin module. The camera
   screen needs a development build. Expo Go no longer works there.
 - Five objects per frame on the phone covers a counter scan. Dense shelf scans still go through

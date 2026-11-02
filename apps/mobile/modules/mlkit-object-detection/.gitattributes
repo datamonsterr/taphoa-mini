@@ -1,0 +1,2 @@
+# Keep Nitrogen output verbatim, including its whitespace on empty lines.
+nitrogen/generated/** whitespace=-blank-at-eol
