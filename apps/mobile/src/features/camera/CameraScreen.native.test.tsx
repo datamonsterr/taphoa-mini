@@ -8,6 +8,10 @@ import { setAnalyticsSink } from '@/lib/analytics';
 import { CameraScreen } from './CameraScreen';
 import { uploadPartsAsBlobs } from './testing';
 
+jest.mock('./vision/nativeAvailable', () => ({
+  isVisionNativeAvailable: () => true,
+}));
+
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
