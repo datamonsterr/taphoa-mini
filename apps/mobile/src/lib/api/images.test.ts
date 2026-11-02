@@ -105,3 +105,23 @@ describe('createScan busy retry', () => {
     expect(t).toHaveBeenCalledTimes(1);
   });
 });
+
+test('serializes phone boxes as JSON in multipart and omits an empty set', async () => {
+  const forms: { get(key: string): unknown; has(key: string): boolean }[] = [];
+  setApiTransport(
+    jest.fn(async (req: Request) => {
+      forms.push(
+        (await req.formData()) as unknown as {
+          get(key: string): unknown;
+          has(key: string): boolean;
+        },
+      );
+      return json(200, scan);
+    }) as unknown as typeof fetch,
+  );
+  const boxes = [{ x: 0.1, y: 0.2, width: 0.3, height: 0.4, track_id: -1 }];
+  await createScan({ image_id: 'img', boxes });
+  await createScan({ image_id: 'img', boxes: [] });
+  expect(forms[0]!.get('boxes')).toBe(JSON.stringify(boxes));
+  expect(forms[1]!.has('boxes')).toBe(false);
+});

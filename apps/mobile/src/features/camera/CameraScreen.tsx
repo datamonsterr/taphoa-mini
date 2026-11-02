@@ -1,5 +1,6 @@
-import { PostHogMaskView } from '@/components/ui/ReplayMask';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraPreview, useCameraPermissions } from './CameraPreview';
+import type { PictureTaker } from './capture';
+import { useSettingsStore } from '@/stores/settings';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -73,10 +74,8 @@ import {
   measuredFlyVector,
   type Layout,
 } from './AddFeedback';
-import { CODE_SETTINGS } from './barcode';
 import { BarcodeIndicator } from './BarcodeIndicator';
 import { useBarcodeScanner } from './useBarcodeScanner';
-import type { BarcodeScanningResult } from 'expo-camera';
 
 import { takePhoto } from './capture';
 import {
@@ -113,49 +112,6 @@ const STRIP_SLOT = 80;
 const FINDER_GAP = 60;
 const FIXED_HEIGHT =
   20 + 56 + FINDER_GAP + 8 + STRIP_SLOT + 8 + 64 + 16 + 56 + 32;
-
-/**
- * The live preview. It reports readiness once `expo-camera` has started, and not-ready when it
- * unmounts (behind a frozen photo, off screen), so the shutter never fires into a cold camera.
- *
- * In code mode the native handler stays stable while reads are paused, avoiding CameraX
- * rebinding during ordinary scanner state changes.
- */
-function LivePreview({
-  cameraRef,
-  onReadyChange,
-  onBarcodeScanned,
-  codeMode,
-}: {
-  cameraRef: React.RefObject<CameraView | null>;
-  onReadyChange: (ready: boolean) => void;
-  onBarcodeScanned?: (result: BarcodeScanningResult) => void;
-  codeMode: boolean;
-}) {
-  useEffect(() => () => onReadyChange(false), [onReadyChange]);
-  const onCameraReady = useCallback(() => onReadyChange(true), [onReadyChange]);
-  const barcodeHandler = useRef(onBarcodeScanned);
-  useEffect(() => {
-    barcodeHandler.current = onBarcodeScanned;
-  }, [onBarcodeScanned]);
-  const onBarcode = useCallback(
-    (result: BarcodeScanningResult) => barcodeHandler.current?.(result),
-    [],
-  );
-  return (
-    <PostHogMaskView style={StyleSheet.absoluteFill}>
-      <CameraView
-        ref={cameraRef}
-        facing="back"
-        animateShutter={false}
-        barcodeScannerSettings={CODE_SETTINGS}
-        onBarcodeScanned={codeMode ? onBarcode : undefined}
-        onCameraReady={onCameraReady}
-        style={StyleSheet.absoluteFill}
-      />
-    </PostHogMaskView>
-  );
-}
 
 /**
  * Owns the cart subscription so an add or a quantity change re-renders only the pill, never the
@@ -244,11 +200,12 @@ export function CameraScreen() {
   const { width, height } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
 
+  const autoIdentify = useSettingsStore((s) => s.autoIdentify);
   const mode = useCaptureModeStore(selectMode);
   const setMode = useCaptureModeStore((s) => s.setMode);
   const addLine = useCartStore((s) => s.add);
 
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<PictureTaker>(null);
   const { state, capture, retry, reset, added, toggle, toggleOpen, choose } =
     useScanSession(cameraRef);
   const { phase, photo, scan, selected, chosen, openId } = state;
@@ -728,9 +685,35 @@ export function CameraScreen() {
           size={finder}
           photoUri={photo?.uri}
           behind={
-            focused && permission?.granted ? (
-              <LivePreview
+            permission?.granted ? (
+              <CameraPreview
                 cameraRef={cameraRef}
+                active={focused}
+                detectionEnabled={
+                  focused &&
+                  phase === 'idle' &&
+                  !quickActive &&
+                  !sheetOpen &&
+                  !readingReceipt &&
+                  !barcodeResult &&
+                  !quickCapturing
+                }
+                autoIdentify={autoIdentify && !documentDetected && cameraReady}
+                onAutoCapture={() => {
+                  if (
+                    focused &&
+                    mode === 'object' &&
+                    phase === 'idle' &&
+                    cameraReady &&
+                    !quickActive &&
+                    !sheetOpen &&
+                    !readingReceipt &&
+                    !barcodeResult &&
+                    !quickCapturing &&
+                    !documentDetected
+                  )
+                    void capture(undefined, 'auto');
+                }}
                 codeMode={mode === 'code'}
                 onReadyChange={setCameraReady}
                 onBarcodeScanned={

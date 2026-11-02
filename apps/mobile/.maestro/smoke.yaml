@@ -15,5 +15,12 @@ appId: com.datamonsterr.taphoamini
     env:
       STORE_NAME: 'Tạp hóa Smoke'
       OWNER_NAME: 'Cô Ba'
+# The platform preview keeps a common target across the native camera migration.
+- assertVisible:
+    id: 'camera-view'
+- tapOn: 'Mã vạch/QR'
+- assertVisible:
+    id: 'camera-view'
+- tapOn: 'Vật phẩm'
 - assertVisible: 'Giỏ hàng trống'
 - takeScreenshot: smoke-03-camera

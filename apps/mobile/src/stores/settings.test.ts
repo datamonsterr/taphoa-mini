@@ -32,6 +32,7 @@ test('persists choices to AsyncStorage', async () => {
   useSettingsStore.getState().setLanguage('en');
   const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
   expect(JSON.parse(raw!).state).toEqual({
+    autoIdentify: true,
     elderMode: false,
     speakTotal: false,
     fontScale: 1.5,
@@ -85,4 +86,15 @@ test('migrates v1 settings: elder users get the spoken total', async () => {
     elderMode: true,
     speakTotal: true,
   });
+});
+
+test('auto identify defaults on and persists an explicit off across restarts', async () => {
+  expect(useSettingsStore.getState().autoIdentify).toBe(true);
+  useSettingsStore.getState().setAutoIdentify(false);
+  const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
+  expect(JSON.parse(raw!).state.autoIdentify).toBe(false);
+  useSettingsStore.setState({ autoIdentify: true });
+  await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, raw!);
+  await useSettingsStore.persist.rehydrate();
+  expect(useSettingsStore.getState().autoIdentify).toBe(false);
 });

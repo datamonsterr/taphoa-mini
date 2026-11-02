@@ -83,8 +83,9 @@ Upper bound on taps: tag, tap the box, save. About 13–15 s total.
 
 ## Code mode
 
-expo-camera barcode scanning first (done in M1). It moves to the VisionCamera v5 barcode output
-together with the camera migration. Lookup and unknown-code routing are unchanged.
+Native Code mode uses the VisionCamera v5 barcode output (EAN-13, EAN-8, UPC-A, UPC-E,
+Code128, QR); web retains expo-camera and its fake-webcam e2e path. Digits-only validation,
+lookup and unknown-code routing are unchanged.
 
 ## Tasks
 
@@ -97,10 +98,46 @@ together with the camera migration. Lookup and unknown-code routing are unchange
 | E1  | Eval harness: GroceryStoreDataset plus synthetic distance, rotation and occlusion buckets; CI report | B1         | pending     |
 | N1  | Native spike: VisionCamera v5 + worklets 0.13 on RN 0.88, APK builds in CI                           | M1         | pending     |
 | N2  | Local ML Kit object detection frame plugin (Kotlin, Nitro), boxes and tracking ids to a worklet      | N1         | pending     |
-| M2  | Camera screen on VisionCamera: live box overlay, Code mode on the barcode output                     | N2         | pending     |
+| M2  | Camera screen on VisionCamera: live box overlay, Code mode on the barcode output                     | N2         | in review   |
 | M3  | One-trip enrollment: lock, auto keyframes, coverage ring, prompts, voice name and price              | M2, B3     | pending     |
-| M4  | Identify sends boxes, per-track vote, timing telemetry                                               | M2, B2     | pending     |
+| M4  | Identify sends boxes, per-track vote, timing telemetry                                               | M2, B2     | in review   |
 | V1  | Gates: C1 timing on a device, C2 eval, C3 latency e2e on Railway `test`                              | all        | pending     |
 
 Every task is test-first: failing tests are committed before the code. Native tasks (N1, N2) are
 verified by the CI APK build (`android-apk.yml`) because there is no local Android toolchain.
+
+### M2 / M4 implementation notes
+
+- The native preview stays mounted across mode switches, frozen results and focus changes.
+  Object mode attaches one YUV frame output plus a JPEG photo output; Code mode attaches
+  the v5 barcode output. The detector and IoU tracker drive at most five live boxes through
+  shared values. Frozen results gate detection without changing the outputs during a still
+  capture. All native outputs are disposed at unmount; background/blur pauses the camera.
+- Photo and frame outputs target the same 4:3 field of view. The SDK 58 bounded image loader
+  applies EXIF orientation and saves upright JPEG pixels at at most 1280 px on the longest side.
+  Shutter-time raw boxes are rotated, clipped and normalized into that image space. Empty or
+  stale boxes are omitted, preserving the server SAM fallback. The receipt probe shares this adapter.
+- Auto identify defaults on, persists in settings, and is exposed as “Tự nhận diện” in Account.
+  A nonempty track set must stay above .8 IoU for 700 ms, with no new/missing tracks. It fires
+  once per stable set, only in the live Object view; frozen results and enrollment block it.
+- The last three answers per track vote only for `matched` products. Ambiguous/unknown answers
+  cannot replace an established majority. `scan_result_received` records `latency_ms` from
+  shutter/auto trigger through the result, with `trigger=tap|auto|retry`, via the analytics sink.
+  Timed-out/stale answers do not count as successful C3 measurements. Device/WAN p95 remains V1.
+
+### M2 / M4 validation (2026-11-02)
+
+- Test-first commits: `6f4b527` (initial contracts), `0654156` (integration and lifecycle regressions).
+- TypeScript and Expo lint pass; lint retains the existing `VoiceSaleScreen` cleanup warning.
+- Full Jest with coverage: 242 suites, 2,397 tests pass. Coverage: 95.37% statements,
+  91.38% branches, 94.53% functions, 96.37% lines. The explicit web split suite renders
+  expo-camera, exercises Code callbacks and captures through its existing ref API.
+- Web and Android Expo exports pass. Bundle budget: Android 10,757.5 KiB / 12,089.8 KiB;
+  web gzip 1,247.3 KiB / 1,259.8 KiB. Script tests: 13 pass; updated Maestro smoke YAML parses.
+- Expo Doctor: 19/20, with the existing 23 package patch-version mismatches; no new issue.
+- Docker `:app:assembleDebug` passes with `-Xmx6g --max-workers=4`, ARM64. The APK includes
+  ML Kit object detection and VisionCamera barcode scanner libraries. This is compile and
+  packaging evidence; live inference, mode-switch soak, barcode and receipt behavior need a device.
+- Playwright web e2e requires `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, a ready real backend,
+  and the fake webcam fixture. Credentials are unavailable locally; CI runs it on the PR.
+- M2/M4 remain in review for parent integration. C3 p95 and the device gates remain V1.

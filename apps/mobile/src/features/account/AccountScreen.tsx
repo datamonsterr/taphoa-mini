@@ -89,6 +89,25 @@ const ElderRow = memo(function ElderRow() {
   );
 });
 
+const AutoIdentifyRow = memo(function AutoIdentifyRow() {
+  const t = useT(strings);
+  const enabled = useSettingsStore((s) => s.autoIdentify);
+  const setEnabled = useSettingsStore((s) => s.setAutoIdentify);
+  return (
+    <View style={[styles.row, styles.rowRight12]}>
+      <Icon icon={Eye} color={colors.inkMuted} />
+      <ScaledText variant="label" style={styles.grow}>
+        {t('autoIdentify')}
+      </ScaledText>
+      <Switch
+        value={enabled}
+        onValueChange={setEnabled}
+        accessibilityLabel={t('autoIdentify')}
+      />
+    </View>
+  );
+});
+
 const SpeakRow = memo(function SpeakRow() {
   const t = useT(strings);
   const speak = useSettingsStore((s) => s.speakTotal);
@@ -464,6 +483,7 @@ export function AccountScreen() {
         ) : null}
         <ElderRow />
         <SpeakRow />
+        <AutoIdentifyRow />
         <TextSizeRow />
         <LanguageRow />
         <PinRow hasPin={membership.member.has_pin} onPress={openSetPin} />
