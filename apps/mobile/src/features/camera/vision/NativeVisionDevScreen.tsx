@@ -21,7 +21,11 @@ import Animated, {
   useSharedValue,
   type SharedValue,
 } from 'react-native-reanimated';
-import { createSynchronizable, scheduleOnUI } from 'react-native-worklets';
+import {
+  createSynchronizable,
+  scheduleOnRuntimeWithId,
+  UIRuntimeId,
+} from 'react-native-worklets';
 import {
   createObjectDetector,
   type ObjectDetector,
@@ -131,7 +135,8 @@ function VisionSession({ detector }: { detector: ObjectDetector }) {
         }
         // Reanimated SharedValues belong to the UI runtime. Transfer plain results
         // explicitly from the frame runtime; never set React state per frame.
-        scheduleOnUI(() => {
+        scheduleOnRuntimeWithId(UIRuntimeId, () => {
+          'worklet';
           boxes.value = mapped;
           fps.value = rate;
           failure.value = '';
@@ -143,7 +148,8 @@ function VisionSession({ detector }: { detector: ObjectDetector }) {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        scheduleOnUI(() => {
+        scheduleOnRuntimeWithId(UIRuntimeId, () => {
+          'worklet';
           failure.value = message;
           boxes.value = [];
         });
@@ -196,7 +202,8 @@ function VisionSession({ detector }: { detector: ObjectDetector }) {
           style={StyleSheet.absoluteFill}
           onPress={({ nativeEvent }) => {
             const { locationX, locationY } = nativeEvent;
-            scheduleOnUI(() => {
+            scheduleOnRuntimeWithId(UIRuntimeId, () => {
+              'worklet';
               locked.value =
                 selectBoxAtPoint(boxes.value, { x: locationX, y: locationY })
                   ?.id ?? null;

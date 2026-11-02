@@ -15,6 +15,7 @@ import {
   pricePill,
   reshoot,
   saveEnroll,
+  selectOnlyDetection,
   shoot,
   test,
   unknownPill,
@@ -41,7 +42,7 @@ async function duplicateEnroll(camera: Page) {
   const page = await camera.context().newPage();
   await openCamera(page);
   await shoot(page);
-  await unknownPill(page).click();
+  await unknownPill(page).first().click();
   await fillEnroll(page, { name: 'Bản sao', price: 9000 });
   const { product } = await enrollFromCamera(camera, PRODUCT);
   return { page, product };
@@ -63,12 +64,12 @@ test.describe('recognition and enroll (real models)', () => {
       candidates: [],
     });
     expect(first.body.pipeline.segmenter).toContain('sam');
-    expect(first.body.pipeline.embedder).toContain('dino');
+    expect(first.body.pipeline.embedder).toContain('siglip2');
     await expect(page.getByTestId('viewfinder-photo')).toBeVisible();
     await expect(detectionBoxes(page)).toHaveCount(
       first.body.detections.length,
     );
-    await expect(unknownPill(page)).toBeVisible();
+    await expect(unknownPill(page).first()).toBeVisible();
     await expect(addButton(page)).toBeDisabled();
 
     // the box the server found lies inside the frozen photo
@@ -82,7 +83,7 @@ test.describe('recognition and enroll (real models)', () => {
     );
 
     // 2. enroll it from the "?" pill: the sheet opens with the cut-out photo
-    await unknownPill(page).click();
+    await unknownPill(page).first().click();
     await expect(page).toHaveURL(/\/enroll\?.*detectionId=/);
     await expect(page.getByLabel('1 trên 5 ảnh')).toBeVisible();
     await expect(button(page, 'Lưu vào kho và thêm vào giỏ')).toBeDisabled();
@@ -123,16 +124,18 @@ test.describe('recognition and enroll (real models)', () => {
     // above the backend's match threshold (DEFAULT_MATCH_THRESHOLD in classify.rs)
     expect(detection.candidates[0].similarity).toBeGreaterThanOrEqual(0.8);
     await expect(unknownPill(page)).toHaveCount(0);
-    await expect(pricePill(page)).toHaveAccessibleName(
+    await expect(pricePill(page).first()).toHaveAccessibleName(
       `${PRODUCT.name} ${formatVnd(PRODUCT.price)}, xem món khác`,
     );
-    await expect(pricePill(page)).toContainText(
+    await expect(pricePill(page).first()).toContainText(
       formatVnd(PRODUCT.price).replace('đ', ''),
     );
     await expect(addButton(page)).toBeEnabled();
 
-    // 4. add: the cart pill total is two items of the enrolled price
+    // 4. Select one crop; Object mode can find several crops of this fixture.
+    await selectOnlyDetection(page, second.body);
     await addButton(page).click();
+    await backToLive(page);
     await expect(button(page, 'Chụp')).toBeVisible();
     await expect(cartPill(page)).toHaveAccessibleName(
       `Giỏ hàng: 2 món, ${formatVnd(2 * PRODUCT.price)}`,
@@ -166,7 +169,7 @@ test.describe('recognition and enroll (real models)', () => {
   }) => {
     await openCamera(page);
     await shoot(page);
-    await unknownPill(page).click();
+    await unknownPill(page).first().click();
     await fillEnroll(page, { name: 'Hai góc', price: 7000 });
     await addAngle(page);
     await expect(page.getByText('2/5')).toBeVisible();

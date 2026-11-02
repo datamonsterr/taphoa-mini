@@ -31,6 +31,10 @@ appId: com.datamonsterr.taphoamini
     visible: 'Tiem A Maestro'
     timeout: 20000
 # New PIN 7468, then the same again.
+# Auto identify adds a settings row; scroll to the PIN control below the fold.
+- scrollUntilVisible:
+    element: 'Đặt mã PIN'
+    centerElement: true
 - tapOn: 'Đặt mã PIN'
 - extendedWaitUntil:
     visible: 'Mã PIN mới.*'

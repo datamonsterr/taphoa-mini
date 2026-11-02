@@ -4,6 +4,8 @@ import type { UseFrameOutputProps } from 'react-native-vision-camera';
 import type { BarcodeScannerOutputOptions } from 'react-native-vision-camera-barcode-scanner';
 
 export const visionMock = {
+  runtime: 'rn' as 'rn' | 'frame' | 'ui',
+  uiUpdates: jest.fn(),
   mounts: 0,
   renders: 0,
   frameOptions: {} as UseFrameOutputProps,
@@ -52,13 +54,20 @@ export const visionMock = {
   },
   emit(objects: ObjectBox[]) {
     this.detector.detectObjects.mockReturnValueOnce(objects);
-    this.frameOptions.onFrame?.(
-      this.frame as unknown as Parameters<
-        NonNullable<UseFrameOutputProps['onFrame']>
-      >[0],
-    );
+    this.runtime = 'frame';
+    try {
+      this.frameOptions.onFrame?.(
+        this.frame as unknown as Parameters<
+          NonNullable<UseFrameOutputProps['onFrame']>
+        >[0],
+      );
+    } finally {
+      this.runtime = 'rn';
+    }
   },
   reset() {
+    this.runtime = 'rn';
+    this.uiUpdates.mockClear();
     this.mounts = 0;
     this.renders = 0;
     this.frame.dispose.mockClear();
@@ -123,7 +132,24 @@ export function createWorkletsMock() {
         },
       };
     },
-    scheduleOnUI: (fn: () => void) => fn(),
+    // Worklets 0.13 legacy mode supports scheduleOnUI only from the RN runtime.
+    scheduleOnUI: (fn: () => void) => {
+      if (visionMock.runtime !== 'rn')
+        throw new Error('Tried to synchronously call a Remote Function');
+      fn();
+    },
+    UIRuntimeId: 2,
+    scheduleOnRuntimeWithId: (id: number, fn: () => void) => {
+      if (id !== 2) throw new Error('Unexpected runtime');
+      const previous = visionMock.runtime;
+      visionMock.runtime = 'ui';
+      visionMock.uiUpdates();
+      try {
+        fn();
+      } finally {
+        visionMock.runtime = previous;
+      }
+    },
     scheduleOnRN: <T extends unknown[]>(fn: (...args: T) => void, ...args: T) =>
       fn(...args),
   };

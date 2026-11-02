@@ -69,6 +69,8 @@ test('unknown scan → enroll with duplicate correction → known scan → barco
     process.env.I89_SHOTS_DIR ?? testInfo.outputPath('barcode-shots');
   mkdirSync(shots, { recursive: true });
   await signInPage(page, store.user.email);
+  // Object is the default; barcode lookup starts only after the seller selects Code.
+  await button(page, 'Mã vạch/QR').click();
   await expect(page).toHaveURL(/\/enroll/, { timeout: 30_000 });
   const field = page.getByRole('textbox', { name: 'Mã vạch (không bắt buộc)' });
   const typeBarcode = async (code: string) => {

@@ -17,6 +17,10 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: 'Chủ'
 - assertVisible: '1 thành viên'
 - assertVisible: 'Đang dùng: Cô Ba'
+# Auto identify adds a settings row; scroll to the PIN control below the fold.
+- scrollUntilVisible:
+    element: 'Đặt mã PIN'
+    centerElement: true
 - assertVisible: 'Đặt mã PIN'
 - takeScreenshot: onboarding-02-account
 # Only this person is on the phone. Signing out ends their session and shows the sign-in screen.
