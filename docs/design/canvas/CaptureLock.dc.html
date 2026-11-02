@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Thêm món · khóa và xoay</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+.seg{fill:none;stroke:rgba(17,17,20,.1);stroke-width:12;stroke-linecap:round;transition:stroke .45s cubic-bezier(.2,.8,.2,1)}
+.seg.on{stroke:var(--camera-ring)}
+.tgt{transition:border-color .3s,transform .45s cubic-bezier(.34,1.56,.64,1)}
+.tgt.idle{animation:breathe 1.6s ease-in-out infinite}
+.spin{animation:turn 2.4s ease-in-out infinite}
+.pr{animation:pr .4s cubic-bezier(.2,.8,.2,1) both}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+@keyframes turn{0%,100%{transform:rotate(-10deg) scale(1)}50%{transform:rotate(14deg) scale(.88)}}
+@keyframes pr{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.tgt.idle,.spin,.pr{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); color: var(--camera-ink); font-family: var(--font-sans)">
+
+  <div style="position: absolute; left: 16px; top: 20px; right: 16px; display: flex; align-items: center; justify-content: space-between">
+    <a href="CaptureIdentify.dc.html" class="th-ib" aria-label="Thoát thêm món" style="background: rgba(255,255,255,.14); color: var(--camera-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></a>
+    <h1 style="margin: 0; font: 700 20px/26px var(--font-sans)">Thêm món mới</h1>
+    <span class="th-num" aria-label="Thời gian" style="display: grid; place-items: center; min-width: 56px; height: 56px; padding: 0 12px; box-sizing: border-box; border-radius: 9999px; background: rgba(255,255,255,.14); font: 700 16px/20px var(--font-sans)">{{secs}}s</span>
+  </div>
+
+  <div style="position: absolute; left: 16px; top: 92px; width: 358px; height: 470px; border-radius: 28px; overflow: hidden; background: #efe9e0; display: grid; place-items: center">
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 140px; background: #e2d8c9"></div>
+    <svg viewBox="0 0 340 340" aria-hidden="true" style="position: absolute; width: 320px; height: 320px">
+      <path class="seg {{sg.0}}" d="M177.85 20.21A150 150 0 0 1 270.37 58.53"></path>
+      <path class="seg {{sg.1}}" d="M281.47 69.63A150 150 0 0 1 319.79 162.15"></path>
+      <path class="seg {{sg.2}}" d="M319.79 177.85A150 150 0 0 1 281.47 270.37"></path>
+      <path class="seg {{sg.3}}" d="M270.37 281.47A150 150 0 0 1 177.85 319.79"></path>
+      <path class="seg {{sg.4}}" d="M162.15 319.79A150 150 0 0 1 69.63 281.47"></path>
+      <path class="seg {{sg.5}}" d="M58.53 270.37A150 150 0 0 1 20.21 177.85"></path>
+      <path class="seg {{sg.6}}" d="M20.21 162.15A150 150 0 0 1 58.53 69.63"></path>
+      <path class="seg {{sg.7}}" d="M69.63 58.53A150 150 0 0 1 162.15 20.21"></path>
+    </svg>
+    <img class="{{packCls}}" src="img/hao-hao.jpg" alt="" style="position: relative; width: 160px; height: 146px; object-fit: contain; mix-blend-mode: multiply">
+    <button type="button" class="tgt {{tgtCls}}" onClick="{{lock}}" aria-label="{{tgtLabel}}" style="position: absolute; left: 89px; top: 160px; width: 180px; height: 150px; border-radius: 22px; border: 3px {{tgtBorder}}; background: transparent; cursor: pointer"></button>
+    <span class="th-num" aria-hidden="true" style="position: absolute; left: 16px; top: 16px; height: 32px; padding: 0 12px; border-radius: 9999px; background: rgba(12,12,14,.6); font: 600 14px/32px var(--font-sans); color: var(--camera-ink)">{{frames}}/24 khung</span>
+  </div>
+
+  <div role="status" style="position: absolute; left: 16px; right: 16px; top: 586px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center">
+    <span class="pr" style="display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 22px 0 8px; border-radius: 9999px; background: #ffffff; color: var(--ink); font: 700 18px/24px var(--font-sans)"><span style="display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9999px; background: var(--accent); color: #ffffff"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></span>{{prompt}}</span>
+    <span style="font: 500 15px/20px var(--font-sans); color: var(--camera-muted)">{{sub}}</span>
+  </div>
+
+  <div style="position: absolute; left: 16px; right: 16px; bottom: 32px; display: flex; gap: 12px">
+    <sc-if value="{{running}}" hint-placeholder-val="{{false}}">
+      <button type="button" class="th-btn th-btn-soft th-btn-block" onClick="{{stop}}" style="flex: 1; background: rgba(255,255,255,.14); color: #ffffff">Dừng ({{frames}} khung)</button>
+    </sc-if>
+    <sc-if value="{{finished}}" hint-placeholder-val="{{false}}">
+      <a href="CaptureVoice.dc.html" class="th-btn th-btn-accent th-btn-block" style="flex: 1; display: flex; justify-content: center; gap: 10px"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>Nói tên và giá</a>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { step: 0, done: false }; }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() {
+    var s = this.state.step, locked = s > 0, done = this.state.done || s >= 9;
+    var prompts = ['Chạm vào khung món hàng', 'Xoay sản phẩm', 'Xoay tiếp', 'Đưa ra xa', 'Lại gần', 'Lật mặt sau', 'Nghiêng một chút', 'Gần xong', 'Đủ góc rồi'];
+    var fill = Math.min(Math.max(s - 1, 0), 8);
+    var frames = [0, 3, 6, 9, 12, 15, 18, 21, 24][fill];
+    var sg = [];
+    for (var i = 0; i < 8; i++) sg.push(i < fill ? 'on' : '');
+    var start = () => {
+      if (locked && !done) return;
+      this.setState({ step: 1, done: false });
+      clearInterval(this.timer);
+      this.timer = setInterval(() => this.setState((st) => {
+        if (st.step >= 9) { clearInterval(this.timer); return { done: true }; }
+        return { step: st.step + 1 };
+      }), 1100);
+    };
+    return {
+      sg: sg,
+      frames: frames,
+      secs: (fill * 1.2).toFixed(1).replace('.', ','),
+      packCls: locked && !done ? 'spin' : '',
+      tgtCls: locked ? '' : 'idle',
+      tgtBorder: locked ? 'solid var(--accent)' : 'dashed var(--ink)',
+      tgtLabel: locked ? 'Đã khóa vào món' : 'Chạm để khóa vào món này',
+      lock: start,
+      prompt: done ? 'Đủ góc rồi' : prompts[Math.min(s, 8)],
+      sub: done && frames < 8 ? 'Cần ít nhất 8 khung · chạm khung để thử lại' : done ? frames + ' khung hình đẹp · tải lên khi bạn nói' : (locked ? 'Máy tự chụp khi góc mới rõ nét' : 'Khung tím sẽ bám theo món bạn chọn'),
+      running: locked && !done,
+      finished: done && frames >= 8,
+      stop: () => { clearInterval(this.timer); this.setState({ done: true }); }
+    };
+  }
+}
+</script>
+</body>
+</html>
