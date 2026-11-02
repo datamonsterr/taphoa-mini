@@ -135,7 +135,11 @@ it('retains frames after an upload failure and retries only the failed upload', 
   expect(props.oneTrip!.frames.every((frame) => !!frame.imageId)).toBe(true);
 });
 it('starts the first capture after StrictMode replays mount effects', async () => {
-  await render(<StrictMode><Harness /></StrictMode>);
+  await render(
+    <StrictMode>
+      <Harness />
+    </StrictMode>,
+  );
   await begin(8);
   await fireEvent.press(screen.getByLabelText('Dừng chụp'));
   expect(mockRecord).toHaveBeenCalledTimes(1);

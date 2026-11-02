@@ -19,9 +19,26 @@ export const visionMock = {
   },
   barcodeOutput: { dispose: jest.fn() },
   frame: { dispose: jest.fn() },
-  asyncRunner: { isBusy: jest.fn(() => false), runAsync: jest.fn((task: () => void) => { task(); return true; }) },
-  thumb: { width: 160, height: 160, getPixelBuffer: jest.fn(() => new Uint8Array(160 * 160 * 4).buffer), dispose: jest.fn() },
-  image: { width: 1280, height: 960, resize: jest.fn(), saveToTemporaryFileAsync: jest.fn(async () => '/keyframe.jpg'), dispose: jest.fn() },
+  asyncRunner: {
+    isBusy: jest.fn(() => false),
+    runAsync: jest.fn((task: () => void) => {
+      task();
+      return true;
+    }),
+  },
+  thumb: {
+    width: 160,
+    height: 160,
+    getPixelBuffer: jest.fn(() => new Uint8Array(160 * 160 * 4).buffer),
+    dispose: jest.fn(),
+  },
+  image: {
+    width: 1280,
+    height: 960,
+    resize: jest.fn(),
+    saveToTemporaryFileAsync: jest.fn(async () => '/keyframe.jpg'),
+    dispose: jest.fn(),
+  },
   resizer: { resize: jest.fn(), dispose: jest.fn() },
   detector: {
     dispose: jest.fn(),
@@ -98,12 +115,16 @@ export function createWorkletsMock() {
       let value = initial;
       return {
         getBlocking: () => value,
-        setBlocking: (next: T) => {
-          value = next;
+        setBlocking: (next: T | ((previous: T) => T)) => {
+          value =
+            typeof next === 'function'
+              ? (next as (previous: T) => T)(value)
+              : next;
         },
       };
     },
     scheduleOnUI: (fn: () => void) => fn(),
-    scheduleOnRN: <T extends unknown[],>(fn: (...args: T) => void, ...args: T) => fn(...args),
+    scheduleOnRN: <T extends unknown[]>(fn: (...args: T) => void, ...args: T) =>
+      fn(...args),
   };
 }

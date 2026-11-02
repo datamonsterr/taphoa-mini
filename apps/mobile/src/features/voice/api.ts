@@ -12,7 +12,7 @@ export type VoiceContextEntry = VoiceEntry | 'chat';
 
 export type UtteranceInput = {
   clip: VoiceClip;
-  mode: 'sale' | 'transcribe';
+  mode: 'sale' | 'transcribe' | 'product';
   language: 'vi' | 'en';
   entry: VoiceContextEntry;
   screen: string;

@@ -36,6 +36,11 @@ type AssistantStreamErrorCode =
  * names, emails, phone numbers, bank numbers, tokens, or OCR text.
  */
 export type AppEventProps = {
+  one_trip_enrollment_completed: {
+    duration_ms: number;
+    keyframe_count: number;
+    voice_success: boolean;
+  };
   scan_result_received: {
     latency_ms: number;
     trigger: 'tap' | 'auto' | 'retry';

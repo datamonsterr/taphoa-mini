@@ -6,14 +6,20 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
 import {
   Camera,
   useCameraPermission,
   useFrameOutput,
   usePhotoOutput,
+  useAsyncRunner,
+  HybridFrameConverter,
   type Frame,
 } from 'react-native-vision-camera';
+import {
+  createResizer,
+  type Resizer,
+} from 'react-native-vision-camera-resizer';
 import {
   useBarcodeScannerOutput,
   type TargetBarcodeFormat,
@@ -39,6 +45,7 @@ import { discardProbePhoto } from './capture';
 import type { CameraPreviewProps } from './CameraPreview.types';
 import {
   mapBoxToPreview,
+  selectBoxAtPoint,
   type FrameGeometry,
   type Rotation,
 } from './vision/geometry';
@@ -48,6 +55,18 @@ import {
   normalizeBoxes,
   updateStability,
 } from './vision/identify';
+import {
+  boxLumaThumbnail,
+  EVALUATE_MS,
+  MAX_KEYFRAMES,
+  selectLockedTrack,
+  shouldKeepKeyframe,
+  type EnrollmentControl,
+  type Keyframe,
+  type KeyframeSample,
+} from './vision/enrollment';
+
+export const supportsOneTripEnrollment = Platform.OS === 'android';
 
 const FORMATS: TargetBarcodeFormat[] = [
   'ean-13',
@@ -72,9 +91,11 @@ export function useCameraPermissions() {
 function LiveBox({
   index,
   boxes,
+  locked,
 }: {
   index: number;
   boxes: SharedValue<TrackedBox[]>;
+  locked: SharedValue<number | null>;
 }) {
   const animated = useAnimatedStyle(() => {
     const box = boxes.value[index];
@@ -84,6 +105,8 @@ function LiveBox({
       top: box?.y ?? 0,
       width: box?.width ?? 0,
       height: box?.height ?? 0,
+      borderColor: box?.id === locked.value ? '#ffdc55' : '#65ff9d',
+      borderWidth: box?.id === locked.value ? 4 : 2,
     };
   });
   return (
@@ -105,11 +128,48 @@ export function CameraPreview({
   onAutoCapture,
   onReadyChange,
   onBarcodeScanned,
+  enrollment,
+  onEnrollmentStart,
+  onEnrollmentFrame,
+  onEnrollmentTrack,
 }: CameraPreviewProps) {
   const [foreground, setForeground] = useState(
     AppState.currentState === 'active',
   );
   const [detector, setDetector] = useState<ObjectDetector | null>(null);
+  const [resizer, setResizer] = useState<Resizer | null>(null);
+  const runner = useAsyncRunner();
+  useEffect(() => {
+    let disposed = false;
+    let owned: Resizer | undefined;
+    void createResizer({
+      width: 160,
+      height: 160,
+      channelOrder: 'rgb',
+      dataType: 'uint8',
+      pixelLayout: 'interleaved',
+      scaleMode: 'stretch',
+    })
+      .then((instance) => {
+        if (disposed) {
+          instance.dispose();
+          return;
+        }
+        owned = instance;
+        setResizer(instance);
+      })
+      .catch((error) =>
+        captureException(error, { feature: 'enrollment_resizer' }),
+      );
+    return () => {
+      disposed = true;
+      const release = () => {
+        if (runner.isBusy()) setTimeout(release, 100);
+        else owned?.dispose();
+      };
+      release();
+    };
+  }, [runner]);
   useEffect(() => {
     const listener = AppState.addEventListener('change', (state) =>
       setForeground(state === 'active'),
@@ -130,12 +190,68 @@ export function CameraPreview({
   }, []);
 
   const boxes = useSharedValue<TrackedBox[]>([]);
+  const lockedId = useSharedValue<number | null>(null);
   const layout = useMemo(
     () => createSynchronizable({ width: 0, height: 0 }),
     [],
   );
   const control = useMemo(
-    () => createSynchronizable({ detect: false, auto: false, scan: false }),
+    () =>
+      createSynchronizable({
+        detect: false,
+        auto: false,
+        scan: false,
+        enrollment: undefined as EnrollmentControl | undefined,
+      }),
+    [],
+  );
+  const enrolling = useMemo(
+    () =>
+      createSynchronizable({
+        id: -1,
+        locked: null as TrackedBox | null,
+        lastSeen: 0,
+        evaluated: 0,
+      }),
+    [],
+  );
+  // Tracking writes belong to the frame thread; sample/encode writes belong to the async runtime.
+  // Separate cells prevent a frame's read-modify-write from overwriting an encode completion.
+  const sampling = useMemo(
+    () =>
+      createSynchronizable({
+        id: -1,
+        last: null as KeyframeSample | null,
+        count: 0,
+        saving: false,
+      }),
+    [],
+  );
+  const enrollmentHandlers = useRef({
+    onEnrollmentStart,
+    onEnrollmentFrame,
+    onEnrollmentTrack,
+  });
+  useEffect(() => {
+    enrollmentHandlers.current = {
+      onEnrollmentStart,
+      onEnrollmentFrame,
+      onEnrollmentTrack,
+    };
+  });
+  const deliverFrame = useCallback(
+    (id: number, frame: Keyframe) => {
+      if (control.getBlocking().enrollment?.id !== id) {
+        discardProbePhoto(frame.uri);
+        return;
+      }
+      enrollmentHandlers.current.onEnrollmentFrame?.(id, frame);
+    },
+    [control],
+  );
+  const deliverTrack = useCallback(
+    (id: number, seen: number) =>
+      enrollmentHandlers.current.onEnrollmentTrack?.(id, seen),
     [],
   );
   const processing = useMemo(
@@ -164,12 +280,22 @@ export function CameraPreview({
       detect: active && foreground && detectionEnabled && !codeMode,
       auto: autoIdentify,
       scan: active && foreground && codeMode,
+      enrollment,
     });
-  }, [active, foreground, detectionEnabled, codeMode, autoIdentify, control]);
+  }, [
+    active,
+    foreground,
+    detectionEnabled,
+    codeMode,
+    autoIdentify,
+    control,
+    enrollment,
+  ]);
 
   const onFrame = useCallback(
     (frame: Frame) => {
       'worklet';
+      let transferred = false;
       try {
         const enabled = control.getBlocking();
         if (!detector || !enabled.detect) return;
@@ -213,6 +339,150 @@ export function CameraPreview({
           boxes.value = mapped;
         });
         if (stable.trigger) scheduleOnRN(trigger);
+        const capture = enabled.enrollment;
+        if (!capture?.capturing && !capture?.armed)
+          scheduleOnUI(() => {
+            lockedId.value = null;
+          });
+        const session = enrolling.getBlocking();
+        if (
+          !capture?.capturing ||
+          session.id !== capture.id ||
+          !session.locked ||
+          now - session.evaluated < EVALUATE_MS
+        )
+          return;
+        const locked = selectLockedTrack(tracked.objects, session.locked);
+        if (locked)
+          scheduleOnUI(() => {
+            lockedId.value = locked.id;
+          });
+        const next = {
+          ...session,
+          evaluated: now,
+          locked: locked ?? session.locked,
+          lastSeen: locked ? now : session.lastSeen,
+        };
+        enrolling.setBlocking((latest) => {
+          'worklet';
+          return latest.id === session.id ? next : latest;
+        });
+        scheduleOnRN(deliverTrack, capture.id, next.lastSeen);
+        const quality = sampling.getBlocking();
+        if (
+          !locked ||
+          !resizer ||
+          quality.id !== capture.id ||
+          quality.saving ||
+          quality.count >= MAX_KEYFRAMES
+        )
+          return;
+        const box = normalizeBoxes([locked], geometry)[0];
+        if (!box) return;
+        transferred = runner.runAsync(() => {
+          'worklet';
+          try {
+            const current = control.getBlocking();
+            if (
+              !current.detect ||
+              !current.enrollment?.capturing ||
+              current.enrollment.id !== capture.id
+            )
+              return;
+            const thumb = resizer.resize(frame);
+            let luma: number[];
+            try {
+              luma = boxLumaThumbnail(
+                new Uint8Array(thumb.getPixelBuffer()),
+                thumb.width,
+                thumb.height,
+                box,
+              );
+            } finally {
+              thumb.dispose();
+            }
+            const sample = { box, luma };
+            if (!shouldKeepKeyframe(sample, sampling.getBlocking().last))
+              return;
+            // CPU conversion, resize and encoding belong to this async runner, never the frame thread.
+            // convertFrameToImage physically applies orientation/mirroring (pinned v5.2.4 implementation).
+            const image = HybridFrameConverter.convertFrameToImage(frame);
+            const scale = Math.min(
+              1,
+              1024 / Math.max(image.width, image.height),
+            );
+            let upright = image;
+            try {
+              if (scale < 1)
+                upright = image.resize(
+                  Math.round(image.width * scale),
+                  Math.round(image.height * scale),
+                );
+              const width = upright.width;
+              const height = upright.height;
+              sampling.setBlocking((latest) => {
+                'worklet';
+                return latest.id === capture.id
+                  ? { ...latest, saving: true }
+                  : latest;
+              });
+              void upright
+                .saveToTemporaryFileAsync('jpg', 70)
+                .then((path) => {
+                  'worklet';
+                  sampling.setBlocking((latest) => {
+                    'worklet';
+                    return latest.id === capture.id
+                      ? {
+                          ...latest,
+                          last: sample,
+                          count: latest.count + 1,
+                          saving: false,
+                        }
+                      : latest;
+                  });
+                  scheduleOnRN(deliverFrame, capture.id, {
+                    uri: `file://${path}`,
+                    width,
+                    height,
+                    bbox: {
+                      x: box.x,
+                      y: box.y,
+                      width: box.width,
+                      height: box.height,
+                    },
+                  });
+                })
+                .catch(() => {
+                  'worklet';
+                  sampling.setBlocking((latest) => {
+                    'worklet';
+                    return latest.id === capture.id
+                      ? { ...latest, saving: false }
+                      : latest;
+                  });
+                })
+                .finally(() => {
+                  'worklet';
+                  if (upright !== image) upright.dispose();
+                  image.dispose();
+                });
+            } catch {
+              if (upright !== image) upright.dispose();
+              image.dispose();
+              sampling.setBlocking((latest) => {
+                'worklet';
+                return latest.id === capture.id
+                  ? { ...latest, saving: false }
+                  : latest;
+              });
+            }
+          } catch {
+            // A failed GPU resize/conversion must not strand the runner in its busy state.
+          } finally {
+            frame.dispose();
+          }
+        });
       } catch {
         const previous = processing.getBlocking();
         processing.setBlocking({
@@ -225,10 +495,24 @@ export function CameraPreview({
           boxes.value = [];
         });
       } finally {
-        frame.dispose();
+        if (!transferred) frame.dispose();
       }
     },
-    [boxes, control, detector, layout, processing, trigger],
+    [
+      boxes,
+      lockedId,
+      control,
+      detector,
+      layout,
+      processing,
+      trigger,
+      enrolling,
+      sampling,
+      resizer,
+      runner,
+      deliverFrame,
+      deliverTrack,
+    ],
   );
 
   const frameOutput = useFrameOutput({
@@ -350,9 +634,62 @@ export function CameraPreview({
         />
         {detectionEnabled && !codeMode
           ? SLOTS.map((index) => (
-              <LiveBox key={index} index={index} boxes={boxes} />
+              <LiveBox
+                key={index}
+                index={index}
+                boxes={boxes}
+                locked={lockedId}
+              />
             ))
           : null}
+        {enrollment?.armed && detectionEnabled && !codeMode ? (
+          <Pressable
+            testID="one-trip-lock"
+            accessibilityRole="button"
+            accessibilityLabel="Chạm vào khung sản phẩm"
+            style={StyleSheet.absoluteFill}
+            onPress={({ nativeEvent }) => {
+              const latest = processing.getBlocking();
+              if (
+                !control.getBlocking().detect ||
+                Date.now() - latest.at > 1000
+              )
+                return;
+              const mapped = latest.objects.flatMap((box) => {
+                const projected = mapBoxToPreview(
+                  box,
+                  latest.geometry,
+                  layout.getBlocking(),
+                );
+                return projected ? [{ ...box, ...projected }] : [];
+              });
+              const selected = selectBoxAtPoint(mapped, {
+                x: nativeEvent.locationX,
+                y: nativeEvent.locationY,
+              });
+              const locked = latest.objects.find(
+                (box) => box.id === selected?.id,
+              );
+              if (!locked) return;
+              scheduleOnUI(() => {
+                lockedId.value = locked.id;
+              });
+              enrolling.setBlocking({
+                id: enrollment.id,
+                locked,
+                evaluated: 0,
+                lastSeen: Date.now(),
+              });
+              sampling.setBlocking({
+                id: enrollment.id,
+                last: null,
+                count: 0,
+                saving: false,
+              });
+              enrollmentHandlers.current.onEnrollmentStart?.();
+            }}
+          />
+        ) : null}
       </View>
     </PostHogMaskView>
   );

@@ -170,7 +170,9 @@ function reference(value: unknown): ProductReference {
   }
   return {
     image_id: uuid(o, 'image_id'),
-    cutout_image_id: uuid(o, 'cutout_image_id'),
+    ...(o.source === 'keyframe'
+      ? { source: 'keyframe' as const }
+      : { cutout_image_id: uuid(o, 'cutout_image_id') }),
     bbox: bbox as number[],
   };
 }
@@ -189,12 +191,22 @@ export function parseCreateProduct(body: unknown): CreateProductRequest {
       fail('references', 'must be an array');
     }
     const refsArray = refs as unknown[];
-    if (refsArray.length < 3) {
+    const keyframes = refsArray.some(
+      (ref) => asObject(ref).source === 'keyframe',
+    );
+    if (
+      keyframes &&
+      (refsArray.some((ref) => asObject(ref).source !== 'keyframe') ||
+        refsArray.length < 8 ||
+        refsArray.length > 24)
+    )
+      fail('references', 'must be 8..24 keyframes without photos');
+    if (!keyframes && refsArray.length < 3) {
       throw unprocessableEntity('references must have at least 3 items', {
         field: 'references',
       });
     }
-    if (refsArray.length > 8) {
+    if (!keyframes && refsArray.length > 8) {
       throw conflict('image_limit', 'total images cannot exceed 8');
     }
     references = refsArray.map(reference);
