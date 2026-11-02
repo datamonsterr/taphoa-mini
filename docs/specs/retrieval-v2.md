@@ -81,3 +81,27 @@ isolated databases, so the database role needs `CREATEDB`; each successful test 
 its temporary database. Tests cover geometry and mean padding, view count/determinism,
 three-hit voting and product margins, prototype fallback, model backfill idempotence,
 startup batch limits, exhausted retries, and configurable duplicate thresholds.
+
+## Offline GroceryStoreDataset evaluation (2026-11-02)
+
+The [recognition evaluation](../../apps/backend/eval/results/2026-11-02-recognition.md)
+uses 65 enrolled and 16 held-out fine-grained classes, four test photos per class,
+and nine synthetic buckets. V2 K=8 achieved 51.5% aggregate top-1 on enrolled
+queries; it does not meet C2's 90% target. The dataset crops can contain their
+original background, and exact in-memory cosine neighbors do not measure production
+HNSW recall. The measured run took 35 minutes 14 seconds on the shared host with
+four ONNX threads.
+
+The following exploratory (threshold, margin) pairs maximize matched coverage at
+at least 98% matched precision **on the same observations used for the sweep**.
+Coverage includes held-out-class queries in its denominator. These are candidate
+settings for independent validation, not evidence that production will achieve 98%
+precision. The matched samples are few and coverage is low. Production defaults
+remain unchanged.
+
+| Configuration |  Threshold |     Margin | Matched precision |        Coverage |
+| ------------- | ---------: | ---------: | ----------------: | --------------: |
+| Legacy K=3    | 0.62277216 | 0.16118395 |   110/112 (98.2%) | 112/2916 (3.8%) |
+| V2 K=3        | 0.61356014 | 0.26671749 |   116/118 (98.3%) | 118/2916 (4.0%) |
+| V2 K=8        | 0.82424557 | 0.11803502 |   148/151 (98.0%) | 151/2916 (5.2%) |
+| V2 K=16       | 0.72450733 | 0.19568455 |   162/165 (98.2%) | 165/2916 (5.7%) |
