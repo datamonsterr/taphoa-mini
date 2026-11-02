@@ -1,3 +1,5 @@
+#[path = "recognition_eval/generic.rs"]
+mod generic;
 #[path = "recognition_eval/transforms.rs"]
 mod transforms;
 
@@ -116,7 +118,7 @@ fn chosen(samples: &[Sample], class: u32, n: usize) -> Vec<&Sample> {
     items.truncate(n);
     items
 }
-fn embed(embedder: &DinoEmbedder, image: &RgbImage, legacy: bool) -> Result<Vec<f32>> {
+fn embed(embedder: &dyn Embedder, image: &RgbImage, legacy: bool) -> Result<Vec<f32>> {
     let input = if legacy {
         image::imageops::resize(image, 112, 112, FilterType::CatmullRom)
     } else {
@@ -127,7 +129,7 @@ fn embed(embedder: &DinoEmbedder, image: &RgbImage, legacy: bool) -> Result<Vec<
 fn gallery(
     cache: &Path,
     model_hash: &str,
-    embedder: &DinoEmbedder,
+    embedder: &dyn Embedder,
     train: &[Sample],
     enrolled: &BTreeSet<u32>,
     (legacy, k): (bool, usize),
@@ -411,6 +413,9 @@ fn report(rows: &[Row], config: &RecognitionConfig) -> (String, Option<Sweep>, s
     (md, best, serde_json::Value::Object(metrics))
 }
 fn main() -> Result<()> {
+    if std::env::args().any(|a| a == "--model") {
+        return challenger_main();
+    }
     let started = Instant::now();
     let args: Vec<_> = std::env::args().collect();
     if args.len() != 5 {
@@ -534,6 +539,102 @@ fn main() -> Result<()> {
         cache.join("result.json"),
         serde_json::to_vec_pretty(
             &serde_json::json!({"dataset_commit":"fc80ba90f803d79d0383df52c5a4ac5de99ff6fc", "model_sha256":model_hash,"elapsed_seconds":elapsed_seconds,"seed":SEED,"max_test_per_class":limit,"held_out_classes":held,"match_threshold":config.match_threshold,"match_margin":config.match_margin,"match_floor":config.match_floor,"configurations":outputs}),
+        )?,
+    )?;
+    Ok(())
+}
+
+fn challenger_main() -> Result<()> {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.len() != 16 {
+        return Err("usage: recognition_eval --dataset PATH --model PATH --cache PATH --limit N --pooling cls|cls-gem|pooled --dim N --mean R,G,B --std R,G,B".into());
+    }
+    let mut options = BTreeMap::new();
+    for pair in args.as_chunks::<2>().0 {
+        if options.insert(pair[0].as_str(), pair[1].as_str()).is_some() {
+            return Err("duplicate option".into());
+        }
+    }
+    let get = |name| options.get(name).copied().ok_or("missing option");
+    let rgb = |value: &str| -> Result<[f32; 3]> {
+        let values: Vec<f32> = value
+            .split(',')
+            .map(str::parse)
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(values
+            .try_into()
+            .map_err(|_| "expected three comma-separated numbers")?)
+    };
+    let root = Path::new(get("--dataset")?);
+    let model = Path::new(get("--model")?);
+    let cache = Path::new(get("--cache")?);
+    let limit: usize = get("--limit")?.parse()?;
+    let pooling = get("--pooling")?;
+    let dim: usize = get("--dim")?.parse()?;
+    let mean = rgb(get("--mean")?)?;
+    let std = rgb(get("--std")?)?;
+    if limit == 0 {
+        return Err("sample cap must be positive".into());
+    }
+    std::fs::create_dir_all(cache)?;
+    let hash = hex::encode(Sha256::digest(std::fs::read(model)?));
+    let key = hex::encode(Sha256::digest(
+        format!(
+            "{hash}:{pooling}:{dim}:{mean:?}:{std:?}:{}",
+            include_str!("recognition_eval/generic.rs")
+        )
+        .as_bytes(),
+    ));
+    let train = samples(root, "train")?;
+    let test = samples(root, "test")?;
+    let classes: BTreeSet<_> = train.iter().map(|s| s.class).collect();
+    let held = transforms::split_classes(&classes.iter().copied().collect::<Vec<_>>(), SEED);
+    let enrolled: BTreeSet<_> = classes.difference(&held).copied().collect();
+    let selected: Vec<_> = classes
+        .iter()
+        .flat_map(|c| chosen(&test, *c, limit))
+        .collect();
+    let embedder = generic::GenericEmbedder::load(model, dim, pooling, mean, std)?;
+    let started = Instant::now();
+    let gallery = gallery(cache, &key, &embedder, &train, &enrolled, (false, 8), None)?;
+    let mut rows = Vec::new();
+    for (idx, sample) in selected.iter().enumerate() {
+        let bg = test
+            .iter()
+            .filter(|s| s.class != sample.class)
+            .min_by_key(|s| {
+                hash64(
+                    format!(
+                        "{SEED}:{}:{}",
+                        sample.path.file_name().unwrap().to_string_lossy(),
+                        s.path.file_name().unwrap().to_string_lossy()
+                    )
+                    .as_bytes(),
+                )
+            })
+            .ok_or("no different background")?;
+        for bucket in BUCKETS {
+            let image = transform(sample, bucket, bg)?;
+            let now = Instant::now();
+            let vector = embed(&embedder, &image, false)?;
+            let elapsed = now.elapsed().as_secs_f64() * 1000.;
+            rows.push(Row {
+                truth: sample.class,
+                bucket: bucket.into(),
+                unknown: held.contains(&sample.class),
+                scores: scores(&vector, &gallery, false),
+                embed_ms: elapsed,
+            });
+        }
+        eprintln!("query {}/{}", idx + 1, selected.len());
+    }
+    let config = RecognitionConfig::from_env()?;
+    let (table, _, metrics) = report(&rows, &config);
+    println!("{table}");
+    std::fs::write(
+        cache.join("challenger-result.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"model_sha256":hash,"model_bytes":std::fs::metadata(model)?.len(),"pooling":pooling,"dim":dim,"mean":mean,"std":std,"seed":SEED,"max_test_per_class":limit,"held_out_classes":held,"elapsed_seconds":started.elapsed().as_secs_f64(),"metrics":metrics,"observations":rows}),
         )?,
     )?;
     Ok(())

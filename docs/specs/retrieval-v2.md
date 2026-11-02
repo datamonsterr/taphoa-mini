@@ -105,3 +105,15 @@ remain unchanged.
 | V2 K=3        | 0.61356014 | 0.26671749 |   116/118 (98.3%) | 118/2916 (4.0%) |
 | V2 K=8        | 0.82424557 | 0.11803502 |   148/151 (98.0%) | 151/2916 (5.2%) |
 | V2 K=16       | 0.72450733 | 0.19568455 |   162/165 (98.2%) | 165/2916 (5.7%) |
+
+## Embedder comparison (2026-11-02)
+
+The [offline embedder experiment](../../apps/backend/eval/results/2026-11-02-embedders.md)
+found that pooled SigLIP2 base increased K=8 top-1 from 51.5% to 76.2% on the
+same enrolled GroceryStoreDataset queries, and from 18.7% to 67.3% on its packaged
+goods subset. CLS plus GeM on DINOv2 small scored 49.9% overall. SigLIP2 took
+242.4 ms per crop versus 164.2 ms for the baseline on the shared four-thread host;
+these are crop inference measurements, not end-to-end scan latency. SigLIP2 emits
+768-dimensional embeddings, so adopting it would require a vector schema migration
+and complete reindexing. These results neither meet C2's 90% target nor validate
+real shop photos; production defaults remain unchanged.
