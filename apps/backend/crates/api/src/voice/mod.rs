@@ -220,3 +220,5 @@ fn eval_model(state: &AppState, headers: &axum::http::HeaderMap) -> Option<Strin
     let slug = headers.get("x-taphoa-eval-model")?.to_str().ok()?.trim();
     (config.models.iter().any(|m| m == slug) || config.stt_model == slug).then(|| slug.to_owned())
 }
+
+mod product;
