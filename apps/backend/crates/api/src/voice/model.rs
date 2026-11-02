@@ -33,6 +33,7 @@ pub struct ModelUsage {
 #[serde(rename_all = "lowercase")]
 pub enum Intent {
     Sale,
+    Product,
     Chat,
     #[default]
     None,
@@ -41,6 +42,7 @@ impl Intent {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Sale => "sale",
+            Self::Product => "product",
             Self::Chat => "chat",
             Self::None => "none",
         }
@@ -68,6 +70,12 @@ pub struct ParsedLine {
 pub struct VoiceParse {
     #[serde(default)]
     pub transcript: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
     #[serde(default)]
     pub language: String,
     #[serde(default)]
@@ -116,6 +124,22 @@ pub trait VoiceModel: Send + Sync {
         hint: &str,
         language: Language,
     ) -> Result<Parsed, ModelError>;
+    async fn parse_product_audio(
+        &self,
+        model: &str,
+        clip: &AudioClip,
+        language: Language,
+    ) -> Result<Parsed, ModelError> {
+        self.parse_audio(model, clip, "", language).await
+    }
+    async fn parse_product_text(
+        &self,
+        model: &str,
+        transcript: &str,
+        language: Language,
+    ) -> Result<Parsed, ModelError> {
+        self.parse_text(model, transcript, "", language).await
+    }
     /// Speech to text only.
     async fn transcribe(
         &self,
@@ -186,6 +210,12 @@ pub fn voice_parse_schema() -> Value {
             "confidence": {"type": "number"}
         }
     })
+}
+
+fn product_request(body: &mut Value) {
+    body["messages"][0]["content"] = json!(super::product::PROMPT);
+    body["response_format"]["json_schema"]["name"] = json!("VoiceProduct");
+    body["response_format"]["json_schema"]["schema"] = super::product::schema();
 }
 
 fn provider_prefs(require_zdr: bool) -> Value {
@@ -508,6 +538,28 @@ impl VoiceModel for OpenRouterVoice {
         let (status, value) = self.post(&self.chat_url, &body).await?;
         parse_chat_response(model, status, &value)
     }
+    async fn parse_product_audio(
+        &self,
+        model: &str,
+        clip: &AudioClip,
+        language: Language,
+    ) -> Result<Parsed, ModelError> {
+        let mut body = audio_request_body(model, clip, "", language, self.require_zdr);
+        product_request(&mut body);
+        let (status, value) = self.post(&self.chat_url, &body).await?;
+        parse_chat_response(model, status, &value)
+    }
+    async fn parse_product_text(
+        &self,
+        model: &str,
+        transcript: &str,
+        language: Language,
+    ) -> Result<Parsed, ModelError> {
+        let mut body = text_request_body(model, transcript, "", language, self.require_zdr);
+        product_request(&mut body);
+        let (status, value) = self.post(&self.chat_url, &body).await?;
+        parse_chat_response(model, status, &value)
+    }
     async fn transcribe(
         &self,
         model: &str,
@@ -601,6 +653,27 @@ mod tests {
             line["properties"].as_object().unwrap().len(),
             line["required"].as_array().unwrap().len()
         );
+    }
+
+    #[test]
+    fn product_request_uses_its_own_prompt_and_schema() {
+        let mut audio = audio_request_body("m/x", &clip(), "{}", Language::Vi, false);
+        product_request(&mut audio);
+        assert_eq!(
+            audio["messages"][0]["content"],
+            super::super::product::PROMPT
+        );
+        assert_eq!(
+            audio["response_format"]["json_schema"]["schema"],
+            super::super::product::schema()
+        );
+        assert_eq!(
+            audio["response_format"]["json_schema"]["schema"]["properties"]["price"]["type"],
+            json!(["integer", "null"])
+        );
+        let mut text = text_request_body("m/x", "mì 5k", "{}", Language::Vi, false);
+        product_request(&mut text);
+        assert_eq!(text["response_format"], audio["response_format"]);
     }
 
     #[test]

@@ -149,9 +149,10 @@ async fn create_utterance(
         }
     }
     let mode = match mode.as_deref() {
-        Some("sale") => service::Mode::Sale,
+        None | Some("sale") => service::Mode::Sale,
+        Some("product") => service::Mode::Product,
         Some("transcribe") => service::Mode::Transcribe,
-        _ => return Err(bad("mode must be sale or transcribe")),
+        _ => return Err(bad("mode must be sale, product or transcribe")),
     };
     let language = match language.as_deref() {
         None | Some("vi") => crate::assistant::Language::Vi,
@@ -220,3 +221,5 @@ fn eval_model(state: &AppState, headers: &axum::http::HeaderMap) -> Option<Strin
     let slug = headers.get("x-taphoa-eval-model")?.to_str().ok()?.trim();
     (config.models.iter().any(|m| m == slug) || config.stt_model == slug).then(|| slug.to_owned())
 }
+
+mod product;

@@ -1471,11 +1471,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Turn one spoken utterance into a transcript and an optional sale draft
+         * Turn one spoken utterance into a transcript and an optional draft
          * @description Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
          *     1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
-         *     `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
-         *     `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+         *     `mode=product` it carries a `product_draft` for enrollment, and with
+         *     `mode=transcribe` it carries the transcript only. Omitted mode defaults to sale.
+         *     Error codes: `audio_too_long` and `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
          *     per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
          *     back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
          */
@@ -2004,18 +2005,25 @@ export interface components {
             customer?: components["schemas"]["CustomerMatch"];
             total: components["schemas"]["Money"];
         };
+        VoiceProductDraft: {
+            name: string;
+            /** @description Price in đồng. */
+            price: number | null;
+            unit: string | null;
+        };
         VoiceUtterance: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            mode: "sale" | "transcribe";
+            mode: "sale" | "transcribe" | "product";
             transcript: string;
             /** @enum {string} */
             language: "vi" | "en";
             /** @enum {string} */
-            intent: "sale" | "chat" | "none";
+            intent: "sale" | "chat" | "none" | "product";
             confidence?: number;
             sale_draft?: components["schemas"]["VoiceSaleDraft"];
+            product_draft?: components["schemas"]["VoiceProductDraft"];
             /** @description Slug that answered. */
             model: string;
             /** @description True when the STT path was used. */
@@ -5937,8 +5945,11 @@ export interface operations {
                 "multipart/form-data": {
                     /** Format: binary */
                     audio: string;
-                    /** @enum {string} */
-                    mode: "sale" | "transcribe";
+                    /**
+                     * @default sale
+                     * @enum {string}
+                     */
+                    mode?: "sale" | "transcribe" | "product";
                     /**
                      * @default vi
                      * @enum {string}
