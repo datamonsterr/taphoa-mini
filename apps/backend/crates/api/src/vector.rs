@@ -40,7 +40,8 @@ pub fn search_limits(limit: usize, knn: usize) -> (usize, usize) {
     )
 }
 
-fn voting_scores(
+/// Score reference hits using the same capped voting rule as production search.
+pub fn voting_scores(
     mut references: Vec<VectorHit>,
     prototypes: Vec<VectorHit>,
     limit: usize,
