@@ -1284,3 +1284,53 @@ async fn scan_is_rate_limited_per_member() {
     let (status, body, _) = post_scan(&app, &other, Some(&draw_photo()), &[]).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
 }
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn phone_boxes_skip_segmentation_and_round_trip_tracking_ids() {
+    let Some((_app, mut state, _)) = build_state(vec![]).await else {
+        return;
+    };
+    struct PanicSegmenter;
+    impl taphoa_recognition::Segmenter for PanicSegmenter {
+        fn segment(&self, _: &[u8]) -> Result<Vec<Segment>, taphoa_recognition::SegmentError> {
+            panic!("phone boxes must skip segmentation")
+        }
+    }
+    state.segmenter = Some(Arc::new(PanicSegmenter));
+    let app = router(state);
+    let (_, _, token) = create_store(&app).await;
+    let boxes = r#"[{"x":0.1,"y":0.1,"width":0.3,"height":0.3,"track_id":42},{"x":0.6,"y":0.1,"width":0.2,"height":0.2,"track_id":7}]"#;
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["pipeline"]["segmenter"], "client");
+    assert_eq!(body["detections"][0]["track_id"], 42);
+    assert_eq!(body["detections"][1]["track_id"], 7);
+    let (_, fetched) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
+    assert_eq!(fetched["detections"][0]["track_id"], 42);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn invalid_phone_boxes_return_problem_json() {
+    let Some((app, _, _)) = build_state(vec![]).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+    for boxes in [
+        "not-json",
+        r#"[{"x":0,"y":0,"width":0.001,"height":0.2}]"#,
+        r#"[{"x":2,"y":0,"width":0.2,"height":0.2}]"#,
+        r#"[{"x":0,"y":0,"width":-1,"height":0.2}]"#,
+    ] {
+        let (status, body, headers) =
+            post_scan(&app, &token, Some(&draw_photo()), &[("boxes", boxes)]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{boxes}: {body}");
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("application/problem+json")
+        );
+    }
+}
