@@ -422,16 +422,19 @@ export interface paths {
         get: operations["listProducts"];
         put?: never;
         /**
-         * Enroll a product from 1–8 photos and a price (C1, C4, C5)
+         * Enroll a product from photos or keyframes and a price (C1, C4, C5)
          * @description Requires Lead or `can_enroll`. Accepts either quick-enroll multi-angle `references`
-         *     (3..8 photos with cutouts and bounding boxes) or legacy `image_ids` (1..5 photos).
+         *     (3..8 photos with cutouts and bounding boxes, or 8..24 keyframes with bounding boxes)
+         *     or legacy `image_ids` (1..5 photos). Mixing keyframes and photos returns 400.
          *     Exactly one of `references` or `image_ids` is required (422 `validation_failed`
          *     for both or neither). Minimum 3 applies only to `references` (422 below 3).
          *     Reference image IDs must be distinct; bounding boxes must be finite with positive
-         *     width and height (422 `validation_failed`). Returns 409 `image_limit` above 8.
-         *     The synchronous duplicate check embeds only the first cutout (first image for legacy).
+         *     width and height (422 `validation_failed`). Photo counts above 8 return 409
+         *     `image_limit`; keyframe counts outside 8..24 return 400.
+         *     The synchronous duplicate check embeds the first photo cutout, the first legacy
+         *     image, or the middle keyframe bbox crop.
          *     Cutout storage reads retry for up to 1 second, then fall back to a padded bbox crop.
-         *     An async index job embeds reference cutouts into the database;
+         *     An async index job embeds reference views into the database;
          *     the product is returned immediately with `index_status: "pending"`.
          *     Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
          *     "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
@@ -1885,9 +1888,14 @@ export interface components {
             image_id: string;
             /**
              * Format: uuid
-             * @description Masked cutout image ID on neutral grey background.
+             * @description Masked cutout image ID; required for photo references.
              */
-            cutout_image_id: string;
+            cutout_image_id?: string;
+            /**
+             * @description Defaults to photo. Keyframes use the original bbox crop and need no cutout.
+             * @enum {string}
+             */
+            source?: "photo" | "keyframe";
             /** @description [x, y, width, height] in original photo pixels. */
             bbox: number[];
         };
@@ -2042,8 +2050,9 @@ export interface components {
             /** @description Legacy enrollment path (1..5 photos from checkout unknown pill). */
             image_ids?: string[];
             /**
-             * @description Quick enroll multi-angle references (3..8 photos).
-             *     Minimum 3 applies only to `references` (422 below 3, 409 when total images exceed 8).
+             * @description Quick enroll multi-angle references (3..8 photos) or 8..24 keyframes.
+             *     Mixing photo and keyframe references is rejected with 400.
+             *     Photos below 3 return 422 and above 8 return 409; keyframes outside 8..24 return 400.
              */
             references?: components["schemas"]["ProductReference"][];
             name?: string;

@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 const MAX_ATTEMPTS: i32 = 5;
 const BACKOFF_CAP: Duration = Duration::from_secs(300);
+const KEYFRAME_KEEP: usize = 16;
 
 /// Enqueue within the caller's transaction. Notifications become visible on commit.
 /// Concurrent callers serialize on the product row and reuse an existing queued job.
@@ -306,6 +307,7 @@ struct ProductImage {
     object_key: String,
     cutout_object_key: Option<String>,
     bbox: Option<Vec<f32>>,
+    source: String,
 }
 
 async fn references(
@@ -313,7 +315,7 @@ async fn references(
     job: &ClaimedJob,
 ) -> Result<Vec<ProductImage>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT pi.image_id, i.object_key, ci.object_key AS cutout_object_key, pi.bbox
+        "SELECT pi.image_id, i.object_key, ci.object_key AS cutout_object_key, pi.bbox, pi.source
          FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=$2
          LEFT JOIN images ci ON ci.id=pi.cutout_image_id AND ci.store_id=$2
          WHERE pi.product_id=$1 ORDER BY pi.position, pi.image_id",
@@ -360,40 +362,107 @@ async fn run_job(
     let images = references(&mut *pool.acquire().await?, job).await?;
     let model = embedder.model().to_owned();
     let mut embeddings = Vec::with_capacity(images.len() * 2);
-    for image in &images {
-        let bbox = image
-            .bbox
-            .as_deref()
-            .map(<[f32; 4]>::try_from)
-            .transpose()
-            .context("invalid reference bbox")?;
-        let bytes = storage.get(&image.object_key).await?;
-        for (augmentation, vector) in
-            embed_image(embedder.clone(), slots.clone(), bytes, bbox, augment).await?
-        {
+    if images
+        .first()
+        .is_some_and(|image| image.source == "keyframe")
+    {
+        let mut originals = Vec::with_capacity(images.len());
+        for image in &images {
+            let bbox = image
+                .bbox
+                .as_deref()
+                .map(<[f32; 4]>::try_from)
+                .transpose()
+                .context("invalid reference bbox")?;
+            let vector = embed_image(
+                embedder.clone(),
+                slots.clone(),
+                storage.get(&image.object_key).await?,
+                bbox,
+                false,
+                false,
+            )
+            .await?
+            .remove(0)
+            .1;
+            originals.push(vector);
+        }
+        let keep = std::env::var("KEYFRAME_KEEP")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| (1..=KEYFRAME_KEEP).contains(value))
+            .unwrap_or(KEYFRAME_KEEP);
+        for index in farthest_points(&originals, keep) {
+            let image = &images[index];
             embeddings.push(Embedding {
                 image_id: image.image_id,
                 kind: "crop",
-                augmentation,
-                vector,
+                augmentation: "original",
+                vector: originals[index].clone(),
             });
+            if augment {
+                let bbox = image
+                    .bbox
+                    .as_deref()
+                    .map(<[f32; 4]>::try_from)
+                    .transpose()
+                    .context("invalid reference bbox")?;
+                for (augmentation, vector) in embed_image(
+                    embedder.clone(),
+                    slots.clone(),
+                    storage.get(&image.object_key).await?,
+                    bbox,
+                    true,
+                    true,
+                )
+                .await?
+                {
+                    embeddings.push(Embedding {
+                        image_id: image.image_id,
+                        kind: "crop",
+                        augmentation,
+                        vector,
+                    });
+                }
+            }
         }
-        if let Some(key) = &image.cutout_object_key {
-            for (augmentation, vector) in embed_image(
-                embedder.clone(),
-                slots.clone(),
-                storage.get(key).await?,
-                None,
-                augment,
-            )
-            .await?
+    } else {
+        for image in &images {
+            let bbox = image
+                .bbox
+                .as_deref()
+                .map(<[f32; 4]>::try_from)
+                .transpose()
+                .context("invalid reference bbox")?;
+            let bytes = storage.get(&image.object_key).await?;
+            for (augmentation, vector) in
+                embed_image(embedder.clone(), slots.clone(), bytes, bbox, augment, false).await?
             {
                 embeddings.push(Embedding {
                     image_id: image.image_id,
-                    kind: "cutout",
+                    kind: "crop",
                     augmentation,
                     vector,
                 });
+            }
+            if let Some(key) = &image.cutout_object_key {
+                for (augmentation, vector) in embed_image(
+                    embedder.clone(),
+                    slots.clone(),
+                    storage.get(key).await?,
+                    None,
+                    augment,
+                    false,
+                )
+                .await?
+                {
+                    embeddings.push(Embedding {
+                        image_id: image.image_id,
+                        kind: "cutout",
+                        augmentation,
+                        vector,
+                    });
+                }
             }
         }
     }
@@ -529,6 +598,7 @@ async fn embed_image(
     bytes: Vec<u8>,
     bbox: Option<[f32; 4]>,
     augment: bool,
+    keyframe_extras: bool,
 ) -> anyhow::Result<Vec<(&'static str, Vec<f32>)>> {
     let permit = slots.acquire_owned().await?;
     tokio::task::spawn_blocking(move || {
@@ -543,6 +613,9 @@ async fn embed_image(
         };
         let (names, crops): (Vec<_>, Vec<_>) = crop::index_augmentations(&cropped, augment)
             .into_iter()
+            .filter(|(name, _)| {
+                !keyframe_extras || matches!(*name, "rotate90" | "rotate270" | "far48")
+            })
             .unzip();
         let vectors = embedder.embed_crops(&crops)?;
         ensure!(
@@ -561,6 +634,54 @@ async fn embed_image(
     .await?
 }
 
+/// Stable ties favor the earliest frame in capture order.
+fn farthest_points(vectors: &[Vec<f32>], keep: usize) -> Vec<usize> {
+    if vectors.is_empty() || keep == 0 {
+        return Vec::new();
+    }
+    let mut mean = vec![0.0_f64; vectors[0].len()];
+    for vector in vectors {
+        for (sum, value) in mean.iter_mut().zip(vector) {
+            *sum += f64::from(*value) / vectors.len() as f64;
+        }
+    }
+    let distance = |a: &[f32], b: &[f32]| -> f64 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (f64::from(*x) - f64::from(*y)).powi(2))
+            .sum()
+    };
+    let first = (0..vectors.len())
+        .min_by(|&a, &b| {
+            let d = |i: usize| {
+                vectors[i]
+                    .iter()
+                    .zip(&mean)
+                    .map(|(x, y)| (f64::from(*x) - y).powi(2))
+                    .sum::<f64>()
+            };
+            d(a).total_cmp(&d(b)).then(a.cmp(&b))
+        })
+        .unwrap();
+    let mut selected = vec![first];
+    while selected.len() < keep.min(vectors.len()) {
+        let next = (0..vectors.len())
+            .filter(|i| !selected.contains(i))
+            .max_by(|&a, &b| {
+                let d = |i: usize| {
+                    selected
+                        .iter()
+                        .map(|&j| distance(&vectors[i], &vectors[j]))
+                        .fold(f64::INFINITY, f64::min)
+                };
+                d(a).total_cmp(&d(b)).then(b.cmp(&a))
+            })
+            .unwrap();
+        selected.push(next);
+    }
+    selected
+}
+
 fn compute_prototype(embeddings: &[Embedding]) -> Option<Vec<f32>> {
     if embeddings.is_empty() {
         return None;
@@ -577,4 +698,16 @@ fn compute_prototype(embeddings: &[Embedding]) -> Option<Vec<f32>> {
         .collect();
     crop::l2_normalize(&mut mean);
     Some(mean)
+}
+
+#[cfg(test)]
+mod keyframe_tests {
+    use super::*;
+
+    #[test]
+    fn selection_starts_near_mean_and_spreads_deterministically() {
+        let vectors = vec![vec![0.0], vec![1.0], vec![2.0], vec![10.0], vec![-10.0]];
+        assert_eq!(farthest_points(&vectors, 3), vec![1, 4, 3]);
+        assert_eq!(farthest_points(&vectors, 3), farthest_points(&vectors, 3));
+    }
 }

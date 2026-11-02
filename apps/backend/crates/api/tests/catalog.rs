@@ -454,6 +454,53 @@ async fn quick_enroll_reference_validation() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
+async fn keyframe_enrollment_boundaries_and_mixed_payload() {
+    let w = world().await;
+    let tags: Vec<_> = (0..25).map(|i| format!("frame-{i}")).collect();
+    let ids = futures_util::future::join_all(tags.iter().map(|tag| upload(&w, &w.lead, tag))).await;
+    let frames: Vec<_> = ids
+        .into_iter()
+        .map(|id| json!({"image_id": id, "bbox":[0,0,2,2], "source":"keyframe"}))
+        .collect();
+    for n in [7, 25] {
+        expect_code(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            json!({"id":Uuid::now_v7(),"price":1,"references":&frames[..n]}),
+            StatusCode::BAD_REQUEST,
+            "validation_failed",
+        )
+        .await;
+    }
+    let mut mixed = frames[..8].to_vec();
+    mixed.push(references(&w, 1, "mixed").await.remove(0));
+    expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        json!({"id":Uuid::now_v7(),"price":1,"references":mixed}),
+        StatusCode::BAD_REQUEST,
+        "validation_failed",
+    )
+    .await;
+    for n in [8, 24] {
+        let (status, _) = call(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            json!({"id":Uuid::now_v7(),"price":1,"references":&frames[..n],"force_new":true}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
     let w = world().await;
     let mut refs = references(&w, 3, "reference-happy").await;

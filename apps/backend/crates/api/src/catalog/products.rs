@@ -304,28 +304,40 @@ pub(crate) async fn create(
         .references
         .iter()
         .flatten()
-        .map(|reference| reference.cutout_image_id)
+        .filter_map(|reference| reference.cutout_image_id)
         .collect();
     cutout_ids.sort_unstable();
     cutout_ids.dedup();
     let cutouts = enroll::resolve_images(&state, actor.store_id, &cutout_ids).await?;
-    let first_reference = request.references.as_ref().and_then(|refs| refs.first());
+    let selected = request
+        .references
+        .as_ref()
+        .filter(|refs| {
+            refs.first()
+                .is_some_and(|r| r.source == super::model::ReferenceSource::Keyframe)
+        })
+        .map_or(0, |refs| refs.len() / 2);
+    let first_reference = request
+        .references
+        .as_ref()
+        .and_then(|refs| refs.get(selected));
     let cutout_key = first_reference
         .and_then(|reference| {
-            cutouts
-                .iter()
-                .find(|image| image.id == reference.cutout_image_id)
+            cutouts.iter().find(|image| {
+                Some(image.id) == reference.cutout_image_id
+                    && reference.source == super::model::ReferenceSource::Photo
+            })
         })
         .map(|image| image.object_key.as_str());
     let vector = enroll::embed_reference(
         &state,
         embedder,
-        &images[0].object_key,
+        &images[selected].object_key,
         cutout_key,
         first_reference.map(|reference| reference.bbox),
     )
     .await?;
-    let references = [(images[0].id, vector)];
+    let references = [(images[selected].id, vector)];
     if !request.force_new {
         let hits = enroll::duplicate_hits(&state, actor.store_id, &model_name, &references).await?;
         if !hits.is_empty() {
@@ -380,13 +392,14 @@ pub(crate) async fn create(
     }
     for (position, image) in images.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO product_images (product_id, image_id, position, cutout_image_id, bbox) VALUES ($1,$2,$3,$4,$5)",
+            "INSERT INTO product_images (product_id, image_id, position, cutout_image_id, bbox, source) VALUES ($1,$2,$3,$4,$5,$6)",
         )
         .bind(request.id)
         .bind(image.id)
         .bind(i16::try_from(position).expect("bounded by validation"))
-        .bind(request.references.as_ref().map(|refs| refs[position].cutout_image_id))
+        .bind(request.references.as_ref().and_then(|refs| refs[position].cutout_image_id))
         .bind(request.references.as_ref().map(|refs| refs[position].bbox.to_vec()))
+        .bind(if request.references.as_ref().is_some_and(|refs| refs[position].source == super::model::ReferenceSource::Keyframe) { "keyframe" } else { "photo" })
         .execute(&mut *tx)
         .await?;
     }

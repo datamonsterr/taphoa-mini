@@ -1,5 +1,16 @@
 # Retrieval v2
 
+Keyframe enrollment keeps all 8–24 image rows, but indexes at most 16 frames selected
+by deterministic greedy farthest-point sampling, starting nearest the mean embedding.
+Unselected frames retain no embeddings. Selected frames contribute crop views only:
+original, rotate90, rotate270 and far48. At the default keep limit this stores at most
+16 × 4 = 64 embeddings; selecting from 24 frames additionally requires eight original
+embeddings that are discarded (72 total inference views). Legacy photos retain their
+seven-view crop and cutout indexing. Real-model indexing time has not been measured.
+`KEYFRAME_KEEP` can lower the default of 16 to a value from 1 through 16.
+Image uploads have no per-upload rate limit in the API router or handler, so 24 parallel
+enrollment uploads do not exhaust an application upload rate limit.
+
 DINOv2 ViT-S/14 ONNX and 384-dimensional vectors stay unchanged. Retrieval v2 improves
 reference coverage for products rotated, distant, or partly covered at checkout. Accuracy
 still needs evaluation on labeled shop photos; these changes do not establish a new accuracy claim.
