@@ -12,7 +12,16 @@ import type {
   UploadFile,
 } from './types';
 
+export type ScanBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  track_id?: number;
+};
+
 export type CreateScanInput = {
+  boxes?: ScanBox[];
   /** Photo to analyse. Required unless `image_id` of an uploaded image is given. */
   image?: UploadFile;
   image_id?: string;
@@ -71,6 +80,8 @@ function postScan(
         form.append('mode', input.mode ?? 'multi');
         form.append('purpose', input.purpose ?? 'checkout');
         // No default: the server picks `top_k` unless the caller asks for one.
+        if (input.boxes?.length)
+          form.append('boxes', JSON.stringify(input.boxes.slice(0, 10)));
         if (input.top_k !== undefined)
           form.append('top_k', String(input.top_k));
         return form;

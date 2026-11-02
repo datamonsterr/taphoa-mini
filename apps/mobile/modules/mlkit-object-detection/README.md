@@ -53,8 +53,9 @@ detection/disposal, closes the detector once, and leaves frame disposal to JS.
 
 Open `taphoa://dev/vision` in an Android development build (normal app setup/auth
 still applies). It is available under `__DEV__`, or in a release build explicitly
-made with `EXPO_PUBLIC_VISION_DEV=1`. The production camera screen still uses
-expo-camera. Web renders a static Android-only message with no Nitro imports.
+made with `EXPO_PUBLIC_VISION_DEV=1`. The production camera screen now uses the same
+detector through its native VisionCamera preview layer (M2/M4); web retains expo-camera.
+The dev route renders a static Android-only message on web, with no Nitro imports.
 
 The FPS counter measures completed **detection** frames. ML Kit can take 30+
 frames before its first box. Tap inside a box to lock its id; overlapping boxes
@@ -70,7 +71,8 @@ VisionCamera 5.2.4 has reported Android resource leaks on repeated mounts
 This spike uses `implementationMode="compatible"` (TextureView), keeps output
 identity stable while mounted, pauses in the background/on blur and disposes
 the frame output on unmount. The upstream FrameOutput executor issue still
-needs device soak testing; this is not a production camera migration.
+needs device soak testing; the production preview uses the same TextureView and
+output-disposal precautions.
 Explicit YUV input avoids PRIVATE-buffer CPU access
 ([#4207](https://github.com/margelo/react-native-vision-camera/issues/4207)).
 
@@ -85,14 +87,14 @@ From `apps/mobile/modules/mlkit-object-detection` run:
 Commit `nitrogen/generated` with spec changes. The generator is pinned to the
 same version as Nitro in the app's dev dependencies.
 
-## Android compile proof
+## Android compile proof (M2/M4)
 
 **Passed** on 2026-11-02: `:app:assembleDebug`, ARM64, `BUILD SUCCESSFUL`.
 The APK is `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
-(131,770,779 bytes), SHA-256
-`000a2d0ba717589373b509b6edebef07e233423fb6040a289f17495ccce1f31e`.
+(132,442,723 bytes), SHA-256
+`03dc80416a57b8d889c365d7f99252182acfe0b2af291ccf9191ea7e7b3c74d8`.
 Its merged manifest declares minimum SDK 26. APK inspection confirmed the
-`MlkitObjectDetection`, `VisionCamera`, `VisionCameraResizer`,
+`MlkitObjectDetection`, `VisionCamera`, `VisionCameraBarcodeScanner`, `VisionCameraResizer`,
 `VisionCameraWorklets`, `NitroModules`, and `NitroImage` ARM64 shared libraries.
 This proves compilation and packaging; live inference still needs a device.
 
@@ -125,7 +127,10 @@ docker run --rm -v "$PWD:$PWD" reactnativecommunity/react-native-android:v22.0 \
   chown -R "$(id -u):$(id -g)" "$PWD/apps/mobile/android"
 ```
 
-## TypeScript and bundle validation (2026-11-02)
+## N1/N2 TypeScript and bundle validation (2026-11-02)
+
+The subsequent M2/M4 production camera migration is validated in
+[object-capture.md](../../../../docs/specs/object-capture.md#m2--m4-validation-2026-11-02).
 
 - `npx tsc --noEmit`: passed.
 - `npx expo lint`: 0 errors; one existing `VoiceSaleScreen` ref-cleanup warning.
@@ -146,6 +151,9 @@ docker run --rm -v "$PWD:$PWD" reactnativecommunity/react-native-android:v22.0 \
 - [Expo SDK 58](https://docs.expo.dev/versions/v58.0.0/)
 - [VisionCamera installation](https://visioncamera.margelo.com/docs)
 - [Frame output](https://visioncamera.margelo.com/docs/frame-output)
+- [Barcode scanner output](https://visioncamera.margelo.com/docs/barcode-scanner)
+- [Photo output](https://visioncamera.margelo.com/docs/photo-output)
+- [Expo ImageManipulator SDK 58](https://docs.expo.dev/versions/v58.0.0/sdk/imagemanipulator/)
 - [Nitro frame plugins](https://visioncamera.margelo.com/docs/native-frame-processor-plugins)
 - [ML Kit object detection](https://developers.google.com/ml-kit/vision/object-detection/android)
 - [Google Maven metadata: object-detection 17.0.2](https://dl.google.com/dl/android/maven2/com/google/mlkit/object-detection/maven-metadata.xml)

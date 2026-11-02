@@ -1,8 +1,14 @@
 import type { Scan } from '@/lib/api/types';
+import type { ScanBox } from '@/lib/api/images';
 
 import { isLowMatch } from './matching';
 
-export type Photo = { uri: string; width: number; height: number };
+export type Photo = {
+  uri: string;
+  width: number;
+  height: number;
+  boxes?: ScanBox[];
+};
 
 export type ScanPhase = 'idle' | 'capturing' | 'scanning' | 'result' | 'error';
 

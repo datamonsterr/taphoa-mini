@@ -36,6 +36,10 @@ type AssistantStreamErrorCode =
  * names, emails, phone numbers, bank numbers, tokens, or OCR text.
  */
 export type AppEventProps = {
+  scan_result_received: {
+    latency_ms: number;
+    trigger: 'tap' | 'auto' | 'retry';
+  };
   $screen: { $screen_name: string };
   signed_in: { method: SignInMethod };
   signed_out: { method: SignInMethod };

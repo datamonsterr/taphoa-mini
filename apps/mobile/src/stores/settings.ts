@@ -5,6 +5,8 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 export type Language = 'vi' | 'en';
 
 type SettingsState = {
+  autoIdentify: boolean;
+  setAutoIdentify: (on: boolean) => void;
   elderMode: boolean;
   /** Read the total (and the change) aloud on the pay sheet. */
   speakTotal: boolean;
@@ -17,6 +19,7 @@ type SettingsState = {
 };
 
 export const initialSettings = {
+  autoIdentify: true,
   elderMode: false,
   speakTotal: false,
   fontScale: 1,
@@ -30,6 +33,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       ...initialSettings,
+      setAutoIdentify: (autoIdentify) => set({ autoIdentify }),
       /** Turning elder mode on also turns the spoken total on; the seller can switch it off after. */
       setElderMode: (elderMode) =>
         set(elderMode ? { elderMode, speakTotal: true } : { elderMode }),
@@ -48,7 +52,14 @@ export const useSettingsStore = create<SettingsState>()(
           : state;
       },
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: ({ elderMode, speakTotal, fontScale, language }) => ({
+      partialize: ({
+        autoIdentify,
+        elderMode,
+        speakTotal,
+        fontScale,
+        language,
+      }) => ({
+        autoIdentify,
         elderMode,
         speakTotal,
         fontScale,

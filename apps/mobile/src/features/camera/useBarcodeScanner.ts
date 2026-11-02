@@ -1,4 +1,3 @@
-import type { BarcodeScanningResult } from 'expo-camera';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Product } from '@/lib/api';
@@ -32,7 +31,7 @@ export function useBarcodeScanner({
   }, [enabled]);
 
   const scan = useCallback(
-    async ({ data }: Pick<BarcodeScanningResult, 'data' | 'type'>) => {
+    async ({ data }: { data: string; type: string }) => {
       const code = data;
       if (!enabled || !active.current || pending.current || !validBarcode(code))
         return;

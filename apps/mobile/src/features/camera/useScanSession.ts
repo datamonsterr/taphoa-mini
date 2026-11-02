@@ -1,10 +1,17 @@
 import { onlineManager } from '@tanstack/react-query';
-import type { CameraView } from 'expo-camera';
-import { useCallback, useReducer, useRef, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  type RefObject,
+} from 'react';
 
 import { RATE_LIMIT_MESSAGE, isRateLimited, useCreateScan } from '@/lib/api';
 
-import { takePhoto, toUploadFile } from './capture';
+import { takePhoto, toUploadFile, type PictureTaker } from './capture';
+import { voteScan, type VoteHistory } from './vision/identify';
+import { capture as trackEvent } from '@/lib/analytics';
 import { initialScanState, scanReducer, type Photo } from './scanReducer';
 
 /** A scan with no answer after this long gives up, so the seller is never stuck on the spinner. */
@@ -27,10 +34,23 @@ const message = (error: unknown) =>
       : SCAN_FAILED_MESSAGE;
 
 /** Drives one capture: take the photo, freeze it, upload it, keep the reducer in step. */
-export function useScanSession(cameraRef: RefObject<CameraView | null>) {
+export function useScanSession(cameraRef: RefObject<PictureTaker | null>) {
   const [state, dispatch] = useReducer(scanReducer, initialScanState);
   const { mutateAsync } = useCreateScan();
   const tokenRef = useRef(0);
+  const pending = useRef(false);
+  useEffect(
+    () => () => {
+      tokenRef.current += 1;
+      pending.current = false;
+    },
+    [],
+  );
+  const votes = useRef<VoteHistory>({});
+  const timing = useRef({
+    started: 0,
+    trigger: 'tap' as 'tap' | 'auto' | 'retry',
+  });
   const { phase, photo } = state;
 
   const submit = useCallback(
@@ -41,19 +61,28 @@ export function useScanSession(cameraRef: RefObject<CameraView | null>) {
         return;
       }
       // A late answer after the timeout is dropped: the reducer only takes `scanning` + same token.
-      const timer = setTimeout(
-        () => dispatch({ type: 'failed', token, message: SCAN_SLOW_MESSAGE }),
-        SCAN_TIMEOUT_MS,
-      );
+      let expired = false;
+      const timer = setTimeout(() => {
+        expired = true;
+        dispatch({ type: 'failed', token, message: SCAN_SLOW_MESSAGE });
+      }, SCAN_TIMEOUT_MS);
       try {
         const scan = await mutateAsync({
           image: toUploadFile(shot),
           mode: 'multi',
+          boxes: shot.boxes,
+        });
+        if (token !== tokenRef.current || expired) return;
+        const voted = voteScan(votes.current, scan);
+        votes.current = voted.history;
+        trackEvent('scan_result_received', {
+          latency_ms: Math.round(performance.now() - timing.current.started),
+          trigger: timing.current.trigger,
         });
         dispatch({
           type: 'scanned',
           token,
-          scan,
+          scan: voted.scan,
           open: scan.detections.length === 1,
         });
       } catch (error) {
@@ -66,25 +95,36 @@ export function useScanSession(cameraRef: RefObject<CameraView | null>) {
   );
 
   const capture = useCallback(
-    async (onPhoto?: (shot: Photo) => Promise<void>) => {
-      if (phase !== 'idle') return;
+    async (
+      onPhoto?: (shot: Photo) => Promise<void>,
+      trigger: 'tap' | 'auto' = 'tap',
+    ) => {
+      if (phase !== 'idle' || pending.current) return;
+      pending.current = true;
+      timing.current = { started: performance.now(), trigger };
       const token = ++tokenRef.current;
       dispatch({ type: 'shutter', token });
       let shot: Photo;
       try {
         shot = await takePhoto(cameraRef.current);
       } catch (error) {
+        pending.current = false;
         dispatch({ type: 'failed', token, message: message(error) });
         return;
       }
+      if (token !== tokenRef.current) return;
       dispatch({ type: 'captured', token, photo: shot });
       if (onPhoto) {
         try {
           await onPhoto(shot);
         } finally {
+          pending.current = false;
           dispatch({ type: 'reset' });
         }
-      } else await submit(token, shot);
+      } else {
+        await submit(token, shot);
+        if (token === tokenRef.current) pending.current = false;
+      }
     },
     [phase, cameraRef, submit],
   );
@@ -95,12 +135,17 @@ export function useScanSession(cameraRef: RefObject<CameraView | null>) {
       dispatch({ type: 'reset' });
       return;
     }
+    timing.current = { started: performance.now(), trigger: 'retry' };
     const token = ++tokenRef.current;
     dispatch({ type: 'retry', token });
     await submit(token, photo);
   }, [photo, submit]);
 
-  const reset = useCallback(() => dispatch({ type: 'reset' }), []);
+  const reset = useCallback(() => {
+    tokenRef.current += 1;
+    pending.current = false;
+    dispatch({ type: 'reset' });
+  }, []);
   /** The matched boxes went to the cart: keep any unknown ones on screen, else go back to live. */
   const added = useCallback(() => dispatch({ type: 'added' }), []);
   const toggle = useCallback(
