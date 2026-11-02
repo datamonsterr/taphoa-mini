@@ -18,8 +18,8 @@ import {
   test,
 } from './fixtures';
 
-const modeSingle = (page: Page) => button(page, 'Một món');
-const modeMulti = (page: Page) => button(page, 'Nhiều món');
+const modeObject = (page: Page) => button(page, 'Vật phẩm');
+const modeCode = (page: Page) => button(page, 'Mã vạch/QR');
 
 test.describe('camera', () => {
   test('live preview shows the fake webcam, the mode toggle and an empty cart', async ({
@@ -27,8 +27,8 @@ test.describe('camera', () => {
   }) => {
     await openCamera(page);
     await expectLiveVideo(page);
-    await expect(modeSingle(page)).toBeVisible();
-    await expect(modeMulti(page)).toBeVisible();
+    await expect(modeObject(page)).toBeVisible();
+    await expect(modeCode(page)).toBeVisible();
     await expect(button(page, 'Giỏ hàng trống')).toBeVisible();
     await expect(addButton(page)).toBeDisabled();
     await expect(button(page, 'Thêm vào kho với giá')).toBeVisible();

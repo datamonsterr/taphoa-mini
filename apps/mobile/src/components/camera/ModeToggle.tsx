@@ -1,4 +1,3 @@
-import { Focus, Grid2x2Plus } from 'lucide-react-native';
 import { memo, useEffect } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -7,29 +6,37 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
-import { Icon } from '@/components/ui/Icon';
+import { Text } from '@/components/ui';
+import { strings } from '@/features/camera/strings';
+import { useT } from '@/lib/i18n';
 import { camera, colors, radius, space } from '@/theme';
 
-export type CaptureMode = 'one' | 'many';
+export type CaptureMode = 'object' | 'code';
 
 type Props = {
   mode: CaptureMode;
   onChange: (mode: CaptureMode) => void;
+  disabled?: boolean;
 };
 
-const ITEM_WIDTH = 56;
+const ITEM_WIDTH = 120;
 const ITEM_HEIGHT = 48;
 
 const options = [
-  { mode: 'one', label: 'Một món', icon: Focus },
-  { mode: 'many', label: 'Nhiều món', icon: Grid2x2Plus },
+  { mode: 'object', label: 'objectMode' },
+  { mode: 'code', label: 'codeMode' },
 ] as const;
 
-/** One / many switch with a sliding white thumb. */
-export const ModeToggle = memo(function ModeToggle({ mode, onChange }: Props) {
-  const offset = useSharedValue(mode === 'many' ? 1 : 0);
+/** Camera input switch with a sliding white thumb. */
+export const ModeToggle = memo(function ModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: Props) {
+  const t = useT(strings);
+  const offset = useSharedValue(mode === 'code' ? 1 : 0);
   useEffect(() => {
-    offset.value = withSpring(mode === 'many' ? 1 : 0, {
+    offset.value = withSpring(mode === 'code' ? 1 : 0, {
       damping: 18,
       stiffness: 220,
     });
@@ -51,17 +58,17 @@ export const ModeToggle = memo(function ModeToggle({ mode, onChange }: Props) {
           <Pressable
             key={option.mode}
             accessibilityRole="button"
-            accessibilityLabel={option.label}
-            accessibilityState={{ selected }}
+            accessibilityLabel={t(option.label)}
+            accessibilityState={{ selected, disabled }}
             aria-selected={selected}
             hitSlop={{ top: 4, bottom: 4 }}
+            disabled={disabled}
             onPress={() => onChange(option.mode)}
             style={styles.item}
           >
-            <Icon
-              icon={option.icon}
-              color={selected ? colors.ink : colors.cameraInk}
-            />
+            <Text style={{ color: selected ? colors.ink : colors.cameraInk }}>
+              {t(option.label)}
+            </Text>
           </Pressable>
         );
       })}

@@ -81,7 +81,6 @@ test.describe('board screenshots', () => {
   test('Multi: every detection boxed', async ({ page, store }, testInfo) => {
     await seedScannableProduct(store.api);
     await openCamera(page);
-    await button(page, 'Nhiều món').click();
     await shoot(page, 'multi');
     await capture(page, testInfo, 'Multi');
   });

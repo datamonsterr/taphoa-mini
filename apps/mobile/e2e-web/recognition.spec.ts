@@ -149,22 +149,16 @@ test.describe('recognition and enroll (real models)', () => {
     });
   });
 
-  test('multi mode sends mode=multi; every detection the server returns gets a box', async ({
+  test('object mode sends mode=multi; every detection the server returns gets a box', async ({
     page,
   }) => {
     await openCamera(page);
-    await button(page, 'Nhiều món').click();
     const scan = await shoot(page, 'multi');
     expect(scan.requestBody.multipart.mode).toBe('multi');
     expect(scan.body.mode).toBe('multi');
     expect(scan.body.detections.length).toBeGreaterThan(0);
     await expect(detectionBoxes(page)).toHaveCount(scan.body.detections.length);
     await expect(page.getByTestId('box-badge')).toHaveCount(0);
-    await button(page, 'Một món').click();
-    await reshoot(page).click();
-    const single = await shoot(page);
-    expect(single.requestBody.multipart.mode).toBe('single');
-    await expect(detectionBoxes(page)).toHaveCount(1);
   });
 
   test('enroll with an extra angle uploads both photos and creates one product', async ({

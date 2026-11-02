@@ -172,7 +172,7 @@ beforeEach(() => {
   resetMockDb();
   useQuickEnrollStore.setState(initialQuickEnroll);
   useCartStore.setState({ lines: [] });
-  useCaptureModeStore.setState({ mode: 'one' });
+  useCaptureModeStore.setState({ mode: 'object' });
   useSettingsStore.setState({ language: 'vi' });
   mockState.permission = { granted: true, canAskAgain: true };
   mockState.focused = true;
@@ -220,7 +220,7 @@ describe('idle', () => {
     await renderWithProviders(<CameraScreen />);
     expect(screen.getByTestId('camera-view')).toBeOnTheScreen();
     expect(screen.getByTestId('viewfinder')).toHaveStyle(SIZE);
-    for (const name of ['Một món', 'Nhiều món']) {
+    for (const name of ['Vật phẩm', 'Mã vạch/QR']) {
       expect(screen.getByRole('button', { name })).toBeOnTheScreen();
     }
     expect(
@@ -356,16 +356,16 @@ describe('idle', () => {
 
   it('mode toggle switches the persisted mode', async () => {
     await renderWithProviders(<CameraScreen />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Nhiều món' }));
-    expect(useCaptureModeStore.getState().mode).toBe('many');
-    await fireEvent.press(screen.getByRole('button', { name: 'Một món' }));
-    expect(useCaptureModeStore.getState().mode).toBe('one');
+    await fireEvent.press(screen.getByRole('button', { name: 'Mã vạch/QR' }));
+    expect(useCaptureModeStore.getState().mode).toBe('code');
+    await fireEvent.press(screen.getByRole('button', { name: 'Vật phẩm' }));
+    expect(useCaptureModeStore.getState().mode).toBe('object');
   });
 
   it('starts in the persisted mode', async () => {
-    useCaptureModeStore.setState({ mode: 'many' });
+    useCaptureModeStore.setState({ mode: 'code' });
     await renderWithProviders(<CameraScreen />);
-    expect(screen.getByRole('button', { name: 'Nhiều món' })).toBeSelected();
+    expect(screen.getByRole('button', { name: 'Mã vạch/QR' })).toBeSelected();
   });
 });
 
@@ -434,13 +434,13 @@ describe('single item', () => {
     expect(screen.queryByTestId('add-badge')).toBeNull();
   });
 
-  it('uploads the photo as scan.jpg with the single mode', async () => {
+  it('uploads the photo as scan.jpg with the multi mode', async () => {
     const create = jest.spyOn(images, 'createScan');
     await renderWithProviders(<CameraScreen />);
     await capture();
     expect(create).toHaveBeenCalledWith({
       image: { uri: 'file:///shot.jpg', name: 'scan.jpg', type: 'image/jpeg' },
-      mode: 'single',
+      mode: 'multi',
     });
   });
 
@@ -550,7 +550,7 @@ describe('single item', () => {
 describe('many items', () => {
   beforeEach(() => {
     setMockScenario('multi');
-    useCaptureModeStore.setState({ mode: 'many' });
+    useCaptureModeStore.setState({ mode: 'object' });
   });
 
   it('requests the multi mode and numbers three selected boxes, with the count on +', async () => {
@@ -620,14 +620,6 @@ describe('many items', () => {
     expect(useCartStore.getState().lines).toHaveLength(2);
     expect(screen.getByTestId('camera-view')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
-  });
-
-  it('switching to one item after a multi scan redraws without numbers', async () => {
-    await renderWithProviders(<CameraScreen />);
-    await capture();
-    await fireEvent.press(screen.getByRole('button', { name: 'Một món' }));
-    expect(screen.queryAllByTestId('box-badge')).toHaveLength(0);
-    expect(screen.queryByTestId('add-badge')).toBeNull();
   });
 });
 
@@ -985,7 +977,7 @@ describe('render counts', () => {
 
   it('toggling one detection box re-renders only that box', async () => {
     setMockScenario('multi');
-    useCaptureModeStore.setState({ mode: 'many' });
+    useCaptureModeStore.setState({ mode: 'object' });
     await renderWithProviders(<CameraScreen />);
     await capture();
     const boxes = screen.getAllByRole('button', { name: /đã chọn$/ });
@@ -1027,14 +1019,12 @@ describe('quick enroll capture', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  // On Android, expo-camera rebinds CameraX when `onBarcodeScanned` appears or disappears, and
-  // the rebind aborts a picture in flight with "Failed to capture image". This mock cannot rebind,
-  // so the tests pin the native prop instead.
+  // Object captures do not enable the native barcode scanner.
   it.each([
     ['quick enroll', true],
     ['checkout scan', false],
   ])(
-    'keeps the native barcode handler while a %s photo is in flight',
+    'keeps barcode scanning disabled while a %s photo is in flight',
     async (_name, quick) => {
       let release!: (photo: typeof IMAGE & { uri: string }) => void;
       mockTakePicture.mockImplementationOnce(
@@ -1046,7 +1036,7 @@ describe('quick enroll capture', () => {
       await renderWithProviders(<CameraScreen />);
       if (quick) await fireEvent.press(tag());
       const handler = screen.getByTestId('camera-view').props.onBarcodeScanned;
-      expect(handler).toEqual(expect.any(Function));
+      expect(handler).toBeUndefined();
       await fireEvent.press(shutter());
       expect(mockTakePicture).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toBe(
@@ -1484,6 +1474,7 @@ describe('assistant entry points', () => {
   });
 
   it('yields the slot to the alternatives strip and to quick enroll', async () => {
+    setMockScenario('match');
     await renderWithProviders(<CameraScreen />);
     await capture();
     expect(screen.getByTestId('alternatives-strip')).toBeOnTheScreen();
@@ -1639,6 +1630,7 @@ describe('live receipt detection (01b)', () => {
 
 // Barcode reads use the exact product endpoint and the same +/feedback as image matches.
 describe('barcode camera results', () => {
+  beforeEach(() => useCaptureModeStore.setState({ mode: 'code' }));
   const code = '4006381333931';
   const scanBarcode = async (data = code) => {
     await fireEvent(screen.getByTestId('camera-view'), 'barcodeScanned', {
@@ -1697,32 +1689,38 @@ describe('barcode camera results', () => {
     expect(mockTakePicture).not.toHaveBeenCalled();
     expect(useQuickEnrollStore.getState().shots).toHaveLength(0);
   });
-  it('pauses reads behind a barcode result and resumes the prior document after retake', async () => {
-    await seedCode();
-    const probe = {
-      document: {
-        detected: true,
-        score: 0.9,
-        text_lines: 12,
-        line_boxes: [[0.1, 0.1, 0.5, 0.04]],
-      },
-      imageSize: IMAGE,
-      previewMirrored: false,
-    } as NonNullable<ReturnType<typeof useDocumentProbe>>;
-    jest
-      .mocked(useDocumentProbe)
-      .mockImplementation((_ref, enabled) => (enabled ? probe : null));
-    const receipt = jest.spyOn(receiptsApi, 'createReceipt');
+  it('ignores scans in object mode and hides the shutter in code mode', async () => {
+    useCaptureModeStore.setState({ mode: 'object' });
     await renderWithProviders(<CameraScreen />);
-    expect(screen.getByText('Hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
+    expect(
+      screen.getByTestId('camera-view').props.onBarcodeScanned,
+    ).toBeUndefined();
     await scanBarcode();
-    await screen.findByTestId('barcode-indicator');
-    expect(screen.queryByText('Hóa đơn · 12 dòng chữ')).toBeNull();
-    await scanBarcode('8931234567890');
     expect(mockPush).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByLabelText('Chụp lại'));
-    expect(jest.mocked(useDocumentProbe).mock.calls.at(-1)?.[1]).toBe(true);
-    expect(screen.getByText('Hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
-    expect(receipt).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('barcode-indicator')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Mã vạch/QR' }));
+    expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toEqual(
+      expect.any(Function),
+    );
+    expect(screen.queryByLabelText('Chụp')).toBeNull();
+    expect(mockTakePicture).not.toHaveBeenCalled();
+  });
+  it('accepts numeric QR and ignores other QR payloads', async () => {
+    await renderWithProviders(<CameraScreen />);
+    await fireEvent(screen.getByTestId('camera-view'), 'barcodeScanned', {
+      type: 'qr',
+      data: 'https://example.com',
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+    await fireEvent(screen.getByTestId('camera-view'), 'barcodeScanned', {
+      type: 'qr',
+      data: code,
+    });
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/enroll',
+        params: { barcode: code },
+      }),
+    );
   });
 });

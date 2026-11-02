@@ -3,6 +3,8 @@ import type { Dict } from '@/lib/i18n';
 /** Camera screen texts. Icon-only controls keep the board's `aria-label`s inside their components. */
 export const strings: Dict = {
   vi: {
+    objectMode: 'Vật phẩm',
+    codeMode: 'Mã vạch/QR',
     unnamed: 'Sản phẩm',
     readReceipt: 'Đọc hóa đơn nhập',
     readingReceipt: 'Đang đọc hóa đơn…',
@@ -21,6 +23,8 @@ export const strings: Dict = {
     reshoot: 'Chụp lại',
   },
   en: {
+    objectMode: 'Object',
+    codeMode: 'Barcode/QR',
     unnamed: 'Product',
     readReceipt: 'Read import receipt',
     readingReceipt: 'Reading receipt…',

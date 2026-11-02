@@ -42,7 +42,6 @@ describe('camera -> cart', () => {
     const create = jest.spyOn(images, 'createScan');
     await renderApp('/');
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Nhiều món' }));
     await shoot();
     await screen.findByRole('button', { name: 'Chụp lại' });
     await waitFor(() => expect(screen.queryByTestId('scan-busy')).toBeNull());
@@ -241,7 +240,6 @@ describe('camera -> cart', () => {
     setMockScenario('multi');
     const create = jest.spyOn(images, 'createScan');
     await renderApp('/');
-    await fireEvent.press(screen.getByRole('button', { name: 'Nhiều món' }));
     // One of the three boxes comes back unknown.
     const real = images.createScan;
     create.mockImplementationOnce(async (input) => {

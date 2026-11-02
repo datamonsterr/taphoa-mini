@@ -717,7 +717,7 @@ test.describe('#182 ambiguous match', () => {
         json: {
           id: uuid7(),
           image: { id: uuid7(), url: 'https://example.test/x.jpg' },
-          mode: 'single',
+          mode: 'multi',
           purpose: 'checkout',
           pipeline: { segmenter: 'sam', embedder: 'dino' },
           detections: [

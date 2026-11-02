@@ -117,11 +117,19 @@ describe('toCartLines', () => {
     ]);
   });
 
-  it('tags lines of a single-item photo as camera', () => {
-    const one = { ...result, mode: 'single' as const };
-    expect(
-      toCartLines(one, { d2: true }, {}, FALLBACK).map((l) => l.source),
-    ).toEqual(['camera']);
+  it('chooses the sale source from the number of detections', () => {
+    const single = {
+      ...result,
+      mode: 'multi' as const,
+      detections: [result.detections[0]!],
+    };
+    const multiple = { ...result, mode: 'single' as const };
+    expect(toCartLines(single, { d1: true }, {}, FALLBACK)[0]!.source).toBe(
+      'camera',
+    );
+    expect(toCartLines(multiple, { d1: true }, {}, FALLBACK)[0]!.source).toBe(
+      'multi_photo',
+    );
   });
 
   it('skips deselected boxes and low matches', () => {
