@@ -22,12 +22,14 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Sale,
+    Product,
     Transcribe,
 }
 impl Mode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Sale => "sale",
+            Self::Product => "product",
             Self::Transcribe => "transcribe",
         }
     }
@@ -205,7 +207,15 @@ async fn run_chain(
             slug,
             ("audio", index, deadline),
             calls,
-            model.parse_audio(slug, &req.clip, hint, req.language),
+            async {
+                if req.mode == Mode::Product {
+                    model
+                        .parse_product_audio(slug, &req.clip, req.language)
+                        .await
+                } else {
+                    model.parse_audio(slug, &req.clip, hint, req.language).await
+                }
+            },
             describe_parsed,
         )
         .await;
@@ -288,14 +298,20 @@ async fn run_chain(
     while offset < parse_models.len() {
         let slug = &parse_models[offset];
         if expired() {
-            return None;
+            return (req.mode == Mode::Product).then(|| transcript_only(transcript.model.clone()));
         }
         let result = attempt(
             model,
             slug,
             ("text", stt_index + 1 + offset, deadline),
             calls,
-            model.parse_text(slug, &text, hint, req.language),
+            async {
+                if req.mode == Mode::Product {
+                    model.parse_product_text(slug, &text, req.language).await
+                } else {
+                    model.parse_text(slug, &text, hint, req.language).await
+                }
+            },
             describe_parsed,
         )
         .await;
@@ -318,6 +334,9 @@ async fn run_chain(
             }
         }
         offset += 1;
+    }
+    if req.mode == Mode::Product {
+        return Some(transcript_only(transcript.model));
     }
     None
 }
@@ -396,11 +415,15 @@ async fn process(
         );
         return Err(no_speech());
     }
-    let hint = voice
-        .hints
-        .get(pool, actor.store_id, voice.config.hint_ttl)
-        .await
-        .map_err(db)?;
+    let hint = if req.mode == Mode::Product {
+        std::sync::Arc::new(String::new())
+    } else {
+        voice
+            .hints
+            .get(pool, actor.store_id, voice.config.hint_ttl)
+            .await
+            .map_err(db)?
+    };
     let trace = assistant::trace_id(span);
     let mut calls = Vec::new();
     let chain = run_chain(voice, model.as_ref(), req, &hint, &mut calls).await;
@@ -414,7 +437,7 @@ async fn process(
     };
     let Parsed {
         model: answered,
-        parse,
+        mut parse,
         ..
     } = parsed;
     let transcript = parse.transcript.trim().to_owned();
@@ -431,10 +454,23 @@ async fn process(
     };
     // A transcript denser than human speech is invented, whatever the clip's energy was.
     let invented = speech::implausible_rate(&transcript, req.audio_seconds);
-    if parse.intent == Intent::None || transcript.is_empty() || invented {
+    if (req.mode != Mode::Product && parse.intent == Intent::None)
+        || transcript.is_empty()
+        || invented
+    {
         finish("none", Counts::default(), Some(&answered));
         return Err(no_speech());
     }
+    let product_draft = if req.mode == Mode::Product {
+        parse.intent = Intent::Product;
+        let draft = super::product::draft(&parse);
+        if draft.name.is_empty() {
+            return Err(no_speech());
+        }
+        Some(serde_json::to_value(draft).map_err(|_| ApiError::internal())?)
+    } else {
+        None
+    };
     let mut draft_out = None;
     if req.mode == Mode::Sale && parse.intent == Intent::Sale {
         draft_out = draft::build(state, actor, &parse).await?;
@@ -467,7 +503,7 @@ async fn process(
     .bind(parse.intent.as_str())
     .bind(&transcript)
     .bind(&parsed_json)
-    .bind(draft_out.as_ref().map(|d| &d.stored))
+    .bind(product_draft.as_ref().or_else(|| draft_out.as_ref().map(|d| &d.stored)))
     .bind(&answered)
     .bind(stt_fallback)
     .bind(i32::try_from(latency_ms).unwrap_or(i32::MAX))
@@ -492,6 +528,9 @@ async fn process(
     });
     if let Some(d) = draft_out {
         body["sale_draft"] = d.api;
+    }
+    if let Some(d) = product_draft {
+        body["product_draft"] = d;
     }
     Ok((StatusCode::CREATED, body))
 }

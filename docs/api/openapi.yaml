@@ -2437,12 +2437,13 @@ paths:
     post:
       tags: [Voice]
       operationId: createVoiceUtterance
-      summary: Turn one spoken utterance into a transcript and an optional sale draft
+      summary: Turn one spoken utterance into a transcript and an optional draft
       description: |
         Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
         1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
-        `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
-        `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+        `mode=product` it carries a `product_draft` for enrollment, and with
+        `mode=transcribe` it carries the transcript only. Omitted mode defaults to sale.
+        Error codes: `audio_too_long` and `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
         per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
         back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
       parameters:
@@ -2453,10 +2454,15 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [audio, mode]
+              required: [audio]
               properties:
                 audio: { type: string, format: binary }
-                mode: { type: string, enum: [sale, transcribe] }
+                mode:
+                  {
+                    type: string,
+                    enum: [sale, transcribe, product],
+                    default: sale,
+                  }
                 language: { type: string, enum: [vi, en], default: vi }
                 context:
                   type: string
@@ -3312,18 +3318,26 @@ components:
         payment_method: { $ref: '#/components/schemas/PaymentMethod' }
         customer: { $ref: '#/components/schemas/CustomerMatch' }
         total: { $ref: '#/components/schemas/Money' }
+    VoiceProductDraft:
+      type: object
+      required: [name, price, unit]
+      properties:
+        name: { type: string }
+        price: { type: integer, nullable: true, description: Price in đồng. }
+        unit: { type: string, nullable: true }
     VoiceUtterance:
       type: object
       required:
         [id, mode, transcript, language, intent, model, latency_ms, created_at]
       properties:
         id: { type: string, format: uuid }
-        mode: { type: string, enum: [sale, transcribe] }
+        mode: { type: string, enum: [sale, transcribe, product] }
         transcript: { type: string }
         language: { type: string, enum: [vi, en] }
-        intent: { type: string, enum: [sale, chat, none] }
+        intent: { type: string, enum: [sale, chat, none, product] }
         confidence: { type: number, minimum: 0, maximum: 1 }
         sale_draft: { $ref: '#/components/schemas/VoiceSaleDraft' }
+        product_draft: { $ref: '#/components/schemas/VoiceProductDraft' }
         model: { type: string, description: Slug that answered. }
         stt_fallback:
           { type: boolean, description: True when the STT path was used. }

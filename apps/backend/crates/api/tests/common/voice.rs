@@ -45,6 +45,7 @@ pub fn sale(
         payment_method: Some(payment.into()),
         customer_name: customer.map(Into::into),
         confidence: 0.9,
+        ..VoiceParse::default()
     }
 }
 

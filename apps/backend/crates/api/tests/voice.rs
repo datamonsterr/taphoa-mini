@@ -1344,3 +1344,133 @@ async fn header_that_understates_the_duration_is_still_bounded() {
         "no model call for an overlong clip"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn product_mode_returns_and_stores_draft_without_catalog_write() {
+    let parse = VoiceParse {
+        transcript: "nước suối Lavie 500ml, tám nghìn rưỡi một chai".into(),
+        name: "nước suối Lavie 500ml".into(),
+        price: Some(8000),
+        confidence: 0.9,
+        ..VoiceParse::default()
+    };
+    let (w, _) = setup(vec![Step::parse(parse)], |_| {}).await;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM products WHERE store_id=$1")
+        .bind(w.store_id)
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    let r = upload(&w, &clip(), "product").await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    ok(&w, r.status, &r.body);
+    assert_eq!(r.body["intent"], "product");
+    assert_eq!(
+        r.body["product_draft"],
+        json!({"name":"nước suối Lavie 500ml", "price":8500, "unit":"chai"})
+    );
+    let row: (String, String, Value) =
+        sqlx::query_as("SELECT mode, intent, draft FROM voice_utterances WHERE id=$1")
+            .bind(r.body["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!((row.0.as_str(), row.1.as_str()), ("product", "product"));
+    assert_eq!(row.2, r.body["product_draft"]);
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM products WHERE store_id=$1")
+        .bind(w.store_id)
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(before, after);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn scripted_product_phrasings_use_rules() {
+    let cases = [
+        ("mì hảo hảo năm nghìn", "mì hảo hảo", Some(5000), None),
+        ("mì 5k", "mì", Some(5000), None),
+        ("sữa mười hai nghìn rưỡi", "sữa", Some(12500), None),
+        ("cà phê hai mươi lăm ngàn", "cà phê", Some(25000), None),
+        (
+            "nước Lavie 500ml tám nghìn rưỡi một chai",
+            "nước Lavie 500ml",
+            Some(8500),
+            Some("chai"),
+        ),
+        ("bánh 10k một gói", "bánh", Some(10000), Some("gói")),
+        ("bia 20k một lon", "bia", Some(20000), Some("lon")),
+        ("sữa 30k một hộp", "sữa", Some(30000), Some("hộp")),
+        ("bút 4k một cái", "bút", Some(4000), Some("cái")),
+        ("gạo 25k một kg", "gạo", Some(25000), Some("kg")),
+        ("dầu ăn một triệu rưỡi", "dầu ăn", Some(1500000), None),
+        ("kẹo ba nghìn", "kẹo", Some(3000), None),
+        ("trà 12k", "trà", Some(12000), None),
+        ("nước mắm", "nước mắm", None, None),
+        ("sữa 500ml", "sữa 500ml", None, None),
+    ];
+    let steps = cases
+        .iter()
+        .map(|(text, ..)| {
+            Step::parse(VoiceParse {
+                transcript: (*text).into(),
+                ..VoiceParse::default()
+            })
+        })
+        .collect();
+    let (w, _) = setup(steps, |_| {}).await;
+    for (text, name, price, unit) in cases {
+        let r = upload(&w, &clip(), "product").await;
+        assert_eq!(r.status, StatusCode::CREATED, "{text}: {}", r.body);
+        assert_eq!(
+            r.body["product_draft"],
+            json!({"name":name,"price":price,"unit":unit}),
+            "{text}"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn product_stt_falls_back_to_rules_when_text_models_fail() {
+    let steps = vec![
+        Step::unavailable(),
+        Step::unavailable(),
+        Step::transcript("mì hảo hảo năm nghìn"),
+        Step::unavailable(),
+        Step::unavailable(),
+    ];
+    let (w, _) = setup(steps, |_| {}).await;
+    let r = upload(&w, &clip(), "product").await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert_eq!(r.body["stt_fallback"], true);
+    assert_eq!(
+        r.body["product_draft"],
+        json!({"name":"mì hảo hảo","price":5000,"unit":null})
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn omitted_mode_defaults_to_sale() {
+    let parse = sale(
+        "mì năm nghìn",
+        vec![line(
+            "mì",
+            "mì",
+            None,
+            None,
+            Some(5000.0),
+            Some("năm nghìn"),
+        )],
+        "cash",
+        None,
+    );
+    let (w, _) = setup(vec![Step::parse(parse)], |_| {}).await;
+    let r = upload_with(&w, &w.seller, Some(&clip()), &[], &[]).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert_eq!(r.body["mode"], "sale");
+    assert_eq!(r.body["intent"], "sale");
+    assert!(r.body.get("sale_draft").is_some());
+}

@@ -91,3 +91,4 @@ separate from the current infrastructure skeleton.
 | Letterbox crop | Aspect-preserving resize to a square input, centred with ImageNet mean RGB (124,116,104) padding; default side 224. |
 | Index augmentation | Seven deterministic reference views: original, three right-angle rotations, two approximately 70% area subcrops, and one 48 px far copy. Disabled with `INDEX_AUGMENT=0`. |
 | kNN voting | Product score is the sum of up to three nearest reference similarities divided by three; missing votes contribute zero. Prototypes are fallback evidence only. |
+| Voice product draft | A spoken product name, optional price in đồng and optional unit, returned to prefill enrollment; it does not create a catalog product. |
