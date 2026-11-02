@@ -1,14 +1,12 @@
 //! Postgres adapter of [`VectorIndex`] over the pgvector `product_embeddings`
 //! table (architecture §5.3, data-model §3.3). Search returns a cosine
-//! top-three reference voting score per product. The vectors are 384-d DINOv2 embeddings, so anything
-//! else is rejected before it reaches the database.
-use crate::vector::{VectorHit, VectorIndex, embed_knn, search_limits};
+//! top-three reference voting score per product, scoped by model identity and dimension.
+use crate::vector::{VectorHit, VectorIndex, embed_knn, embedding_column, search_limits};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-const EMBEDDING_DIM: usize = 384;
 /// Shared by checkout and duplicate detection. A distance-ordered bounded CTE keeps
 /// the HNSW access path. Cap each product at three votes before the neighborhood limit
 /// so augmented references cannot monopolize it. Missing votes contribute zero.
@@ -16,7 +14,7 @@ const EMBEDDING_DIM: usize = 384;
 pub const SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
     SELECT e.product_id, e.embedding <=> $1::vector AS distance
     FROM product_embeddings e
-    WHERE e.store_id = $2 AND e.model = $3
+    WHERE e.store_id = $2 AND e.model = $3 AND e.embedding IS NOT NULL
       AND EXISTS (SELECT 1 FROM products p
                   WHERE p.id = e.product_id AND p.store_id = $2 AND NOT p.archived)
     ORDER BY e.embedding <=> $1::vector
@@ -35,7 +33,7 @@ pub const SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
     SELECT proto.product_id, 1 - (proto.embedding <=> $1::vector) AS similarity
     FROM product_prototypes proto
     JOIN products p ON p.id = proto.product_id
-    WHERE proto.store_id = $2 AND proto.model = $3
+    WHERE proto.store_id = $2 AND proto.model = $3 AND proto.embedding IS NOT NULL
       AND p.store_id = $2 AND NOT p.archived
       AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.product_id = proto.product_id)
 )
@@ -53,7 +51,13 @@ impl PgVectorIndex {
     }
 }
 
-/// Same validity rules as `InMemoryVectorIndex`, plus the fixed column dimension.
+/// The SQL template retains the distance-ordered HNSW access path for either column.
+pub fn search_sql(dim: usize) -> anyhow::Result<String> {
+    let column = embedding_column(dim)?;
+    Ok(SEARCH_SQL.replace(".embedding", &format!(".{column}")))
+}
+
+/// Same validity rules as `InMemoryVectorIndex`, plus the supported column dimensions.
 fn validate(embedding: &[f32]) -> anyhow::Result<()> {
     anyhow::ensure!(
         !embedding.is_empty() && embedding.iter().all(|x| x.is_finite()),
@@ -65,11 +69,7 @@ fn validate(embedding: &[f32]) -> anyhow::Result<()> {
         .sum::<f64>()
         .sqrt();
     anyhow::ensure!(norm > 0., "embedding must have nonzero norm");
-    anyhow::ensure!(
-        embedding.len() == EMBEDDING_DIM,
-        "embedding dimension mismatch: expected {EMBEDDING_DIM}, got {}",
-        embedding.len()
-    );
+    embedding_column(embedding.len())?;
     Ok(())
 }
 
@@ -84,12 +84,13 @@ impl VectorIndex for PgVectorIndex {
         embedding: Vec<f32>,
     ) -> anyhow::Result<()> {
         validate(&embedding)?;
-        sqlx::query(
-            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, embedding)
+        let column = embedding_column(embedding.len())?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, {column})
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (store_id, product_id, image_id, model, kind, augmentation)
-             DO UPDATE SET embedding = EXCLUDED.embedding",
-        )
+             DO UPDATE SET {column} = EXCLUDED.{column}"
+        )))
         .bind(store_id)
         .bind(product_id)
         .bind(image_id)
@@ -127,15 +128,16 @@ impl VectorIndex for PgVectorIndex {
         sqlx::query("SET LOCAL hnsw.max_scan_tuples = 20000")
             .execute(&mut *tx)
             .await?;
-        let rows: Vec<(Uuid, f32)> = sqlx::query_as(SEARCH_SQL)
-            .bind(Vector::from(embedding.to_vec()))
-            .bind(store_id)
-            .bind(model)
-            .bind(fetch)
-            .bind(limit)
-            .bind(votes)
-            .fetch_all(&mut *tx)
-            .await?;
+        let rows: Vec<(Uuid, f32)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(search_sql(embedding.len())?))
+                .bind(Vector::from(embedding.to_vec()))
+                .bind(store_id)
+                .bind(model)
+                .bind(fetch)
+                .bind(limit)
+                .bind(votes)
+                .fetch_all(&mut *tx)
+                .await?;
         tx.commit().await?;
         Ok(rows
             .into_iter()

@@ -3,7 +3,9 @@ pub mod crop;
 pub mod embed;
 pub mod ocr;
 mod sam;
-pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
+pub use embed::{
+    DinoEmbedder, EmbedError, Embedder, MockEmbedder, ModelSpec, OnnxEmbedder, Pooling,
+};
 pub use sam::{
     ImageEncoding, MockPointSegmenter, PointSegment, PointSegmenter, SamOptions, SamSegmenter,
     SegmentTimings,

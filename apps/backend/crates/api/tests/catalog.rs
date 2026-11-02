@@ -2535,3 +2535,64 @@ async fn clearing_cost_price_writes_a_price_history_row() {
         before["items"].as_array().unwrap().len()
     );
 }
+
+struct WideCatalogEmbedder;
+impl taphoa_recognition::Embedder for WideCatalogEmbedder {
+    fn model(&self) -> &str {
+        "siglip2-b16-224-onnx@1/lb224"
+    }
+    fn dim(&self) -> usize {
+        768
+    }
+    fn embed(&self, _: &[u8]) -> Result<Vec<f32>, taphoa_recognition::EmbedError> {
+        let mut v = vec![0.; 768];
+        v[767] = 1.;
+        Ok(v)
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn siglip_duplicate_sql_fallback_uses_768_column_and_active_model() {
+    let (_, mut state) = setup_with(None, true).await;
+    state.embedder = Some(Arc::new(WideCatalogEmbedder));
+    let app = router(state.clone());
+    let w = world_from(app, state).await;
+    let product = create_product(&w, &w.lead, "SigLIP bottle", 9000, "siglip", json!({})).await;
+    let id: Uuid = product["id"].as_str().unwrap().parse().unwrap();
+    index_product(&w, id).await;
+    // An earlier model's retained rows must not participate in duplicate checks.
+    sqlx::query("UPDATE product_embeddings SET model='older-wide-model' WHERE product_id=$1")
+        .bind(id)
+        .execute(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE product_prototypes SET model='older-wide-model' WHERE product_id=$1")
+        .bind(id)
+        .execute(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    let image = upload(&w, &w.lead, "different-siglip-image").await;
+    let payload = json!({"id":Uuid::now_v7(),"price":1,"image_ids":[image]});
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        payload.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    index_product(&w, payload["id"].as_str().unwrap().parse().unwrap()).await;
+    let err = expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        json!({"id":Uuid::now_v7(),"price":1,"image_ids":[image]}),
+        StatusCode::CONFLICT,
+        "duplicate_suspected",
+    )
+    .await;
+    assert_eq!(err["details"]["candidates"][0]["product_id"], payload["id"]);
+}
