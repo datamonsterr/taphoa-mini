@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { useEffect } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { QuickEnrollSheet } from './QuickEnrollSheet';
 import { useOneTripEnrollment } from './useOneTripEnrollment';
 import type { useUploadImage } from '@/lib/api';
@@ -133,4 +133,11 @@ it('retains frames after an upload failure and retries only the failed upload', 
   expect(screen.queryByLabelText('Tải lại ảnh')).toBeNull();
   const props = jest.mocked(QuickEnrollSheet).mock.calls.at(-1)![0];
   expect(props.oneTrip!.frames.every((frame) => !!frame.imageId)).toBe(true);
+});
+it('starts the first capture after StrictMode replays mount effects', async () => {
+  await render(<StrictMode><Harness /></StrictMode>);
+  await begin(8);
+  await fireEvent.press(screen.getByLabelText('Dừng chụp'));
+  expect(mockRecord).toHaveBeenCalledTimes(1);
+  expect(screen.getByText('Tên và giá?')).toBeOnTheScreen();
 });
