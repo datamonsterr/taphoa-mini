@@ -6,6 +6,7 @@ import { StyleSheet } from 'react-native';
 import { CODE_SETTINGS } from './barcode';
 import type { CameraPreviewProps } from './CameraPreview.types';
 export { useCameraPermissions } from 'expo-camera';
+export const supportsOneTripEnrollment = false;
 /**
  * The live preview. It reports readiness once `expo-camera` has started, and not-ready when it
  * unmounts (behind a frozen photo, off screen), so the shutter never fires into a cold camera.

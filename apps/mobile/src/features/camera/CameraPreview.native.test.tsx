@@ -1,6 +1,12 @@
 import { createRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { act, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
 import { ImageManipulator } from 'expo-image-manipulator';
 import { CameraPreview } from './CameraPreview.native';
 import { takeProbePhoto, type PictureTaker } from './capture';
@@ -195,4 +201,105 @@ it('supports the silent receipt probe through the native capture adapter', async
     height: 640,
     previewMirrored: false,
   });
+});
+
+async function armEnrollment() {
+  const view = await setup();
+  const enrollment = { id: 42, armed: true, capturing: false };
+  const onEnrollmentStart = jest.fn();
+  const onEnrollmentFrame = jest.fn();
+  const onEnrollmentTrack = jest.fn();
+  const props = {
+    ...view.props,
+    autoIdentify: false,
+    enrollment,
+    onEnrollmentStart,
+    onEnrollmentFrame,
+    onEnrollmentTrack,
+  };
+  await view.rerender(<CameraPreview {...props} />);
+  await fireEvent(screen.getByTestId('camera-view'), 'layout', {
+    nativeEvent: { layout: { width: 100, height: 200 } },
+  });
+  await act(() =>
+    visionMock.emit([{ trackingId: 7, x: 10, y: 20, width: 30, height: 40 }]),
+  );
+  await fireEvent.press(screen.getByTestId('one-trip-lock'), {
+    nativeEvent: { locationX: 20, locationY: 30 },
+  });
+  expect(onEnrollmentStart).toHaveBeenCalledTimes(1);
+  await view.rerender(
+    <CameraPreview
+      {...props}
+      enrollment={{ ...enrollment, armed: false, capturing: true }}
+    />,
+  );
+  return { ...view, onEnrollmentFrame, onEnrollmentTrack };
+}
+function sharpPixels(invert = false) {
+  const pixels = new Uint8Array(160 * 160 * 3);
+  for (let y = 0; y < 160; y++)
+    for (let x = 0; x < 160; x++) {
+      const value =
+        ((Math.floor(x / 3) + Math.floor(y / 2) + Number(invert)) % 2) * 255;
+      pixels.fill(value, (y * 160 + x) * 3, (y * 160 + x) * 3 + 3);
+    }
+  return pixels.buffer;
+}
+it('locks by one box tap, gates quality at 3.5fps, encodes upright full-frame JPEGs off the frame thread, and rejects unchanged views', async () => {
+  let now = 1000;
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+  visionMock.thumb.getPixelBuffer.mockReturnValue(sharpPixels());
+  const resized = { ...visionMock.image, width: 1024, height: 768 };
+  visionMock.image.resize.mockReturnValue(resized);
+  const { onEnrollmentFrame } = await armEnrollment();
+  // armEnrollment's reset is only in beforeEach; its first frame predates the lock.
+  const objects = [{ trackingId: 7, x: 10, y: 20, width: 30, height: 40 }];
+  now = 1285;
+  await act(() => visionMock.emit(objects));
+  await waitFor(() => expect(onEnrollmentFrame).toHaveBeenCalledTimes(1));
+  expect(visionMock.asyncRunner.runAsync).toHaveBeenCalled();
+  expect(visionMock.image.resize).toHaveBeenCalledWith(1024, 768);
+  expect(onEnrollmentFrame).toHaveBeenCalledWith(42, {
+    uri: 'file:///keyframe.jpg',
+    width: 1024,
+    height: 768,
+    bbox: {
+      x: 0.1,
+      y: 0.1,
+      width: expect.closeTo(0.3),
+      height: expect.closeTo(0.2),
+    },
+  });
+  expect(visionMock.thumb.dispose).toHaveBeenCalled();
+  const tasks = visionMock.asyncRunner.runAsync.mock.calls.length;
+  now += 100;
+  await act(() => visionMock.emit(objects));
+  expect(visionMock.asyncRunner.runAsync).toHaveBeenCalledTimes(tasks);
+  now += 285;
+  await act(() => visionMock.emit(objects));
+  expect(onEnrollmentFrame).toHaveBeenCalledTimes(1);
+  expect(visionMock.frame.dispose).toHaveBeenCalledTimes(4);
+});
+it('retains last-seen time through loss, reacquires an overlapping new id, and recovers after a resize exception', async () => {
+  let now = 1000;
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+  const { onEnrollmentTrack } = await armEnrollment();
+  now = 2200;
+  await act(() => visionMock.emit([]));
+  expect(onEnrollmentTrack).toHaveBeenLastCalledWith(42, 1000);
+  now = 2500;
+  visionMock.resizer.resize.mockImplementationOnce(() => {
+    throw new Error('GPU unavailable');
+  });
+  await act(() =>
+    visionMock.emit([{ trackingId: 9, x: 11, y: 20, width: 30, height: 40 }]),
+  );
+  expect(onEnrollmentTrack).toHaveBeenLastCalledWith(42, 2500);
+  expect(visionMock.frame.dispose).toHaveBeenCalledTimes(3);
+  now = 2800;
+  await act(() =>
+    visionMock.emit([{ trackingId: 9, x: 11, y: 20, width: 30, height: 40 }]),
+  );
+  expect(onEnrollmentTrack).toHaveBeenLastCalledWith(42, 2800);
 });

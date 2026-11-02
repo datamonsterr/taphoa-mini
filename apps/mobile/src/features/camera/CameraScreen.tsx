@@ -1,4 +1,9 @@
-import { CameraPreview, useCameraPermissions } from './CameraPreview';
+import {
+  CameraPreview,
+  useCameraPermissions,
+  supportsOneTripEnrollment,
+} from './CameraPreview';
+import { useOneTripEnrollment } from './useOneTripEnrollment';
 import type { PictureTaker } from './capture';
 import { useSettingsStore } from '@/stores/settings';
 import * as Haptics from 'expo-haptics';
@@ -228,6 +233,21 @@ export function CameraScreen() {
   const [readingReceipt, setReadingReceipt] = useState(false);
   const { mutateAsync: uploadImage } = useUploadImage();
   const canEnroll = useCanEnroll();
+  const oneTrip = useOneTripEnrollment({
+    enabled:
+      supportsOneTripEnrollment &&
+      quickActive &&
+      mode === 'object' &&
+      focused &&
+      canEnroll &&
+      !!permission?.granted,
+    upload: uploadImage,
+    onCreated: (product) => {
+      setCreated((products) => [...products, product]);
+      setNotice(`Đã thêm ${product.name || 'Hàng mới'}`);
+    },
+  });
+  const cancelOneTrip = oneTrip.cancel;
   const joinedAt = useMembership()?.member.created_at;
   // Keep the same variables object for an explicit retry of the same uploaded image.
   const receiptInput = useRef<{ image_id: string } | null>(null);
@@ -432,6 +452,7 @@ export function CameraScreen() {
   const onEnrollPress = useCallback(() => {
     if (!canEnroll) return;
     const toggleMode = () => {
+      cancelOneTrip();
       quickCaptureToken.current += 1;
       quickCapturePending.current = false;
       setQuickCapturing(false);
@@ -451,7 +472,7 @@ export function CameraScreen() {
         ]);
       }
     } else toggleMode();
-  }, [canEnroll, quickActive, shots.length, dispatch, reset]);
+  }, [canEnroll, quickActive, shots.length, dispatch, reset, cancelOneTrip]);
 
   const segmentCurrent = useCallback(async () => {
     const shot = selectCurrent(useQuickEnrollStore.getState());
@@ -670,7 +691,7 @@ export function CameraScreen() {
       <View style={styles.modeRow}>
         <ModeToggle
           mode={mode}
-          disabled={busy || quickCapturing || readingReceipt}
+          disabled={busy || quickCapturing || readingReceipt || oneTrip.busy}
           onChange={(next) => {
             if (next === mode) return;
             setMode(next);
@@ -692,13 +713,19 @@ export function CameraScreen() {
                 detectionEnabled={
                   focused &&
                   phase === 'idle' &&
-                  !quickActive &&
+                  (!quickActive || oneTrip.detect) &&
                   !sheetOpen &&
                   !readingReceipt &&
                   !barcodeResult &&
                   !quickCapturing
                 }
-                autoIdentify={autoIdentify && !documentDetected && cameraReady}
+                autoIdentify={
+                  autoIdentify &&
+                  !quickActive &&
+                  !documentDetected &&
+                  cameraReady
+                }
+                {...oneTrip.previewProps}
                 onAutoCapture={() => {
                   if (
                     focused &&
@@ -792,6 +819,7 @@ export function CameraScreen() {
             />
           ) : null}
           {barcodeResult ? <BarcodeIndicator {...barcodeResult} /> : null}
+          {oneTrip.overlay}
           {phase === 'error' ? (
             <ScanError
               message={state.error ?? t('scanError')}
@@ -803,7 +831,11 @@ export function CameraScreen() {
       </View>
 
       <View style={styles.stripSlot}>
-        {quickActive && !currentShot && acceptedCount < MIN_SHOTS ? (
+        {oneTrip.hint}
+        {!supportsOneTripEnrollment &&
+        quickActive &&
+        !currentShot &&
+        acceptedCount < MIN_SHOTS ? (
           <Text style={styles.quickHint}>Xoay sản phẩm</Text>
         ) : null}
         {notice ? (
@@ -868,6 +900,8 @@ export function CameraScreen() {
         </View>
         {mode === 'code' ? (
           <View style={{ width: 72 }} />
+        ) : supportsOneTripEnrollment && quickActive ? (
+          oneTrip.controls
         ) : quickActive && canQuickAdd && !currentShot && !addingAngle ? (
           <QuickAdd onPress={() => setSheetOpen(true)} disabled={!canEnroll} />
         ) : (
@@ -942,7 +976,7 @@ export function CameraScreen() {
           <Text style={styles.quickHint}>{t('readingReceipt')}</Text>
         </View>
       </Modal>
-      {quickActive && currentShot ? (
+      {!supportsOneTripEnrollment && quickActive && currentShot ? (
         <PointOverlay
           key={currentShot.id}
           shot={currentShot}
@@ -973,7 +1007,7 @@ export function CameraScreen() {
           }}
         />
       ) : null}
-      {quickActive && sheetOpen ? (
+      {!supportsOneTripEnrollment && quickActive && sheetOpen ? (
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
           <View
             style={addingAngle ? styles.hidden : StyleSheet.absoluteFill}
@@ -996,6 +1030,7 @@ export function CameraScreen() {
           </View>
         </View>
       ) : null}
+      {oneTrip.sheet}
     </View>
   );
 }

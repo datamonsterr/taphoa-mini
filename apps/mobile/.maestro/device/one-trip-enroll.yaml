@@ -1,0 +1,44 @@
+appId: com.datamonsterr.taphoamini
+---
+# DEVICE ONLY: a seller keeps one product in the center and rotates/moves it during
+# capture. Not listed in android-e2e.yml: the static emulator cannot supply changed views.
+# Start signed in on the Object camera with enrollment permission and a ready backend.
+- tapOn: 'Thêm vào kho với giá'
+- assertVisible:
+    id: 'one-trip-lock'
+- tapOn:
+    id: 'one-trip-lock'
+    point: '50%,50%'
+- extendedWaitUntil:
+    visible:
+      id: 'coverage-ring'
+    timeout: 5000
+# Rotate the product now. At 10 s the recorder starts with at least 8 kept frames;
+# insufficient coverage extends capture to 15 s, then asks for a retry.
+- extendedWaitUntil:
+    visible: 'Tên và giá?'
+    timeout: 16000
+# Deterministic typing path. For C1 timing, speak the name and price here and save
+# the prefilled form manually; run ten trials and read one_trip_enrollment_completed.
+- tapOn: 'Nhập bằng bàn phím'
+- extendedWaitUntil:
+    visible:
+      id: 'one-trip-enroll-sheet'
+    timeout: 5000
+- tapOn: 'Tên (không bắt buộc)'
+- inputText: 'Banh nhanh E2E'
+- pressKey: Enter
+- tapOn: '1'
+- tapOn: '7'
+- tapOn: '000'
+- assertVisible: '17.000đ'
+- extendedWaitUntil:
+    notVisible: 'Đang tải ảnh…'
+    timeout: 30000
+- tapOn: 'Lưu sản phẩm'
+- extendedWaitUntil:
+    visible: 'Đã thêm Banh nhanh E2E'
+    timeout: 30000
+- assertNotVisible:
+    id: 'point-overlay-canvas'
+- takeScreenshot: one-trip-enroll-saved

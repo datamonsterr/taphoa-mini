@@ -235,7 +235,7 @@ export type CreateVoiceUtteranceInput = {
   audio: Blob | ReactNativeFile;
   /** File name for a web Blob part; ignored for React Native files (they carry `name`). */
   filename?: string;
-  mode: 'sale' | 'transcribe';
+  mode: components['schemas']['VoiceUtterance']['mode'];
   language?: 'vi' | 'en';
   context: components['schemas']['VoiceUtteranceContext'];
 };
