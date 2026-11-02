@@ -89,6 +89,7 @@ fn dino_embeds_crops_as_unit_vectors() {
     };
     let embedder = DinoEmbedder::load(&path, 0).expect("load DINOv2");
     assert_eq!(embedder.dim(), 384);
+    assert!(embedder.model().starts_with("dinov2-vits14-onnx@2/lb"));
     let photo = image::load_from_memory(include_bytes!("../../../tests/fixtures/shelf-1600.jpg"))
         .unwrap()
         .to_rgb8();

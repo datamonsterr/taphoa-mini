@@ -87,25 +87,73 @@ pub fn cutout(image: &RgbImage, mask: &GrayImage, bbox: [f32; 4], pad: f32) -> O
     Some(out)
 }
 
-/// Resizes to `EMBED_SIDE` square and writes CHW floats normalized with ImageNet statistics
-/// into `out` (length `3 * EMBED_SIDE * EMBED_SIDE`).
+/// Rounded ImageNet mean colour used for letterbox padding before normalization.
+pub const LETTERBOX_BACKGROUND: image::Rgb<u8> = image::Rgb([124, 116, 104]);
+
+fn fit_dimensions(image: &RgbImage, longest: u32) -> (u32, u32) {
+    let scale = f64::from(longest) / f64::from(image.width().max(image.height()).max(1));
+    (
+        (f64::from(image.width()) * scale).round().max(1.) as u32,
+        (f64::from(image.height()) * scale).round().max(1.) as u32,
+    )
+}
+
+/// Preserve aspect ratio, centre on an ImageNet mean square, then write normalized CHW.
+/// Queries and every reference view use this same preprocessing in the embedder.
 pub fn normalize_into(crop: &RgbImage, out: &mut [f32], side_px: u32) {
     let side = side_px as usize;
-    debug_assert_eq!(out.len(), 3 * side * side);
-    let resized;
-    let source = if crop.width() == side_px && crop.height() == side_px {
-        crop
-    } else {
-        resized = image::imageops::resize(crop, side_px, side_px, FilterType::CatmullRom);
-        &resized
-    };
-    for (x, y, pixel) in source.enumerate_pixels() {
+    assert!(side_px > 0 && crop.width() > 0 && crop.height() > 0);
+    assert_eq!(out.len(), 3 * side * side);
+    for channel in 0..3 {
+        out[channel * side * side..(channel + 1) * side * side].fill(
+            (f32::from(LETTERBOX_BACKGROUND[channel]) / 255. - IMAGENET_MEAN[channel])
+                / IMAGENET_STD[channel],
+        );
+    }
+    let (width, height) = fit_dimensions(crop, side_px);
+    let resized = image::imageops::resize(crop, width, height, FilterType::CatmullRom);
+    let (left, top) = ((side_px - width) / 2, (side_px - height) / 2);
+    for (x, y, pixel) in resized.enumerate_pixels() {
         for channel in 0..3 {
-            out[channel * side * side + y as usize * side + x as usize] =
+            out[channel * side * side + (top + y) as usize * side + (left + x) as usize] =
                 (f32::from(pixel[channel]) / 255.0 - IMAGENET_MEAN[channel])
                     / IMAGENET_STD[channel];
         }
     }
+}
+
+/// Seven deterministic index views, or just the original when augmentation is disabled.
+/// Occlusion keeps sqrt(0.7) of each edge; the far view loses detail at a 48 px longest edge.
+/// This helper is used only by index jobs; queries still embed once per crop.
+pub fn index_augmentations(image: &RgbImage, enabled: bool) -> Vec<(&'static str, RgbImage)> {
+    let mut views = vec![("original", image.clone())];
+    if !enabled {
+        return views;
+    }
+    let (width, height) = image.dimensions();
+    let ratio = 0.7_f64.sqrt();
+    let cw = (f64::from(width) * ratio).round().max(1.) as u32;
+    let ch = (f64::from(height) * ratio).round().max(1.) as u32;
+    let (fw, fh) = fit_dimensions(image, width.max(height).min(48));
+    let small = image::imageops::resize(image, fw, fh, FilterType::CatmullRom);
+    views.extend([
+        ("rotate90", image::imageops::rotate90(image)),
+        ("rotate180", image::imageops::rotate180(image)),
+        ("rotate270", image::imageops::rotate270(image)),
+        (
+            "occlude_tl",
+            image::imageops::crop_imm(image, 0, 0, cw, ch).to_image(),
+        ),
+        (
+            "occlude_br",
+            image::imageops::crop_imm(image, width - cw, height - ch, cw, ch).to_image(),
+        ),
+        (
+            "far48",
+            image::imageops::resize(&small, width, height, FilterType::CatmullRom),
+        ),
+    ]);
+    views
 }
 
 /// L2-normalizes in place; a zero vector is left unchanged.
@@ -167,6 +215,78 @@ mod tests {
         assert!(crop_with_padding(&image, [0., 0., 0., 5.], 0.08).is_none());
         assert!(crop_with_padding(&image, [f32::NAN, 0., 5., 5.], 0.08).is_none());
         assert!(crop_with_padding(&image, [50., 50., 5., 5.], 0.0).is_none());
+    }
+
+    #[test]
+    fn letterbox_preserves_tall_wide_square_geometry_and_mean_padding() {
+        let colour = image::Rgb([255, 0, 128]);
+        for (width, height, left, top, content_width, content_height) in [
+            (20, 40, 4, 0, 8, 16),
+            (40, 20, 0, 4, 16, 8),
+            (20, 20, 0, 0, 16, 16),
+        ] {
+            let image = RgbImage::from_pixel(width, height, colour);
+            let mut out = vec![0.0; 3 * 16 * 16];
+            normalize_into(&image, &mut out, 16);
+            for y in 0..16 {
+                for x in 0..16 {
+                    let inside = x >= left
+                        && x < left + content_width
+                        && y >= top
+                        && y < top + content_height;
+                    let expected = if inside { colour.0 } else { [124, 116, 104] };
+                    for c in 0..3 {
+                        let normalized =
+                            (f32::from(expected[c]) / 255.0 - IMAGENET_MEAN[c]) / IMAGENET_STD[c];
+                        assert!(
+                            (out[c * 256 + y * 16 + x] - normalized).abs() < 1e-5,
+                            "{width}x{height}: wrong pixel at {x},{y} channel {c}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn index_augmentation_is_deterministic_and_preserves_view_identity() {
+        let image = RgbImage::from_fn(100, 200, |x, y| image::Rgb([x as u8, y as u8, 42]));
+        let variants = index_augmentations(&image, true);
+        assert_eq!(variants, index_augmentations(&image, true));
+        assert_eq!(variants.len(), 7);
+        assert_eq!(
+            variants.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            vec![
+                "original",
+                "rotate90",
+                "rotate180",
+                "rotate270",
+                "occlude_tl",
+                "occlude_br",
+                "far48"
+            ]
+        );
+        assert_eq!(variants[0].1, image);
+        assert_eq!(variants[1].1.dimensions(), (200, 100));
+        assert_eq!(variants[2].1.get_pixel(0, 0), image.get_pixel(99, 199));
+        for (_, crop) in &variants[4..6] {
+            let area_ratio = f64::from(crop.width() * crop.height()) / 20_000.;
+            assert!((0.68..=0.72).contains(&area_ratio));
+        }
+        assert_eq!(variants[4].1.get_pixel(0, 0), image.get_pixel(0, 0));
+        assert_eq!(variants[5].1.get_pixel(83, 166), image.get_pixel(99, 199));
+        assert_eq!(variants[6].1.dimensions(), image.dimensions());
+        assert_ne!(variants[6].1, image);
+        assert_eq!(
+            index_augmentations(&image, false),
+            vec![("original", image.clone())]
+        );
+        // Tiny references must still produce nonempty deterministic views.
+        assert!(
+            index_augmentations(&RgbImage::new(1, 1), true)
+                .iter()
+                .all(|(_, image)| image.width() > 0 && image.height() > 0)
+        );
     }
 
     #[test]

@@ -235,20 +235,23 @@ async fn seed_products(
         .execute(pool)
         .await
         .unwrap();
-        index
-            .upsert(
-                store_id,
-                id,
-                Uuid::new_v4(),
-                embedder.model(),
-                embedder.colour_vector(
-                    f32::from(colour[0]),
-                    f32::from(colour[1]),
-                    f32::from(colour[2]),
-                ),
-            )
-            .await
-            .unwrap();
+        // Three reference votes represent an indexed product.
+        for _ in 0..3 {
+            index
+                .upsert(
+                    store_id,
+                    id,
+                    Uuid::new_v4(),
+                    embedder.model(),
+                    embedder.colour_vector(
+                        f32::from(colour[0]),
+                        f32::from(colour[1]),
+                        f32::from(colour[2]),
+                    ),
+                )
+                .await
+                .unwrap();
+        }
         products.push(id);
     }
     sqlx::query(
