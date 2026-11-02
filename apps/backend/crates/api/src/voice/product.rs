@@ -83,14 +83,87 @@ pub fn draft(parse: &VoiceParse) -> ProductDraft {
         } else {
             parse.name.trim().to_owned()
         },
-        price: fallback.price,
-        unit: fallback.unit,
+        price: fallback
+            .price
+            .or(parse.price.filter(|price| rules::price_in_range(*price))),
+        unit: fallback.unit.or_else(|| {
+            parse
+                .unit
+                .as_deref()
+                .map(str::trim)
+                .filter(|unit| !unit.is_empty())
+                .map(str::to_owned)
+        }),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::fallback;
+    use super::{draft, fallback};
+    use crate::voice::model::VoiceParse;
+
+    #[test]
+    fn draft_uses_agreeing_rules_and_model_values() {
+        let parse = VoiceParse {
+            transcript: "nước năm nghìn một chai".into(),
+            price: Some(5000),
+            unit: Some("chai".into()),
+            ..VoiceParse::default()
+        };
+        let result = draft(&parse);
+        assert_eq!(result.price, Some(5000));
+        assert_eq!(result.unit.as_deref(), Some("chai"));
+    }
+
+    #[test]
+    fn draft_prefers_rules_when_model_disagrees() {
+        let parse = VoiceParse {
+            transcript: "nước năm nghìn một chai".into(),
+            price: Some(6000),
+            unit: Some("lon".into()),
+            ..VoiceParse::default()
+        };
+        let result = draft(&parse);
+        assert_eq!(result.price, Some(5000));
+        assert_eq!(result.unit.as_deref(), Some("chai"));
+    }
+
+    #[test]
+    fn draft_uses_valid_model_price_when_rules_find_none() {
+        let parse = VoiceParse {
+            transcript: "nước".into(),
+            price: Some(8000),
+            ..VoiceParse::default()
+        };
+        assert_eq!(draft(&parse).price, Some(8000));
+    }
+
+    #[test]
+    fn draft_rejects_out_of_range_model_price() {
+        for price in [0, 499, 50_000_001] {
+            let parse = VoiceParse {
+                transcript: "nước".into(),
+                price: Some(price),
+                ..VoiceParse::default()
+            };
+            assert_eq!(draft(&parse).price, None);
+        }
+    }
+
+    #[test]
+    fn draft_uses_trimmed_model_unit_when_rules_find_none() {
+        let parse = VoiceParse {
+            transcript: "nước".into(),
+            unit: Some("  chai  ".into()),
+            ..VoiceParse::default()
+        };
+        assert_eq!(draft(&parse).unit.as_deref(), Some("chai"));
+        let blank = VoiceParse {
+            unit: Some("  ".into()),
+            ..parse
+        };
+        assert_eq!(draft(&blank).unit, None);
+    }
 
     #[test]
     fn vietnamese_product_phrases() {
