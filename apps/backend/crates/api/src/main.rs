@@ -141,7 +141,7 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
                 storage,
                 state.inference_slots.clone(),
                 shutdown_rx,
-                WorkerConfig::default(),
+                WorkerConfig::from_env(),
             ));
         }
     }

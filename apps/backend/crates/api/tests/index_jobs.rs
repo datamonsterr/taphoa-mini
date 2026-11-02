@@ -2,6 +2,7 @@
 //!
 //! Requires: `DATABASE_URL=postgres://taphoa:taphoa@127.0.0.1:55501/qe_b5`
 //!
+//! Each test uses a SQLx-managed disposable database; the DATABASE_URL role needs CREATEDB.
 //! Run with:
 //!   DATABASE_URL=postgres://taphoa:taphoa@127.0.0.1:55501/qe_b5 \
 //!   cargo test -p taphoa-api --test index_jobs -- --include-ignored
@@ -15,7 +16,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::PgPool;
 use taphoa_api::{
     MIGRATOR,
     catalog::index_jobs::{WorkerConfig, enqueue, enqueue_stale_model, process_next, spawn},
@@ -24,34 +25,12 @@ use taphoa_api::{
 use taphoa_recognition::{EmbedError, Embedder, MockEmbedder};
 use uuid::Uuid;
 
-// ─── Serial execution guard ───────────────────────────────────────────────────
-
-/// Prevent parallel test execution to avoid FK conflicts on the shared database.
-async fn serial_guard() -> tokio::sync::OwnedMutexGuard<()> {
-    static LOCK: std::sync::OnceLock<Arc<tokio::sync::Mutex<()>>> = std::sync::OnceLock::new();
-    let lock = LOCK.get_or_init(Default::default).clone();
-    lock.lock_owned().await
-}
-
 fn test_config() -> WorkerConfig {
     WorkerConfig {
         poll_interval: Duration::from_millis(50),
         backoff_base: Duration::from_millis(100),
         ..WorkerConfig::default()
     }
-}
-
-// ─── Test infrastructure ──────────────────────────────────────────────────────
-
-async fn pool() -> PgPool {
-    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL is required");
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&url)
-        .await
-        .expect("connect");
-    MIGRATOR.run(&pool).await.expect("migrate");
-    pool
 }
 
 // ── In-memory object store ────────────────────────────────────────────────────
@@ -252,12 +231,9 @@ async fn cleanup(pool: &PgPool, store_id: Uuid) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 /// Test 1: happy path — enqueue → process_next → job done, product ready, embeddings + prototype.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn happy_path_job_done_embeddings_and_prototype() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
-
+async fn happy_path_job_done_embeddings_and_prototype(pool: PgPool) {
     let storage = Arc::new(MemStore::default());
     let embedder: Arc<dyn Embedder> = Arc::new(MockEmbedder);
     let slots = Arc::new(tokio::sync::Semaphore::new(2));
@@ -334,8 +310,13 @@ async fn happy_path_job_done_embeddings_and_prototype() {
     .unwrap();
     assert!(kinds.contains(&"crop".to_string()));
     assert!(kinds.contains(&"cutout".to_string()));
-    let views: i64 = sqlx::query_scalar("SELECT count(DISTINCT augmentation) FROM product_embeddings WHERE product_id=$1")
-        .bind(product_id).fetch_one(&pool).await.unwrap();
+    let views: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT augmentation) FROM product_embeddings WHERE product_id=$1",
+    )
+    .bind(product_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(views, 7);
 
     // Prototype row counts references, rather than embedding views.
@@ -366,12 +347,9 @@ async fn happy_path_job_done_embeddings_and_prototype() {
 }
 
 /// Test 2: rerunning the same job is idempotent — same embedding count, prototype updated.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn rerun_is_idempotent() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
-
+async fn rerun_is_idempotent(pool: PgPool) {
     let storage = Arc::new(MemStore::default());
     let embedder: Arc<dyn Embedder> = Arc::new(MockEmbedder);
     let slots = Arc::new(tokio::sync::Semaphore::new(2));
@@ -440,12 +418,9 @@ async fn rerun_is_idempotent() {
 }
 
 /// Test 3: embedder failure → retries with backoff → after 5 attempts → failed.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn embedder_failure_retries_then_failed() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
-
+async fn embedder_failure_retries_then_failed(pool: PgPool) {
     let storage = Arc::new(MemStore::default());
     let embedder: Arc<dyn Embedder> = Arc::new(FailEmbedder);
     let slots = Arc::new(tokio::sync::Semaphore::new(2));
@@ -562,11 +537,9 @@ async fn embedder_failure_retries_then_failed() {
 }
 
 /// Test 4: shutdown — sending `true` on the watch channel stops the worker within 2 s.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn shutdown_stops_worker_promptly() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
+async fn shutdown_stops_worker_promptly(pool: PgPool) {
     let store_id = new_store(&pool).await;
     let product = new_product(&pool, store_id).await;
     let storage = Arc::new(MemStore::default());
@@ -602,12 +575,9 @@ async fn shutdown_stops_worker_promptly() {
 }
 
 /// Test 5: shutdown when initially stopped — should exit immediately.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn shutdown_when_already_stopped() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
-
+async fn shutdown_when_already_stopped(pool: PgPool) {
     let storage: Arc<dyn ObjectStore> = Arc::new(MemStore::default());
     let embedder: Arc<dyn Embedder> = Arc::new(MockEmbedder);
     let slots = Arc::new(tokio::sync::Semaphore::new(1));
@@ -624,12 +594,9 @@ async fn shutdown_when_already_stopped() {
 }
 
 /// Test 6: enqueue twice for the same product reuses the existing queued job.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn enqueue_twice_reuses_queued_job() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
-
+async fn enqueue_twice_reuses_queued_job(pool: PgPool) {
     let store_id = new_store(&pool).await;
     let product_id = new_product(&pool, store_id).await;
 
@@ -656,12 +623,9 @@ async fn enqueue_twice_reuses_queued_job() {
 }
 
 /// Test 7: LISTEN wake-up — spawn the worker with no initial jobs, enqueue one, worker picks it up.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn worker_wakes_on_notify() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
-
+async fn worker_wakes_on_notify(pool: PgPool) {
     let storage_mem = Arc::new(MemStore::default());
     let embedder: Arc<dyn Embedder> = Arc::new(MockEmbedder);
     let slots = Arc::new(tokio::sync::Semaphore::new(2));
@@ -733,11 +697,9 @@ async fn worker_wakes_on_notify() {
     cleanup(&pool, store_id).await;
 }
 
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn concurrent_enqueue_serializes_and_transaction_rollback_is_atomic() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
+async fn concurrent_enqueue_serializes_and_transaction_rollback_is_atomic(pool: PgPool) {
     let store_id = new_store(&pool).await;
     let product_id = new_product(&pool, store_id).await;
     let mut rolled_back = pool.begin().await.unwrap();
@@ -792,17 +754,18 @@ impl Embedder for RecordingEmbedder {
     }
 }
 
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn bbox_legacy_prototype_and_removed_references() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
+async fn bbox_legacy_prototype_and_removed_references(pool: PgPool) {
     let store_id = new_store(&pool).await;
     let product_id = new_product(&pool, store_id).await;
     let storage = Arc::new(MemStore::default());
     let embedder = Arc::new(RecordingEmbedder::default());
     let slots = Arc::new(tokio::sync::Semaphore::new(1));
-    let cfg = WorkerConfig { index_augment: false, ..test_config() };
+    let cfg = WorkerConfig {
+        index_augment: false,
+        ..test_config()
+    };
     let image_id = new_image(
         &pool,
         store_id,
@@ -943,11 +906,9 @@ async fn bbox_legacy_prototype_and_removed_references() {
     cleanup(&pool, store_id).await;
 }
 
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn skips_locked_and_future_jobs_and_caps_backoff() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
+async fn skips_locked_and_future_jobs_and_caps_backoff(pool: PgPool) {
     let store_id = new_store(&pool).await;
     let storage = Arc::new(MemStore::default());
     let slots = Arc::new(tokio::sync::Semaphore::new(1));
@@ -1032,11 +993,9 @@ async fn wait_running(pool: &PgPool, job: Uuid) {
     }
 }
 
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn reclaimed_lease_fences_old_success_and_failure() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
+async fn reclaimed_lease_fences_old_success_and_failure(pool: PgPool) {
     let store_id = new_store(&pool).await;
     let storage = Arc::new(MemStore::default());
     let cfg = test_config();
@@ -1108,11 +1067,9 @@ async fn reclaimed_lease_fences_old_success_and_failure() {
 }
 
 /// A model change queues each eligible product once, including across concurrent startup scans.
-#[tokio::test]
+#[sqlx::test(migrator = "MIGRATOR")]
 #[ignore = "requires DATABASE_URL"]
-async fn model_backfill_is_bounded_concurrent_idempotent_and_stops_after_reindex() {
-    let _guard = serial_guard().await;
-    let pool = pool().await;
+async fn model_backfill_is_bounded_concurrent_idempotent_and_stops_after_reindex(pool: PgPool) {
     let storage = Arc::new(MemStore::default());
     let store = new_store(&pool).await;
     let mut products = Vec::new();
@@ -1189,5 +1146,94 @@ async fn model_backfill_is_bounded_concurrent_idempotent_and_stops_after_reindex
         stale, 0,
         "successful reindex removes incompatible old vectors"
     );
+    sqlx::query("DELETE FROM product_embeddings WHERE product_id=$1")
+        .bind(products[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE products SET index_status='failed' WHERE id=$1")
+        .bind(products[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE index_jobs SET status='failed', attempts=5 WHERE product_id=$1")
+        .bind(products[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        enqueue_stale_model(&pool, MockEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        0,
+        "backfill must not reset exhausted retries for the current model"
+    );
+    sqlx::query("UPDATE index_jobs SET target_model='older-model' WHERE product_id=$1")
+        .bind(products[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        enqueue_stale_model(&pool, MockEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        1,
+        "a new model can retry an older model's failure"
+    );
+    cleanup(&pool, store).await;
+}
+
+#[sqlx::test(migrator = "MIGRATOR")]
+#[ignore = "requires DATABASE_URL"]
+async fn startup_backfill_queues_only_one_bounded_batch(pool: PgPool) {
+    let storage = Arc::new(MemStore::default());
+    let store = new_store(&pool).await;
+    for _ in 0..2 {
+        let product = new_product(&pool, store).await;
+        let image = new_image(&pool, store, &storage, &format!("startup/{product}")).await;
+        attach_image(&pool, product, image, 0).await;
+    }
+    let config = WorkerConfig {
+        backfill_batch: 1,
+        backfill_interval: Duration::from_secs(60),
+        ..test_config()
+    };
+    let (stop, shutdown) = tokio::sync::watch::channel(false);
+    let worker = spawn(
+        pool.clone(),
+        Arc::new(MockEmbedder),
+        storage,
+        Arc::new(tokio::sync::Semaphore::new(1)),
+        shutdown,
+        config,
+    );
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let count: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM index_jobs WHERE store_id=$1")
+                    .bind(store)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            if count > 0 {
+                assert_eq!(count, 1);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("startup must enqueue without waiting sixty seconds");
+    stop.send(true).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), worker)
+        .await
+        .unwrap()
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM index_jobs WHERE store_id=$1")
+        .bind(store)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
     cleanup(&pool, store).await;
 }
