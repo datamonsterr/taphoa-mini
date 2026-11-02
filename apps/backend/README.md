@@ -103,7 +103,6 @@ model fails startup. `EMBEDDER=mock` is for local/e2e fixtures. Model-specific
 thresholds and the additive migration/backfill/rollback procedure are documented in
 [retrieval-v2.md](../../docs/specs/retrieval-v2.md).
 
-
 Validation and root Turborepo integration:
 
 ```sh
