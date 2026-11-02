@@ -89,12 +89,7 @@ pub(crate) async fn embed_reference(
             bbox,
         ),
     };
-    let permit = state
-        .inference_slots
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| ApiError::internal())?;
+    let permit = state.acquire_inference_slot().await?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let input = if let Some(bbox) = crop_bbox {

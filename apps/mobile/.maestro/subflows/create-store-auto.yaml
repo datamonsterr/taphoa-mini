@@ -1,0 +1,25 @@
+appId: com.datamonsterr.taphoamini
+---
+# From the welcome screen (signed in with sign-in.yaml, no store yet): create a store through the
+# real backend (POST /v1/stores, name + display name only) and land on the camera. Every run
+# makes a store of its own, so flows never see each other's data.
+# Input: STORE_NAME, OWNER_NAME. Leaves the production default Auto identify enabled.
+- extendedWaitUntil:
+    visible:
+      id: 'onboarding-create'
+    timeout: 30000
+- tapOn:
+    id: 'onboarding-create'
+- tapOn:
+    id: 'create-store-name'
+- inputText: ${STORE_NAME}
+- tapOn:
+    id: 'create-display-name'
+- inputText: ${OWNER_NAME}
+# Enter submits the form (the display-name field's onSubmitEditing).
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: 'camera-view'
+    timeout: 60000
+- assertVisible: 'Giỏ hàng trống'

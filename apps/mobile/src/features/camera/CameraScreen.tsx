@@ -10,7 +10,15 @@ import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowDown, Plus } from 'lucide-react-native';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -424,6 +432,50 @@ export function CameraScreen() {
   const documentDetected =
     mode === 'object' && !!document?.detected && !quickActive && !barcodeResult;
 
+  const enrollmentOpen =
+    quickActive ||
+    oneTrip.busy ||
+    oneTrip.previewProps.enrollment?.armed ||
+    oneTrip.previewProps.enrollment?.capturing ||
+    !!oneTrip.sheet ||
+    !!currentShot;
+  const canAutoIdentify =
+    autoIdentify &&
+    focused &&
+    !!permission?.granted &&
+    cameraReady &&
+    phase === 'idle' &&
+    mode === 'object' &&
+    !documentDetected &&
+    !readingReceipt &&
+    !enrollmentOpen &&
+    !sheetOpen &&
+    !quickCapturing &&
+    !barcodeScanner.busy &&
+    !barcodeResult;
+  const autoCaptureState = useRef({ allowed: false, capture });
+  // Native callbacks can already be queued when a receipt, sheet or mode change commits.
+  // Keep their stable entry point pointed at the latest committed screen state.
+  useLayoutEffect(() => {
+    autoCaptureState.current = { allowed: canAutoIdentify, capture };
+    return () => {
+      autoCaptureState.current.allowed = false;
+    };
+  }, [canAutoIdentify, capture]);
+  const onAutoCapture = useCallback(() => {
+    const latest = autoCaptureState.current;
+    if (
+      !latest.allowed ||
+      receiptPending.current ||
+      quickCapturePending.current ||
+      !useSettingsStore.getState().autoIdentify ||
+      useCaptureModeStore.getState().mode !== 'object' ||
+      useQuickEnrollStore.getState().active
+    )
+      return;
+    void latest.capture(undefined, 'auto');
+  }, []);
+
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
   const goEnroll = useCallback(
     (detectionId?: string) => {
@@ -719,28 +771,9 @@ export function CameraScreen() {
                   !barcodeResult &&
                   !quickCapturing
                 }
-                autoIdentify={
-                  autoIdentify &&
-                  !quickActive &&
-                  !documentDetected &&
-                  cameraReady
-                }
+                autoIdentify={canAutoIdentify}
                 {...oneTrip.previewProps}
-                onAutoCapture={() => {
-                  if (
-                    focused &&
-                    mode === 'object' &&
-                    phase === 'idle' &&
-                    cameraReady &&
-                    !quickActive &&
-                    !sheetOpen &&
-                    !readingReceipt &&
-                    !barcodeResult &&
-                    !quickCapturing &&
-                    !documentDetected
-                  )
-                    void capture(undefined, 'auto');
-                }}
+                onAutoCapture={onAutoCapture}
                 codeMode={mode === 'code'}
                 onReadyChange={setCameraReady}
                 onBarcodeScanned={

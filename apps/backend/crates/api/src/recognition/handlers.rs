@@ -371,12 +371,13 @@ async fn create_scan(
         "scans",
     )
     .await?;
-    // Cheap early rejection while the slot is taken; the permit itself is only held around
-    // the blocking segment + embed work below, so storage and database I/O of other scans
-    // is never serialized behind it (architecture 5.3).
-    if state.inference_slots.available_permits() == 0 {
-        return Err(busy());
-    }
+    // Bound queued multipart bodies before reading them. Model execution still has one
+    // shared permit, held only around blocking inference, not storage/database I/O.
+    let _request_slot = state
+        .scan_requests
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| busy())?;
     let (segmenter, embedder, vector_index) = match (
         state.segmenter.as_ref().map(Arc::clone),
         state.embedder.as_ref().map(Arc::clone),
@@ -435,11 +436,7 @@ async fn create_scan(
         return Err(unsupported_media_type());
     }
     // Taken before anything is stored, so a busy slot leaves no orphan original behind.
-    let permit = state
-        .inference_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
+    let permit = state.acquire_inference_slot().await?;
     let config = state.recognition;
     let block_embedder = Arc::clone(&embedder);
     let block_segmenter = Arc::clone(&segmenter);
@@ -603,12 +600,7 @@ async fn create_scan(
             })
             .collect();
         let tta_embedder = Arc::clone(&embedder);
-        let permit = state
-            .inference_slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| busy())?;
+        let permit = state.acquire_inference_slot().await?;
         let vectors = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             tta_embedder.embed_crops(&crops)

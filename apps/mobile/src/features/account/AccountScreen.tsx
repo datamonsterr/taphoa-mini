@@ -103,6 +103,7 @@ const AutoIdentifyRow = memo(function AutoIdentifyRow() {
         value={enabled}
         onValueChange={setEnabled}
         accessibilityLabel={t('autoIdentify')}
+        testID="auto-identify-switch"
       />
     </View>
   );

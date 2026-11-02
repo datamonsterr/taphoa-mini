@@ -95,6 +95,7 @@ pub struct Config {
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
     pub document_probe_concurrency: usize,
+    pub inference_queue_wait: std::time::Duration,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
@@ -195,6 +196,10 @@ impl Config {
             ocr_vocab,
             ocr_threads,
             document_probe_concurrency: positive("DOCUMENT_PROBE_CONCURRENCY", 1)? as usize,
+            inference_queue_wait: std::time::Duration::from_millis(u64::from(positive(
+                "INFERENCE_QUEUE_WAIT_MS",
+                5000,
+            )?)),
             rate_limits,
             client_ip,
             port: get("PORT")
@@ -293,6 +298,30 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inference_queue_wait_requires_positive_milliseconds() {
+        for value in ["0", "-1", "invalid", "4294967296"] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "INFERENCE_QUEUE_WAIT_MS" => Some(value.into()),
+                _ => None,
+            });
+            assert!(config.is_err(), "invalid inference wait accepted: {value}");
+        }
+    }
+
+    #[test]
+    fn inference_queue_wait_defaults_to_five_seconds_and_can_be_overridden() {
+        for (value, milliseconds) in [(None, 5000), (Some("750"), 750)] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "INFERENCE_QUEUE_WAIT_MS" => value.map(str::to_owned),
+                _ => None,
+            })
+            .unwrap();
+            assert_eq!(config.inference_queue_wait.as_millis(), milliseconds);
+        }
+    }
     #[test]
     fn embedder_selection_defaults_to_siglip_and_reads_only_its_path() {
         let config = Config::from_lookup(|name| match name {
@@ -515,6 +544,7 @@ mod tests {
                 "OCR_THREADS" | "EMBED_THREADS" => "4".into(),
                 "EMBEDDER" => "siglip2".into(),
                 "DOCUMENT_PROBE_CONCURRENCY" => "2".into(),
+                "INFERENCE_QUEUE_WAIT_MS" => "750".into(),
                 "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),
                 "TRUSTED_PROXY_HOPS" => "2".into(),
@@ -527,6 +557,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(config.port, 9000);
+        assert_eq!(config.inference_queue_wait.as_millis(), 750);
         assert_eq!(config.sale_window.max_age, chrono::Duration::hours(48));
         assert_eq!(
             config.sale_window.max_future,
