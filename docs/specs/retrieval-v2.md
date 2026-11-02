@@ -84,6 +84,15 @@ no individual augmented reference can satisfy a three-hit score on its own.
 
 ## Model backfill and latency
 
+Scans and receipt/point inference share one execution slot with background indexing.
+Foreground work waits up to `INFERENCE_QUEUE_WAIT_MS` (default 5000 ms) for that slot;
+SigLIP2's seven-view indexing batches must not make brief contention an immediate 503.
+Scan admission accepts at most four requests before parsing their multipart bodies.
+A full admission queue or expired wait still returns `503 segmenter busy` with
+`Retry-After: 1`. Model execution stays serialized and retains its permit through
+cancellation; the wait does not increase model concurrency or hold a permit over
+storage/database I/O. Background indexing keeps its existing FIFO semaphore wait.
+
 The index worker periodically enqueues a bounded batch of active products with reference
 photos but without embeddings for the current model, excluding pending products and
 exhausted jobs for that model. Failed jobs for an older model can be upgraded. Startup

@@ -318,9 +318,12 @@ flowchart TD
   4 cores), so the deployed segmenter is MobileSAM behind the same `Segmenter` trait; the
   embedder runs at 112 px input. Measurements and the 4 vCPU requirement are in
   [recognition-latency](specs/recognition-latency.md).
-- **Concurrency.** One inference slot per instance (implemented). A second request gets
-  `503 segmenter busy` with `Retry-After: 1`; the phone retries once and otherwise offers
-  grid mode.
+- **Concurrency.** One inference slot per instance, shared by scans, enrollment indexing
+  and receipt OCR. Foreground inference waits up to `INFERENCE_QUEUE_WAIT_MS` (default
+  5000 ms) for an active model batch to finish. Scan admission is capped at four requests
+  before reading multipart images; excess requests, or an expired inference wait, return
+  `503 segmenter busy` with `Retry-After: 1`. Blocking inference keeps its permit after
+  request cancellation. Storage and database I/O do not hold that inference permit.
 - **Training data.** `detections` keep bbox, crop image and the embedding. The confirmed
   sale line points back with `detection_id` and records `suggested_product_id`. This
   produces labeled crops and the confirmed-vs-corrected metric.

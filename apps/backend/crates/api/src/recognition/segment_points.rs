@@ -53,15 +53,6 @@ pub struct SegmentPointsTimings {
     pub total: u64,
 }
 
-fn busy() -> ApiError {
-    ApiError::new(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "unavailable",
-        "segmenter busy",
-    )
-    .with_retry_after(1)
-}
-
 fn no_model() -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -241,11 +232,7 @@ pub async fn segment_points(
             .await
             .map_err(storage_failure)?;
 
-        let permit = state
-            .inference_slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| busy())?;
+        let permit = state.acquire_inference_slot().await?;
 
         let start_encode = Instant::now();
         let seg = Arc::clone(&point_segmenter);
@@ -291,11 +278,7 @@ pub async fn segment_points(
     )?;
 
     // Run decode_points, cutout, JPEG encode, and mask PNG encode in spawn_blocking with permit
-    let permit = state
-        .inference_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
+    let permit = state.acquire_inference_slot().await?;
 
     let seg = Arc::clone(&point_segmenter);
     let enc = Arc::clone(&encoding);

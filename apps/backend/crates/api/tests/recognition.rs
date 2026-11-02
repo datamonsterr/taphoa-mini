@@ -811,6 +811,30 @@ async fn scan_waits_for_inflight_inference_instead_of_returning_busy() {
 
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL and REDIS_URL"]
+async fn scan_admission_is_bounded_before_reading_multipart_bodies() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        panic!("recognition integration services must be configured");
+    };
+    let (_, _, token) = create_store(&app).await;
+    assert_eq!(state.scan_requests.available_permits(), 4);
+    let requests = state
+        .scan_requests
+        .clone()
+        .acquire_many_owned(4)
+        .await
+        .unwrap();
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(headers.get("retry-after"), Some(&"1".parse().unwrap()));
+    assert_eq!(state.inference_slots.available_permits(), 1);
+    drop(requests);
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(state.scan_requests.available_permits(), 4);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL and REDIS_URL"]
 async fn busy_returns_retry_after() {
     let Some((app, state, _)) = build_state(scan_segments()).await else {
         return;

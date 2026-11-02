@@ -199,11 +199,7 @@ async fn create(
             "image read failed",
         )
     })?;
-    let permit = state
-        .inference_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| crate::busy())?;
+    let permit = state.acquire_inference_slot().await?;
     let started = Instant::now();
     let lines = tokio::task::spawn_blocking(move || {
         let _permit = permit;
