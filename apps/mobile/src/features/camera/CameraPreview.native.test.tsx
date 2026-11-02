@@ -12,6 +12,10 @@ import { CameraPreview } from './CameraPreview.native';
 import { takeProbePhoto, type PictureTaker } from './capture';
 import { visionMock } from '@/test/visionCamera';
 
+jest.mock('./vision/nativeAvailable', () => ({
+  isVisionNativeAvailable: () => true,
+}));
+
 afterEach(() => jest.restoreAllMocks());
 beforeEach(() => {
   AppState.currentState = 'active';
