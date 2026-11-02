@@ -191,6 +191,24 @@ impl Embedder for MockEmbedder {
 mod tests {
     use super::*;
     #[test]
+    fn production_model_specs_have_distinct_preprocessing_output_and_identity() {
+        let siglip = ModelSpec::siglip2();
+        assert_eq!(siglip.side, 224);
+        assert_eq!(siglip.mean, [0.5; 3]);
+        assert_eq!(siglip.std, [0.5; 3]);
+        assert_eq!(siglip.dim, 768);
+        assert_eq!(siglip.output, "output");
+        assert_eq!(siglip.pooling, Pooling::Pooled);
+        assert_eq!(siglip.model_id(), "siglip2-b16-224-onnx@1/lb224");
+        let dino = ModelSpec::dinov2(112).unwrap();
+        assert_eq!(dino.dim, 384);
+        assert_eq!(dino.pooling, Pooling::Cls);
+        assert_eq!(dino.model_id(), "dinov2-vits14-onnx@2/lb112");
+        assert!(ModelSpec::dinov2(113).is_err());
+        assert!(ModelSpec::dinov2(0).is_err());
+    }
+
+    #[test]
     fn deterministic_different_and_normalized() {
         let mock = MockEmbedder;
         assert_eq!(mock.model(), "mock-sha256-384");

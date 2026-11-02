@@ -1187,8 +1187,8 @@ async fn model_backfill_is_bounded_concurrent_idempotent_and_stops_after_reindex
     .await
     .unwrap();
     assert_eq!(
-        stale, 0,
-        "successful reindex removes incompatible old vectors"
+        stale, 2,
+        "reindex must retain old model vectors for rollback"
     );
     sqlx::query("DELETE FROM product_embeddings WHERE product_id=$1")
         .bind(products[0])
@@ -1280,4 +1280,78 @@ async fn startup_backfill_queues_only_one_bounded_batch(pool: PgPool) {
         .unwrap();
     assert_eq!(count, 1);
     cleanup(&pool, store).await;
+}
+
+struct WideEmbedder;
+impl Embedder for WideEmbedder {
+    fn model(&self) -> &str {
+        "siglip2-b16-224-onnx@1/lb224"
+    }
+    fn dim(&self) -> usize {
+        768
+    }
+    fn embed(&self, _: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        let mut v = vec![0.; 768];
+        v[767] = 1.;
+        Ok(v)
+    }
+}
+
+#[sqlx::test(migrator = "MIGRATOR")]
+#[ignore = "requires DATABASE_URL"]
+async fn dim_switch_backfills_and_publishes_without_losing_rollback(pool: PgPool) {
+    let storage = Arc::new(MemStore::default());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let image = new_image(&pool, store, &storage, "wide/reference").await;
+    attach_image(&pool, product, image, 0).await;
+    sqlx::query("INSERT INTO product_embeddings (store_id,product_id,image_id,model,embedding) VALUES ($1,$2,$3,'dinov2-vits14-onnx@2/lb224',$4)")
+        .bind(store).bind(product).bind(image).bind(pgvector::Vector::from(vec![1.;384])).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO product_prototypes (store_id,product_id,model,embedding,reference_count) VALUES ($1,$2,'dinov2-vits14-onnx@2/lb224',$3,1)")
+        .bind(store).bind(product).bind(pgvector::Vector::from(vec![1.;384])).execute(&pool).await.unwrap();
+    assert_eq!(
+        enqueue_stale_model(&pool, WideEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        enqueue_stale_model(&pool, WideEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        0
+    );
+    process_next(
+        &pool,
+        Arc::new(WideEmbedder),
+        storage,
+        Arc::new(tokio::sync::Semaphore::new(1)),
+        &test_config(),
+    )
+    .await
+    .unwrap();
+    let ready: String = sqlx::query_scalar("SELECT index_status FROM products WHERE id=$1")
+        .bind(product)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ready, "ready");
+    let counts: (i64, i64) = sqlx::query_as("SELECT count(*) FILTER (WHERE embedding IS NOT NULL), count(*) FILTER (WHERE embedding_768 IS NOT NULL) FROM product_embeddings WHERE product_id=$1")
+        .bind(product).fetch_one(&pool).await.unwrap();
+    assert_eq!(counts, (1, 7));
+    let (old, new): (i64, i64) = sqlx::query_as("SELECT count(*) FILTER (WHERE embedding IS NOT NULL), count(*) FILTER (WHERE vector_dims(embedding_768)=768) FROM product_prototypes WHERE product_id=$1")
+        .bind(product).fetch_one(&pool).await.unwrap();
+    assert_eq!((old, new), (1, 1));
+    assert_eq!(
+        enqueue_stale_model(&pool, WideEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        enqueue_stale_model(&pool, "dinov2-vits14-onnx@2/lb224", 10)
+            .await
+            .unwrap(),
+        0
+    );
 }

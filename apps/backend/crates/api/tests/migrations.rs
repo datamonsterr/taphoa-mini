@@ -821,3 +821,31 @@ async fn assistant_digest_schema_checks_and_cascades() {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn additive_768_columns_and_cosine_indexes_preserve_384_schema() {
+    let Some(pool) = pool().await else { return };
+    for table in ["product_embeddings", "product_prototypes", "detections"] {
+        for (column, dim) in [("embedding", 384), ("embedding_768", 768)] {
+            let (kind, nullable): (String,bool) = sqlx::query_as("SELECT format_type(a.atttypid,a.atttypmod), NOT a.attnotnull FROM pg_attribute a WHERE a.attrelid=$1::regclass AND a.attname=$2")
+                .bind(table).bind(column).fetch_one(&pool).await.unwrap();
+            assert_eq!(kind, format!("vector({dim})"));
+            assert!(
+                nullable,
+                "{table}.{column} must accept the other model's rows"
+            );
+        }
+    }
+    for table in ["product_embeddings", "product_prototypes"] {
+        let def: String = sqlx::query_scalar("SELECT indexdef FROM pg_indexes WHERE indexname=$1")
+            .bind(format!("{table}_768_hnsw"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(
+            def.contains("hnsw (embedding_768 vector_cosine_ops)"),
+            "{def}"
+        );
+    }
+}

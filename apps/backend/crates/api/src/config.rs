@@ -262,6 +262,18 @@ impl Config {
 mod tests {
     use super::*;
     #[test]
+    fn unknown_embedder_fails_configuration() {
+        assert!(
+            Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "EMBEDDER" => Some("siglip-typo".into()),
+                _ => None,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
     fn startup_validates_business_clock_override() {
         for (raw, environment, valid) in [
             ("2026-01-15T10:00:00+07:00", "test", true),

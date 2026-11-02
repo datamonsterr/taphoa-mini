@@ -249,6 +249,20 @@ mod tests {
     }
 
     #[test]
+    fn siglip_letterbox_uses_model_mean_and_half_normalization() {
+        let crop = RgbImage::from_pixel(4, 8, image::Rgb([255, 0, 128]));
+        let mut output = vec![0.; 3 * 8 * 8];
+        normalize_with_stats(&crop, &mut output, 8, [0.5; 3], [0.5; 3]);
+        for c in 0..3 {
+            assert!((output[c * 64] - (128. / 255. - 0.5) / 0.5).abs() < 1e-6);
+            assert!(
+                (output[c * 64 + 3] - (f32::from([255, 0, 128][c]) / 255. - 0.5) / 0.5).abs()
+                    < 1e-6
+            );
+        }
+    }
+
+    #[test]
     fn index_augmentation_is_deterministic_and_preserves_view_identity() {
         let image = RgbImage::from_fn(100, 200, |x, y| image::Rgb([x as u8, y as u8, 42]));
         let variants = index_augmentations(&image, true);

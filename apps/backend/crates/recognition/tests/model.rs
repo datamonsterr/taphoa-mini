@@ -225,3 +225,34 @@ fn sam_point_prompt_segments_one_product() {
         fg_count
     );
 }
+
+#[test]
+fn siglip2_embeds_pooled_unit_vectors_and_repeats_deterministically() {
+    let Some(path) = model("SIGLIP2_MODEL_PATH", "siglip2_base_patch16_224.onnx") else {
+        eprintln!("SKIP SigLIP2: models not present");
+        return;
+    };
+    let embedder = taphoa_recognition::OnnxEmbedder::load_with_spec(
+        &path,
+        4,
+        taphoa_recognition::ModelSpec::siglip2(),
+    )
+    .expect("load SigLIP2");
+    assert_eq!(embedder.model(), "siglip2-b16-224-onnx@1/lb224");
+    assert_eq!(embedder.dim(), 768);
+    let photo = image::load_from_memory(include_bytes!("../../../tests/fixtures/shelf-1600.jpg"))
+        .unwrap()
+        .to_rgb8();
+    let a = crop_with_padding(&photo, [70., 60., 170., 300.], 0.08).unwrap();
+    let b = crop_with_padding(&photo, [325., 60., 170., 300.], 0.08).unwrap();
+    let vectors = embedder.embed_crops(&[a.clone(), b, a]).unwrap();
+    assert_eq!(vectors.len(), 3);
+    for v in &vectors {
+        assert_eq!(v.len(), 768);
+        assert!(v.iter().all(|x| x.is_finite()));
+        assert!((v.iter().map(|x| x * x).sum::<f32>() - 1.).abs() < 1e-4);
+    }
+    let dot = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
+    assert!(dot(&vectors[0], &vectors[2]) > 0.999);
+    assert!(dot(&vectors[0], &vectors[1]) < 0.99);
+}

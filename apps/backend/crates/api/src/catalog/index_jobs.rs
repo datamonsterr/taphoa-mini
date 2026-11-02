@@ -705,6 +705,21 @@ mod keyframe_tests {
     use super::*;
 
     #[test]
+    fn prototype_keeps_all_768_dimensions() {
+        let mut vector = vec![0.; 768];
+        vector[767] = 1.;
+        let result = compute_prototype(&[Embedding {
+            image_id: Uuid::nil(),
+            kind: "crop",
+            augmentation: "original",
+            vector,
+        }])
+        .unwrap();
+        assert_eq!(result.len(), 768);
+        assert_eq!(result[767], 1.);
+    }
+
+    #[test]
     fn selection_starts_near_mean_and_spreads_deterministically() {
         let vectors = vec![vec![0.0], vec![1.0], vec![2.0], vec![10.0], vec![-10.0]];
         assert_eq!(farthest_points(&vectors, 3), vec![1, 4, 3]);
