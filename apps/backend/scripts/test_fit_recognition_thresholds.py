@@ -31,11 +31,22 @@ class CalibrationTest(unittest.TestCase):
         self.assertEqual([p[2] for p in points],[True,False])
         self.assertEqual(calibration.fit_match(points)['matched'],1)
 
-    def test_floor_balances_known_and_unknown_without_affecting_match(self):
+    def test_floor_preserves_95_percent_known_recall_and_ignores_unknown_scores(self):
         rows=[{'truth':1,'unknown':False,'scores':[[1,0.8]]},
               {'truth':2,'unknown':False,'scores':[[1,0.7]]},
-              {'truth':9,'unknown':True,'scores':[[1,0.65]]}]
-        self.assertEqual(calibration.fit_floor(rows,0.9),0.7)
+              {'truth':9,'unknown':True,'scores':[[1,0.99]]}]
+        self.assertEqual(calibration.fit_floor(rows,0.9),calibration.f32(0.7))
+
+    def test_precision_targets_are_fit_only_and_95_allows_more_coverage(self):
+        points = [(0.9,0.1,True)]*21 + [(0.8,0.1,False)]
+        self.assertEqual(calibration.fit_match(points,95)['matched'],22)
+        self.assertEqual(calibration.fit_match(points,97)['matched'],21)
+
+    def test_floor_is_highest_boundary_retaining_95_percent_of_known_queries(self):
+        rows = [{'unknown':False,'scores':[[1,0.8]]} for _ in range(19)]
+        rows.append({'unknown':False,'scores':[[1,0.6]]})
+        self.assertEqual(calibration.fit_floor(rows,0.9),calibration.f32(0.8))
+        self.assertEqual(calibration.fit_floor(rows,0.7),0.7)
 
     def test_duplicates_exclude_all_views_of_query_photo(self):
         import numpy as np

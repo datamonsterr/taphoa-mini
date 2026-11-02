@@ -646,7 +646,8 @@ async fn voting_beats_single_stronger_hit_and_prototypes_only_fill_missing_produ
     for (hit, expected) in hits.iter().zip([0.9, 0.82, 1. / 3.]) {
         assert!((hit.similarity - expected).abs() < 1e-6, "{hits:?}");
     }
-    let config = RecognitionConfig::default();
+    let config =
+        RecognitionConfig::from_lookup(|name| (name == "EMBEDDER").then(|| "mock".into())).unwrap();
     assert_eq!(
         classify(
             Some(hits[0].similarity),

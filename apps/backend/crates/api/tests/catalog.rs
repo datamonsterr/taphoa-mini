@@ -72,6 +72,10 @@ async fn setup_with(
     common::clerk::install(&mut state);
     state.rate_limiter = Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
     state.storage = Some(Arc::new(MemStore::default()));
+    state.recognition = taphoa_api::recognition::classify::RecognitionConfig::from_lookup(|name| {
+        (name == "EMBEDDER").then(|| "mock".into())
+    })
+    .unwrap();
     state.embedder = embedder.then(|| Arc::new(MockEmbedder) as _);
     state.vector_index = vector_index;
     (router(state.clone()), state)

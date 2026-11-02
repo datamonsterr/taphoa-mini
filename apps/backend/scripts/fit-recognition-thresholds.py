@@ -11,7 +11,9 @@ import sys
 import struct
 
 SEED = 20261102
-TARGET_PERCENT = 97
+TARGET_PERCENT = 95
+DUPLICATE_TARGET_PERCENT = 97
+KNOWN_RECALL_PERCENT = 95
 
 
 def split_classes(rows):
@@ -36,8 +38,8 @@ def query_points(rows):
             for r in rows if r['scores']]
 
 
-def fit_match(points):
-    """Exact score/gap boundaries; maximize matches at >=97% fit precision.
+def fit_match(points, target_percent=TARGET_PERCENT):
+    """Exact score/gap boundaries; maximize matches at the requested fit precision.
 
     Deterministic tie break: lower margin, then higher threshold. No held data here.
     """
@@ -60,7 +62,7 @@ def fit_match(points):
             matched += counts[j][0]
             correct += counts[j][1]
             key = (matched, -margins[j], threshold)
-            if matched and correct * 100 >= TARGET_PERCENT * matched:
+            if matched and correct * 100 >= target_percent * matched:
                 if best is None or key > best[0]:
                     best = (key, dict(threshold=threshold, margin=margins[j],
                                       matched=matched, correct=correct))
@@ -70,19 +72,17 @@ def fit_match(points):
 
 
 def fit_floor(rows, threshold):
-    """Maximize known-vs-unknown balanced accuracy, bounded by match threshold."""
-    known = sum(not r['unknown'] for r in rows)
-    unknown = len(rows)-known
-    if not known or not unknown:
-        raise ValueError('floor fitting needs known and unknown queries')
-    candidates = {0., threshold} | {r['scores'][0][1] for r in rows
-                                   if r['scores'] and 0 <= r['scores'][0][1] <= threshold}
-    def utility(floor):
-        accepted = lambda r: bool(r['scores']) and r['scores'][0][1] >= floor
-        tpr = sum(accepted(r) for r in rows if not r['unknown']) / known
-        tnr = sum(not accepted(r) for r in rows if r['unknown']) / unknown
-        return (tpr+tnr)/2, floor
-    return max(candidates,key=utility)
+    """Highest floor retaining >=95% of known fit queries; unknown scores never fit it."""
+    known = [r for r in rows if not r['unknown']]
+    scores = sorted(f32(r['scores'][0][1]) for r in known if r['scores'])
+    if not known or len(scores)*100 < KNOWN_RECALL_PERCENT*len(known):
+        raise ValueError('not enough known queries with scores to retain 95 percent')
+    missing = len(known)-len(scores)
+    allowed_rejections = len(known)*(100-KNOWN_RECALL_PERCENT)//100
+    floor = min(threshold,scores[allowed_rejections-missing])
+    if floor < 0:
+        raise ValueError('95 percent known recall is infeasible with a nonnegative floor')
+    return floor
 
 
 def query_metrics(rows, rule):
@@ -90,9 +90,15 @@ def query_metrics(rows, rule):
     matched = [p for p in points if p[0] >= rule['threshold'] and p[1] >= rule['margin']]
     correct = sum(p[2] for p in matched)
     unknown = sum(r['unknown'] for r in rows)
-    rejected = [r for r in rows if not r['scores'] or r['scores'][0][1] < rule['floor']]
+    rejected = [r for r in rows if not r['scores'] or f32(r['scores'][0][1]) < rule['floor']]
     unknown_rejected = sum(r['unknown'] for r in rejected)
-    return dict(queries=len(rows), matched=len(matched), correct=correct,
+    known = len(rows)-unknown
+    known_retained = sum(not r['unknown'] and bool(r['scores']) and
+                         f32(r['scores'][0][1]) >= rule['floor'] for r in rows)
+    return dict(queries=len(rows), known_queries=known,
+                known_at_or_above_floor=known_retained,
+                known_recall_at_floor=known_retained/known if known else None,
+                matched=len(matched), correct=correct,
                 precision=correct/len(matched) if matched else None,
                 coverage=len(matched)/len(rows),
                 unknown_queries=unknown, unknown_rejected=unknown_rejected,
@@ -166,7 +172,7 @@ def fit_duplicate(rows):
         threshold = points[i][0]
         while i < len(points) and points[i][0] == threshold:
             correct += int(points[i][1]); matched += 1; i += 1
-        if correct*100 >= TARGET_PERCENT*matched:
+        if correct*100 >= DUPLICATE_TARGET_PERCENT*matched:
             best = dict(threshold=threshold, correct=correct, matched=matched)
     if best is None:
         raise ValueError('No duplicate threshold reaches target')
@@ -193,13 +199,21 @@ def main():
     fit_classes, held_classes = split_classes(rows)
     fit = [r for r in rows if r['truth'] in fit_classes]
     held = [r for r in rows if r['truth'] in held_classes]
-    rule = fit_match(query_points(fit))
-    rule['floor'] = fit_floor(fit,rule['threshold'])
+    match_rules = {}
+    for target in [95,97]:
+        rule = fit_match(query_points(fit),target)
+        rule['floor'] = fit_floor(fit,rule['threshold'])
+        match_rules[str(target)] = dict(rule=rule,fit=query_metrics(fit,rule),
+                                       held=query_metrics(held,rule))
+    rule = match_rules[str(TARGET_PERCENT)]['rule']
     gallery = {int(k):v for k,v in json.loads(gallery_path.read_text())['entries'].items()}
     duplicate_fit = duplicate_observations(gallery,set(fit_classes)&gallery.keys())
     duplicate_held = duplicate_observations(gallery,set(held_classes)&gallery.keys())
     duplicate = fit_duplicate(duplicate_fit)
     result = dict(seed=SEED,target_precision=TARGET_PERCENT/100,
+                  duplicate_target_precision=DUPLICATE_TARGET_PERCENT/100,
+                  floor_target_known_recall=KNOWN_RECALL_PERCENT/100,
+                  match_rules=match_rules,
                   model_sha256=data['model_sha256'],
                   inputs=dict(observations_sha256=digest(observations),gallery_sha256=digest(gallery_path)),
                   fit_classes=fit_classes,held_classes=held_classes,
@@ -207,6 +221,7 @@ def main():
                   duplicate_rule=duplicate,
                   duplicate_fit=duplicate_metrics(duplicate_fit,duplicate['threshold']),
                   duplicate_held=duplicate_metrics(duplicate_held,duplicate['threshold']),
+                  duplicate_observations=dict(fit=duplicate_fit,held=duplicate_held),
                   limitations=['Class-disjoint query evaluation on synthetic GroceryStoreDataset crops; not shop photos.',
                                'Exact cosine voting; production HNSW recall is not measured.',
                                'Per-observation counts share source photos and are correlated.',

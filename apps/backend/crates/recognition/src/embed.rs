@@ -103,7 +103,6 @@ pub struct OnnxEmbedder {
 pub type DinoEmbedder = OnnxEmbedder;
 
 impl OnnxEmbedder {
-    pub const DIM: usize = 384;
     pub const DEFAULT_SIDE: u32 = 224;
 
     /// Legacy DINOv2 constructor. Production selection uses `load_with_spec`.

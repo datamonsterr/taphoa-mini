@@ -5,13 +5,12 @@ use serde::Serialize;
 use taphoa_recognition::{Segment, bbox_iou};
 use uuid::Uuid;
 
-/// Retain the pre-v2 acceptance threshold until labeled retrieval evaluation is available.
-pub const DEFAULT_MATCH_THRESHOLD: f32 = 0.80;
-/// Require separation between the two highest product voting scores, not individual vectors.
-pub const DEFAULT_MATCH_MARGIN: f32 = 0.05;
-/// Retain the existing ambiguous band; retrieval v2 does not retune classification.
-pub const DEFAULT_MATCH_FLOOR: f32 = 0.60;
-pub const DEFAULT_DUPLICATE_THRESHOLD: f32 = 0.88;
+/// SigLIP2 B5 defaults: 95% fit precision and 95% known-query floor recall.
+/// Held-class precision is reported separately; these are not accuracy guarantees.
+pub const DEFAULT_MATCH_THRESHOLD: f32 = 0.8201577;
+pub const DEFAULT_MATCH_MARGIN: f32 = 0.07806492;
+pub const DEFAULT_MATCH_FLOOR: f32 = 0.7970497;
+pub const DEFAULT_DUPLICATE_THRESHOLD: f32 = 0.97275853;
 pub const DEFAULT_MAX_DETECTIONS: usize = 24;
 
 /// Two vertical centres less than this share of the smaller box height apart
@@ -45,10 +44,32 @@ impl Default for RecognitionConfig {
     }
 }
 impl RecognitionConfig {
+    pub fn for_model(model: &str) -> anyhow::Result<Self> {
+        Ok(match model {
+            "" | "siglip2" => Self::default(),
+            "dinov2" => Self {
+                match_threshold: 0.6894683,
+                match_margin: 0.10100448,
+                match_floor: 0.5137535,
+                duplicate_threshold: 0.8895705,
+                max_detections: DEFAULT_MAX_DETECTIONS,
+            },
+            // Hash and synthetic test adapters retain their historical score boundaries.
+            "mock" => Self {
+                match_threshold: 0.80,
+                match_margin: 0.05,
+                match_floor: 0.60,
+                duplicate_threshold: 0.88,
+                max_detections: DEFAULT_MAX_DETECTIONS,
+            },
+            _ => anyhow::bail!("EMBEDDER must be siglip2 or dinov2 (mock is for local/e2e only)"),
+        })
+    }
     pub fn from_env() -> anyhow::Result<Self> {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        let defaults = Self::for_model(get("EMBEDDER").as_deref().unwrap_or("siglip2"))?;
         let ratio = |name: &str, default: f32| -> anyhow::Result<f32> {
             match get(name) {
                 None => Ok(default),
@@ -64,10 +85,10 @@ impl RecognitionConfig {
                 }
             }
         };
-        let match_threshold = ratio(MATCH_THRESHOLD, DEFAULT_MATCH_THRESHOLD)?;
-        let match_margin = ratio(MATCH_MARGIN, DEFAULT_MATCH_MARGIN)?;
-        let match_floor = ratio(MATCH_FLOOR, DEFAULT_MATCH_FLOOR)?;
-        let duplicate_threshold = ratio(DUPLICATE_THRESHOLD, DEFAULT_DUPLICATE_THRESHOLD)?;
+        let match_threshold = ratio(MATCH_THRESHOLD, defaults.match_threshold)?;
+        let match_margin = ratio(MATCH_MARGIN, defaults.match_margin)?;
+        let match_floor = ratio(MATCH_FLOOR, defaults.match_floor)?;
+        let duplicate_threshold = ratio(DUPLICATE_THRESHOLD, defaults.duplicate_threshold)?;
         anyhow::ensure!(
             match_floor <= match_threshold,
             "{MATCH_FLOOR} must not exceed {MATCH_THRESHOLD}"
@@ -298,10 +319,32 @@ mod tests {
             siglip, dino,
             "different score distributions require different model defaults"
         );
-        assert_eq!(dino.match_threshold, 0.80);
-        assert_eq!(dino.match_margin, 0.05);
-        assert_eq!(dino.match_floor, 0.60);
-        assert_eq!(dino.duplicate_threshold, 0.88);
+        assert_eq!(RecognitionConfig::default(), siglip);
+        for name in ["", "siglip2"] {
+            assert_eq!(
+                RecognitionConfig::from_lookup(|key| (key == "EMBEDDER").then(|| name.into()))
+                    .unwrap(),
+                siglip
+            );
+        }
+        let mock = RecognitionConfig::for_model("mock").unwrap();
+        assert_eq!(
+            (
+                mock.match_threshold,
+                mock.match_margin,
+                mock.match_floor,
+                mock.duplicate_threshold
+            ),
+            (0.8, 0.05, 0.6, 0.88)
+        );
+        assert!(
+            RecognitionConfig::from_lookup(|key| (key == "EMBEDDER").then(|| "typo".into()))
+                .is_err()
+        );
+        assert_eq!(dino.match_threshold, 0.6894683);
+        assert_eq!(dino.match_margin, 0.10100448);
+        assert_eq!(dino.match_floor, 0.5137535);
+        assert_eq!(dino.duplicate_threshold, 0.8895705);
         for model in ["siglip2", "dinov2"] {
             let configured = RecognitionConfig::from_lookup(|name| match name {
                 "EMBEDDER" => Some(model.into()),
@@ -320,15 +363,74 @@ mod tests {
     }
 
     #[test]
+    fn defaults_replay_committed_held_class_calibration() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/results");
+        let read = |name: &str| -> serde_json::Value {
+            serde_json::from_str(&std::fs::read_to_string(root.join(name)).unwrap()).unwrap()
+        };
+        for (model, file) in [
+            ("siglip2", "2026-11-02-siglip2-production.json"),
+            ("dinov2", "2026-11-02-dinov2-production.json"),
+        ] {
+            let report = read(file);
+            let config = RecognitionConfig::for_model(model).unwrap();
+            let value = |key: &str| report["match_rule"][key].as_f64().unwrap() as f32;
+            assert_eq!(config.match_threshold, value("threshold"));
+            assert_eq!(config.match_margin, value("margin"));
+            assert_eq!(config.match_floor, value("floor"));
+            assert_eq!(
+                config.duplicate_threshold,
+                report["duplicate_rule"]["threshold"].as_f64().unwrap() as f32
+            );
+            let raw = read(report["observations_file"].as_str().unwrap());
+            let rows = raw
+                .get("observations")
+                .unwrap_or(&raw["configurations"]["v2-k8"]["observations"])
+                .as_array()
+                .unwrap();
+            let held = report["held_classes"].as_array().unwrap();
+            let (mut matched, mut correct, mut known_retained, mut unknown_rejected) = (0, 0, 0, 0);
+            for row in rows.iter().filter(|row| held.contains(&row["truth"])) {
+                let scores = row["scores"].as_array().unwrap();
+                let score = |index: usize| {
+                    scores
+                        .get(index)
+                        .and_then(|s| s[1].as_f64())
+                        .map(|v| v as f32)
+                };
+                let class = classify(
+                    score(0),
+                    score(1),
+                    config.match_threshold,
+                    config.match_margin,
+                    config.match_floor,
+                );
+                let unknown = row["unknown"].as_bool().unwrap();
+                if class == MatchClass::Matched {
+                    matched += 1;
+                    correct += usize::from(!unknown && scores[0][0] == row["truth"]);
+                }
+                known_retained += usize::from(!unknown && class != MatchClass::Unknown);
+                unknown_rejected += usize::from(unknown && class == MatchClass::Unknown);
+            }
+            let count = |key: &str| report["held"][key].as_u64().unwrap() as usize;
+            assert_eq!(matched, count("matched"), "{model}");
+            assert_eq!(correct, count("correct"), "{model}");
+            assert_eq!(known_retained, count("known_at_or_above_floor"), "{model}");
+            assert_eq!(unknown_rejected, count("unknown_rejected"), "{model}");
+        }
+    }
+
+    #[test]
     fn config_env_parsing_validates_ranges() {
         let defaults = RecognitionConfig::from_lookup(|_| None).unwrap();
         assert_eq!(
             defaults,
             RecognitionConfig {
-                match_threshold: 0.80,
-                match_margin: 0.05,
-                match_floor: 0.60,
-                duplicate_threshold: 0.88,
+                match_threshold: DEFAULT_MATCH_THRESHOLD,
+                match_margin: DEFAULT_MATCH_MARGIN,
+                match_floor: DEFAULT_MATCH_FLOOR,
+                duplicate_threshold: DEFAULT_DUPLICATE_THRESHOLD,
                 max_detections: 24
             }
         );

@@ -161,6 +161,11 @@ async fn build_state_limited(
         .await
         .unwrap();
     common::clerk::install(&mut state);
+    // Synthetic scores exercise the historical mock decision boundaries.
+    state.recognition = taphoa_api::recognition::classify::RecognitionConfig::from_lookup(|name| {
+        (name == "EMBEDDER").then(|| "mock".into())
+    })
+    .unwrap();
     state.rate_limits = limits;
     let index = Arc::new(InMemoryVectorIndex::default());
     state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
