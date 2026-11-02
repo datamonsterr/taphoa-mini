@@ -73,7 +73,7 @@ import {
   measuredFlyVector,
   type Layout,
 } from './AddFeedback';
-import { BARCODE_SETTINGS } from './barcode';
+import { CODE_SETTINGS } from './barcode';
 import { BarcodeIndicator } from './BarcodeIndicator';
 import { useBarcodeScanner } from './useBarcodeScanner';
 import type { BarcodeScanningResult } from 'expo-camera';
@@ -118,18 +118,19 @@ const FIXED_HEIGHT =
  * The live preview. It reports readiness once `expo-camera` has started, and not-ready when it
  * unmounts (behind a frozen photo, off screen), so the shutter never fires into a cold camera.
  *
- * The native barcode handler never changes. On Android, expo-camera rebinds CameraX whenever
- * `onBarcodeScanned` appears or disappears, and that rebind aborts a picture in flight with
- * "Failed to capture image". A paused scanner passes no handler and the reads are dropped here.
+ * In code mode the native handler stays stable while reads are paused, avoiding CameraX
+ * rebinding during ordinary scanner state changes.
  */
 function LivePreview({
   cameraRef,
   onReadyChange,
   onBarcodeScanned,
+  codeMode,
 }: {
   cameraRef: React.RefObject<CameraView | null>;
   onReadyChange: (ready: boolean) => void;
   onBarcodeScanned?: (result: BarcodeScanningResult) => void;
+  codeMode: boolean;
 }) {
   useEffect(() => () => onReadyChange(false), [onReadyChange]);
   const onCameraReady = useCallback(() => onReadyChange(true), [onReadyChange]);
@@ -147,8 +148,8 @@ function LivePreview({
         ref={cameraRef}
         facing="back"
         animateShutter={false}
-        barcodeScannerSettings={BARCODE_SETTINGS}
-        onBarcodeScanned={onBarcode}
+        barcodeScannerSettings={CODE_SETTINGS}
+        onBarcodeScanned={codeMode ? onBarcode : undefined}
         onCameraReady={onCameraReady}
         style={StyleSheet.absoluteFill}
       />
@@ -249,7 +250,7 @@ export function CameraScreen() {
 
   const cameraRef = useRef<CameraView>(null);
   const { state, capture, retry, reset, added, toggle, toggleOpen, choose } =
-    useScanSession(cameraRef, mode);
+    useScanSession(cameraRef);
   const { phase, photo, scan, selected, chosen, openId } = state;
   const [addCount, setAddCount] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
@@ -396,6 +397,7 @@ export function CameraScreen() {
   } | null>(null);
   const lookupBarcode = useLookupBarcode();
   const barcodeEnabled =
+    mode === 'code' &&
     focused &&
     !!permission?.granted &&
     cameraReady &&
@@ -426,6 +428,7 @@ export function CameraScreen() {
     }
   }, [focused]);
   const hasResult = phase === 'result' && !!scan;
+  const singleResult = hasResult && scan.detections.length === 1;
   const busy = phase === 'capturing' || phase === 'scanning';
   const probe = useDocumentProbe(
     cameraRef,
@@ -433,6 +436,7 @@ export function CameraScreen() {
       !!permission?.granted &&
       cameraReady &&
       phase === 'idle' &&
+      mode === 'object' &&
       !quickActive &&
       !sheetOpen &&
       !readingReceipt &&
@@ -441,7 +445,7 @@ export function CameraScreen() {
   );
   const document = hasResult ? scan.document : probe?.document;
   const documentDetected =
-    !!document?.detected && !quickActive && !barcodeResult;
+    mode === 'object' && !!document?.detected && !quickActive && !barcodeResult;
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
   const goEnroll = useCallback(
@@ -707,7 +711,16 @@ export function CameraScreen() {
     >
       {focused ? <StatusBar style="light" /> : null}
       <View style={styles.modeRow}>
-        <ModeToggle mode={mode} onChange={setMode} />
+        <ModeToggle
+          mode={mode}
+          disabled={busy || quickCapturing || readingReceipt}
+          onChange={(next) => {
+            if (next === mode) return;
+            setMode(next);
+            setBarcodeResult(null);
+            reset();
+          }}
+        />
       </View>
 
       <View testID="camera-finder-row" style={styles.finderRow}>
@@ -718,6 +731,7 @@ export function CameraScreen() {
             focused && permission?.granted ? (
               <LivePreview
                 cameraRef={cameraRef}
+                codeMode={mode === 'code'}
                 onReadyChange={setCameraReady}
                 onBarcodeScanned={
                   barcodeEnabled ? barcodeScanner.scan : undefined
@@ -751,14 +765,14 @@ export function CameraScreen() {
                     viewSize={viewSize}
                     detections={detections}
                     selected={selected}
-                    mode={mode}
+                    mode={singleResult ? 'one' : 'many'}
                     openId={openId}
                     canEnroll={canEnroll}
                     onToggle={toggle}
                     onPricePress={onPricePress}
                     onChoose={choose}
                   />
-                  {mode === 'one'
+                  {singleResult
                     ? detections.map((d) => (
                         <ConfidenceBadge
                           key={d.id}
@@ -824,14 +838,14 @@ export function CameraScreen() {
         !(
           hasResult &&
           !documentDetected &&
-          mode === 'one' &&
+          singleResult &&
           openDetection?.alternatives
         ) ? (
           <NextStepStrip chips={chips} onPress={onChipPress} />
         ) : null}
         {hasResult &&
         !documentDetected &&
-        mode === 'one' &&
+        singleResult &&
         openDetection?.alternatives ? (
           <AlternativesStrip
             items={openDetection.alternatives}
@@ -869,7 +883,9 @@ export function CameraScreen() {
             </View>
           ) : null}
         </View>
-        {quickActive && canQuickAdd && !currentShot && !addingAngle ? (
+        {mode === 'code' ? (
+          <View style={{ width: 72 }} />
+        ) : quickActive && canQuickAdd && !currentShot && !addingAngle ? (
           <QuickAdd onPress={() => setSheetOpen(true)} disabled={!canEnroll} />
         ) : (
           <Shutter
@@ -904,7 +920,7 @@ export function CameraScreen() {
                 ? !barcodeResult.product
                 : documentDetected || !hasResult || batch === 0)
             }
-            count={mode === 'many' && hasResult ? batch : 0}
+            count={!singleResult && hasResult ? batch : 0}
             onPress={onAdd}
           />
           <AddFeedback trigger={addCount} dx={fly.dx} dy={fly.dy} />

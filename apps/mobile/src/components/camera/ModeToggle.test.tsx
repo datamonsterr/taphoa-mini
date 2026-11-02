@@ -6,24 +6,26 @@ import { ModeToggle } from './ModeToggle';
 
 describe('ModeToggle', () => {
   it('marks the current mode as selected', async () => {
-    await renderWithProviders(<ModeToggle mode="one" onChange={jest.fn()} />);
-    expect(screen.getByRole('button', { name: 'Một món' })).toBeSelected();
+    await renderWithProviders(
+      <ModeToggle mode="object" onChange={jest.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: 'Vật phẩm' })).toBeSelected();
     expect(
-      screen.getByRole('button', { name: 'Nhiều món' }),
+      screen.getByRole('button', { name: 'Mã vạch/QR' }),
     ).not.toBeSelected();
   });
 
   it('marks many as selected', async () => {
-    await renderWithProviders(<ModeToggle mode="many" onChange={jest.fn()} />);
-    expect(screen.getByRole('button', { name: 'Nhiều món' })).toBeSelected();
+    await renderWithProviders(<ModeToggle mode="code" onChange={jest.fn()} />);
+    expect(screen.getByRole('button', { name: 'Mã vạch/QR' })).toBeSelected();
   });
 
   it('calls onChange with the tapped mode', async () => {
     const onChange = jest.fn();
-    await renderWithProviders(<ModeToggle mode="one" onChange={onChange} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Nhiều món' }));
-    expect(onChange).toHaveBeenCalledWith('many');
-    await fireEvent.press(screen.getByRole('button', { name: 'Một món' }));
-    expect(onChange).toHaveBeenCalledWith('one');
+    await renderWithProviders(<ModeToggle mode="object" onChange={onChange} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Mã vạch/QR' }));
+    expect(onChange).toHaveBeenCalledWith('code');
+    await fireEvent.press(screen.getByRole('button', { name: 'Vật phẩm' }));
+    expect(onChange).toHaveBeenCalledWith('object');
   });
 });

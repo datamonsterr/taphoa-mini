@@ -116,7 +116,7 @@ function leaveTracesOfAPerson() {
   });
   quick({ type: 'uploaded', id: 'shot-1', imageId: 'image-of-person-a' });
   useReceiptNotice.setState({ count: 7 });
-  useCaptureModeStore.setState({ mode: 'many' });
+  useCaptureModeStore.setState({ mode: 'code' });
   useInviteIntent.getState().setToken('INVITE-FOR-A');
   useCartStore.getState().add({ productId: 'p', name: 'Milk', price: 10 });
 }
@@ -127,7 +127,7 @@ const noTraces = () => {
     currentId: undefined,
   });
   expect(useReceiptNotice.getState().count).toBeNull();
-  expect(useCaptureModeStore.getState().mode).toBe('one');
+  expect(useCaptureModeStore.getState().mode).toBe('object');
   expect(useCartStore.getState().lines).toEqual([]);
 };
 

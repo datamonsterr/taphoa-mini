@@ -2,10 +2,9 @@ import { onlineManager } from '@tanstack/react-query';
 import type { CameraView } from 'expo-camera';
 import { useCallback, useReducer, useRef, type RefObject } from 'react';
 
-import type { CaptureMode } from '@/components/camera';
 import { RATE_LIMIT_MESSAGE, isRateLimited, useCreateScan } from '@/lib/api';
 
-import { takePhoto, toScanMode, toUploadFile } from './capture';
+import { takePhoto, toUploadFile } from './capture';
 import { initialScanState, scanReducer, type Photo } from './scanReducer';
 
 /** A scan with no answer after this long gives up, so the seller is never stuck on the spinner. */
@@ -28,10 +27,7 @@ const message = (error: unknown) =>
       : SCAN_FAILED_MESSAGE;
 
 /** Drives one capture: take the photo, freeze it, upload it, keep the reducer in step. */
-export function useScanSession(
-  cameraRef: RefObject<CameraView | null>,
-  mode: CaptureMode,
-) {
+export function useScanSession(cameraRef: RefObject<CameraView | null>) {
   const [state, dispatch] = useReducer(scanReducer, initialScanState);
   const { mutateAsync } = useCreateScan();
   const tokenRef = useRef(0);
@@ -52,16 +48,21 @@ export function useScanSession(
       try {
         const scan = await mutateAsync({
           image: toUploadFile(shot),
-          mode: toScanMode(mode),
+          mode: 'multi',
         });
-        dispatch({ type: 'scanned', token, scan, open: mode === 'one' });
+        dispatch({
+          type: 'scanned',
+          token,
+          scan,
+          open: scan.detections.length === 1,
+        });
       } catch (error) {
         dispatch({ type: 'failed', token, message: message(error) });
       } finally {
         clearTimeout(timer);
       }
     },
-    [mutateAsync, mode],
+    [mutateAsync],
   );
 
   const capture = useCallback(

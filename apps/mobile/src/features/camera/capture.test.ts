@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { takePhoto, toScanMode, toUploadFile } from './capture';
+import { takePhoto, toUploadFile } from './capture';
 
 describe('takePhoto', () => {
   it('takes a 0.6 quality picture and returns uri and size', async () => {
@@ -25,16 +25,11 @@ describe('takePhoto', () => {
   });
 });
 
-describe('toUploadFile / toScanMode', () => {
+describe('toUploadFile', () => {
   it('names the upload scan.jpg as image/jpeg', () => {
     expect(toUploadFile({ uri: 'file:///a.jpg', width: 1, height: 1 })).toEqual(
       { uri: 'file:///a.jpg', name: 'scan.jpg', type: 'image/jpeg' },
     );
-  });
-
-  it('maps the toggle to the API mode', () => {
-    expect(toScanMode('one')).toBe('single');
-    expect(toScanMode('many')).toBe('multi');
   });
 });
 

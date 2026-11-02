@@ -57,7 +57,7 @@ beforeEach(() => {
   useChromeStore.setState(initialChrome);
   useCartStore.setState({ lines: [] });
   useLowStockAlerts.getState().reset();
-  useCaptureModeStore.setState({ mode: 'one' });
+  useCaptureModeStore.setState({ mode: 'object' });
   const {
     initialQuickEnroll,
     useQuickEnrollStore,
