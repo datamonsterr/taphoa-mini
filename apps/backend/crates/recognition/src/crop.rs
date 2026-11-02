@@ -170,6 +170,57 @@ mod tests {
     }
 
     #[test]
+    fn letterbox_preserves_tall_wide_square_geometry_and_mean_padding() {
+        let colour = image::Rgb([255, 0, 128]);
+        for (width, height, left, top, content_width, content_height) in [
+            (20, 40, 4, 0, 8, 16),
+            (40, 20, 0, 4, 16, 8),
+            (20, 20, 0, 0, 16, 16),
+        ] {
+            let image = RgbImage::from_pixel(width, height, colour);
+            let mut out = vec![0.0; 3 * 16 * 16];
+            normalize_into(&image, &mut out, 16);
+            for y in 0..16 {
+                for x in 0..16 {
+                    let inside = x >= left && x < left + content_width
+                        && y >= top && y < top + content_height;
+                    let expected = if inside { colour.0 } else { [124, 116, 104] };
+                    for c in 0..3 {
+                        let normalized = (f32::from(expected[c]) / 255.0 - IMAGENET_MEAN[c]) / IMAGENET_STD[c];
+                        assert!((out[c * 256 + y * 16 + x] - normalized).abs() < 1e-5,
+                            "{width}x{height}: wrong pixel at {x},{y} channel {c}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn index_augmentation_is_deterministic_and_preserves_view_identity() {
+        let image = RgbImage::from_fn(100, 200, |x, y| image::Rgb([x as u8, y as u8, 42]));
+        let variants = index_augmentations(&image, true);
+        assert_eq!(variants, index_augmentations(&image, true));
+        assert_eq!(variants.len(), 7);
+        assert_eq!(variants.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            vec!["original", "rotate90", "rotate180", "rotate270", "occlude_tl", "occlude_br", "far48"]);
+        assert_eq!(variants[0].1, image);
+        assert_eq!(variants[1].1.dimensions(), (200, 100));
+        assert_eq!(variants[2].1.get_pixel(0, 0), image.get_pixel(99, 199));
+        for (_, crop) in &variants[4..6] {
+            let area_ratio = f64::from(crop.width() * crop.height()) / 20_000.;
+            assert!((0.68..=0.72).contains(&area_ratio));
+        }
+        assert_eq!(variants[4].1.get_pixel(0, 0), image.get_pixel(0, 0));
+        assert_eq!(variants[5].1.get_pixel(83, 166), image.get_pixel(99, 199));
+        assert_eq!(variants[6].1.dimensions(), image.dimensions());
+        assert_ne!(variants[6].1, image);
+        assert_eq!(index_augmentations(&image, false), vec![("original", image.clone())]);
+        // Tiny references must still produce nonempty deterministic views.
+        assert!(index_augmentations(&RgbImage::new(1, 1), true).iter()
+            .all(|(_, image)| image.width() > 0 && image.height() > 0));
+    }
+
+    #[test]
     fn normalizes_with_imagenet_statistics() {
         let crop = RgbImage::from_pixel(8, 8, image::Rgb([255, 0, 128]));
         let mut out = vec![0.0; 3 * 224 * 224];
