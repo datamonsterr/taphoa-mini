@@ -9,7 +9,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.datamonsterr.taphoamini"
+      "bundleIdentifier": "com.datamonsterr.taphoamini",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Tạp Hóa Mini cần dùng máy ảnh để nhận diện hàng hóa và chụp ảnh sản phẩm."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,6 +24,7 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.datamonsterr.taphoamini",
       "googleServicesFile": "./google-services.json",
+      "permissions": ["android.permission.CAMERA"],
       "blockedPermissions": [
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"
@@ -32,6 +36,7 @@
     },
     "plugins": [
       "expo-router",
+      ["expo-build-properties", { "android": { "minSdkVersion": 26 } }],
       [
         "expo-splash-screen",
         {
@@ -51,6 +56,7 @@
       ],
       "expo-asset",
       "./modules/voice-bubble/app.plugin.js",
+      "./modules/mlkit-object-detection/app.plugin.js",
       "expo-secure-store",
       "expo-localization",
       [
