@@ -1,0 +1,22 @@
+appId: com.datamonsterr.taphoamini
+---
+# The static virtual scene supplies stable ML Kit boxes. No shutter tap: the default-on
+# auto mode must upload the photo and render a real empty-catalog result by itself.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store-auto.yaml
+    env:
+      STORE_NAME: 'Tap hoa Tu nhan dien'
+      OWNER_NAME: 'Co Ba'
+- extendedWaitUntil:
+    visible: 'Chưa có trong kho, nhập giá'
+    timeout: 30000
+- assertVisible: 'Chụp lại'
+- assertVisible:
+    id: 'viewfinder-photo'
+- assertVisible: 'Giỏ hàng trống'
+- takeScreenshot: auto-identify-01-result-without-shutter
+# Turning the setting off restores the manual shutter and persists the choice.
+- runFlow: subflows/manual-camera.yaml
+- takeScreenshot: auto-identify-02-manual
