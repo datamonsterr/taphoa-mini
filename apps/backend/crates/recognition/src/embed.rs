@@ -52,10 +52,9 @@ pub struct DinoEmbedder {
 
 impl DinoEmbedder {
     pub const DIM: usize = 384;
-    /// Input side in pixels (multiple of 14). 224 costs ~87 ms per crop on 4 cores, 112 about
-    /// 20 ms; the 3 s scan budget needs the small side. Override with `EMBED_SIDE` after
-    /// measuring accuracy on the A1 test set.
-    pub const DEFAULT_SIDE: u32 = 112;
+    /// Retrieval v2 uses 224 px to retain detail in distant and partially covered products.
+    /// `EMBED_SIDE` still trades detail for latency (56..=224, multiples of 14).
+    pub const DEFAULT_SIDE: u32 = 224;
 
     pub fn load(model: &Path, threads: usize) -> Result<Self, EmbedError> {
         let side = std::env::var("EMBED_SIDE")
@@ -90,7 +89,7 @@ impl DinoEmbedder {
             session: Mutex::new(session),
             // Vectors from different input sides are not comparable, so the side is part of
             // the model id that product_embeddings are filtered by.
-            model: format!("dinov2-vits14-onnx@1/{side}"),
+            model: format!("dinov2-vits14-onnx@2/lb{side}"),
             batch: 8,
             side,
         };
