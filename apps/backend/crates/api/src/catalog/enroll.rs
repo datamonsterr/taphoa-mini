@@ -6,8 +6,6 @@ use std::sync::Arc;
 use taphoa_recognition::{EmbedError, Embedder, crop};
 use uuid::Uuid;
 
-use super::model::DUPLICATE_THRESHOLD;
-
 pub(crate) struct ImageRef {
     pub id: Uuid,
     pub object_key: String,
@@ -144,17 +142,19 @@ async fn search_sql(
     model_name: &str,
     vector: &[f32],
 ) -> ApiResult<Vec<DuplicateHit>> {
+    let (fetch, votes) = crate::vector::search_limits(5, crate::vector::embed_knn());
     let rows: Vec<(Uuid, f32)> = sqlx::query_as(SQL_SEARCH)
         .bind(vector_text(vector))
         .bind(store_id)
         .bind(model_name)
-        .bind(40_i64)
+        .bind(i64::try_from(fetch).unwrap_or(i64::MAX))
         .bind(5_i64)
+        .bind(i64::try_from(votes).unwrap_or(i64::MAX))
         .fetch_all(pool(state)?)
         .await?;
     Ok(rows
         .into_iter()
-        .filter(|(_, similarity)| f64::from(*similarity) >= DUPLICATE_THRESHOLD)
+        .filter(|(_, similarity)| *similarity >= state.recognition.duplicate_threshold)
         .map(|(product_id, similarity)| DuplicateHit {
             product_id,
             similarity: f64::from(similarity),
@@ -189,7 +189,8 @@ async fn search_index(
     Ok(hits
         .into_iter()
         .filter(|hit| {
-            f64::from(hit.similarity) >= DUPLICATE_THRESHOLD && rows.contains(&hit.product_id)
+            hit.similarity >= state.recognition.duplicate_threshold
+                && rows.contains(&hit.product_id)
         })
         .map(|hit| DuplicateHit {
             product_id: hit.product_id,

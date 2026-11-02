@@ -5,8 +5,11 @@ use serde::Serialize;
 use taphoa_recognition::{Segment, bbox_iou};
 use uuid::Uuid;
 
+/// Retain the pre-v2 acceptance threshold until labeled retrieval evaluation is available.
 pub const DEFAULT_MATCH_THRESHOLD: f32 = 0.80;
+/// Require separation between the two highest product voting scores, not individual vectors.
 pub const DEFAULT_MATCH_MARGIN: f32 = 0.05;
+/// Retain the existing ambiguous band; retrieval v2 does not retune classification.
 pub const DEFAULT_MATCH_FLOOR: f32 = 0.60;
 pub const DEFAULT_DUPLICATE_THRESHOLD: f32 = 0.88;
 pub const DEFAULT_MAX_DETECTIONS: usize = 24;

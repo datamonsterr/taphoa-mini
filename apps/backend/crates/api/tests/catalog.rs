@@ -456,7 +456,12 @@ async fn quick_enroll_reference_validation() {
 #[ignore = "requires DATABASE_URL"]
 async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
     let w = world().await;
-    let refs = references(&w, 3, "reference-happy").await;
+    let mut refs = references(&w, 3, "reference-happy").await;
+    // Hash embeddings need three identical views to model supporting cosine votes.
+    for reference in &mut refs {
+        reference["cutout_image_id"] =
+            json!(upload(&w, &w.lead, "reference-happy-shared-cutout").await);
+    }
     let id = Uuid::now_v7();
     let body = json!({"id": id,"price":5000,"references":refs});
     let p = ok(
@@ -554,7 +559,7 @@ async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
             id
         )
         .await,
-        6
+        42
     );
     let mut duplicate = body;
     duplicate["id"] = json!(Uuid::now_v7());
@@ -641,7 +646,7 @@ async fn quick_enroll_add_cutout_and_remove_enqueue() {
             id
         )
         .await,
-        1
+        7
     );
     index_product(&w, id).await;
     assert_eq!(
@@ -651,7 +656,7 @@ async fn quick_enroll_add_cutout_and_remove_enqueue() {
             id
         )
         .await,
-        3
+        21
     );
     ok(
         &w.app,
@@ -680,7 +685,7 @@ async fn quick_enroll_add_cutout_and_remove_enqueue() {
             id
         )
         .await,
-        1
+        7
     );
 }
 
@@ -904,7 +909,7 @@ async fn quick_enroll_add_validates_cutout_pair_and_detection_crop() {
             id.parse().unwrap()
         )
         .await,
-        2
+        14
     );
 }
 
@@ -1203,13 +1208,17 @@ async fn create_product_happy_authz_validation_idempotency_events() {
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn duplicate_check_at_088_with_candidates_and_force_new() {
     let w = world().await;
+    let mut image_ids = Vec::new();
+    for _ in 0..3 {
+        image_ids.push(upload(&w, &w.lead, "same-bottle").await);
+    }
     let existing = create_product(
         &w,
         &w.lead,
         "Aquafina 500ml",
         5000,
         "same-bottle",
-        json!({}),
+        json!({"image_ids": image_ids}),
     )
     .await;
     index_product(&w, existing["id"].as_str().unwrap().parse().unwrap()).await;
@@ -1283,21 +1292,24 @@ async fn duplicate_check_at_088_with_candidates_and_force_new() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn duplicate_check_uses_the_vector_index_port_when_configured() {
+async fn duplicate_check_uses_configured_threshold_and_the_vector_index_port() {
     let index = Arc::new(InMemoryVectorIndex::default());
-    let (app, state) = setup_with(Some(index.clone()), true).await;
+    let (_, mut state) = setup_with(Some(index.clone()), true).await;
+    state.recognition.duplicate_threshold = 0.30;
+    let app = router(state.clone());
     let w = world_from(app, state).await;
     // The fake knows a product the SQL table does not; its hit must be resolved against products.
     let product = create_product(&w, &w.lead, "Coca 330ml", 9000, "coca", json!({})).await;
     let emb =
         taphoa_recognition::Embedder::embed(&MockEmbedder, &png_bytes("coca-lookalike")).unwrap();
+    // One perfect reference vote scores 1/3 and exceeds this configured threshold.
     index
         .upsert(
             w.store_id,
             product["id"].as_str().unwrap().parse().unwrap(),
             Uuid::now_v7(),
             "mock-sha256-384",
-            emb,
+            emb.clone(),
         )
         .await
         .unwrap();
@@ -1798,7 +1810,7 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        8
+        56
     );
     let ninth = upload(&w, &w.lead, "pepsi8").await;
     expect_code(
@@ -1848,7 +1860,7 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        7
+        49
     );
     for img in &added[1..] {
         ok(

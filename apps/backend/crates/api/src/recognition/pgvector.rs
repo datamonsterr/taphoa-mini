@@ -1,23 +1,18 @@
 //! Postgres adapter of [`VectorIndex`] over the pgvector `product_embeddings`
-//! table (architecture §5.3, data-model §3.3). Search returns the best cosine
-//! similarity per product. The vectors are 384-d DINOv2 embeddings, so anything
+//! table (architecture §5.3, data-model §3.3). Search returns a cosine
+//! top-three reference voting score per product. The vectors are 384-d DINOv2 embeddings, so anything
 //! else is rejected before it reaches the database.
-use crate::vector::{VectorHit, VectorIndex};
+use crate::vector::{VectorHit, VectorIndex, embed_knn, search_limits};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 const EMBEDDING_DIM: usize = 384;
-/// Over-fetch rows from the nearest-neighbor scan so per-product grouping stays
-/// meaningful when a product has several reference embeddings (docs §3.3).
-const OVERFETCH: usize = 8;
-const OVERFETCH_FLOOR: usize = 32;
-
-/// Shared by checkout and catalog duplicate detection. The distance-ordered,
-/// bounded reference CTE retains the HNSW access path; prototypes are few per
-/// store and scored directly. No kind filter: crop and cutout both contribute.
-/// Parameters: query vector, store, model, reference overfetch, product limit.
+/// Shared by checkout and duplicate detection. A distance-ordered bounded CTE keeps
+/// the HNSW access path. Cap each product at three votes before the neighborhood limit
+/// so augmented references cannot monopolize it. Missing votes contribute zero.
+/// Parameters: query, store, model, reference overfetch, product limit, voting budget.
 pub const SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
     SELECT e.product_id, e.embedding <=> $1::vector AS distance
     FROM product_embeddings e
@@ -26,18 +21,26 @@ pub const SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
                   WHERE p.id = e.product_id AND p.store_id = $2 AND NOT p.archived)
     ORDER BY e.embedding <=> $1::vector
     LIMIT $4
+), ranked AS (
+    SELECT product_id, distance,
+           row_number() OVER (PARTITION BY product_id ORDER BY distance) AS rank
+    FROM nearest
+), votes AS MATERIALIZED (
+    SELECT product_id, distance FROM ranked WHERE rank <= 3
+    ORDER BY distance, product_id LIMIT $6
 ), scores AS (
-    SELECT product_id, 1 - distance AS similarity FROM nearest
+    SELECT product_id, sum(1 - distance) / 3 AS similarity
+    FROM votes GROUP BY product_id
     UNION ALL
     SELECT proto.product_id, 1 - (proto.embedding <=> $1::vector) AS similarity
     FROM product_prototypes proto
     JOIN products p ON p.id = proto.product_id
     WHERE proto.store_id = $2 AND proto.model = $3
       AND p.store_id = $2 AND NOT p.archived
+      AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.product_id = proto.product_id)
 )
-SELECT product_id, max(similarity)::real AS similarity
+SELECT product_id, similarity::real AS similarity
 FROM scores
-GROUP BY product_id
 ORDER BY similarity DESC, product_id
 LIMIT $5";
 
@@ -105,8 +108,9 @@ impl VectorIndex for PgVectorIndex {
         limit: usize,
     ) -> anyhow::Result<Vec<VectorHit>> {
         validate(embedding)?;
-        let fetch =
-            i64::try_from(limit.saturating_mul(OVERFETCH).max(OVERFETCH_FLOOR)).unwrap_or(i64::MAX);
+        let (fetch, votes) = search_limits(limit, embed_knn());
+        let fetch = i64::try_from(fetch).unwrap_or(i64::MAX);
+        let votes = i64::try_from(votes).unwrap_or(i64::MAX);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let mut tx = self.pool.begin().await?;
         // The HNSW index has no store partition, so filtered searches need
@@ -129,6 +133,7 @@ impl VectorIndex for PgVectorIndex {
             .bind(model)
             .bind(fetch)
             .bind(limit)
+            .bind(votes)
             .fetch_all(&mut *tx)
             .await?;
         tx.commit().await?;

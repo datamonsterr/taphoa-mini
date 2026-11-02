@@ -7,6 +7,82 @@ pub struct VectorHit {
     pub product_id: Uuid,
     pub similarity: f32,
 }
+/// A 20-vote neighborhood balances reference coverage and search cost before accuracy retuning.
+pub const DEFAULT_EMBED_KNN: usize = 20;
+/// Three supporting views are required for an unpenalized product score.
+pub const VOTES_PER_PRODUCT: usize = 3;
+/// Augmented references can dominate neighbors; overfetch before capping votes per product.
+const KNN_OVERFETCH: usize = 8;
+/// Minimum scan size for small requested neighborhoods.
+const KNN_OVERFETCH_FLOOR: usize = 32;
+/// Eight photos, crop and cutout, and seven views can produce 112 vectors per product.
+/// Reserve that capacity per requested result so a heavily augmented product cannot
+/// exhaust the scan before enough distinct products are seen.
+const MAX_PRODUCT_REFERENCE_VECTORS: usize = 8 * 2 * 7;
+
+pub fn embed_knn() -> usize {
+    std::env::var("EMBED_KNN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|n: &usize| *n > 0)
+        .unwrap_or(DEFAULT_EMBED_KNN)
+}
+
+/// Return (reference scan size, voting budget). Reserve enough votes for the requested top-k.
+pub fn search_limits(limit: usize, knn: usize) -> (usize, usize) {
+    let votes = knn.max(limit.saturating_mul(VOTES_PER_PRODUCT));
+    (
+        votes
+            .saturating_mul(KNN_OVERFETCH)
+            .max(limit.saturating_mul(MAX_PRODUCT_REFERENCE_VECTORS))
+            .max(KNN_OVERFETCH_FLOOR),
+        votes,
+    )
+}
+
+fn voting_scores(
+    mut references: Vec<VectorHit>,
+    prototypes: Vec<VectorHit>,
+    limit: usize,
+) -> Vec<VectorHit> {
+    let (fetch, budget) = search_limits(limit, embed_knn());
+    let order = |a: &VectorHit, b: &VectorHit| {
+        b.similarity
+            .total_cmp(&a.similarity)
+            .then_with(|| a.product_id.cmp(&b.product_id))
+    };
+    references.sort_by(order);
+    references.truncate(fetch);
+    let mut counts = HashMap::<Uuid, usize>::new();
+    let mut scores = HashMap::<Uuid, f32>::new();
+    let mut votes = 0;
+    for hit in references {
+        let count = counts.entry(hit.product_id).or_default();
+        if *count == VOTES_PER_PRODUCT {
+            continue;
+        }
+        if votes == budget {
+            break;
+        }
+        *count += 1;
+        votes += 1;
+        *scores.entry(hit.product_id).or_default() += hit.similarity / VOTES_PER_PRODUCT as f32;
+    }
+    for hit in prototypes {
+        scores.entry(hit.product_id).or_insert(hit.similarity);
+    }
+    let mut hits: Vec<_> = scores
+        .into_iter()
+        .map(|(product_id, similarity)| VectorHit {
+            product_id,
+            similarity,
+        })
+        .collect();
+    hits.sort_by(order);
+    hits.truncate(limit);
+    hits
+}
+
 #[async_trait]
 pub trait VectorIndex: Send + Sync {
     async fn upsert(
@@ -105,8 +181,9 @@ impl VectorIndex for InMemoryVectorIndex {
             .entries
             .read()
             .map_err(|_| anyhow::anyhow!("vector index lock poisoned"))?;
-        let mut best: HashMap<Uuid, f32> = HashMap::new();
-        for ((store, product, _, m), vector) in entries.iter() {
+        let mut references = Vec::new();
+        let mut prototypes = Vec::new();
+        for ((store, product, image, m), vector) in entries.iter() {
             if *store != store_id || m != model {
                 continue;
             }
@@ -120,24 +197,17 @@ impl VectorIndex for InMemoryVectorIndex {
                 .map(|(&a, &b)| f64::from(a) * f64::from(b))
                 .sum::<f64>();
             let similarity = (dot / (query_norm * norm(vector)?)).clamp(-1., 1.) as f32;
-            best.entry(*product)
-                .and_modify(|old| *old = old.max(similarity))
-                .or_insert(similarity);
-        }
-        let mut hits: Vec<_> = best
-            .into_iter()
-            .map(|(product_id, similarity)| VectorHit {
-                product_id,
+            let hit = VectorHit {
+                product_id: *product,
                 similarity,
-            })
-            .collect();
-        hits.sort_by(|a, b| {
-            b.similarity
-                .total_cmp(&a.similarity)
-                .then_with(|| a.product_id.cmp(&b.product_id))
-        });
-        hits.truncate(limit);
-        Ok(hits)
+            };
+            if image.is_some() {
+                references.push(hit);
+            } else {
+                prototypes.push(hit);
+            }
+        }
+        Ok(voting_scores(references, prototypes, limit))
     }
     async fn remove_product(&self, store_id: Uuid, product_id: Uuid) -> anyhow::Result<()> {
         self.entries
@@ -150,6 +220,14 @@ impl VectorIndex for InMemoryVectorIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overfetch_reserves_capacity_for_distinct_augmented_products() {
+        let (fetch, votes) = search_limits(5, DEFAULT_EMBED_KNN);
+        assert!(fetch >= 5 * 112);
+        assert_eq!(votes, 20);
+        assert_eq!(search_limits(10, 7).1, 30);
+    }
+
     #[tokio::test]
     async fn voting_rewards_three_hits_and_uses_product_margin_and_prototype_fallback() {
         use crate::recognition::classify::{MatchClass, classify};
@@ -212,7 +290,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cosine_best_reference_scope_upsert_remove_and_limit() {
+    async fn cosine_voting_scope_upsert_remove_and_limit() {
         let index = InMemoryVectorIndex::default();
         let (store, other, p1, p2) = (
             Uuid::new_v4(),
@@ -236,10 +314,10 @@ mod tests {
             hits[0],
             VectorHit {
                 product_id: p1,
-                similarity: 1.
+                similarity: 1. / 3.
             }
         );
-        assert!((hits[1].similarity - 0.70710677).abs() < 1e-6);
+        assert!((hits[1].similarity - 0.70710677 / 3.).abs() < 1e-6);
         assert_eq!(
             index.search(store, "m", &[2., 0.], 1).await.unwrap().len(),
             1
