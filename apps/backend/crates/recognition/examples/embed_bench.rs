@@ -1,5 +1,5 @@
 //! Usage: ORT_DYLIB_PATH=... cargo run --release -p taphoa-recognition --example embed_bench -- \
-//!   <dino.onnx> [crops=16] [runs=3]
+//!   <dino.onnx> [crops=16] [runs=3] [side=224] [threads=0]
 use std::time::Instant;
 use taphoa_recognition::{DinoEmbedder, Embedder};
 
@@ -10,7 +10,7 @@ fn main() {
     let t = Instant::now();
     let e = DinoEmbedder::load_with_side(
         a[1].as_ref(),
-        0,
+        a.get(5).and_then(|v| v.parse().ok()).unwrap_or(0),
         a.get(4).and_then(|v| v.parse().ok()).unwrap_or(224),
     )
     .unwrap();

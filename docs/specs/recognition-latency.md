@@ -26,6 +26,42 @@ Embedding (DINOv2 ViT-S/14, 20 crops, batch 8):
 | 154        | 1.5 s   | 1.6 s   |
 | 112        | 0.40 s  | 0.75 s  |
 
+### Retrieval v2: 224 versus 112 on this machine
+
+Measured 2026-11-02 on this shared AMD Ryzen 5 2600 host (6 cores / 12 logical CPUs),
+release build, ONNX Runtime 1.23.2, four intra-op threads, spinning disabled, batch eight.
+The fetch script verified the pinned DINOv2-small weights (SHA-256
+`f22797eabf810a75e41de68d378541ebea372122b25c4ce3ef25ff618250c20a`). Both sizes use
+Retrieval v2 letterbox preprocessing and the unchanged 384-dimensional CLS vector.
+
+The existing `embed_bench` embeds twenty deterministic 150×260 RGB crops per run.
+Load-time warm-up is excluded; all five subsequent runs are included. The host was
+busy with other builds and backend tests (observed load average approximately 12), so
+these are measurements under shared load, not isolated capacity estimates.
+
+| Side | Twenty-crop run times (ms) | Median batch (ms) | Amortized ms/crop |
+| --- | --- | --- | --- |
+| 112 | 1471.4, 1679.7, 1713.4, 1712.9, 1819.6 | 1712.9 | 85.6 |
+| 224 | 4506.1, 5438.4, 4442.0, 3426.2, 3568.9 | 4442.0 | 222.1 |
+
+224 px cost 2.59 times the median batch time in this run. Retrieval v2 intentionally
+makes 224 the default to retain detail; this measured twenty-crop embedding stage
+alone exceeds the original three-second full-scan budget under this host load.
+`EMBED_SIDE=112` remains an operational latency option with its own model identity and
+requires reindexing. Query inference stays one vector per crop; augmentation runs only
+in background index jobs. Accuracy and deployment latency still require labeled-photo
+and target-environment evaluation before claiming improved recognition or the scan budget.
+
+Reproduce from `apps/backend` after fetching models and configuring `ORT_DYLIB_PATH`:
+
+```sh
+MODEL_DIR=/media/storage/cache/taphoa-models ./scripts/fetch-models.sh
+cargo run --release -p taphoa-recognition --example embed_bench -- \
+  /media/storage/cache/taphoa-models/dinov2_small.onnx 20 5 112 4
+cargo run --release -p taphoa-recognition --example embed_bench -- \
+  /media/storage/cache/taphoa-models/dinov2_small.onnx 20 5 224 4
+```
+
 ### Railway `test` environment (sfo, deployed from this branch, client in Vietnam)
 
 `packages/e2e/tests/recognition.test.ts`, 5 sequential runs of the 1600 px fixture, includes
@@ -55,7 +91,7 @@ vary by +-30 % in segmentation time.
   covers yet. Decoders run single-threaded, one session per worker
   (`SAM_DECODERS`, default `min(threads, 8)` so 8-vCPU hosts use all cores).
 - Masks are decoded at 256 px (`SAM_MASK_SIDE`) and boxes are scaled back to the photo.
-- **Embedder input is 112 px** (`EMBED_SIDE`, multiple of 14, max 224) to fit the budget:
+- **Original embedder input was 112 px** (`EMBED_SIDE`, multiple of 14, max 224) to fit the budget:
   segmentation 1.6 s + embedding 0.4 s + upload and persistence on 4 cores. Top-1 accuracy at
   112 px has not been measured: the A1 set (50 products, 200 labeled checkout scans) is not
   available in the repository or elsewhere available to this work. The evaluator is ready at
