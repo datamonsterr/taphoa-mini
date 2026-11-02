@@ -244,10 +244,11 @@ async function runFlow(page: Page, cpuRate: number, shop: Shop): Promise<Run> {
 
   await rec.measure(
     'mode-toggle',
-    () => button(page, 'Nhiều món').click(),
-    `!!document.querySelector('[aria-label="Nhiều món"][aria-selected="true"]')`,
+    () => button(page, 'Mã vạch/QR').click(),
+    `!!document.querySelector('[aria-label="Mã vạch/QR"][aria-selected="true"]')`,
     { frames: true },
   );
+  await button(page, 'Vật phẩm').click();
   await rec.measure(
     'scan-multi',
     () => shutter(page).click(),

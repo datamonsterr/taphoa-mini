@@ -838,7 +838,7 @@ export const callInference = <T = any>(
  * Taps the shutter: the photo is uploaded to the real recognition pipeline (SAM + DINO), and the
  * frozen result shows. Returns the POST /v1/recognition/scans call.
  */
-export async function shoot(page: Page, mode: 'single' | 'multi' = 'single') {
+export async function shoot(page: Page, mode: 'single' | 'multi' = 'multi') {
   const call = await withScanSlot(() =>
     callApi(page, 'POST', '/v1/recognition/scans', () => shutter(page).click()),
   );
