@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use taphoa_api::{
     MIGRATOR,
-    catalog::index_jobs::{WorkerConfig, enqueue, process_next, spawn},
+    catalog::index_jobs::{WorkerConfig, enqueue, enqueue_stale_model, process_next, spawn},
     storage::{ObjectStore, SignedUrl},
 };
 use taphoa_recognition::{EmbedError, Embedder, MockEmbedder};
@@ -316,7 +316,7 @@ async fn happy_path_job_done_embeddings_and_prototype() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(emb_count, 6, "expected crop + cutout per reference");
+    assert_eq!(emb_count, 42, "seven views for crop + cutout per reference");
     let source_ids: Vec<Uuid> =
         sqlx::query_scalar("SELECT image_id FROM product_embeddings WHERE product_id=$1")
             .bind(product_id)
@@ -334,6 +334,9 @@ async fn happy_path_job_done_embeddings_and_prototype() {
     .unwrap();
     assert!(kinds.contains(&"crop".to_string()));
     assert!(kinds.contains(&"cutout".to_string()));
+    let views: i64 = sqlx::query_scalar("SELECT count(DISTINCT augmentation) FROM product_embeddings WHERE product_id=$1")
+        .bind(product_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(views, 7);
 
     // Prototype row counts references, rather than embedding views.
     let ref_count: i32 =
@@ -799,7 +802,7 @@ async fn bbox_legacy_prototype_and_removed_references() {
     let storage = Arc::new(MemStore::default());
     let embedder = Arc::new(RecordingEmbedder::default());
     let slots = Arc::new(tokio::sync::Semaphore::new(1));
-    let cfg = test_config();
+    let cfg = WorkerConfig { index_augment: false, ..test_config() };
     let image_id = new_image(
         &pool,
         store_id,
@@ -1102,4 +1105,89 @@ async fn reclaimed_lease_fences_old_success_and_failure() {
         assert_eq!(count, 1, "stale workers must not publish or change status");
     }
     cleanup(&pool, store_id).await;
+}
+
+/// A model change queues each eligible product once, including across concurrent startup scans.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn model_backfill_is_bounded_concurrent_idempotent_and_stops_after_reindex() {
+    let _guard = serial_guard().await;
+    let pool = pool().await;
+    let storage = Arc::new(MemStore::default());
+    let store = new_store(&pool).await;
+    let mut products = Vec::new();
+    for n in 0..4 {
+        let product = new_product(&pool, store).await;
+        let image = new_image(&pool, store, &storage, &format!("backfill/{product}")).await;
+        attach_image(&pool, product, image, 0).await;
+        let model = if n == 3 {
+            MockEmbedder.model()
+        } else {
+            "dinov2-vits14-onnx@1/112"
+        };
+        sqlx::query("INSERT INTO product_embeddings (store_id,product_id,image_id,model,embedding) VALUES ($1,$2,$3,$4,$5)")
+            .bind(store).bind(product).bind(image).bind(model)
+            .bind(pgvector::Vector::from(vec![1.;384])).execute(&pool).await.unwrap();
+        products.push(product);
+    }
+    sqlx::query("UPDATE products SET archived=true WHERE id=$1")
+        .bind(products[2])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        enqueue_stale_model(&pool, MockEmbedder.model(), 1)
+            .await
+            .unwrap(),
+        1
+    );
+    let (a, b) = tokio::join!(
+        enqueue_stale_model(&pool, MockEmbedder.model(), 10),
+        enqueue_stale_model(&pool, MockEmbedder.model(), 10)
+    );
+    assert_eq!(a.unwrap() + b.unwrap(), 1);
+    assert_eq!(
+        enqueue_stale_model(&pool, MockEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        0
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM index_jobs WHERE store_id=$1")
+        .bind(store)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+    for _ in 0..2 {
+        assert!(
+            process_next(
+                &pool,
+                Arc::new(MockEmbedder),
+                storage.clone(),
+                Arc::new(tokio::sync::Semaphore::new(1)),
+                &test_config()
+            )
+            .await
+            .unwrap()
+        );
+    }
+    assert_eq!(
+        enqueue_stale_model(&pool, MockEmbedder.model(), 10)
+            .await
+            .unwrap(),
+        0
+    );
+    let stale: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_embeddings WHERE product_id=ANY($1) AND model<>$2",
+    )
+    .bind(&products[..2])
+    .bind(MockEmbedder.model())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stale, 0,
+        "successful reindex removes incompatible old vectors"
+    );
+    cleanup(&pool, store).await;
 }

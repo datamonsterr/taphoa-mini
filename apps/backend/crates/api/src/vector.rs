@@ -151,6 +151,67 @@ impl VectorIndex for InMemoryVectorIndex {
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn voting_rewards_three_hits_and_uses_product_margin_and_prototype_fallback() {
+        use crate::recognition::classify::{MatchClass, classify};
+        let index = InMemoryVectorIndex::default();
+        let (store, supported, singleton, fallback) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        for score in [0.91_f32, 0.90, 0.89, 0.10] {
+            index
+                .upsert(
+                    store,
+                    supported,
+                    Uuid::new_v4(),
+                    "m",
+                    vec![score, (1. - score * score).sqrt()],
+                )
+                .await
+                .unwrap();
+        }
+        index
+            .upsert(store, singleton, Uuid::new_v4(), "m", vec![1., 0.])
+            .await
+            .unwrap();
+        index
+            .upsert_prototype(store, supported, "m", vec![1., 0.])
+            .unwrap();
+        index
+            .upsert_prototype(store, singleton, "m", vec![1., 0.])
+            .unwrap();
+        index
+            .upsert_prototype(
+                store,
+                fallback,
+                "m",
+                vec![0.82, (1. - 0.82_f32.powi(2)).sqrt()],
+            )
+            .unwrap();
+        let hits = index.search(store, "m", &[1., 0.], 3).await.unwrap();
+        assert_eq!(
+            hits.iter().map(|h| h.product_id).collect::<Vec<_>>(),
+            vec![supported, fallback, singleton]
+        );
+        for (hit, expected) in hits.iter().zip([0.90, 0.82, 1. / 3.]) {
+            assert!((hit.similarity - expected).abs() < 1e-6);
+        }
+        assert!((hits[0].similarity - hits[1].similarity - 0.08).abs() < 1e-6);
+        assert_eq!(
+            classify(
+                Some(hits[0].similarity),
+                Some(hits[1].similarity),
+                0.80,
+                0.05,
+                0.60
+            ),
+            MatchClass::Matched
+        );
+    }
+
+    #[tokio::test]
     async fn cosine_best_reference_scope_upsert_remove_and_limit() {
         let index = InMemoryVectorIndex::default();
         let (store, other, p1, p2) = (
