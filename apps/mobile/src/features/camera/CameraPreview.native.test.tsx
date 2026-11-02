@@ -36,6 +36,20 @@ const setup = async () => {
   const view = await render(<CameraPreview {...props} />);
   return { ...view, props, cameraRef };
 };
+it('publishes live boxes and clears detector errors from the camera worker runtime', async () => {
+  await setup();
+  await act(() =>
+    visionMock.emit([{ trackingId: 3, x: 10, y: 20, width: 30, height: 40 }]),
+  );
+  expect(visionMock.uiUpdates).toHaveBeenCalled();
+  visionMock.uiUpdates.mockClear();
+  visionMock.detector.detectObjects.mockImplementationOnce(() => {
+    throw new Error('invalid frame');
+  });
+  await act(() => visionMock.emit([]));
+  expect(visionMock.uiUpdates).toHaveBeenCalledTimes(1);
+  expect(visionMock.frame.dispose).toHaveBeenCalledTimes(2);
+});
 it('keeps the camera mounted while switching the object and code outputs', async () => {
   const { rerender, props } = await setup();
   const original = screen.getByTestId('vision-camera');
