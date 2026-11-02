@@ -32,7 +32,8 @@ import Animated, {
 import {
   createSynchronizable,
   scheduleOnRN,
-  scheduleOnUI,
+  scheduleOnRuntimeWithId,
+  UIRuntimeId,
 } from 'react-native-worklets';
 import {
   createObjectDetector,
@@ -335,13 +336,15 @@ export function CameraPreview({
           );
           if (projected) mapped.push({ ...box, ...projected });
         }
-        scheduleOnUI(() => {
+        scheduleOnRuntimeWithId(UIRuntimeId, () => {
+          'worklet';
           boxes.value = mapped;
         });
         if (stable.trigger) scheduleOnRN(trigger);
         const capture = enabled.enrollment;
         if (!capture?.capturing && !capture?.armed)
-          scheduleOnUI(() => {
+          scheduleOnRuntimeWithId(UIRuntimeId, () => {
+            'worklet';
             lockedId.value = null;
           });
         const session = enrolling.getBlocking();
@@ -354,7 +357,8 @@ export function CameraPreview({
           return;
         const locked = selectLockedTrack(tracked.objects, session.locked);
         if (locked)
-          scheduleOnUI(() => {
+          scheduleOnRuntimeWithId(UIRuntimeId, () => {
+            'worklet';
             lockedId.value = locked.id;
           });
         const next = {
@@ -491,7 +495,8 @@ export function CameraPreview({
           at: 0,
           stability: createStability(),
         });
-        scheduleOnUI(() => {
+        scheduleOnRuntimeWithId(UIRuntimeId, () => {
+          'worklet';
           boxes.value = [];
         });
       } finally {
@@ -671,7 +676,8 @@ export function CameraPreview({
                 (box) => box.id === selected?.id,
               );
               if (!locked) return;
-              scheduleOnUI(() => {
+              scheduleOnRuntimeWithId(UIRuntimeId, () => {
+                'worklet';
                 lockedId.value = locked.id;
               });
               enrolling.setBlocking({
