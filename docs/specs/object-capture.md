@@ -92,7 +92,7 @@ together with the camera migration. Lookup and unknown-code routing are unchange
 | --- | ---------------------------------------------------------------------------------------------------- | ---------- | ----------- |
 | M1  | Object or Code toggle, QR in Code mode, Object mode sends `multi`                                    | none       | in review   |
 | B1  | Retrieval v2: letterbox 224, index augmentation, kNN voting, re-index backfill                       | none       | in progress |
-| B2  | Scan accepts phone boxes (`boxes[]`), skips SAM, adds whole-frame box, TTA on ambiguous crops        | B1         | pending     |
+| B2  | Scan accepts phone boxes (`boxes[]`), skips SAM, adds whole-frame box, TTA on ambiguous crops        | B1         | done        |
 | B3  | Enroll accepts 8–24 keyframe references without point prompts; server picks diverse frames           | B1         | pending     |
 | E1  | Eval harness: GroceryStoreDataset plus synthetic distance, rotation and occlusion buckets; CI report | B1         | pending     |
 | N1  | Native spike: VisionCamera v5 + worklets 0.13 on RN 0.88, APK builds in CI                           | M1         | pending     |

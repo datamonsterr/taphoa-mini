@@ -503,14 +503,14 @@ async fn scan_orders_classes_candidates_and_persists() {
     let _ = blue;
 }
 
-/// Exercise empty/singleton arrays as well as a full 24-detection multi scan.
+/// Exercise the whole-frame fallback and a full 24-detection multi scan.
 /// Distinct boxes and mixed colours catch array alignment, ordering and JSONB
 /// snapshot regressions; embeddings are read directly because the API hides them.
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
 async fn multi_scan_many_detections_round_trips_unchanged() {
     for count in [0, 1, 24] {
-        let mut photo = image::RgbImage::new(384, 256);
+        let mut photo = image::RgbImage::from_pixel(384, 256, image::Rgb(GREY));
         let mut segments = Vec::new();
         let colours = [RED, PURPLE, GREY, BLUE];
         for i in 0..count {
@@ -539,7 +539,11 @@ async fn multi_scan_many_detections_round_trips_unchanged() {
         assert_eq!(status, StatusCode::CREATED, "{body}");
         let scan_id = body["id"].as_str().unwrap();
         let posted = body["detections"].as_array().unwrap();
-        assert_eq!(posted.len(), count as usize);
+        assert_eq!(posted.len(), (count as usize).max(1));
+        if count == 0 {
+            assert_eq!(posted[0]["bbox"], json!([0.0, 0.0, 384.0, 256.0]));
+            continue;
+        }
         let (status, fetched) = get_scan(&app, &token, scan_id).await;
         assert_eq!(status, StatusCode::OK, "{fetched}");
         for key in ["id", "mode", "purpose", "pipeline", "created_at"] {
@@ -1317,6 +1321,20 @@ async fn invalid_phone_boxes_return_problem_json() {
         return;
     };
     let (_, _, token) = create_store(&app).await;
+    let too_many = serde_json::to_string(&vec![
+        json!({"x": 0, "y": 0, "width": 0.1, "height": 0.1});
+        11
+    ])
+    .unwrap();
+    let (status, _, headers) =
+        post_scan(&app, &token, Some(&draw_photo()), &[("boxes", &too_many)]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("application/problem+json")
+    );
     for boxes in [
         "not-json",
         r#"[{"x":0,"y":0,"width":0.001,"height":0.2}]"#,
@@ -1333,4 +1351,102 @@ async fn invalid_phone_boxes_return_problem_json() {
                 .starts_with("application/problem+json")
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn single_phone_box_uses_whole_frame_if_it_scores_higher() {
+    let Some((app, state, index)) = build_state(vec![]).await else {
+        return;
+    };
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (red, _) = seed_products(
+        state.postgres.as_ref().unwrap(),
+        store_id,
+        member_id,
+        &index,
+    )
+    .await;
+    let mut photo = image::RgbImage::from_pixel(160, 128, image::Rgb(RED));
+    for y in 0..32 {
+        for x in 0..32 {
+            photo.put_pixel(x, y, image::Rgb(PURPLE));
+        }
+    }
+    let boxes = r#"[{"x":0,"y":0,"width":0.2,"height":0.25}]"#;
+    let (status, body, _) =
+        post_scan(&app, &token, Some(&encode_png(photo)), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        body["detections"][0]["candidates"][0]["product_id"],
+        red.to_string()
+    );
+    assert!(
+        body["detections"][0]["candidates"][0]["similarity"]
+            .as_f64()
+            .unwrap()
+            > 0.95,
+        "{body}"
+    );
+}
+
+#[derive(Default)]
+struct RecordingScanEmbedder(std::sync::Mutex<Vec<usize>>);
+impl Embedder for RecordingScanEmbedder {
+    fn model(&self) -> &str {
+        "colour@1"
+    }
+    fn dim(&self) -> usize {
+        384
+    }
+    fn embed(&self, bytes: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        TestEmbedder.embed(bytes)
+    }
+    fn embed_crops(&self, crops: &[image::RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        self.0.lock().unwrap().push(crops.len());
+        crops
+            .iter()
+            .map(|crop| TestEmbedder.embed(&encode_png(crop.clone())))
+            .collect()
+    }
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables; run with --test-threads=1"]
+async fn tta_only_embeds_ambiguous_crops_and_respects_cap_and_disable() {
+    let Some((_, mut state, index)) = build_state(vec![]).await else {
+        return;
+    };
+    let recorder = Arc::new(RecordingScanEmbedder::default());
+    state.embedder = Some(recorder.clone());
+    let app = router(state.clone());
+    let (store_id, member_id, token) = create_store(&app).await;
+    seed_products(
+        state.postgres.as_ref().unwrap(),
+        store_id,
+        member_id,
+        &index,
+    )
+    .await;
+    let boxes = r#"[{"x":0,"y":0,"width":0.1,"height":0.2},{"x":0.2,"y":0,"width":0.1,"height":0.2},{"x":0.4,"y":0,"width":0.1,"height":0.2},{"x":0.6,"y":0,"width":0.1,"height":0.2},{"x":0.8,"y":0,"width":0.1,"height":0.2}]"#;
+    let purple = encode_png(image::RgbImage::from_pixel(160, 128, image::Rgb(PURPLE)));
+    let (status, body, _) = post_scan(&app, &token, Some(&purple), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(*recorder.0.lock().unwrap(), vec![5, 12]);
+    recorder.0.lock().unwrap().clear();
+    let red = encode_png(image::RgbImage::from_pixel(160, 128, image::Rgb(RED)));
+    let (status, body, _) = post_scan(&app, &token, Some(&red), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(*recorder.0.lock().unwrap(), vec![5]);
+    recorder.0.lock().unwrap().clear();
+    // This integration suite is run serially, so no other test reads the variable concurrently.
+    unsafe {
+        std::env::set_var("SCAN_TTA", "0");
+    }
+    let (status, body, _) = post_scan(&app, &token, Some(&purple), &[("boxes", boxes)]).await;
+    unsafe {
+        std::env::remove_var("SCAN_TTA");
+    }
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(*recorder.0.lock().unwrap(), vec![5]);
 }
