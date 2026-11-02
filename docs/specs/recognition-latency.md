@@ -39,10 +39,10 @@ Load-time warm-up is excluded; all five subsequent runs are included. The host w
 busy with other builds and backend tests (observed load average approximately 12), so
 these are measurements under shared load, not isolated capacity estimates.
 
-| Side | Twenty-crop run times (ms) | Median batch (ms) | Amortized ms/crop |
-| --- | --- | --- | --- |
-| 112 | 1471.4, 1679.7, 1713.4, 1712.9, 1819.6 | 1712.9 | 85.6 |
-| 224 | 4506.1, 5438.4, 4442.0, 3426.2, 3568.9 | 4442.0 | 222.1 |
+| Side | Twenty-crop run times (ms)             | Median batch (ms) | Amortized ms/crop |
+| ---- | -------------------------------------- | ----------------- | ----------------- |
+| 112  | 1471.4, 1679.7, 1713.4, 1712.9, 1819.6 | 1712.9            | 85.6              |
+| 224  | 4506.1, 5438.4, 4442.0, 3426.2, 3568.9 | 4442.0            | 222.1             |
 
 224 px cost 2.59 times the median batch time in this run. Retrieval v2 intentionally
 makes 224 the default to retain detail; this measured twenty-crop embedding stage

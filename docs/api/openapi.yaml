@@ -3340,8 +3340,8 @@ components:
       required: [name, price, unit]
       properties:
         name: { type: string }
-        price: { type: integer, nullable: true, description: Price in đồng. }
-        unit: { type: string, nullable: true }
+        price: { type: [integer, 'null'], description: Price in đồng. }
+        unit: { type: [string, 'null'] }
     VoiceUtterance:
       type: object
       required:
