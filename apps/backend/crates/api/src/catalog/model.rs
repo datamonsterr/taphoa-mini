@@ -435,6 +435,25 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn keyframe_reference_counts_and_mixing() {
+        let frame = || json!({"image_id": Uuid::now_v7(), "bbox": [0, 0, 10, 10], "source": "keyframe"});
+        let photo = || json!({"image_id": Uuid::now_v7(), "cutout_image_id": Uuid::now_v7(), "bbox": [0, 0, 10, 10]});
+        let validate = |refs: Vec<Value>| {
+            CreateProductRequest::parse(json!({"id": Uuid::now_v7(), "price": 1, "references": refs})).and_then(|r| r.validate())
+        };
+        for count in [7, 25] {
+            assert_eq!(validate((0..count).map(|_| frame()).collect()).unwrap_err().status, axum::http::StatusCode::BAD_REQUEST);
+        }
+        for count in [8, 24] {
+            assert!(validate((0..count).map(|_| frame()).collect()).is_ok());
+        }
+        let mut mixed: Vec<_> = (0..8).map(|_| frame()).collect();
+        mixed.push(photo());
+        assert_eq!(validate(mixed).unwrap_err().status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(validate((0..3).map(|_| photo()).collect()).is_ok());
+    }
+
     fn create(price: i64, images: usize) -> CreateProductRequest {
         CreateProductRequest {
             id: Uuid::now_v7(),
