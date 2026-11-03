@@ -9,6 +9,7 @@ import {
 import { router } from 'expo-router';
 
 import * as debtsApi from '@/lib/api/debts';
+import * as digestApi from '@/lib/api/digest';
 import * as ledger from '@/lib/api/ledger';
 import * as review from '@/lib/api/review';
 import { resetApiClient } from '@/lib/api';
@@ -42,9 +43,45 @@ const ready = () => screen.findByLabelText(/^Doanh thu \d/);
 
 test('opens import receipt history from the dashboard', async () => {
   await renderWithProviders(<DashboardScreen />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Hóa đơn nhập' }));
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Hóa đơn nhập' }),
+  );
   expect(router.push).toHaveBeenCalledWith('/receipts');
   await ready();
+});
+
+test('waits for the digest before exposing shortcuts below it', async () => {
+  let release: () => void = () => {};
+  const getDigest = digestApi.getDigest;
+  jest.spyOn(digestApi, 'getDigest').mockImplementationOnce(
+    (date, markRead) =>
+      new Promise((resolve) => {
+        release = () => resolve(getDigest(date, markRead));
+      }),
+  );
+  await renderWithProviders(<DashboardScreen />);
+  expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
+  await act(() => release());
+  expect(
+    await screen.findByRole('button', { name: 'Hóa đơn nhập' }),
+  ).toBeOnTheScreen();
+});
+
+test('waits for the debt shortcut before exposing the receipt shortcut', async () => {
+  let release: () => void = () => {};
+  const getSummary = debtsApi.getDebtSummary;
+  jest.spyOn(debtsApi, 'getDebtSummary').mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve(getSummary());
+      }),
+  );
+  await renderWithProviders(<DashboardScreen />);
+  expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
+  await act(() => release());
+  expect(
+    await screen.findByRole('button', { name: 'Hóa đơn nhập' }),
+  ).toBeOnTheScreen();
 });
 
 test.each([
@@ -61,7 +98,7 @@ test.each([
     await renderWithProviders(<DashboardScreen />);
     if (visible) {
       expect(
-        screen.getByRole('button', { name: 'Hóa đơn nhập' }),
+        await screen.findByRole('button', { name: 'Hóa đơn nhập' }),
       ).toBeOnTheScreen();
     } else {
       expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();

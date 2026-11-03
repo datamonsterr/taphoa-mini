@@ -13,6 +13,7 @@ import {
   Text,
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
+import { useDebtSummary, useDigest } from '@/lib/api';
 import { useCanEnroll, useIsLead } from '@/features/auth/useMembership';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
@@ -44,6 +45,8 @@ export function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<Period>('day');
   const data = useDashboardData(period);
+  const digest = useDigest();
+  const debts = useDebtSummary();
   const isLead = useIsLead();
   const canEnroll = useCanEnroll();
 
@@ -139,7 +142,10 @@ export function DashboardScreen() {
         <AlertsSection />
 
         <DigestCard />
-        <ShortcutChips showReceipts={canEnroll} />
+        {/* The digest and debt chip can both shift the receipt shortcut as they load. */}
+        {!digest.isLoading && !debts.isLoading ? (
+          <ShortcutChips showReceipts={canEnroll} debtSummary={debts.data} />
+        ) : null}
 
         {isLead ? (
           <PressableScale

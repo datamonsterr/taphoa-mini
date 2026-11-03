@@ -3,7 +3,8 @@ import { BookOpen, ReceiptText } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 
 import { Icon, PressableScale, Text } from '@/components/ui';
-import { useDebtSummary, useReceipts } from '@/lib/api';
+import { useReceipts } from '@/lib/api';
+import type { DebtSummary } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
@@ -17,20 +18,25 @@ import { dashboardStrings } from './strings';
  * so a Seller sees the debt chip too. A chip stays out while its data loads or fails, and the
  * report above it is unaffected.
  */
-export function ShortcutChips({ showReceipts }: { showReceipts: boolean }) {
+export function ShortcutChips({
+  showReceipts,
+  debtSummary,
+}: {
+  showReceipts: boolean;
+  debtSummary: DebtSummary | undefined;
+}) {
   return (
     <View style={styles.row}>
-      <DebtChip />
+      <DebtChip summary={debtSummary} />
       {showReceipts ? <ReceiptsChip /> : null}
     </View>
   );
 }
 
-function DebtChip() {
+function DebtChip({ summary }: { summary: DebtSummary | undefined }) {
   const t = useT(dashboardStrings);
-  const summary = useDebtSummary();
-  if (!summary.data) return null;
-  const { total_outstanding, overdue_count } = summary.data;
+  if (!summary) return null;
+  const { total_outstanding, overdue_count } = summary;
   const overdue = fill(t('debtsOverdue'), { count: overdue_count });
   const open = () => router.push('/debts' as Href);
   return (

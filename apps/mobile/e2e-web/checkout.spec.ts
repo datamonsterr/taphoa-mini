@@ -110,7 +110,7 @@ test.describe('checkout and payment', () => {
           product_id: coca.id,
           quantity: 1,
           unit_price: coca.price,
-          source: 'camera',
+          source: scan.body.detections.length > 1 ? 'multi_photo' : 'camera',
           detection_id: scan.body.detections[0].id,
           suggested_product_id: coca.id,
         },
