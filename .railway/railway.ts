@@ -202,6 +202,26 @@ export default defineRailway((ctx) => {
       },
     });
     resources.push(collector);
+
+    // Marketing page (ADR 0010, Hosting): a Caddy image serving apps/landing/dist. Production only,
+    // from GitHub. App Sleeping stays off: the first request after a sleep can return 502.
+    const landing = service('landing', {
+      build: {
+        builder: 'DOCKERFILE',
+        dockerfilePath: 'apps/landing/Dockerfile',
+        watchPatterns: ['apps/landing/**'],
+      },
+      source: github('datamonsterr/taphoa-mini', {
+        branch: 'main',
+        checkSuites: true,
+      }),
+      replicas: { sin: 1 },
+      healthcheck: '/healthz',
+      // Railway's default restart policy is on failure; only the retry cap is declared.
+      deploy: { restartPolicyMaxRetries: 5 },
+      cdn: { enabled: true },
+    });
+    resources.push(landing);
   }
 
   return project('taphoa-mini', {

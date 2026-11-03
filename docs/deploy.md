@@ -1,17 +1,19 @@
 # Deploying the backend
 
-Railway project `taphoa-mini` has two environments: `production` runs four services,
+Railway project `taphoa-mini` has two environments: `production` runs five services,
 and `test` runs the three application services with its own data. The telemetry
-collector runs only in production and receives signals from both environments.
+collector and the `landing` marketing page run only in production; the collector receives
+signals from both environments.
 Mobile native builds and the web deploy stay in `apps/mobile/.eas/workflows/`; mobile is
 not a Railway service.
 
-| Service          | Source and configuration                                                                                  |
-| ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `backend`        | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile`             |
-| `Postgres`       | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`                         |
-| `Redis`          | Railway Redis database with volume at `/data`                                                             |
-| `otel-collector` | Production only; root upload, Dockerfile `infra/otel-collector/Dockerfile`, public/private OTLP port 4318 |
+| Service          | Source and configuration                                                                                                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend`        | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile`                                                                                                                        |
+| `Postgres`       | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`                                                                                                                                    |
+| `Redis`          | Railway Redis database with volume at `/data`                                                                                                                                                                        |
+| `otel-collector` | Production only; root upload, Dockerfile `infra/otel-collector/Dockerfile`, public/private OTLP port 4318                                                                                                            |
+| `landing`        | Production only; GitHub `main` (`apps/landing/**`), Dockerfile `apps/landing/Dockerfile` (Caddy serving `dist/`), CDN on, no sleep. Hosting decision: [ADR 0010](adr/0010-landing-static-site.md#hosting-2026-11-03) |
 
 ## Infrastructure as Code
 
