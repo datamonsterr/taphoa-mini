@@ -29,6 +29,7 @@ pub mod telemetry;
 pub mod time;
 pub mod vector;
 pub mod voice;
+pub mod waitlist;
 
 use axum::{
     Json, Router,
@@ -245,6 +246,7 @@ pub fn router(state: AppState) -> Router {
                 .layer(RequestBodyLimitLayer::new(images::MAX_IMAGE_REQUEST_BYTES)),
         )
         .route("/v1/images/{id}", get(images::get_image))
+        .merge(waitlist::router())
         .merge(auth::router())
         .merge(devices::router())
         .merge(store::router())
