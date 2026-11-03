@@ -447,6 +447,18 @@ jobs:
         working-directory: apps/landing
         run: pnpm exec playwright install-deps chromium
       - run: pnpm --filter @taphoa/landing test:e2e
+      # Build-output checks: content-hashed names in dist/ (scripts/build.mjs), then the Caddy image
+      # that Railway serves (apps/landing/Dockerfile, Caddyfile) checked over HTTP.
+      - run: pnpm --filter @taphoa/landing test
+      - name: Build landing image
+        run: docker build -f apps/landing/Dockerfile -t landing .
+      - name: Run landing image
+        run: docker run -d --name landing -e PORT=8080 -p 8080:8080 landing
+      - name: Check landing headers
+        run: bash apps/landing/scripts/check-headers.sh http://127.0.0.1:8080
+      - name: Remove landing container
+        if: always()
+        run: docker rm -f landing || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -459,7 +471,7 @@ jobs:
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
-        run: scripts/ci/job-summary.sh "landing-e2e" "playwright test (1440 and 390)"
+        run: scripts/ci/job-summary.sh "landing-e2e" "playwright test (1440 and 390), build unit test, Caddy image headers"
 
   # ---------- Mobile app (all run in parallel; each needs only the pnpm install) ----------
 
