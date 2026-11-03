@@ -21,6 +21,7 @@ async function endpoint(page: Page) {
 test.beforeEach(async ({ page }) => {
   // Never send a test signup to the production backend.
   await page.route('**/v1/waitlist', (route) => route.abort());
+  await page.clock.install({ time: new Date('2026-11-03T00:00:00Z') });
   await page.goto('/');
 });
 
@@ -164,16 +165,7 @@ test('double click sends one request and disables submit while pending', async (
   });
   const widget = await openWaitlist(page);
   await widget.getByRole('textbox').fill('chu.tiem@example.com');
-  await widget
-    .getByRole('button', { name: 'Gửi email' })
-    .dispatchEvent('dblclick');
-  // A native double click dispatches two click events before dblclick.
-  await widget
-    .getByRole('button', { name: 'Gửi email' })
-    .evaluate((button: HTMLButtonElement) => {
-      button.click();
-      button.click();
-    });
+  await widget.getByRole('button', { name: 'Gửi email' }).dblclick();
   await expect.poll(() => requests).toBe(1);
   await expect(
     widget.getByRole('button', { name: 'Gửi email' }),
@@ -220,7 +212,7 @@ test('1040px and 720px breakpoints preserve the board layout changes', async ({
         nav: style('.nav').height,
         links: style('.links').display,
         ring: style('.ringstage').height,
-        cardColumn: style('.c7').gridColumnEnd,
+        cardColumn: style('.c7').gridColumnStart,
       };
     });
     expect(layout.hero).toBe(width <= 1040 ? 1 : 2);
@@ -237,7 +229,7 @@ test('1040px and 720px breakpoints preserve the board layout changes', async ({
 test('scan tracks three products, flags ambiguous Pringles, confirms 60.000đ, and loops', async ({
   page,
 }) => {
-  await page.clock.install();
+  await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   await page.clock.runFor(2 * 1150 + 600);
   await expect(page.locator('.scr')).toHaveClass(/s2/);
@@ -258,7 +250,7 @@ test('scan tracks three products, flags ambiguous Pringles, confirms 60.000đ, a
 test('enrollment fills eight sectors, cycles prompts, and reaches the voice step', async ({
   page,
 }) => {
-  await page.clock.install();
+  await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   await page.clock.runFor(3 * 1150);
   await expect(page.locator('.prompt')).toContainText('Đưa ra xa');
@@ -275,7 +267,7 @@ test('enrollment fills eight sectors, cycles prompts, and reaches the voice step
 test('voice transcription, cart, revenue, bars, and top items update', async ({
   page,
 }) => {
-  await page.clock.install();
+  await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   const initial = await page.locator('.big').innerText();
   const today = await page.locator('.bar.today div').getAttribute('style');
@@ -298,7 +290,7 @@ test('reduced motion shows completed static demos and removes all animation and 
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.clock.install();
+  await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   await expect(page.locator('.scr')).toHaveClass(/s5/);
   await expect(page.locator('.ring .seg.on')).toHaveCount(8);
@@ -328,7 +320,7 @@ test('reduced motion shows completed static demos and removes all animation and 
 });
 
 test('saves a full-page visual artifact', async ({ page }, info) => {
-  await page.clock.install();
+  await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   await page.clock.runFor(5 * 1150 + 700);
   await page.evaluate(() => document.fonts.ready);
