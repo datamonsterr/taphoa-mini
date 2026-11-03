@@ -2743,7 +2743,11 @@ components:
       type: object
       required: [email]
       properties:
-        email: { type: string, description: Email address up to 254 characters after normalization. }
+        email:
+          {
+            type: string,
+            description: Email address up to 254 characters after normalization.,
+          }
     WaitlistResponse:
       type: object
       required: [status]
