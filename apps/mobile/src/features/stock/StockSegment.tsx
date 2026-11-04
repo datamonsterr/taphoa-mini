@@ -41,14 +41,15 @@ const styles = StyleSheet.create({
   segment: {
     flexDirection: 'row',
     padding: space[1],
+    alignSelf: 'flex-start',
     marginHorizontal: space[4],
     gap: space[1],
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.full,
   },
   option: {
-    flex: 1,
     minHeight: 56,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,

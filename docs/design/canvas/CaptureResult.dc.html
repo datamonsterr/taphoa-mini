@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Xác nhận món nhận được</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+.sheet{animation:up .5s cubic-bezier(.2,.8,.2,1) both}
+.cand{transition:background-color .2s,box-shadow .2s,transform .12s}
+.cand:active{transform:scale(.96)}
+@keyframes up{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.sheet{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); font-family: var(--font-sans); color: var(--ink)">
+
+  <div style="position: absolute; left: 16px; top: 20px; width: 358px; height: 236px; border-radius: 28px; overflow: hidden; background: #efe9e0">
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; background: #e2d8c9"></div>
+    <img src="img/coca-cola.jpg" alt="" style="position: absolute; left: 40px; top: 46px; width: 44px; height: 108px; object-fit: contain; mix-blend-mode: multiply">
+    <img src="img/hao-hao.jpg" alt="" style="position: absolute; left: 116px; top: 126px; width: 98px; height: 76px; object-fit: contain; mix-blend-mode: multiply; transform: rotate(-6deg)">
+    <img src="img/pringles.jpg" alt="" style="position: absolute; left: 234px; top: 36px; width: 58px; height: 104px; object-fit: contain; mix-blend-mode: multiply; transform: rotate(9deg)">
+    <span aria-hidden="true" style="position: absolute; left: 36px; top: 42px; width: 52px; height: 116px; border-radius: 14px; border: 2px solid #ffffff"></span>
+    <span aria-hidden="true" style="position: absolute; left: 112px; top: 124px; width: 106px; height: 80px; border-radius: 14px; border: 2px solid #ffffff"></span>
+    <span aria-hidden="true" style="position: absolute; left: 230px; top: 34px; width: 66px; height: 108px; border-radius: 14px; border: 2px {{boxStyle}}"></span>
+    <b aria-hidden="true" style="position: absolute; left: 28px; top: 34px; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 9999px; background: #ffffff; font: 800 14px/26px var(--font-sans)">1</b>
+    <b aria-hidden="true" style="position: absolute; left: 104px; top: 116px; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 9999px; background: #ffffff; font: 800 14px/26px var(--font-sans)">2</b>
+    <b aria-hidden="true" style="position: absolute; left: 222px; top: 26px; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 9999px; background: var(--camera-ring); color: #1a1205; font: 800 14px/26px var(--font-sans)">3</b>
+    <a href="CaptureIdentify.dc.html" class="th-ib" aria-label="Chụp lại" style="position: absolute; right: 12px; bottom: 12px; background: rgba(12,12,14,.6); color: #ffffff"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></a>
+  </div>
+
+  <section class="sheet" aria-label="Món nhận được" style="position: absolute; left: 0; right: 0; bottom: 0; height: 572px; box-sizing: border-box; padding: 24px 16px 16px; border-radius: 36px 36px 0 0; background: var(--surface); box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between">
+      <h1 style="margin: 0; font: var(--text-heading)">3 món trong khung</h1>
+      <span style="font: var(--text-caption); color: var(--ink-muted)">2,1 giây</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 22px; background: var(--surface-soft)">
+      <b style="display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px; background: var(--ink); color: #ffffff; font: 800 14px/28px var(--font-sans)">1</b>
+      <div style="flex: 1; min-width: 0"><div style="font: var(--text-label)">Coca-Cola lon 330ml</div><div class="th-num" style="font: 700 22px/28px var(--font-sans)">10.000đ</div></div>
+      <span class="th-badge th-badge-success"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>92</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 22px; background: var(--surface-soft)">
+      <b style="display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px; background: var(--ink); color: #ffffff; font: 800 14px/28px var(--font-sans)">2</b>
+      <div style="flex: 1; min-width: 0"><div style="font: var(--text-label)">Mì Hảo Hảo tôm chua cay</div><div class="th-num" style="font: 700 22px/28px var(--font-sans)">5.000đ</div></div>
+      <span class="th-badge th-badge-success"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>88</span>
+    </div>
+
+    <div style="padding: 12px; border-radius: 22px; background: {{ambBg}}; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <b style="display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px; background: {{ambDot}}; color: #ffffff; font: 800 14px/28px var(--font-sans)">3</b>
+        <div style="flex: 1; min-width: 0"><div style="font: var(--text-label)">{{pickedName}}</div><div style="font: var(--text-caption); color: {{ambInk}}">{{ambNote}}</div></div>
+        <sc-if value="{{unsure}}" hint-placeholder-val="{{true}}"><span class="th-badge th-badge-warning"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>74</span></sc-if>
+      </div>
+      <div role="radiogroup" aria-label="Chọn đúng món" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+        <sc-for list="{{cands}}" as="c" hint-placeholder-count="3">
+          <button type="button" class="cand" role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 104px; padding: 10px; border: 0; border-radius: 18px; background: #ffffff; box-shadow: {{c.ring}}; cursor: pointer; text-align: left; font-family: var(--font-sans); color: var(--ink)">
+            <img src="{{c.img}}" alt="" style="display: block; width: 44px; height: 44px; object-fit: contain">
+            <span style="font: 600 14px/18px var(--font-sans)">{{c.name}}</span>
+            <b class="th-num" style="font: 700 16px/20px var(--font-sans)">{{c.price}}</b>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <p style="margin: 0; display: flex; align-items: center; gap: 8px; font: var(--text-caption); color: var(--ink-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg>Món bạn chọn được lưu thêm ảnh, lần sau nhận nhanh hơn.</p>
+
+    <a href="Cart.dc.html" class="th-btn th-btn-ink th-btn-block" style="margin-top: auto; display: flex; justify-content: space-between; padding: 0 10px 0 24px; box-sizing: border-box; opacity: {{ctaOpacity}}"><span>{{ctaLabel}}</span><b class="th-num" style="display: flex; align-items: center; gap: 10px; font: 800 22px/26px var(--font-sans)">{{total}}<span style="display: grid; place-items: center; width: 48px; height: 48px; border-radius: 9999px; background: var(--accent)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg></span></b></a>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { picked: null }; }
+  renderVals() {
+    var list = [
+      { id: 'pr', name: 'Pringles Original', price: 45000, img: 'img/pringles.jpg' },
+      { id: 'coke', name: 'Coca-Cola lon', price: 10000, img: 'img/coca-cola.jpg' },
+      { id: 'oreo', name: 'Oreo sô-cô-la', price: 49000, img: 'img/oreo.jpg' }
+    ];
+    var vnd = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+    var picked = list.find((c) => c.id === this.state.picked);
+    var unsure = !picked;
+    return {
+      unsure: unsure,
+      boxStyle: unsure ? 'dashed var(--camera-ring)' : 'solid #ffffff',
+      ambBg: unsure ? 'var(--warning-soft)' : 'var(--surface-soft)',
+      ambDot: unsure ? 'var(--warning)' : 'var(--ink)',
+      ambInk: unsure ? 'var(--warning)' : 'var(--success)',
+      pickedName: picked ? picked.name : 'Chưa chắc: món nào đây?',
+      ambNote: picked ? 'Đã chọn · ' + vnd(picked.price) : 'Bị che một phần · chọn 1 trong 3',
+      cands: list.map((c) => ({
+        name: c.name, price: vnd(c.price), img: c.img,
+        on: String(this.state.picked === c.id),
+        ring: this.state.picked === c.id ? '0 0 0 3px var(--accent)' : 'none',
+        pick: () => this.setState({ picked: c.id })
+      })),
+      total: vnd(15000 + (picked ? picked.price : 0)),
+      ctaLabel: picked ? 'Thêm 3 món' : 'Thêm 2 món',
+      ctaOpacity: 1
+    };
+  }
+}
+</script>
+</body>
+</html>

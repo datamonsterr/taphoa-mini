@@ -1,5 +1,6 @@
 """Tests for the CI helper scripts. Run: python3 -m unittest discover -s scripts/ci -v"""
 
+import datetime
 import http.server
 import json
 import os
@@ -8,6 +9,7 @@ import subprocess
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -817,6 +819,39 @@ class E2eStack(unittest.TestCase):
         self.assertNotIn("RATE_LIMIT_RECOVER_PER_10MIN", seen)
         self.assertEqual(seen["RATE_LIMIT_STORE_CREATE_PER_HOUR"], "100000")
         self.assertEqual(seen["RATE_LIMIT_JOIN_PER_HOUR"], "100000")
+
+
+class PinClock(unittest.TestCase):
+    script = HERE.parent / "e2e" / "pin-clock.sh"
+
+    def pin(self, *args):
+        out = run(["bash", str(self.script), *args])
+        return out, dict(line.split("=", 1) for line in out.stdout.splitlines())
+
+    def test_pins_store_time_and_offsets_the_emulator_by_the_same_amount(self):
+        for pin in ("10:00", "23:58"):
+            before = time.time()
+            out, seen = self.pin(pin)
+            after = time.time()
+            self.assertEqual(out.returncode, 0, out.stderr)
+            pinned = datetime.datetime.fromisoformat(seen["TAPHOA_TEST_NOW"])
+            self.assertEqual(pinned.utcoffset(), datetime.timedelta(hours=7))
+            self.assertEqual(pinned.strftime("%H:%M"), pin)
+            offset = int(seen["E2E_CLOCK_OFFSET_SECS"])
+            # Real time plus the offset is the pin: the emulator and backend start together.
+            self.assertLessEqual(abs(before + offset - pinned.timestamp()), after - before + 2)
+            # Same store date as now, never another day.
+            today = datetime.datetime.fromtimestamp(before, pinned.tzinfo).date()
+            self.assertEqual(pinned.date(), today)
+
+    def test_defaults_to_ten_in_the_morning(self):
+        out, seen = self.pin()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("T10:00:00+07:00", seen["TAPHOA_TEST_NOW"])
+
+    def test_rejects_a_malformed_pin(self):
+        for bad in ("25:00", "10", "10:60", "10:00:00"):
+            self.assertNotEqual(self.pin(bad)[0].returncode, 0, bad)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,10 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react-native';
 import { onlineManager } from '@tanstack/react-query';
 import { router } from 'expo-router';
 
@@ -38,6 +44,61 @@ test('renders API order with quantity, badge and thumbnail; a row opens product 
     pathname: '/product/[id]',
     params: { id: PRODUCT_IDS.pepsi },
   });
+});
+
+test('rows follow board 18: name, threshold under it, count badge at the right, no status word', async () => {
+  await renderWithProviders(<StockScreen />);
+  const row = await screen.findByRole('button', { name: 'Pepsi lon 330ml' });
+  expect(within(row).getByText('Pepsi lon 330ml')).toBeOnTheScreen();
+  expect(within(row).getByText(/^Ngưỡng \d+$/)).toBeOnTheScreen();
+  expect(within(row).getByLabelText('Tồn kho 0, Hết hàng')).toHaveTextContent(
+    '0',
+  );
+  expect(within(row).queryByText('Hết hàng')).toBeNull();
+  // the board has no "bán n/ngày": the API has no sales rate
+  expect(screen.queryByText(/bán \d+\/ngày/)).toBeNull();
+});
+
+test('four filters, the last one asks the API for in-stock products', async () => {
+  const list = jest.spyOn(stockApi, 'listStock');
+  await renderWithProviders(<StockScreen />);
+  await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' });
+  for (const name of ['Tất cả', 'Sắp hết', 'Hết hàng', 'Còn hàng'])
+    expect(screen.getByRole('button', { name })).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Còn hàng' }));
+  await waitFor(() =>
+    expect(list).toHaveBeenLastCalledWith({ status: 'ok', cursor: null }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' }),
+  ).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Pepsi lon 330ml' })).toBeNull();
+});
+
+test('summary card counts low and out products and opens the assistant to restock', async () => {
+  await renderWithProviders(<StockScreen />);
+  const card = await screen.findByTestId('stock-summary');
+  expect(within(card).getByText('2 món sắp hết hoặc hết')).toBeOnTheScreen();
+  await fireEvent.press(
+    within(card).getByRole('button', { name: 'Nhập hàng' }),
+  );
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: '/assistant',
+    params: {
+      entry: 'chip',
+      prompt: 'Tôi nên nhập thêm hàng gì?',
+      screen: 'stock',
+    },
+  });
+});
+
+test('no summary card when nothing is low or out', async () => {
+  jest
+    .spyOn(stockApi, 'listStock')
+    .mockResolvedValue({ items: [], next_cursor: null });
+  await renderWithProviders(<StockScreen />);
+  await screen.findByText('Chưa có sản phẩm theo dõi tồn kho');
+  expect(screen.queryByTestId('stock-summary')).toBeNull();
 });
 
 test('filter chips request low, out and all statuses', async () => {
@@ -97,19 +158,22 @@ test('pull to refresh and infinite scroll request fresh data and next cursor', a
       items: cursor ? page.items.slice(1) : page.items.slice(0, 1),
       next_cursor: cursor ? null : 'next',
     }));
+  // The summary card's low and out queries are not the list's: count the list's own calls.
+  const listCalls = () =>
+    list.mock.calls.filter(([params]) => params?.status === 'all');
   await renderWithProviders(<StockScreen />);
   await screen.findByRole('button', { name: 'Pepsi lon 330ml' });
   await act(async () =>
     screen.getByTestId('stock-list').props.refreshControl.props.onRefresh(),
   );
-  expect(list).toHaveBeenCalledTimes(2);
+  expect(listCalls()).toHaveLength(2);
   await act(async () => screen.getByTestId('stock-list').props.onEndReached());
   expect(
     await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' }),
   ).toBeOnTheScreen();
-  expect(list).toHaveBeenLastCalledWith({ status: 'all', cursor: 'next' });
+  expect(listCalls().at(-1)).toEqual([{ status: 'all', cursor: 'next' }]);
   await act(async () => screen.getByTestId('stock-list').props.onEndReached());
-  expect(list).toHaveBeenCalledTimes(3);
+  expect(listCalls()).toHaveLength(3);
 });
 
 test('English segment returns to products', async () => {

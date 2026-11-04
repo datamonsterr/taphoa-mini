@@ -452,7 +452,7 @@ async fn stock_order_filters_pagination_and_archived() {
         }
     }
     assert_eq!(seen, vec![ids[1], ids[0], ids[2], ids[3]]);
-    for (filter, n) in [("low", 3), ("out", 2), ("all", 4)] {
+    for (filter, n) in [("low", 3), ("out", 2), ("ok", 1), ("all", 4)] {
         let page = w
             .checked(
                 "GET",
