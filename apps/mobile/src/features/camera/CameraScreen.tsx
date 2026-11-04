@@ -121,6 +121,8 @@ const FIXED_HEIGHT =
  * The native barcode handler never changes. On Android, expo-camera rebinds CameraX whenever
  * `onBarcodeScanned` appears or disappears, and that rebind aborts a picture in flight with
  * "Failed to capture image". A paused scanner passes no handler and the reads are dropped here.
+ * Web has no rebind, and its scanner decodes a full video frame on the main thread every 300 ms
+ * while a handler is set, so a paused scanner there drops the handler to stop the decoding.
  */
 function LivePreview({
   cameraRef,
@@ -148,7 +150,9 @@ function LivePreview({
         facing="back"
         animateShutter={false}
         barcodeScannerSettings={BARCODE_SETTINGS}
-        onBarcodeScanned={onBarcode}
+        onBarcodeScanned={
+          Platform.OS === 'web' && !onBarcodeScanned ? undefined : onBarcode
+        }
         onCameraReady={onCameraReady}
         style={StyleSheet.absoluteFill}
       />
