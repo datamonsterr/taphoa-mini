@@ -1,0 +1,18 @@
+{
+  "id": "42-unknown-banh-trang",
+  "source": "synthetic",
+  "transcript": "hai gói bánh tráng nướng",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "bánh tráng nướng",
+      "product": null,
+      "status": "unknown",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["unknown"]
+}

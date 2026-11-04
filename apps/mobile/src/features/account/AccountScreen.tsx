@@ -4,10 +4,10 @@ import {
   Crown,
   Eye,
   Globe,
-  KeyRound,
+  Lock,
   Landmark,
-  LogOut,
   User,
+  Volume2,
 } from 'lucide-react-native';
 import { useAuth, useSessionList } from '@clerk/expo';
 import { useRouter } from 'expo-router';
@@ -23,6 +23,7 @@ import {
   Text,
 } from '@/components/ui';
 import { useMe, useMembers, useStore, type BankAccount } from '@/lib/api';
+import { bankLabel } from '@/lib/banks';
 import { useT } from '@/lib/i18n';
 import { useAddPerson } from '@/features/auth/addPerson';
 import { signedInSessions } from '@/features/auth/deviceSessions';
@@ -53,6 +54,7 @@ import { StorePicker } from './StorePicker';
 import { SwitchPinSheet } from './SwitchPinSheet';
 import { fill, strings } from './strings';
 import { useSwitchSession } from './useSwitchSession';
+import { VoiceSetupSection } from '../voice/VoiceSetupSection';
 import { formatAccountNumber, initialOf } from './utils';
 
 /** Space under the content for the floating bottom bar (16 + 64 + 32). */
@@ -65,7 +67,7 @@ const LANGUAGES: readonly { id: Language; label: string }[] = [
 
 const bankText = (bank: BankAccount | null | undefined, empty: string) =>
   bank
-    ? `${bank.bank_short_name ?? bank.bank_bin} · ${formatAccountNumber(bank.account_number)}`
+    ? `${bankLabel(bank)} · ${formatAccountNumber(bank.account_number)}`
     : empty;
 
 const ElderRow = memo(function ElderRow() {
@@ -82,6 +84,25 @@ const ElderRow = memo(function ElderRow() {
         value={elder}
         onValueChange={setElder}
         accessibilityLabel={t('elder')}
+      />
+    </View>
+  );
+});
+
+const SpeakRow = memo(function SpeakRow() {
+  const t = useT(strings);
+  const speak = useSettingsStore((s) => s.speakTotal);
+  const setSpeak = useSettingsStore((s) => s.setSpeakTotal);
+  return (
+    <View style={[styles.row, styles.rowRight12]}>
+      <Icon icon={Volume2} color={colors.inkMuted} />
+      <ScaledText variant="label" style={styles.grow}>
+        {t('speak')}
+      </ScaledText>
+      <Switch
+        value={speak}
+        onValueChange={setSpeak}
+        accessibilityLabel={t('speak')}
       />
     </View>
   );
@@ -197,6 +218,35 @@ const LanguageRow = memo(function LanguageRow() {
   );
 });
 
+/** Board 12: "Mã PIN khóa máy" with a pill: "Đổi" once a PIN exists, "Đặt mã PIN" before. */
+const PinRow = memo(function PinRow({
+  hasPin,
+  onPress,
+}: {
+  hasPin: boolean;
+  onPress: () => void;
+}) {
+  const t = useT(strings);
+  const action = t(hasPin ? 'pin.change' : 'pin.set');
+  return (
+    <View style={[styles.row, styles.rowRight8]}>
+      <Icon icon={Lock} color={colors.inkMuted} />
+      <ScaledText variant="label" style={styles.grow}>
+        {t('pin.row')}
+      </ScaledText>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={hasPin ? t('pin.changeLabel') : action}
+        pressedScale={0.96}
+        onPress={onPress}
+        style={styles.pill}
+      >
+        <ScaledText variant="label">{action}</ScaledText>
+      </PressableScale>
+    </View>
+  );
+});
+
 const SignOutRow = memo(function SignOutRow() {
   const t = useT(strings);
   const { busy, failed, available, signOut } = useCurrentSessionSignOut();
@@ -211,10 +261,12 @@ const SignOutRow = memo(function SignOutRow() {
       onPress={() => {
         void signOut();
       }}
-      style={[styles.row, styles.rowRight16, busy && styles.disabled]}
+      style={[styles.signOut, busy && styles.disabled]}
     >
-      <Icon icon={LogOut} color={colors.danger} />
-      <ScaledText variant="label" style={[styles.grow, styles.error]}>
+      <ScaledText
+        variant="label"
+        style={failed ? styles.error : styles.signOutText}
+      >
         {failed ? t('logoutError') : t('logout')}
       </ScaledText>
     </PressableScale>
@@ -389,29 +441,6 @@ export function AccountScreen() {
 
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel={t('pin.set')}
-          pressedScale={0.98}
-          onPress={openSetPin}
-          style={[styles.row, styles.rowRight16]}
-        >
-          <Icon icon={KeyRound} color={colors.inkMuted} />
-          <ScaledText variant="label" style={styles.grow}>
-            {t('pin.set')}
-          </ScaledText>
-          <Icon icon={ChevronRight} color={colors.inkMuted} />
-        </PressableScale>
-        {pinSaved ? (
-          <ScaledText
-            accessibilityRole="alert"
-            variant="caption"
-            style={styles.saved}
-          >
-            {t('pin.saved')}
-          </ScaledText>
-        ) : null}
-
-        <PressableScale
-          accessibilityRole="button"
           accessibilityLabel={t('bank.row')}
           accessibilityState={{ disabled: !isLead }}
           disabled={!isLead}
@@ -434,8 +463,19 @@ export function AccountScreen() {
           <StockThresholdRow value={store.data.low_stock_threshold} />
         ) : null}
         <ElderRow />
+        <SpeakRow />
         <TextSizeRow />
         <LanguageRow />
+        <PinRow hasPin={membership.member.has_pin} onPress={openSetPin} />
+        {pinSaved ? (
+          <ScaledText
+            accessibilityRole="alert"
+            variant="caption"
+            style={styles.saved}
+          >
+            {t('pin.saved')}
+          </ScaledText>
+        ) : null}
         <DeviceSessions
           sessions={signedInSessions(sessions)}
           currentId={sessionId ?? null}
@@ -444,6 +484,7 @@ export function AccountScreen() {
           onSwitch={switcher.begin}
           onAdd={addPerson}
         />
+        <VoiceSetupSection />
         <SignOutRow />
       </ScrollView>
 
@@ -509,6 +550,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   rowRight16: { paddingRight: space[4] },
+  pill: {
+    minHeight: 48,
+    paddingHorizontal: space[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+  },
+  // Board Welcome: sign out is a plain muted text link, not a row.
+  signOut: {
+    alignSelf: 'center',
+    minHeight: 56,
+    paddingHorizontal: space[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signOutText: { color: colors.inkMuted },
   rowRight12: { paddingRight: space[3] },
   rowRight8: { paddingRight: space[2] },
   num: { color: colors.ink, fontVariant: ['tabular-nums'] },

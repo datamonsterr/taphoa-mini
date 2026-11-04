@@ -40,3 +40,26 @@ test('labels override the accessible names', async () => {
   expect(screen.getByLabelText('Method')).toBeOnTheScreen();
   expect(screen.getByRole('radio', { name: 'Cash' })).toBeChecked();
 });
+
+test('each payment method has an icon and visible word with a 56 dp target', async () => {
+  await renderWithProviders(<PayToggle value="credit" onChange={jest.fn()} />);
+  for (const label of ['Chuyển khoản', 'Tiền mặt', 'Ghi nợ']) {
+    expect(screen.getByText(label)).toBeOnTheScreen();
+    expect(screen.getByRole('radio', { name: label })).toHaveStyle({
+      minHeight: 56,
+      minWidth: 56,
+    });
+  }
+  expect(screen.getByRole('radio', { name: 'Ghi nợ' })).toBeChecked();
+  for (const icon of ['QrCode', 'Banknote', 'BookText'])
+    expect(screen.getByTestId(`icon-${icon}`)).toBeOnTheScreen();
+});
+
+test('icon-only keeps the accessible names but hides the words', async () => {
+  await renderWithProviders(
+    <PayToggle iconOnly value="cash" onChange={jest.fn()} />,
+  );
+  expect(screen.queryByText('Tiền mặt')).toBeNull();
+  expect(screen.getByRole('radio', { name: 'Tiền mặt' })).toBeChecked();
+  expect(screen.getByTestId('icon-Banknote')).toBeOnTheScreen();
+});

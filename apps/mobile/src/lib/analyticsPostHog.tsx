@@ -1,11 +1,7 @@
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { usePathname, useSegments } from 'expo-router';
-import {
-  PostHogProvider,
-  usePostHog,
-  type PostHog,
-} from 'posthog-react-native';
+import { AnalyticsSdkProvider, usePostHog, type PostHog } from './posthogSdk';
 import {
   useCallback,
   useEffect,
@@ -21,6 +17,7 @@ import {
   type AppEventProps,
 } from './analytics';
 import { setAnalyticsClient, useAnalyticsClient } from './analyticsBridge';
+import { scrubProps } from './analyticsPrivacy';
 import { useSettingsStore } from '@/stores/settings';
 
 /** Super properties every app event carries; registered on mount, language change and after a reset. */
@@ -31,13 +28,14 @@ export function commonProperties(language: string) {
     environment: process.env.EXPO_PUBLIC_ENVIRONMENT || 'local',
     app_version: build ? `${version} (${build})` : version,
     language,
+    ...(process.env.EXPO_PUBLIC_SMOKE === '1' ? { smoke: true } : {}),
   };
 }
 
 export class PostHogSink implements AnalyticsSink {
   constructor(private readonly posthog: Pick<PostHog, 'capture'>) {}
   capture<E extends AppEventName>(event: E, props: AppEventProps[E]): void {
-    this.posthog.capture(event, props);
+    this.posthog.capture(event, scrubProps(props));
   }
 }
 
@@ -76,39 +74,17 @@ export function AnalyticsProvider({ children }: PropsWithChildren) {
   const apiKey = process.env.EXPO_PUBLIC_POSTHOG_KEY;
   if (!apiKey) return children;
   return (
-    <PostHogProvider
+    <AnalyticsSdkProvider
       apiKey={apiKey}
-      options={{
-        host:
-          process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
-        enableSessionReplay: true,
-        sessionReplayConfig: {
-          maskAllTextInputs: true,
-          maskAllImages: true,
-          maskAllSandboxedViews: true,
-          captureLog: false,
-          captureNetworkTelemetry: false,
-        },
-        errorTracking: {
-          autocapture: {
-            uncaughtExceptions: true,
-            unhandledRejections: true,
-            console: [],
-          },
-        },
-        captureAppLifecycleEvents: true,
-      }}
-      autocapture={{ captureScreens: false, captureTouches: false }}
+      host={process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'}
     >
       <AnalyticsRegistration>{children}</AnalyticsRegistration>
-    </PostHogProvider>
+    </AnalyticsSdkProvider>
   );
 }
 
 export interface AnalyticsIdentity {
   userId: string | null;
-  email?: string | null;
-  name?: string | null;
   storeId?: string | null;
   storeName?: string | null;
   memberId?: string | null;
@@ -119,8 +95,7 @@ export interface AnalyticsIdentity {
 export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
   const posthog = useAnalyticsClient();
   const previous = useRef<string | null>(null);
-  const { userId, email, name, storeId, storeName, memberId, role } =
-    identity ?? {};
+  const { userId, storeId, storeName, memberId, role } = identity ?? {};
   const signedOut = identity === null;
   useEffect(() => {
     if (!posthog) return;
@@ -138,19 +113,10 @@ export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
       return;
     }
     if (!userId || !storeId) return;
-    const key = JSON.stringify([
-      userId,
-      email,
-      name,
-      storeId,
-      storeName,
-      memberId,
-      role,
-    ]);
+    const key = JSON.stringify([userId, storeId, storeName, memberId, role]);
     if (previous.current === key) return;
+    // The Clerk id is the identity. Email and display name stay out of analytics.
     posthog.identify(userId, {
-      ...(email != null ? { email } : {}),
-      ...(name != null ? { name } : {}),
       ...(role != null ? { role } : {}),
     });
     posthog.group(
@@ -163,35 +129,29 @@ export function useAnalyticsIdentity(identity: AnalyticsIdentity | null): void {
       ...(role != null ? { role } : {}),
     });
     previous.current = key;
-  }, [
-    posthog,
-    signedOut,
-    userId,
-    email,
-    name,
-    storeId,
-    storeName,
-    memberId,
-    role,
-  ]);
+  }, [posthog, signedOut, userId, storeId, storeName, memberId, role]);
 }
 
-export const ASSISTANT_ENABLED_FLAG = 'assistant_enabled';
 /**
- * The `assistant_enabled` kill switch. Fails open: `true` while PostHog is off, not mounted yet
- * or still loading flags, so only an explicit remote `false` hides the assistant.
+ * A default-on PostHog flag. Fails open: `true` while PostHog is off, not mounted yet or still
+ * loading flags, so only an explicit remote `false` turns the feature off.
  */
-export function useAssistantEnabled(): boolean {
+export function useDefaultOnFlag(key: string): boolean {
   const client = useAnalyticsClient();
   const subscribe = useCallback(
     (notify: () => void) => client?.onFeatureFlags(notify) ?? (() => {}),
     [client],
   );
-  const read = useCallback(
-    () => client?.getFeatureFlag(ASSISTANT_ENABLED_FLAG),
-    [client],
-  );
+  const read = useCallback(() => client?.getFeatureFlag(key), [client, key]);
   const flag = useSyncExternalStore(subscribe, read, () => undefined);
-  // Only an explicit remote "off" hides the assistant; variants and loading fail open.
+  // Only an explicit remote "off" switches it off; variants and loading fail open.
   return flag !== false && flag !== 'false';
 }
+
+export const ASSISTANT_ENABLED_FLAG = 'assistant_enabled';
+/** The `assistant_enabled` kill switch (see {@link useDefaultOnFlag}). */
+export function useAssistantEnabled(): boolean {
+  return useDefaultOnFlag(ASSISTANT_ENABLED_FLAG);
+}
+
+export const VOICE_SERVER_CHAT_FLAG = 'voice_server_chat';

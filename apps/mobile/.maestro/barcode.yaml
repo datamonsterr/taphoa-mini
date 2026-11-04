@@ -1,0 +1,48 @@
+appId: com.datamonsterr.taphoamini
+---
+# The emulator's virtual camera cannot display a barcode. Exercise the real typed field,
+# persistence, and editing here; barcode.spec.ts decodes a fixture with the web camera.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tap hoa Barcode'
+      OWNER_NAME: 'Co Ba'
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Chưa có trong kho, nhập giá'
+    timeout: 30000
+- tapOn: 'Chưa có trong kho, nhập giá'
+- extendedWaitUntil:
+    visible: '1/5'
+    timeout: 20000
+- tapOn: 'Mã vạch (không bắt buộc)'
+- inputText: '4006381333931'
+- pressKey: Enter
+- takeScreenshot: barcode-01-enroll
+- tapOn: '1'
+- tapOn: '5'
+- tapOn: '000'
+- tapOn: 'Lưu vào kho và thêm vào giỏ'
+- extendedWaitUntil:
+    visible: 'Giỏ hàng: 1 món, 15.000đ'
+    timeout: 30000
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: '.*15.000đ'
+    timeout: 20000
+- tapOn: '.*15.000đ'
+- extendedWaitUntil:
+    visible: 'Mã vạch · 4006381333931'
+    timeout: 20000
+- tapOn: 'Sửa giá'
+- tapOn: 'Mã vạch (không bắt buộc)'
+- eraseText
+- inputText: '12345678'
+- pressKey: Enter
+- takeScreenshot: barcode-02-product-edit
+- tapOn: 'Lưu giá'
+- extendedWaitUntil:
+    visible: 'Mã vạch · 12345678'
+    timeout: 20000

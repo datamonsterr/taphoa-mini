@@ -20,6 +20,8 @@
 #   E2E_REDIS_DB         Redis logical database number (default 0), appended to REDIS_URL
 #   E2E_PUBLIC_HOST      host in presigned image URLs (default localhost; 10.0.2.2 for the emulator)
 #   E2E_STATE_DIR        pid and log directory (default <repo>/.e2e-stack, gitignored)
+#   (the stack always runs the scripted assistant and voice models: the app's fixture clips carry
+#   their own answer as VOICE_PARSE=<json>)
 #   E2E_SKIP_MODELS=1    start without SAM/DINO (recognition returns 503)
 #   CLERK_PUBLISHABLE_KEY  Clerk instance whose session JWTs the backend accepts (default: the
 #                        development instance; its publishable key is public by design)
@@ -135,6 +137,8 @@ up() {
     S3_CREATE_BUCKET=true \
     S3_PUBLIC_ENDPOINT_URL="http://${E2E_PUBLIC_HOST:-localhost}:$STORAGE_PORT" \
     ASSISTANT_MODEL_PROVIDER=scripted \
+    VOICE_MODEL_PROVIDER=scripted \
+    VOICE_ALLOW_SCRIPTED=1 \
     ASSISTANT_ALLOW_EVAL_HEADERS=1 \
     RUST_LOG="${RUST_LOG:-info}" \
     "${model_env[@]}" \

@@ -2,7 +2,9 @@
 # End-to-end run against a deployed backend.
 #   BACKEND_URL        required; base URL, no trailing path
 #   E2E_DIR            suite directory (default packages/e2e, created by epic E1)
-#   LATENCY_P95_MS     hot-endpoint p95 budget in ms for the e2e suite (default 200)
+#   LATENCY_P95_MS     network-adjusted hot-endpoint p95 budget in ms (default 200)
+#   RECOGNITION_RUNS   recognition samples per probe (default 12; p90 ignores one outlier)
+#   RECOGNITION_BUDGET_MS recognition p90 budget in ms (default 3000)
 #   HEALTHZ_P95_MS     /healthz probe p95 budget in ms (default 400); the probe measures the
 #                      runner-to-Railway network more than the server, and jitter of 200+ ms
 #                      happens, so the hot-endpoint budget is enforced by the e2e latency test
@@ -41,6 +43,7 @@ if [ -f "$suite/package.json" ]; then
   echo "Running e2e suite in $suite against $base"
   export BACKEND_URL="$base"
   export LATENCY_P95_MS="$budget"
+  export HOT_P95_MS="${HOT_P95_MS:-$budget}"
   script="$(node -e 'const s=require(process.argv[1]).scripts||{};console.log(s["test:e2e"]?"test:e2e":"test")' "$suite/package.json")"
   # No `--` before the vitest flags: pnpm would pass it on and vitest would read what follows
   # as file filters.

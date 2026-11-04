@@ -1,6 +1,6 @@
 # X1 · Clerk identity: task graph
 
-Status: In progress · Date: 2026-10-25 · Epic: X1 ([epics.md](epics.md#x1--clerk-identity)) ·
+Status: Done · Merge: [#35](https://github.com/datamonsterr/taphoa-mini/pull/35) · Date: 2026-10-25 · Epic: X1 ([epics.md](epics.md#x1--clerk-identity)) ·
 Contract: [auth-clerk.md](auth-clerk.md) · ADR [0004](../../adr/0004-clerk-identity.md) ·
 Branch: `epic/x1-auth-clerk`
 

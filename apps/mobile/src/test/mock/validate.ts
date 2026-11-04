@@ -321,6 +321,7 @@ function saleLine(value: unknown): SaleLineInput {
     'barcode',
     'grid',
     'manual',
+    'voice',
   ] as const);
   const productId = o.product_id ?? null;
   if (productId !== null && !isUuid(productId))

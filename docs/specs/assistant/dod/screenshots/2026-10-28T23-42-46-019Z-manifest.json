@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-10-28T23:42:46.019Z",
+  "scope": "Saved dashboards: all environments",
+  "dashboards": [
+    {
+      "name": "Product overview",
+      "dashboardId": 2260461,
+      "exportId": 19667094,
+      "file": "2026-10-28T23-42-46-019Z-product-overview.png"
+    },
+    {
+      "name": "Activation funnel",
+      "dashboardId": 2260462,
+      "exportId": 19668123,
+      "file": "2026-10-28T23-42-46-019Z-activation-funnel.png"
+    },
+    {
+      "name": "Checkout and recognition",
+      "dashboardId": 2260464,
+      "exportId": 19668310,
+      "file": "2026-10-28T23-42-46-019Z-checkout-and-recognition.png"
+    },
+    {
+      "name": "Receipts and stock",
+      "dashboardId": 2260466,
+      "exportId": 19668562,
+      "file": "2026-10-28T23-42-46-019Z-receipts-and-stock.png"
+    },
+    {
+      "name": "Assistant adoption",
+      "dashboardId": 2260467,
+      "exportId": 19668779,
+      "file": "2026-10-28T23-42-46-019Z-assistant-adoption.png"
+    },
+    {
+      "name": "Debt book",
+      "dashboardId": 2260468,
+      "exportId": 19668894,
+      "file": "2026-10-28T23-42-46-019Z-debt-book.png"
+    },
+    {
+      "name": "Reliability",
+      "dashboardId": 2260469,
+      "exportId": 19668996,
+      "file": "2026-10-28T23-42-46-019Z-reliability.png"
+    },
+    {
+      "name": "Assistant health",
+      "dashboardId": 2271249,
+      "exportId": 19669124,
+      "file": "2026-10-28T23-42-46-019Z-assistant-health.png"
+    },
+    {
+      "name": "Cost and tokens",
+      "dashboardId": 2271251,
+      "exportId": 19669299,
+      "file": "2026-10-28T23-42-46-019Z-cost-and-tokens.png"
+    },
+    {
+      "name": "Tools and actions",
+      "dashboardId": 2271252,
+      "exportId": 19669483,
+      "file": "2026-10-28T23-42-46-019Z-tools-and-actions.png"
+    },
+    {
+      "name": "Quality",
+      "dashboardId": 2271253,
+      "exportId": 19669706,
+      "file": "2026-10-28T23-42-46-019Z-quality.png"
+    }
+  ]
+}

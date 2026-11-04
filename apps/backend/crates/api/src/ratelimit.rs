@@ -15,6 +15,14 @@ pub struct RateLimits {
     pub join_per_hour: u32,
     /// Wrong PINs before the member is locked for 5 minutes.
     pub pin_attempts: u32,
+    /// Recognition scans per member per minute.
+    pub scan_per_minute: u32,
+    /// Raw and point segmentation calls per member per minute.
+    pub segment_per_minute: u32,
+    /// Receipt OCR runs per member per minute.
+    pub receipt_per_minute: u32,
+    /// Receipt OCR runs per store per day.
+    pub receipt_store_per_day: u32,
 }
 impl Default for RateLimits {
     fn default() -> Self {
@@ -22,6 +30,10 @@ impl Default for RateLimits {
             store_create_per_hour: 10,
             join_per_hour: 10,
             pin_attempts: 5,
+            scan_per_minute: 60,
+            segment_per_minute: 60,
+            receipt_per_minute: 10,
+            receipt_store_per_day: 300,
         }
     }
 }
@@ -72,6 +84,33 @@ impl ClientIpSource {
             .or(peer)
             .map_or_else(|| "unknown".into(), |ip| ip.to_string())
     }
+}
+
+/// Charge one call against `key` (`scope:store:member`-style) and answer 429 with a
+/// `Retry-After` and a readable message when the budget is spent. Runs before any
+/// storage read or inference. A limiter outage fails closed, like the auth limits.
+pub async fn enforce(
+    state: &crate::AppState,
+    key: &str,
+    limit: u32,
+    window: Duration,
+    what: &str,
+) -> crate::error::ApiResult<()> {
+    let decision = state
+        .rate_limiter
+        .hit(key, limit, window)
+        .await
+        .map_err(|_| crate::error::ApiError::unavailable())?;
+    if decision.allowed {
+        return Ok(());
+    }
+    let wait = decision.retry_after_secs;
+    Err(crate::error::ApiError::new(
+        axum::http::StatusCode::TOO_MANY_REQUESTS,
+        "too_many_requests",
+        format!("too many {what}; try again in {wait} seconds"),
+    )
+    .with_retry_after(wait))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,7 +3,9 @@ import type { PostHog } from 'posthog-react-native';
 import { setAnalyticsClient } from '../analyticsBridge';
 
 import {
+  ApiNotConfiguredError,
   apiBaseUrl,
+  apiConfigured,
   DEFAULT_API_URL,
   getApiClient,
   resetApiClient,
@@ -93,4 +95,34 @@ test('reads the analytics session for each request from the bridge', async () =>
   } finally {
     setAnalyticsClient(null);
   }
+});
+
+describe('release build (not __DEV__)', () => {
+  const g = globalThis as unknown as { __DEV__: boolean };
+  const dev = g.__DEV__;
+  beforeEach(() => {
+    g.__DEV__ = false;
+  });
+  afterEach(() => {
+    g.__DEV__ = dev;
+  });
+
+  test('never falls back to localhost without EXPO_PUBLIC_API_URL', () => {
+    delete process.env.EXPO_PUBLIC_API_URL;
+    expect(apiConfigured()).toBe(false);
+    expect(() => apiBaseUrl()).toThrow(ApiNotConfiguredError);
+    expect(() => getApiClient()).toThrow(ApiNotConfiguredError);
+  });
+
+  test('uses EXPO_PUBLIC_API_URL when it is set', () => {
+    process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test/';
+    expect(apiConfigured()).toBe(true);
+    expect(apiBaseUrl()).toBe('https://api.example.test');
+  });
+});
+
+test('development keeps the localhost fallback', () => {
+  delete process.env.EXPO_PUBLIC_API_URL;
+  expect(apiConfigured()).toBe(true);
+  expect(apiBaseUrl()).toBe(DEFAULT_API_URL);
 });

@@ -73,6 +73,14 @@ describe('Health & Infrastructure Contract Specs (E1)', () => {
       expect(data!.byte_size).toBe(samplePngBuffer.length);
       expect(typeof data!.url).toBe('string');
       expect(typeof data!.url_expires_at).toBe('string');
+
+      // Exercise the public object-store endpoint with only the presigned URL.
+      const download = await fetch(data!.url);
+      expect(download.status).toBe(200);
+      expect(download.headers.get('content-type')).toMatch(/^image\//i);
+      expect(Buffer.from(await download.arrayBuffer())).toEqual(
+        samplePngBuffer,
+      );
     });
   });
 });

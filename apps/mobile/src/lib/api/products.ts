@@ -11,6 +11,7 @@ import type {
 
 export type ListProductsParams = {
   q?: string;
+  barcode?: string;
   category_id?: string;
   include_archived?: boolean;
   limit?: number;
@@ -62,3 +63,10 @@ export const addProductImage = (
 
 export const listCategories = async (): Promise<Category[]> =>
   (await unwrap(getApiClient().raw.GET('/v1/categories'))).items;
+
+/** UPC-A and its leading-zero EAN-13 representation refer to the same physical code. */
+export function barcodeAliases(code: string) {
+  if (code.length === 13 && code.startsWith('0')) return [code, code.slice(1)];
+  if (code.length === 12) return [code, `0${code}`];
+  return [code];
+}

@@ -155,6 +155,27 @@ The deployment healthcheck proves process health; `/readyz` separately proves de
 
 Project layout, operator CLI commands and production CI setup: [deployment guide](../../docs/deploy.md).
 
+## Inference rate limits
+
+Scans, segmentation and receipt OCR share one inference slot, so each has a per-member limit
+(per store for the daily receipt budget). A call over the limit gets `429 too_many_requests`
+with a readable message and a `Retry-After` header, before any storage read or model run.
+Counters live in Redis when `REDIS_URL` is set, otherwise in process memory. If the limiter
+cannot be reached the call answers `503`, like the auth limits.
+
+| Route                                       | Key              | Default | Variable                           |
+| ------------------------------------------- | ---------------- | ------- | ---------------------------------- |
+| `POST /v1/recognition/scans`                | store and member | 60/min  | `RATE_LIMIT_SCAN_PER_MINUTE`       |
+| `POST /v1/segment` and `/v1/segment/points` | store and member | 60/min  | `RATE_LIMIT_SEGMENT_PER_MINUTE`    |
+| `POST /v1/receipts` (new OCR runs only)     | store and member | 10/min  | `RATE_LIMIT_RECEIPT_PER_MINUTE`    |
+| `POST /v1/receipts` (new OCR runs only)     | store            | 300/day | `RATE_LIMIT_RECEIPT_STORE_PER_DAY` |
+
+A counter starts at the first call in its window. One scan a second is the practical ceiling
+for a cashier, and a point-by-point enrollment taps a few times per product, so normal shop use
+stays well below these. Idempotent replays of `POST /v1/receipts` do not spend the budget.
+`POST /v1/segment` also needs a signed-in member with the enrollment permission; the mobile app
+only uses `/v1/segment/points`.
+
 ## Private image storage
 
 See the [object storage contract](../../docs/specs/object-storage.md) for every
@@ -282,7 +303,7 @@ a Lead or `can_enroll`. Creation and confirmation require `Idempotency-Key`.
 | `OCR_DET_PATH`, `OCR_ENCODER_PATH`, `OCR_DECODER_PATH`, `OCR_VOCAB_PATH` | unset                                       | Set all four to enable receipt OCR and the shared scan text detector. |
 | `OCR_THREADS`                                                            | `4`                                         | OCR inference workers.                                                |
 | `OPENROUTER_API_KEY`                                                     | empty                                       | Decisions API key; absence uses rule fallback.                        |
-| `DECISIONS_MODEL`                                                        | `inception/mercury-decide:free`             | Product mapping model.                                                |
+| `DECISIONS_MODEL`                                                        | `inception/mercury-decide`                  | Product mapping model.                                                |
 | `DECISIONS_URL`                                                          | `https://openrouter.ai/api/alpha/decisions` | Decisions endpoint.                                                   |
 | `DECISIONS_TIMEOUT_MS`                                                   | `2500`                                      | Decision request timeout before rule fallback.                        |
 

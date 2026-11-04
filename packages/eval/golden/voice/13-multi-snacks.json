@@ -1,0 +1,23 @@
+{
+  "id": "13-multi-snacks",
+  "source": "synthetic",
+  "transcript": "hai gói snack oishi tôm cay với ba gói kẹo cao su doublemint",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "snack oishi tôm cay",
+      "product": "Snack Oishi tôm cay 40g",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "kẹo cao su doublemint",
+      "product": "Kẹo cao su Doublemint gói 12 viên",
+      "quantity": 3,
+      "unit_price": null
+    }
+  ],
+  "tags": ["multi-line"]
+}

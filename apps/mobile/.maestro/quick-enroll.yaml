@@ -1,6 +1,6 @@
 appId: com.datamonsterr.taphoamini
 ---
-# Real segmentation and enrollment; virtualscene content is arbitrary, so no checkout match.
+# Real segmentation and enrollment, followed by counter scan and checkout match.
 - runFlow: subflows/launch.yaml
 - runFlow: subflows/sign-in.yaml
 - runFlow:
@@ -9,7 +9,7 @@ appId: com.datamonsterr.taphoamini
       STORE_NAME: 'Tạp hóa Thêm nhanh'
       OWNER_NAME: 'Cô Ba'
 - tapOn: 'Thêm vào kho với giá'
-- assertVisible: 'Thêm hàng nhanh · 0/3'
+- assertVisible: 'Xoay sản phẩm'
 - assertNotVisible: 'Thêm sản phẩm'
 - repeat:
     times: 3
@@ -31,16 +31,19 @@ appId: com.datamonsterr.taphoamini
           timeout: 30000
       - assertVisible: 'Tiếp'
       - tapOn: 'Tiếp'
-- assertVisible: 'Thêm hàng nhanh · 3/3'
+- assertVisible: 'Thêm sản phẩm'
 - tapOn:
     id: 'quick-enroll-add'
 - extendedWaitUntil:
     visible: 'Lưu sản phẩm'
     timeout: 20000
+- assertVisible: 'Thêm hàng nhanh · 3/3'
 - assertVisible: '3/8'
 - tapOn: 'Tên (không bắt buộc)'
 - inputText: 'Banh nhanh E2E'
-- hideKeyboard
+# Enter blurs this single-line field without sending Android Back to the sheet.
+- pressKey: Enter
+- assertVisible: 'Lưu sản phẩm'
 - tapOn: '1'
 - tapOn: '7'
 - tapOn: '000'
@@ -50,3 +53,23 @@ appId: com.datamonsterr.taphoamini
     visible: 'Đã thêm Banh nhanh E2E'
     timeout: 30000
 - takeScreenshot: quick-enroll-01-saved
+- extendedWaitUntil:
+    notVisible: 'đang học'
+    timeout: 30000
+# Reshoot the same product on the counter to match and add to cart
+- tapOn: 'Chụp'
+- extendedWaitUntil:
+    visible: 'Thêm vào giỏ'
+    timeout: 30000
+- assertVisible: '.*17.000đ.*'
+- tapOn: 'Thêm vào giỏ'
+- extendedWaitUntil:
+    visible: 'Giỏ hàng: 1 món, 17.000đ'
+    timeout: 20000
+- tapOn: 'Giỏ hàng:.*'
+- extendedWaitUntil:
+    visible: 'Hiện mã QR thanh toán'
+    timeout: 20000
+- assertVisible: 'Banh nhanh E2E'
+- assertVisible: '17.000đ'
+- takeScreenshot: quick-enroll-02-matched

@@ -17,6 +17,7 @@ import { PRODUCT_IDS } from '../../src/test/mock/fixtures';
 import { getMockDb, resetMockDb } from '../../src/test/mock/db';
 import { MOCK_ROUTES } from '../../src/test/mock/routes';
 import { setMockScenario } from '../../src/test/mock/scenario';
+import { setVoiceQuotaExceeded } from '../../src/test/mock/voice';
 
 type Recorded = {
   method: string;
@@ -870,6 +871,12 @@ test('debt customers, credit sale, ledger writes, summary and void conform to th
   await call(() => api.listDebtEntries(customer.id), 200);
   await call(() => api.getDebtSummary(), 200);
   await call(async () => {
+    const result = await api.getApiClient().raw.GET('/v1/sales/{saleId}', {
+      params: { path: { saleId: sale.id } },
+    });
+    return result.data;
+  }, 200);
+  await call(async () => {
     const result = await api
       .getApiClient()
       .raw.POST('/v1/sales/{saleId}/void', {
@@ -978,6 +985,100 @@ describe('assistant and devices', () => {
           params: { path: { threadId } },
         }),
       204,
+    );
+  });
+});
+
+describe('voice', () => {
+  const ctx = { entry: 'camera', screen: 'camera' } as never;
+  const clip = (name: string) => ({
+    audio: new Blob(['m4a-bytes'], { type: 'audio/mp4' }),
+    filename: name,
+    mode: 'sale' as const,
+    context: ctx,
+  });
+
+  test('utterances and outcomes match the documented schema', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://mock.local',
+      fetch: createMockFetch(),
+    });
+    for (const name of [
+      'two-line-sale.m4a',
+      'unknown-product.m4a',
+      'credit-sale.m4a',
+      'ambiguous.m4a',
+      'chat-intent.m4a',
+    ]) {
+      const made = await call(
+        () => client.createVoiceUtterance(clip(name)),
+        201,
+      );
+      expect(made.data.data?.transcript).toBeTruthy();
+    }
+    const transcribed = await call(
+      () =>
+        client.createVoiceUtterance({
+          ...clip('two-line-sale.m4a'),
+          mode: 'transcribe',
+          language: 'en',
+        }),
+      201,
+    );
+    expect(transcribed.data.data?.intent).toBe('none');
+
+    const sale = await call(
+      () => client.createVoiceUtterance(clip('two-line-sale.m4a')),
+      201,
+    );
+    const utteranceId = sale.data.data!.id;
+    await call(
+      () => client.postVoiceOutcome(utteranceId, { outcome: 'abandoned' }),
+      204,
+    );
+    await call(
+      () =>
+        client.postVoiceOutcome(utteranceId, {
+          outcome: 'confirmed',
+          stage: 'pay',
+        }),
+      204,
+    );
+  });
+
+  test('errors: no_speech, unsupported format, 413, quota, unknown utterance', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://mock.local',
+      fetch: createMockFetch(),
+    });
+    await call(() => client.createVoiceUtterance(clip('no-speech.m4a')), 422);
+    await call(
+      () =>
+        client.createVoiceUtterance({
+          ...clip('x.txt'),
+          audio: new Blob(['x'], { type: 'text/plain' }),
+        }),
+      400,
+    );
+    await call(
+      () =>
+        client.createVoiceUtterance({
+          ...clip('big.m4a'),
+          audio: new Blob([new Uint8Array(1024 * 1024 + 1)], {
+            type: 'audio/mp4',
+          }),
+        }),
+      413,
+    );
+    setVoiceQuotaExceeded(true);
+    await call(
+      () => client.createVoiceUtterance(clip('two-line-sale.m4a')),
+      429,
+    );
+    setVoiceQuotaExceeded(false);
+    await call(
+      () => client.postVoiceOutcome(newUuid(), { outcome: 'confirmed' }),
+      404,
     );
   });
 });

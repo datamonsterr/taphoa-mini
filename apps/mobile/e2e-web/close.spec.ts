@@ -17,6 +17,15 @@ const heading = (page: Page) => page.getByRole('heading', { name: 'Báo cáo' })
 const save = (page: Page) => button(page, 'Chốt sổ hôm nay');
 const counted = (page: Page) => page.getByLabel('Tiền đếm được');
 
+/** Saves a screenshot for the issue evidence when E2E_SHOTS names a directory. */
+async function shot(page: Page, name: string) {
+  const dir = process.env.E2E_SHOTS;
+  if (!dir) return;
+  // let the sheet finish sliding up before the picture
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${dir}/${name}.png` });
+}
+
 /**
  * The trading day plus one big cash sale, so the drawer should hold a positive amount (the
  * keypad cannot type a negative count): 30.000 + 50.000 cash in, 28.500 + 5.000 out.
@@ -27,6 +36,13 @@ async function seedDrawer(api: Api) {
     lines: [{ product_id: day.coca.id, unit_price: 10_000, quantity: 5 }],
   });
   return day;
+}
+
+/** A cash sale of loose goods only: no catalog, so no model is needed to seed it. */
+async function seedLooseDrawer(api: Api) {
+  await api.createSale({
+    lines: [{ manual_label: 'Kẹo lạc', unit_price: 25_000, quantity: 2 }],
+  });
 }
 
 /** Dashboard -> Chốt sổ; returns the report the sheet loaded (expected cash). */
@@ -138,5 +154,77 @@ test.describe('close the day', () => {
     // and the day report carries the close
     const today = await store.api.get('/v1/reports/today');
     expect(today.day_close).toMatchObject({ counted_cash: countedCash });
+  });
+  test('the keypad is the board 3 x 4 grid and the pill shows the signed amount (#210)', async ({
+    page,
+    store,
+  }) => {
+    await seedLooseDrawer(store.api);
+    const report = await store.api.get('/v1/reports/today');
+    const expected: number = report.expected_cash;
+    await openClose(page);
+    const box = async (name: string) => {
+      const b = await button(page, name).boundingBox();
+      expect(b).not.toBeNull();
+      return b!;
+    };
+    const [one, two, three, four, zero, del] = await Promise.all(
+      ['1', '2', '3', '4', '0', 'Xóa'].map(box),
+    );
+    // three columns: 1-2-3 share a row, 4 starts the next one, 0 sits in the middle column
+    expect(Math.abs(one.y - two.y)).toBeLessThan(2);
+    expect(Math.abs(two.y - three.y)).toBeLessThan(2);
+    expect(four.y).toBeGreaterThan(one.y + one.height - 1);
+    expect(Math.abs(four.x - one.x)).toBeLessThan(2);
+    expect(Math.abs(zero.x - two.x)).toBeLessThan(2);
+    expect(Math.abs(del.x - three.x)).toBeLessThan(2);
+    await typeAmount(page, expected - 10_000);
+    await expect(
+      page.getByLabel('Thiếu 10.000đ').getByText('−10.000đ'),
+    ).toBeVisible();
+    await shot(page, 'close-open');
+  });
+
+  test('sales that arrive after the close are announced and the day can be closed again (#202)', async ({
+    page,
+    store,
+  }) => {
+    await seedLooseDrawer(store.api);
+    const report = await store.api.get('/v1/reports/today');
+    const path = `/v1/day-closes/${report.business_date}`;
+    await store.api.put(path, { counted_cash: report.expected_cash });
+    await store.api.createSale({
+      lines: [{ manual_label: 'Nước ngọt', unit_price: 10_000 }],
+    });
+    await store.api.createSale({
+      lines: [{ manual_label: 'Kẹo lạc', unit_price: 1_000 }],
+    });
+    const now = await store.api.get('/v1/reports/today');
+    expect(now.expected_cash).toBe(report.expected_cash + 11_000);
+    await openClose(page);
+    await expect(page.getByTestId('close-late-notice')).toContainText(
+      '2 giao dịch phát sinh sau khi chốt sổ',
+    );
+    await expect(
+      page.getByLabel(`Tiền mặt dự kiến ${formatVnd(now.expected_cash)}`),
+    ).toBeVisible();
+    await expect(page.getByLabel('Thiếu 11.000đ')).toBeVisible();
+    await shot(page, 'close-late-sales');
+
+    await typeAmount(page, now.expected_cash);
+    await expect(page.getByLabel('Khớp')).toBeVisible();
+    const put = await callApi(page, 'PUT', path, () =>
+      button(page, 'Chốt sổ lại').click(),
+    );
+    expect(put.body).toMatchObject({
+      counted_cash: now.expected_cash,
+      expected_cash: now.expected_cash,
+    });
+    expect((await store.api.get(path)).late_sales_count).toBe(0);
+
+    // reopening: closed again, read-only, no notice
+    await button(page, 'Chốt sổ').click();
+    await expect(page.getByText('Đã chốt sổ')).toBeVisible();
+    await expect(page.getByTestId('close-late-notice')).toHaveCount(0);
   });
 });

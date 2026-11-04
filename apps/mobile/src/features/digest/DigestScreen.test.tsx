@@ -1,4 +1,9 @@
-import { cleanup, fireEvent, screen } from '@testing-library/react-native';
+import {
+  cleanup,
+  fireEvent,
+  screen,
+  within,
+} from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import * as digestApi from '@/lib/api/digest';
@@ -82,22 +87,29 @@ test('renders all sections and captures digest_opened with card entry by default
   await renderWithProviders(<DigestScreen />);
 
   expect(mockCapture).toHaveBeenCalledWith('digest_opened', { entry: 'card' });
+  // Opening the digest is what records the read (issue 203).
+  expect(digestApi.getDigest).toHaveBeenCalledWith(undefined, true);
 
   // Title and date
   expect(await screen.findByText('Tóm tắt sáng nay')).toBeOnTheScreen();
-  expect(screen.getByText('26/10')).toBeOnTheScreen();
+  // The date comes from the digest response, which can land after the static title.
+  expect(await screen.findByText('Thứ hai, 26/10 · 14:00')).toBeOnTheScreen();
 
   // Summary
   expect(screen.getByText(fullDigest.summary_vi)).toBeOnTheScreen();
 
-  // Stat rows
-  expect(screen.getByText('Doanh thu')).toBeOnTheScreen();
+  // Board 23: four stat tiles; the label is spoken, the figure is shown.
+  expect(screen.getByLabelText('Doanh thu 2.500.000đ')).toBeOnTheScreen();
   expect(screen.getByText(formatVnd(2500000))).toBeOnTheScreen();
-  expect(screen.getByText('Số đơn')).toBeOnTheScreen();
-  expect(screen.getByText('45')).toBeOnTheScreen();
-  expect(screen.getByText('Lợi nhuận gộp')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Số đơn 45 đơn')).toBeOnTheScreen();
+  expect(
+    within(screen.getByLabelText('Số đơn 45 đơn')).getByText('45 đơn'),
+  ).toBeOnTheScreen();
+  // The key figures inside the summary paragraph render bold.
+  expect(screen.getAllByText('45 đơn')).toHaveLength(2);
+  expect(screen.getByLabelText('Lợi nhuận gộp 750.000đ')).toBeOnTheScreen();
   expect(screen.getByText(formatVnd(750000))).toBeOnTheScreen();
-  expect(screen.getByText('So với hôm trước')).toBeOnTheScreen();
+  expect(screen.getByLabelText('So với hôm trước +12.5%')).toBeOnTheScreen();
   expect(screen.getByText('+12.5%')).toBeOnTheScreen();
 
   // Restock list
@@ -108,14 +120,9 @@ test('renders all sections and captures digest_opened with card entry by default
   expect(screen.getByText('× 10')).toBeOnTheScreen();
   expect(screen.getByText(formatVnd(40000))).toBeOnTheScreen();
 
-  // Overdue debts row
-  expect(screen.getByText('Nợ quá hạn')).toBeOnTheScreen();
-  expect(screen.getByText('3 nợ quá hạn')).toBeOnTheScreen();
-  expect(screen.getByText(formatVnd(450000))).toBeOnTheScreen();
-
-  // Open drafts row
-  expect(screen.getByText('Đơn nhập nháp')).toBeOnTheScreen();
-  expect(screen.getByText('2 hóa đơn')).toBeOnTheScreen();
+  // Footer chips
+  expect(screen.getByText('3 khách quá hạn')).toBeOnTheScreen();
+  expect(screen.getByText('2 hóa đơn nháp')).toBeOnTheScreen();
 
   // Primary assistant button
   expect(screen.getByText('Hỏi trợ lý')).toBeOnTheScreen();
@@ -148,8 +155,8 @@ test('hides profit and cost when null, hides change when null, shows empty resto
   expect(
     await screen.findByText('Không có sản phẩm cần nhập'),
   ).toBeOnTheScreen();
-  expect(screen.queryByText('Lợi nhuận gộp')).toBeNull();
-  expect(screen.queryByText('So với hôm trước')).toBeNull();
+  expect(screen.queryByLabelText(/^Lợi nhuận gộp/)).toBeNull();
+  expect(screen.queryByLabelText(/^So với hôm trước/)).toBeNull();
 });
 
 test('assistant button navigates with entry: digest, screen: digest and Vietnamese prompt', async () => {
@@ -213,7 +220,7 @@ test('error state shows retry button and retries successfully', async () => {
   const retryBtn = screen.getByRole('button', { name: 'Thử lại' });
   await fireEvent.press(retryBtn);
 
-  expect(await screen.findByText('Doanh thu')).toBeOnTheScreen();
+  expect(await screen.findByLabelText(/^Doanh thu/)).toBeOnTheScreen();
   expect(getSpy).toHaveBeenCalledTimes(2);
 });
 
@@ -266,6 +273,6 @@ test('passes business_date from search params to useDigest', async () => {
 
   await renderWithProviders(<DigestScreen />);
 
-  expect(await screen.findByText('20/10')).toBeOnTheScreen();
-  expect(getSpy).toHaveBeenCalledWith('2026-10-20');
+  expect(await screen.findByText('Thứ ba, 20/10 · 14:00')).toBeOnTheScreen();
+  expect(getSpy).toHaveBeenCalledWith('2026-10-20', true);
 });

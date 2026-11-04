@@ -1,25 +1,36 @@
 import { useSessionList, useSignIn, useSignUp, useSSO } from '@clerk/expo';
+import { onlineManager } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import { Lock, Mail } from 'lucide-react-native';
 import { Platform, StyleSheet, View } from 'react-native';
-import { ScaledText } from '@/components/ui';
+import { Icon, ScaledText } from '@/components/ui';
 import { DeviceSessions } from '@/features/account/DeviceSessions';
 import { SwitchPinSheet } from '@/features/account/SwitchPinSheet';
 import { useSwitchSession } from '@/features/account/useSwitchSession';
+import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { useDeviceLock } from '@/stores/deviceLock';
 import {
   Frame,
-  Field,
+  PillField,
   ActionButton,
   FormError,
+  Spacer,
 } from '@/features/onboarding/kit';
+import { colors, fontFamily, radius, space } from '@/theme';
 import { flowPaths, useCancelAddPerson, type AuthFlow } from './addPerson';
 import { signedInSessions } from './deviceSessions';
 import { useEmailFlow } from './emailFlow';
-import { authErrorKey, clerkErrorCode } from './errors';
+import {
+  authErrorKey,
+  authFailureKey,
+  clerkErrorCode,
+  codeExpiry,
+  codeWasSent,
+} from './errors';
 import { strings } from './strings';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -46,10 +57,15 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
   }, []);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
+  const capturedSession = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const submit = async () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError(t('invalidEmail'));
+      return;
+    }
+    if (!onlineManager.isOnline()) {
+      setError(t('network'));
       return;
     }
     setBusy(true);
@@ -58,16 +74,33 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
       const address = email.trim();
       const result = await signIn.create({ identifier: address });
       let mode: 'signIn' | 'signUp' = 'signIn';
+      let sendFailure: string | undefined;
       if (clerkErrorCode(result.error) === 'form_identifier_not_found') {
         mode = 'signUp';
         const created = await signUp.create({ emailAddress: address });
         if (created.error) throw created.error;
+        const expiry = codeExpiry(signUp, 'signUp');
         const sent = await signUp.verifications.sendEmailCode();
         if (sent.error) throw sent.error;
+        sendFailure =
+          authFailureKey(sent, signUp, onlineManager.isOnline()) ??
+          (codeWasSent(signUp, 'signUp', expiry) ? undefined : 'network');
       } else {
         if (result.error) throw result.error;
+        // An offline phone makes `create` resolve quietly without starting the sign-in.
+        if (signIn.status === 'needs_identifier')
+          throw new TypeError('offline');
+        const expiry = codeExpiry(signIn, 'signIn');
         const sent = await signIn.emailCode.sendCode({ emailAddress: address });
         if (sent.error) throw sent.error;
+        sendFailure =
+          authFailureKey(sent, signIn, onlineManager.isOnline()) ??
+          (codeWasSent(signIn, 'signIn', expiry) ? undefined : 'network');
+      }
+      // Clerk does not always report a failed send in `sent.error` (an offline phone, a rate limit).
+      if (sendFailure) {
+        setError(t(sendFailure));
+        return;
       }
       useEmailFlow.getState().begin(address, mode);
       router.push(paths.code);
@@ -96,6 +129,11 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
           session: result.createdSessionId,
           navigate: async () => {},
         });
+        // Only a completed sign-in emits this event; session restoration never reaches here.
+        if (capturedSession.current !== result.createdSessionId) {
+          capturedSession.current = result.createdSessionId;
+          capture('signed_in', { method: 'google' });
+        }
         // A fresh sign-in proves who is holding the phone, so it lifts the device lock, after the
         // PIN if that person has one. Backing out of the PIN signs the new session out again.
         await switcher.admit(result.createdSessionId, wasLocked, (outcome) => {
@@ -117,7 +155,10 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
       <Frame
         testID="auth-sign-in-screen"
         title={t(flow === 'add' ? 'addTitle' : 'title')}
+        subtitle={t('subtitle')}
         back={false}
+        brand
+        fill
       >
         {people.length ? (
           <>
@@ -134,8 +175,10 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
             </ScaledText>
           </>
         ) : null}
-        <Field
+        <PillField
           testID="auth-email"
+          icon={Mail}
+          placeholder={t('emailPlaceholder')}
           label={t('email')}
           value={email}
           onChangeText={setEmail}
@@ -151,6 +194,7 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
         ) : null}
         <FormError message={error} />
         <ActionButton
+          xl
           testID="auth-send-code"
           label={t('send')}
           busy={busy}
@@ -158,8 +202,17 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
             void submit();
           }}
         />
+        <View style={styles.divider} accessibilityElementsHidden>
+          <View style={styles.rule} />
+          <ScaledText variant="caption" style={styles.or}>
+            {t('or')}
+          </ScaledText>
+          <View style={styles.rule} />
+        </View>
         <ActionButton
+          xl
           testID="auth-google"
+          leading={<GoogleBadge />}
           label={t('google')}
           variant="secondary"
           disabled={busy}
@@ -178,6 +231,17 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
             }}
           />
         ) : null}
+        {flow === 'add' ? null : (
+          <>
+            <Spacer />
+            <View style={styles.shared} testID="auth-shared-device">
+              <Icon icon={Lock} color={colors.inkMuted} />
+              <ScaledText variant="caption" style={styles.sharedText}>
+                {t('sharedDevice')}
+              </ScaledText>
+            </View>
+          </>
+        )}
       </Frame>
       {switcher.target ? (
         <SwitchPinSheet
@@ -194,4 +258,42 @@ export function SignInScreen({ flow }: { flow?: AuthFlow }) {
   );
 }
 
-const styles = StyleSheet.create({ fill: { flex: 1 } });
+/** The "G" badge of the Google button (board 24): a white disc with a blue letter. */
+function GoogleBadge() {
+  return (
+    <View style={styles.badge}>
+      <ScaledText style={styles.badgeLetter}>G</ScaledText>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  rule: { flex: 1, height: 1, backgroundColor: colors.surfacePressed },
+  or: { color: colors.inkMuted },
+  badge: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+  },
+  badgeLetter: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#4285f4',
+  },
+  shared: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    paddingVertical: space[3],
+    paddingHorizontal: space[4],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSoft,
+  },
+  sharedText: { flex: 1, color: colors.inkMuted },
+});

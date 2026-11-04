@@ -1,0 +1,17 @@
+{
+  "id": "07-single-sua",
+  "source": "synthetic",
+  "transcript": "ba hộp sữa vinamilk có đường",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "sữa vinamilk có đường",
+      "product": "Sữa Vinamilk có đường 180ml",
+      "quantity": 3,
+      "unit_price": null
+    }
+  ],
+  "tags": ["single-line"]
+}

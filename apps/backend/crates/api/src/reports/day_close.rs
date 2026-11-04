@@ -10,6 +10,7 @@ use crate::{
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::QueryRejection},
+    http::StatusCode,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -38,7 +39,10 @@ struct Close {
 const SELECT: &str = r#"
     SELECT c.*, (SELECT count(*) FROM sales s WHERE s.store_id=c.store_id
         AND s.business_date=c.business_date AND s.status='completed'
-        AND s.received_at>c.closed_at) late_sales_count
+        AND s.received_at>c.closed_at)
+        + (SELECT count(*) FROM debt_entries d WHERE d.store_id=c.store_id
+        AND d.business_date=c.business_date AND d.kind='repayment'
+        AND d.created_at>c.closed_at) late_sales_count
     FROM day_closes c
     WHERE c.store_id=$1 AND ($2::date IS NULL OR c.business_date >= $2)
         AND ($3::date IS NULL OR c.business_date <= $3)
@@ -58,6 +62,7 @@ pub(super) async fn list(
     actor: Actor,
     params: Result<Query<Filters>, QueryRejection>,
 ) -> ApiResult<Json<Value>> {
+    actor.require(Action::DayClose)?;
     let p = query(params)?;
     if p.from.zip(p.to).is_some_and(|(from, to)| from > to) {
         return Err(ApiError::validation_failed("from must not follow to"));
@@ -75,6 +80,7 @@ pub(super) async fn get(
     actor: Actor,
     Path(raw): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    actor.require(Action::DayClose)?;
     let day = date(&raw)?;
     let row: Close = sqlx::query_as(SELECT)
         .bind(actor.store_id)
@@ -103,6 +109,16 @@ struct Cash {
     transfer_revenue: i64,
     closed_at: DateTime<Utc>,
 }
+fn out_of_range() -> ApiError {
+    ApiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "validation_failed",
+        format!(
+            "counted cash and opening float must be at most {} VND",
+            money::MAX_AMOUNT
+        ),
+    )
+}
 pub(super) async fn put(
     State(state): State<AppState>,
     actor: Actor,
@@ -111,6 +127,18 @@ pub(super) async fn put(
 ) -> ApiResult<Json<Value>> {
     actor.require(Action::DayClose)?;
     let day = date(&raw)?;
+    // A day that has not happened yet has nothing to count, and a close for a day before the
+    // app existed only hides later sales as "late". Compare with the store's business date.
+    if day > state.clock.today() {
+        return Err(ApiError::validation_failed(
+            "cannot close a business day in the future",
+        ));
+    }
+    if day < crate::time::EARLIEST_BUSINESS_DATE {
+        return Err(ApiError::validation_failed(
+            "business date is too far in the past to close",
+        ));
+    }
     if input.counted_cash < 0
         || input.opening_float < 0
         || input.note.as_ref().is_some_and(|n| n.chars().count() > 500)
@@ -118,6 +146,9 @@ pub(super) async fn put(
         return Err(ApiError::validation_failed(
             "cash must be nonnegative and note at most 500 characters",
         ));
+    }
+    if input.counted_cash > money::MAX_AMOUNT || input.opening_float > money::MAX_AMOUNT {
+        return Err(out_of_range());
     }
     let mut tx = pool(&state)?.begin().await?;
     // Serialize concurrent re-closes before taking the aggregate snapshot.
@@ -155,7 +186,8 @@ pub(super) async fn put(
         c.cash_refunds,
         c.cash_repayments,
         c.cash_expenses,
-    );
+    )
+    .ok_or_else(out_of_range)?;
     let row: Close = sqlx::query_as(r#"
         INSERT INTO day_closes (store_id,business_date,opening_float,cash_sales,cash_refunds,cash_expenses,
             expected_cash,counted_cash,transfer_revenue,note,closed_by,closed_at,

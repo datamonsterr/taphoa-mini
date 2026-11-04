@@ -16,8 +16,8 @@ async fn concurrent_purchase_replay_has_one_set_of_side_effects() {
     let product = w.product("Coca", 10000, Some(5000)).await;
     let body = purchase(product, 11000);
     let (first, second) = tokio::join!(
-        w.call("POST", "/v1/expenses", &w.seller, body.clone()),
-        w.call("POST", "/v1/expenses", &w.seller, body)
+        w.call("POST", "/v1/expenses", &w.lead, body.clone()),
+        w.call("POST", "/v1/expenses", &w.lead, body)
     );
     let mut statuses = [first.status.as_u16(), second.status.as_u16()];
     statuses.sort();
@@ -90,7 +90,7 @@ async fn purchase_auto_dismisses_and_corrections_preserve_purchase_cost() {
             "POST",
             "/v1/expenses",
             "/v1/expenses",
-            &w.seller,
+            &w.lead,
             body,
             StatusCode::CREATED,
         )
@@ -104,9 +104,7 @@ async fn purchase_auto_dismisses_and_corrections_preserve_purchase_cost() {
         json!({"purchase_lines":[]}),
     ] {
         assert_eq!(
-            w.call("PATCH", &expense_path, &w.seller, patch)
-                .await
-                .status,
+            w.call("PATCH", &expense_path, &w.lead, patch).await.status,
             StatusCode::BAD_REQUEST
         );
     }
@@ -114,7 +112,7 @@ async fn purchase_auto_dismisses_and_corrections_preserve_purchase_cost() {
         "POST",
         "/v1/expenses",
         "/v1/expenses",
-        &w.seller,
+        &w.lead,
         purchase(product, 5000),
         StatusCode::CREATED,
     )

@@ -1,0 +1,18 @@
+{
+  "id": "52-noise-single",
+  "source": "synthetic",
+  "transcript": "năm gói mì hảo hảo tôm chua cay",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "mì hảo hảo tôm chua cay",
+      "product": "Mì Hảo Hảo tôm chua cay 75g",
+      "quantity": 5,
+      "unit_price": null
+    }
+  ],
+  "tags": ["noise", "single-line"],
+  "noise": true
+}

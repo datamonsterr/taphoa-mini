@@ -36,11 +36,15 @@ export type OracleValue =
   | { kind: 'number' | 'money' | 'percent' | 'count'; values: number[] };
 export type ProposedAction = { kind: string; payload: Record<string, unknown> };
 export type TurnResult = {
+  /** Eval thread for retrieving the actual current-turn tool evidence. */
+  thread_id?: string;
   answer: string; // concatenated message.delta text of the last turn
   tools: string[]; // tool names from tool.started across all turns
   actions: ProposedAction[]; // action.proposed across all turns
   model: string | null; // message.completed.model of the last turn
   latency_ms: number; // per-turn durations: max over turns
+  /** Actual cost per completed turn, including every generation in its tool loop. */
+  turn_costs_usd?: number[];
   error: { code: string; message: string } | null;
 };
 export type ScorerName =

@@ -79,6 +79,20 @@ impl Actor {
 impl FromRequestParts<AppState> for Actor {
     type Rejection = ApiError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> ApiResult<Self> {
+        Self::resolve(parts, state, true).await
+    }
+}
+/// The caller as an `Actor` without the PIN-lock check. Only the endpoints that unlock a session
+/// (`POST /v1/me/pin/verify`) may use it; every other route takes `Actor`.
+pub struct LockedActor(pub Actor);
+impl FromRequestParts<AppState> for LockedActor {
+    type Rejection = ApiError;
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> ApiResult<Self> {
+        Actor::resolve(parts, state, false).await.map(Self)
+    }
+}
+impl Actor {
+    async fn resolve(parts: &mut Parts, state: &AppState, enforce_pin: bool) -> ApiResult<Self> {
         let identity = ClerkIdentity::from_request_parts(parts, state).await?;
         let selected = parts
             .headers
@@ -92,8 +106,8 @@ impl FromRequestParts<AppState> for Actor {
             })
             .transpose()?;
         let pool = state.postgres.as_ref().ok_or_else(ApiError::unavailable)?;
-        let memberships: Vec<(Uuid,Uuid,String,bool)> = sqlx::query_as(
-            "SELECT id,store_id,role,can_enroll FROM members WHERE clerk_user_id=$1 AND active ORDER BY created_at,id")
+        let memberships: Vec<(Uuid,Uuid,String,bool,bool)> = sqlx::query_as(
+            "SELECT id,store_id,role,can_enroll,pin_hash IS NOT NULL FROM members WHERE clerk_user_id=$1 AND active ORDER BY created_at,id")
             .bind(&identity.user_id).fetch_all(pool).await?;
         if memberships.is_empty() {
             return Err(ApiError::new(
@@ -116,6 +130,12 @@ impl FromRequestParts<AppState> for Actor {
                 "X-Store-Id is required",
             ));
         };
+        // A PIN on any membership locks the person's session until it is verified, whichever
+        // store the request names: the app asks for one PIN per person, not per store.
+        if enforce_pin && memberships.iter().any(|m| m.4) {
+            super::pin_lock::require_unlocked(pool, &identity.session_id, &identity.user_id)
+                .await?;
+        }
         let role: Role = membership.2.parse()?;
         let actor = Self {
             clerk_user_id: identity.user_id,

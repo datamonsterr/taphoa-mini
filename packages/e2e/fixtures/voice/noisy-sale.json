@@ -1,0 +1,21 @@
+{
+  "source": "synthetic",
+  "transcript": "hai lon coca với một lon pepsi",
+  "noise": true,
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "coca",
+      "quantity": 2,
+      "status": "matched"
+    },
+    {
+      "spoken": "pepsi",
+      "quantity": 1,
+      "status": "matched"
+    }
+  ],
+  "requires_products": ["Coca-Cola lon", "Pepsi lon"]
+}

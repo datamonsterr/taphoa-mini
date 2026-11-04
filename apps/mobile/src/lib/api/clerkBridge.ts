@@ -4,6 +4,8 @@ type AuthBridge = {
   getToken: (options?: { skipCache?: boolean }) => Promise<string | null>;
   getStoreId: () => string | null;
   membershipRequired: () => void;
+  /** The server locked this person's session: the PIN has to be entered again. */
+  pinRequired?: () => void;
 };
 let bridge: AuthBridge | null = null;
 const listeners = new Set<() => void>();
@@ -30,3 +32,4 @@ export const clerkToken = (options?: { skipCache?: boolean }) =>
   bridge?.getToken(options) ?? Promise.resolve(null);
 export const currentStoreId = () => bridge?.getStoreId() ?? null;
 export const membershipRequired = () => bridge?.membershipRequired();
+export const pinRequired = () => bridge?.pinRequired?.();

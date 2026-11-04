@@ -90,8 +90,8 @@ mint_clerk_token() {
 
 check /healthz 200
 check /readyz 200
-# The default exercises actual inference. Explicitly expect 503 for SKIP_MODELS images.
-check /v1/segment "${EXPECT_SEGMENT_STATUS:-${SEGMENT_EXPECTED_STATUS:-200}}" --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
+# Segmentation needs a signed-in store member, so an anonymous call must be refused before any inference.
+check /v1/segment 401 --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
 
 # Storage checks are mandatory by default, including in CI. They are store-scoped, so they need a
 # Clerk session token; without the Clerk secret key (fork and dependabot runs) they are skipped.
@@ -104,6 +104,8 @@ if [[ "${EXPECT_IMAGES:-1}" != "0" ]]; then
     # createStore needs only the Clerk token. The new store is the user's single membership, so
     # the image calls need no X-Store-Id header.
     check /v1/stores 201 "${auth[@]}" -H 'content-type: application/json' --data '{"store_name":"e2e script","display_name":"Lead"}'
+    # The default exercises actual inference. Explicitly expect 503 for SKIP_MODELS images.
+    check /v1/segment "${EXPECT_SEGMENT_STATUS:-${SEGMENT_EXPECTED_STATUS:-200}}" "${auth[@]}" --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
     check /v1/images 201 "${auth[@]}" --form "image=@$backend_dir/tests/fixtures/sample.png;type=image/png"
     image_id="$(json_field "$response" id)"
     check "/v1/images/$image_id" 200 "${auth[@]}"

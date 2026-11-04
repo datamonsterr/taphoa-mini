@@ -6,6 +6,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { DeviceEventEmitter, Platform, StyleSheet } from 'react-native';
 
 import { setAnalyticsSink } from '@/lib/analytics';
 import { getApiClient } from '@/lib/api/client';
@@ -92,6 +93,32 @@ test('opens an empty new chat, captures the open event and closes', async () => 
   expect(await threads()).toHaveLength(0);
 });
 
+test('on Android the open keyboard lifts the composer above it', async () => {
+  // Android is edge-to-edge, so the window no longer shrinks for the keyboard: the screen must
+  // pad itself by the keyboard height, or the input stays behind the keyboard.
+  jest.replaceProperty(Platform, 'OS', 'android');
+  await renderWithProviders(<AssistantScreen />);
+  const avoid = screen.getByTestId('assistant-keyboard-avoid');
+  await fireEvent(avoid, 'layout', {
+    persist: () => {},
+    nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } },
+  });
+  await act(async () => {
+    DeviceEventEmitter.emit('keyboardDidShow', {
+      endCoordinates: { screenX: 0, screenY: 614, width: 411, height: 300 },
+    });
+  });
+  await waitFor(() =>
+    expect(StyleSheet.flatten(avoid.props.style).paddingBottom).toBe(300),
+  );
+  await act(async () => {
+    DeviceEventEmitter.emit('keyboardDidHide', null);
+  });
+  await waitFor(() =>
+    expect(StyleSheet.flatten(avoid.props.style).paddingBottom).toBe(0),
+  );
+});
+
 test('the first send creates a thread, then streams the text and the tool line', async () => {
   await renderWithProviders(<AssistantScreen />);
   await waitFor(() =>
@@ -100,9 +127,9 @@ test('the first send creates a thread, then streams the text and the tool line',
   await typeAndSend('Doanh thu hôm nay?');
   expect(await screen.findByText('Doanh thu hôm nay?')).toBeTruthy();
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
-  expect(screen.getByText('Doanh thu hôm nay: 1.234.000 ₫')).toBeTruthy();
+  expect(screen.getByText('Doanh thu hôm nay: 1.234.000đ')).toBeTruthy();
   const [thread] = await threads();
   expect(thread.context).toEqual({ screen: 'chat' });
   expect(sink.capture).toHaveBeenCalledWith('assistant_message_sent', {
@@ -178,7 +205,7 @@ test('Retry after an interrupted stream sends the message again', async () => {
   const retry = await screen.findByTestId('assistant-retry');
   await fireEvent.press(retry);
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   expect(screen.queryByTestId('assistant-retry')).toBeNull();
   // The list shows what the server stores (it keeps the user message of the cut turn too),
@@ -195,7 +222,8 @@ test('opens the newest thread when there is no thread id', async () => {
   await seedThread('Mới', 'câu hỏi mới');
   await renderWithProviders(<AssistantScreen />);
   expect(await screen.findByText('câu hỏi mới')).toBeTruthy();
-  expect(screen.getByRole('header', { name: 'Mới' })).toBeTruthy();
+  // Board 17: the header always says Trợ lý; the thread title is in the list.
+  expect(screen.getByRole('header', { name: 'Trợ lý' })).toBeTruthy();
   expect(screen.queryByText('câu hỏi cũ')).toBeNull();
 });
 
@@ -340,7 +368,7 @@ test('a failed thread creation shows a Retry that sends again', async () => {
   await typeAndSend('Doanh thu?');
   await fireEvent.press(await screen.findByTestId('assistant-retry'));
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   jest.restoreAllMocks();
 });
@@ -412,7 +440,7 @@ test('two rapid presses of Send create one thread and one turn', async () => {
     press();
   });
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   const all = await threads();
   expect(all).toHaveLength(1);
@@ -427,13 +455,13 @@ test('reopening the sheet shows the turns of the thread created in the last visi
     expect(screen.getByTestId('assistant-empty')).toBeTruthy(),
   );
   await typeAndSend('Doanh thu?');
-  await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.');
+  await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.');
   await waitFor(() => expect(screen.getByTestId('feedback-up')).toBeTruthy());
   await first.unmount();
   await renderWithProviders(<AssistantScreen />, queryClient);
   expect(await screen.findByText('Doanh thu?')).toBeTruthy();
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
 });
 
@@ -456,7 +484,7 @@ test('Retry after a failure mid-reply keeps the stored turn without a second Ret
   await typeAndSend('Doanh thu?');
   await fireEvent.press(await screen.findByTestId('assistant-retry'));
   expect(
-    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000 ₫.'),
+    await screen.findByText('Hôm nay cửa hàng có doanh thu 1.234.000đ.'),
   ).toBeTruthy();
   expect(screen.getAllByText('Doanh thu?')).toHaveLength(2);
   expect(screen.getByText('Lỗi giữa chừng')).toBeTruthy();

@@ -1,0 +1,9 @@
+{
+  "id": "36-chat-sold-today",
+  "source": "synthetic",
+  "transcript": "hôm nay bán được bao nhiêu",
+  "language": "vi",
+  "intent": "chat",
+  "lines": [],
+  "tags": ["smoke", "chat"]
+}

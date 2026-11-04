@@ -89,8 +89,20 @@ function countDistinct(words: string[], list: Set<string>): number {
   return new Set(words.filter((w) => list.has(w))).size;
 }
 
-export function scoreLanguage(answer: string, lang: 'vi' | 'en'): 0 | 1 {
-  const text = answer.normalize('NFC').toLowerCase();
+export function scoreLanguage(
+  answer: string,
+  lang: 'vi' | 'en',
+  entityNames: readonly string[] = [],
+): 0 | 1 {
+  let text = answer.normalize('NFC').toLowerCase();
+  // Names from resolved SQL facts must retain their display language. Only strip
+  // those exact known names; arbitrary quoted text still participates in detection.
+  if (lang === 'en') {
+    for (const name of [...entityNames].sort((a, b) => b.length - a.length)) {
+      if (name.trim())
+        text = text.replaceAll(name.normalize('NFC').toLowerCase(), ' ');
+    }
+  }
   const letters = [...text].filter((c) => /\p{L}/u.test(c));
   if (letters.length === 0) return 0;
 

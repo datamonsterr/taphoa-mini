@@ -161,6 +161,34 @@ the middle of a switch or sign-in and may lock for an instant; each of those flo
 `unlock` once its `setActive` / `finalize` has resolved, and the gate drops the lock when no
 session is left, so the end state is right.
 
+Server-side PIN lock. The app-only gates above stop a careless tap, not a person who holds the
+phone: every signed-in person keeps a live Clerk session and any of those tokens is accepted by the
+API. So the backend enforces the PIN too (`apps/backend/crates/api/src/auth/pin_lock.rs`, table
+`session_pin_state`). A person who has a PIN on **any** active membership is served only while their
+Clerk session is unlocked; a locked session gets `403 pin_required` on every store route. `GET /v1/me`
+(the picker reads `has_pin` with the locked person's token), `POST /v1/me/pin/lock` and
+`POST /v1/me/pin/verify` stay open.
+
+- A session the API sees for the first time starts unlocked: creating one needs a full sign-in
+  (email code or Google), which is why the `admit` flow above needs no extra step.
+- `useLockOutgoingSession` (mounted in `AuthGate`) calls `POST /v1/me/pin/lock` with the old
+  session's own token whenever the active session id changes (the switcher, "add a person", a fresh
+  sign-in on a shared phone). Best effort: a failure leaves the lock to the idle timeout.
+- Only `POST /v1/me/pin/verify` with the right PIN (the PIN sheet and the picker send it with the
+  target's token and the `X-Store-Id` of the store that holds the PIN) unlocks the session, and so
+  does setting a PIN. Verifying a store whose member has no PIN answers 204 and unlocks nothing, so
+  it is no way around the PIN of another store.
+- An unlocked session that is idle for 12 hours locks again.
+- The HTTP client (`authFetch`) turns a `pin_required` answer into `useDeviceLock.lock()`: the
+  gate goes back to the person picker, which asks for the PIN as after a sign-out.
+
+Remaining risk: the unlock lives on the server per Clerk session, and "another person became
+active" is reported by the app. Someone who takes the phone without going through the app (a
+console on the web build) can still use a person's session until that person is locked, which is
+until the app saw another session become active, or 12 idle hours. Old app builds never send the
+lock, so they are only covered by the idle timeout. A full fix would need Clerk to end the
+session itself (sign the person out of the device), which costs a new email-code sign-in.
+
 Store picker: with more than one membership a "Cửa hàng" list appears; choosing one
 calls `selectStore(<Clerk user id>, <store id>)`. `AuthGate` keys its identity on
 `<user id>:<store id>`, so both a person switch and a store switch run the existing

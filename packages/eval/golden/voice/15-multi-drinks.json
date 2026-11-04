@@ -1,0 +1,29 @@
+{
+  "id": "15-multi-drinks",
+  "source": "synthetic",
+  "transcript": "ba lon coca, hai lon pepsi, một lon sprite",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "coca",
+      "product": "Coca-Cola lon 320ml",
+      "quantity": 3,
+      "unit_price": null
+    },
+    {
+      "spoken": "pepsi",
+      "product": "Pepsi lon 320ml",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "sprite",
+      "product": "Sprite lon 320ml",
+      "quantity": 1,
+      "unit_price": null
+    }
+  ],
+  "tags": ["multi-line"]
+}

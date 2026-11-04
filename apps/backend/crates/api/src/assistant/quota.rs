@@ -113,7 +113,7 @@ async fn clear_exhausted_at(state: &AppState, now: DateTime<Utc>) {
     }
 }
 
-async fn incr(
+pub(crate) async fn incr(
     state: &AppState,
     key: &str,
     ttl_secs: i64,
@@ -123,6 +123,22 @@ async fn incr(
         return Ok(MEMORY.incr(key, ttl_secs, now));
     };
     redis_incr(connection, key, ttl_secs).await
+}
+/// Give one unit back (a server fault ate it); never below zero.
+pub(crate) async fn decr(state: &AppState, key: &str) -> anyhow::Result<()> {
+    let Some(connection) = &state.redis else {
+        MEMORY.decr(key);
+        return Ok(());
+    };
+    let script = redis::Script::new(
+        "local n = tonumber(redis.call('GET', KEYS[1]) or '0'); \
+         if n > 0 then return redis.call('DECR', KEYS[1]) end; return 0",
+    );
+    script
+        .key(key)
+        .invoke_async::<i64>(&mut connection.clone())
+        .await?;
+    Ok(())
 }
 async fn redis_incr(
     connection: &ConnectionManager,
@@ -159,6 +175,11 @@ impl Memory {
             .or_insert((0, now + Duration::seconds(ttl_secs)));
         entry.0 += 1;
         entry.0
+    }
+    fn decr(&self, key: &str) {
+        if let Some(entry) = self.entries().get_mut(key) {
+            entry.0 = entry.0.saturating_sub(1);
+        }
     }
     fn exists(&self, key: &str, now: DateTime<Utc>) -> bool {
         self.entries()

@@ -265,9 +265,10 @@ test('me failure offers retry and only then resolves the onboarding gate', async
           memberships: [],
         })) as typeof fetch);
   await renderWithProviders(gate, qc);
+  // the server answered 503: the network is fine, so the message must not blame it
   expect(
     await screen.findByText(
-      'Không tải được tài khoản. Kiểm tra mạng rồi thử lại.',
+      'Máy chủ đang bận, chưa tải được tài khoản. Thử lại sau.',
     ),
   ).toBeOnTheScreen();
   fail = false;
@@ -275,13 +276,28 @@ test('me failure offers retry and only then resolves the onboarding gate', async
   expect(await screen.findByText('onboarding')).toBeOnTheScreen();
 });
 
+test('me failing with a network error blames the network, not the server', async () => {
+  setApiTransport((async () => {
+    throw new TypeError('Network request failed');
+  }) as typeof fetch);
+  await renderWithProviders(gate);
+  expect(
+    await screen.findByText(
+      'Không tải được tài khoản. Kiểm tra mạng rồi thử lại.',
+    ),
+  ).toBeOnTheScreen();
+  expect(
+    screen.queryByText(
+      'Máy chủ đang bận, chưa tải được tài khoản. Thử lại sau.',
+    ),
+  ).toBeNull();
+});
+
 describe('the me error frame', () => {
   const failMe = () =>
-    setApiTransport((async () =>
-      Response.json(
-        { error: 'unavailable' },
-        { status: 503 },
-      )) as typeof fetch);
+    setApiTransport((async () => {
+      throw new TypeError('Network request failed');
+    }) as typeof fetch);
   const loadError = 'Không tải được tài khoản. Kiểm tra mạng rồi thử lại.';
 
   test('offers to sign out the current session, so the person can reach sign-in', async () => {

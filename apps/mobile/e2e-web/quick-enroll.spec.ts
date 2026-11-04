@@ -36,10 +36,8 @@ test.describe('quick enroll (real SAM and DINO models)', () => {
     for (let angle = 0; angle < 3; angle++) {
       await expect(add).toHaveCount(0);
       references.push(await acceptQuickAngle(page));
-      await expect(
-        page.getByText(`Thêm hàng nhanh · ${angle + 1}/3`),
-      ).toBeVisible();
       if (angle < 2) {
+        await expect(page.getByText('Xoay sản phẩm')).toBeVisible();
         await expect(add).toHaveCount(0);
         await expect(shutter(page)).toBeEnabled();
       }
@@ -47,6 +45,9 @@ test.describe('quick enroll (real SAM and DINO models)', () => {
     await expect(shutter(page)).toHaveCount(0);
     await expect(add).toHaveAccessibleName('Thêm sản phẩm');
     await add.click();
+    await expect(
+      page.getByRole('heading', { name: 'Thêm hàng nhanh · 3/3' }),
+    ).toBeVisible();
     await expect(page.getByLabel('3 trên 8 ảnh')).toBeVisible();
     await expect(button(page, 'Lưu sản phẩm')).toBeDisabled();
     await page
@@ -114,12 +115,11 @@ test.describe('quick enroll (real SAM and DINO models)', () => {
         'aria-selected',
         String(!discard),
       );
-      if (!discard)
-        await expect(page.getByText('Thêm hàng nhanh · 1/3')).toBeVisible();
+      if (!discard) await expect(page.getByText('Xoay sản phẩm')).toBeVisible();
     }
-    await expect(page.getByText(/Thêm hàng nhanh/)).toHaveCount(0);
+    await expect(page.getByText('Xoay sản phẩm')).toHaveCount(0);
     await enrollTag(page).click();
-    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toBeVisible();
+    await expect(page.getByText('Xoay sản phẩm')).toBeVisible();
     await expect(page.getByTestId('quick-enroll-add')).toHaveCount(0);
   });
 });

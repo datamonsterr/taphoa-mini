@@ -32,6 +32,11 @@ export type ReplyPlan = {
   actions?: ProposedAction[];
   /** `message.completed.model`; an eval model header overrides it, as in the backend. */
   model?: string;
+  cost?: {
+    input_usd: number | null;
+    output_usd: number | null;
+    total_usd: number;
+  };
   /** Wait this long after the tool events and before the text. */
   delayMs?: number;
   /** End with an `error` event instead of `message.completed`. */
@@ -337,6 +342,7 @@ export async function startStubAssistant(
         usage: {
           input_tokens: 100 + 12 * request.history.length,
           output_tokens: Math.ceil(text.length / 4),
+          ...(plan.cost ? { cost: plan.cost } : {}),
         },
       });
     }

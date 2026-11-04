@@ -8,7 +8,6 @@ use crate::{
     error::ValidJson,
     idempotency::{Idempotent, check, request_hash},
     pagination::{Page, PageParams, decode_cursor, encode_cursor},
-    time::business_date,
 };
 use axum::{
     Json,
@@ -64,7 +63,7 @@ pub(super) async fn create(
         .ok_or_else(|| ApiError::conflict("id_conflict", "customer id already used"))?;
     if !won {
         check(&row.request_hash, &hash)?;
-        return Ok(Idempotent::Replay(row.json(business_date(Utc::now()))));
+        return Ok(Idempotent::Replay(row.json(state.clock.today())));
     }
     emit_customer(
         &mut tx,
@@ -77,7 +76,7 @@ pub(super) async fn create(
     )
     .await?;
     tx.commit().await.map_err(db_error)?;
-    Ok(Idempotent::Created(row.json(business_date(Utc::now()))))
+    Ok(Idempotent::Created(row.json(state.clock.today())))
 }
 pub(super) async fn get(
     State(state): State<AppState>,
@@ -88,7 +87,7 @@ pub(super) async fn get(
     let id = parse_id(&id)?;
     let mut conn = pool(&state)?.acquire().await.map_err(db_error)?;
     Ok(Json(
-        load_customers(&mut conn, actor.store_id, &[id])
+        load_customers(&mut conn, actor.store_id, &[id], state.clock.today())
             .await?
             .pop()
             .ok_or_else(ApiError::not_found)?
@@ -161,7 +160,7 @@ pub(super) async fn patch(
         archived,
     )
     .await?;
-    let result = load_customers(&mut tx, actor.store_id, &[id])
+    let result = load_customers(&mut tx, actor.store_id, &[id], state.clock.today())
         .await?
         .pop()
         .ok_or_else(ApiError::not_found)?
@@ -212,7 +211,7 @@ pub(super) async fn list(
             "cursor sort mismatch",
         ));
     }
-    let today = business_date(Utc::now());
+    let today = state.clock.today();
     let mut rows:Vec<ListRow>=sqlx::query_as("SELECT *,lower(name) AS sort_name FROM customers WHERE store_id=$1 AND (archived_at IS NOT NULL)=$2 AND ($3::text IS NULL OR strpos(lower(name),lower($3))>0 OR strpos(lower(coalesce(phone,'')),lower($3))>0) AND ($4::bool IS NULL OR coalesce(oldest_debt_date < $5::date - 7,false)=$4) AND ($6::uuid IS NULL OR ($7='balance' AND (balance < $8 OR (balance=$8 AND id>$6))) OR ($7='recent' AND (updated_at < $9 OR (updated_at=$9 AND id>$6))) OR ($7='name' AND (lower(name),id)>($10,$6))) ORDER BY CASE WHEN $7='balance' THEN balance END DESC, CASE WHEN $7='recent' THEN updated_at END DESC, CASE WHEN $7='name' THEN lower(name) END, id LIMIT $11")
         .bind(actor.store_id).bind(f.archived.unwrap_or(false)).bind(f.query.as_deref()).bind(f.overdue).bind(today)
         .bind(cursor.as_ref().map(|c|c.id)).bind(sort).bind(cursor.as_ref().map(|c|c.balance)).bind(cursor.as_ref().map(|c|c.recent)).bind(cursor.as_ref().map(|c|c.name.as_str())).bind(i64::from(page.limit)+1)
@@ -244,7 +243,7 @@ pub(super) async fn list(
 }
 pub(super) async fn summary(State(state): State<AppState>, actor: Actor) -> ApiResult<Json<Value>> {
     actor.require(Action::RecordDebt)?;
-    let today: NaiveDate = business_date(Utc::now());
+    let today: NaiveDate = state.clock.today();
     // One snapshot makes aggregates and the top-five list agree during concurrent repayments.
     let mut tx = pool(&state)?.begin().await.map_err(db_error)?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")

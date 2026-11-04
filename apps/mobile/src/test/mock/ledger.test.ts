@@ -176,7 +176,9 @@ describe('createExpense', () => {
     const after = getDailyReport(today());
     expect(after.expenses).toBe(before.expenses + 50000);
     expect(after.net).toBe(before.net - 50000);
-    expect(after.expected_cash).toBe(Math.max(0, before.expected_cash - 50000));
+    expect(after.expected_cash).toBe(
+      Math.max(0, before.expected_cash! - 50000),
+    );
     expect(
       listExpenses({ category: 'khac', from: today() }).some(
         (e) => e.id === req.id,
@@ -256,6 +258,28 @@ describe('createExpense', () => {
       }),
     );
     expect(e.alerts).toEqual([]);
+  });
+
+  test('a seller purchase keeps the cost price; the Lead purchase updates it', () => {
+    const seller = getMockDb().members.find((m) => m.role !== 'lead')!;
+    const lines = [
+      { product_id: PRODUCT_IDS.coca, quantity: 1, unit_cost: 4321 },
+    ];
+    const before = getProduct(PRODUCT_IDS.coca).cost_price;
+    const openAlerts = listAlerts('open').length;
+    getMockDb().currentMemberId = seller.id;
+    createExpense(
+      expense({ amount: 4321, category: 'nhap_hang', purchase_lines: lines }),
+    );
+    expect(getProduct(PRODUCT_IDS.coca).cost_price).toBe(before);
+    expect(listAlerts('open')).toHaveLength(openAlerts);
+
+    const lead = getMockDb().members.find((m) => m.role === 'lead')!;
+    getMockDb().currentMemberId = lead.id;
+    createExpense(
+      expense({ amount: 4321, category: 'nhap_hang', purchase_lines: lines }),
+    );
+    expect(getProduct(PRODUCT_IDS.coca).cost_price).toBe(4321);
   });
 });
 

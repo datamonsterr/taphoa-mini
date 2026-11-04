@@ -112,7 +112,7 @@ impl Tool for Op {
     fn description_vi(&self) -> &'static str {
         match self {
             Self::DayClose => {
-                "Dùng khi cần giải thích chênh lệch chốt sổ: tiền đầu ngày, bán tiền mặt, hủy và chi từ két."
+                "Xem tiền bán thu bằng tiền mặt và khoản chi khỏi két theo ngày, hoặc giải thích chênh lệch chốt sổ: tiền đầu ngày, hoàn tiền, tiền kỳ vọng và thực đếm. Dùng kể cả khi chỉ hỏi tiền mặt vào/ra, không hỏi lệch quỹ."
             }
             Self::Review => {
                 "Dùng khi cần xem các dòng bán thủ công hoặc sai giá đang chờ chủ cửa hàng kiểm tra."
@@ -121,13 +121,13 @@ impl Tool for Op {
                 "Dùng khi cần gợi ý tối đa 3 sản phẩm cho mỗi dòng chờ kiểm tra, theo tên, giá và nhóm; không tự sửa dòng."
             }
             Self::Recognition => {
-                "Dùng khi cần tìm sản phẩm hay nhận nhầm, bỏ sót hoặc có dưới 3 ảnh tham chiếu."
+                "Báo cáo camera bán hàng: món không nhận ra, bỏ sót, nhận nhầm, số lần nhận diện/sửa và số ảnh mẫu. Dùng get_recognition_health cho chất lượng nhận diện; search_help chỉ hướng dẫn thao tác. Không rõ kỳ thì xem 60 ngày gần đây."
             }
             Self::Members => {
-                "Dùng khi chủ cửa hàng cần xem số đơn, doanh thu, đơn hủy và dòng thủ công theo thành viên."
+                "Báo cáo hoạt động nhân viên: ai hủy đơn nhiều nhất, hủy mấy đơn, số đơn bán và dòng gõ tay theo từng người trong khoảng ngày. Dùng cả khi chỉ hỏi một người bán bao nhiêu đơn hoặc gõ tay bao nhiêu dòng; get_sales_summary không thay thế công cụ này."
             }
             Self::Anomalies => {
-                "Dùng khi cần kiểm tra tỷ lệ hủy bất thường, tồn âm, giá đổi trên 30% hoặc bán vào giờ ít gặp."
+                "Xem số đơn bị hủy trong kỳ, tỷ lệ hủy bất thường, tồn âm, giá đổi trên 30% hoặc bán vào giờ ít gặp."
             }
             Self::Thresholds => {
                 "Dùng khi cần gợi ý ngưỡng sắp hết từ tốc độ bán 28 ngày và khoảng cách nhập hàng; chưa thay đổi ngưỡng."
@@ -204,7 +204,7 @@ impl Tool for Op {
             Self::Review => review(ctx, args).await,
             Self::Matches => matches(ctx, args).await,
             Self::Receipt => receipt(ctx, args).await,
-            Self::Export => export(args),
+            Self::Export => export(ctx, args).await,
             Self::Recognition | Self::Members | Self::Anomalies => {
                 let (from, to) = parse::<Range>(args)?.dates()?;
                 match self {
@@ -265,6 +265,9 @@ async fn day_close(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolErr
     data["note_vi"] = json!(
         "Khi đã chốt, các khoản tiền là ảnh chụp tại lần chốt; khi chưa chốt, tiền đầu ngày mặc định 0 ₫. Doanh số bán chịu không tính vào tiền mặt; tiền trả nợ được tính theo phương thức thanh toán."
     );
+    data["cash_equation_vi"] = json!(
+        "Tiền mặt kỳ vọng = tiền đầu ngày + bán tiền mặt + trả nợ tiền mặt − hoàn tiền mặt − chi tiền mặt. Không cộng doanh thu chuyển khoản; chênh lệch = tiền đếm − tiền kỳ vọng. Công cụ không xác định được nguyên nhân hụt tiền."
+    );
     Ok(ToolOutput::new(data, "Đã kiểm tra số liệu chốt sổ."))
 }
 fn default_limit() -> usize {
@@ -284,8 +287,11 @@ async fn review(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError>
     let rows = sqlx::query_scalar(
         r#"
         SELECT jsonb_build_object('line_id',l.id,'name',coalesce(l.manual_label,p.name,''),
-            'unit_price_dong',l.unit_price,'quantity',l.quantity,'sale_date',s.business_date,
-            'sale_id',s.id,'member_id',m.id,'member_display_name',m.display_name)
+            'unit_price_dong',l.unit_price,'current_price_dong',p.price,
+            'unit_price_difference_dong',l.unit_price-p.price,
+            'line_price_difference_dong',l.quantity::bigint*(l.unit_price-p.price),
+            'quantity',l.quantity,'sale_date',s.business_date,
+            'sale_id',s.id,'member_id',m.id,'member_display_name',m.display_name,'source',l.source)
         FROM sale_lines l JOIN sales s ON s.id=l.sale_id AND s.store_id=l.store_id
         JOIN members m ON m.id=s.member_id AND m.store_id=s.store_id
         LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id
@@ -297,7 +303,13 @@ async fn review(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError>
     .bind((limit + 1) as i64)
     .fetch_all(pool(&ctx.state)?)
     .await?;
-    Ok(items(rows, limit, "Các dòng đang chờ kiểm tra"))
+    let mut out = items(rows, limit, "Các dòng đang chờ kiểm tra");
+    let (manual, total): (i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE source='manual'),count(*) FROM sale_lines WHERE store_id=$1 AND review_status='open'",
+    ).bind(ctx.actor.store_id).fetch_one(pool(&ctx.state)?).await?;
+    out.data["manual_open_count"] = json!(manual);
+    out.data["open_line_count"] = json!(total);
+    Ok(out)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -362,12 +374,26 @@ async fn recognition(
         ), photos AS (SELECT pi.product_id,count(*) reference_count FROM product_images pi
             JOIN products p ON p.id=pi.product_id WHERE p.store_id=$1 GROUP BY pi.product_id)
         SELECT jsonb_build_object('product_id',p.id,'name',p.name,'detections',coalesce(c.detections,0),
-            'corrected',coalesce(c.corrected,0),'missed',coalesce(c.missed,0),'reference_count',coalesce(ph.reference_count,0))
+            'corrected',coalesce(c.corrected,0),'missed',coalesce(c.missed,0),
+            'missed_pct',CASE WHEN c.detections>0 THEN c.missed*100.0/c.detections ELSE 0 END,
+            'corrected_pct',CASE WHEN c.detections>0 THEN c.corrected*100.0/c.detections ELSE 0 END,
+            'reference_count',coalesce(ph.reference_count,0),
+            'confused_with',coalesce((SELECT jsonb_agg(pair ORDER BY pair.count DESC,pair.product_id) FROM (
+                SELECT q.id product_id,q.name,count(*) count FROM linked l
+                JOIN products q ON q.id=l.suggested_product_id AND q.store_id=$1
+                WHERE l.product_id=p.id AND l.suggested_product_id<>l.product_id
+                GROUP BY q.id,q.name
+            ) pair),'[]'::jsonb))
         FROM products p LEFT JOIN counts c ON c.product_id=p.id LEFT JOIN photos ph ON ph.product_id=p.id
         WHERE p.store_id=$1 AND NOT p.archived AND (coalesce(c.corrected,0)>0 OR coalesce(c.missed,0)>0 OR coalesce(ph.reference_count,0)<3)
         ORDER BY coalesce(c.corrected,0)+coalesce(c.missed,0) DESC,p.id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(from).bind(to).fetch_all(pool(&ctx.state)?).await?;
-    Ok(items(rows, 50, "Sản phẩm cần cải thiện nhận diện"))
+    let mut out = items(rows, 50, "Sản phẩm cần cải thiện nhận diện");
+    out.data["minimum_reference_count"] = json!(3);
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
+    out.data["lookback_days"] = json!((to - from).num_days() + 1);
+    Ok(out)
 }
 async fn members(
     ctx: &ToolContext,
@@ -390,7 +416,11 @@ async fn members(
         FROM members m LEFT JOIN activity a ON a.member_id=m.id LEFT JOIN manual x ON x.member_id=m.id
         WHERE m.store_id=$1 ORDER BY coalesce(a.revenue,0) DESC,m.id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(from).bind(to).fetch_all(pool(&ctx.state)?).await?;
-    Ok(items(rows, 50, "Hoạt động thành viên"))
+    let mut out = items(rows, 50, "Hoạt động thành viên");
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
+    out.data["period_days"] = json!((to - from).num_days() + 1);
+    Ok(out)
 }
 async fn anomalies(
     ctx: &ToolContext,
@@ -414,21 +444,29 @@ async fn anomalies(
             UNION ALL SELECT 'negative_stock',p.id::text,jsonb_build_object('kind','negative_stock','product_id',p.id,
                 'name',p.name,'quantity',p.stock_quantity,'as_of',$4::date)
             FROM products p WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity<0
-            UNION ALL SELECT 'price_change',h.id::text,jsonb_build_object('kind','price_change','product_id',h.product_id,
+            UNION ALL SELECT 'price_change',h.id::text,jsonb_build_object('kind','price_change','product_id',h.product_id,'name',p.name,
                 'field',h.field,'old_price_dong',h.old_value,'new_price_dong',h.new_value,'changed_at',h.changed_at,
                 'change_pct',CASE WHEN h.old_value>0 THEN (h.new_value-h.old_value)::numeric*100/h.old_value END)
-            FROM price_history h WHERE h.store_id=$1 AND h.field IN ('price','unit_price')
+            FROM price_history h JOIN products p ON p.id=h.product_id AND p.store_id=h.store_id WHERE h.store_id=$1 AND h.field IN ('price','unit_price')
                 AND (h.changed_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN $2 AND $3
                 AND h.old_value IS NOT NULL AND ((h.old_value>0 AND abs(h.new_value::numeric-h.old_value)*100>h.old_value::numeric*30)
                     OR (h.old_value=0 AND h.new_value>0))
             UNION ALL SELECT 'unusual_hour',s.id::text,jsonb_build_object('kind','unusual_hour','sale_id',s.id,
-                'sale_date',s.business_date,'hour',extract(hour FROM s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh'))
+                'sale_date',s.business_date,'hour',extract(hour FROM s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+                'sold_time',to_char(s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh','HH24:MI'),
+                'member_display_name',(SELECT m.display_name FROM members m WHERE m.id=s.member_id AND m.store_id=s.store_id),
+                'products',coalesce((SELECT jsonb_agg(jsonb_build_object('name',coalesce(p.name,l.manual_label),'quantity',l.quantity))
+                    FROM sale_lines l LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id WHERE l.sale_id=s.id AND l.store_id=s.store_id),'[]'::jsonb))
             FROM sales s LEFT JOIN hours h ON h.h=extract(hour FROM s.sold_at AT TIME ZONE 'Asia/Ho_Chi_Minh')
             WHERE s.store_id=$1 AND s.business_date BETWEEN $2 AND $3 AND s.status='completed'
                 AND (SELECT sum(n) FROM hours)>0 AND coalesce(h.n,0)::numeric/(SELECT sum(n) FROM hours)<0.02
         ) SELECT value FROM findings ORDER BY kind,id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(from).bind(to).bind(ctx.today).fetch_all(pool(&ctx.state)?).await?;
     let mut out = items(rows, 50, "Các dấu hiệu cần kiểm tra");
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
+    out.data["lookback_days"] = json!((to - from).num_days());
+    out.data["price_change_threshold_pct"] = json!(30);
     out.data["note_vi"] = json!(
         "Tỷ lệ hủy so với 60 ngày trước khoảng yêu cầu; giờ ít gặp chiếm dưới 2% đơn hoàn tất trong 60 ngày tính đến ngày tham chiếu. Tồn kho là số hiện tại, không phải lịch sử."
     );
@@ -448,31 +486,47 @@ async fn thresholds(ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         typical AS (SELECT product_id,avg(gap)::float8 gap FROM gaps WHERE gap>0 GROUP BY product_id)
         SELECT jsonb_build_object('product_id',p.id,'name',p.name,'avg_daily_units',coalesce(u.avg_daily,0),
             'restock_gap_days',coalesce(t.gap,7),'suggested_threshold',ceil(coalesce(u.avg_daily,0)*coalesce(t.gap,7))::bigint,
-            'current_threshold',coalesce(p.low_stock_threshold,s.low_stock_threshold))
+            'current_threshold',coalesce(p.low_stock_threshold,s.low_stock_threshold),
+            'product_threshold',p.low_stock_threshold,'uses_store_default',p.low_stock_threshold IS NULL)
         FROM products p JOIN stores s ON s.id=p.store_id LEFT JOIN units u ON u.product_id=p.id LEFT JOIN typical t ON t.product_id=p.id
-        WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL ORDER BY p.id LIMIT 51
+        WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL ORDER BY p.low_stock_threshold IS NOT NULL,p.id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(ctx.today).fetch_all(pool(&ctx.state)?).await?;
-    Ok(items(rows, 50, "Ngưỡng tồn kho gợi ý"))
+    let mut out = items(rows, 50, "Ngưỡng tồn kho gợi ý");
+    let missing: i64 = sqlx::query_scalar("SELECT count(*) FROM products WHERE store_id=$1 AND NOT archived AND stock_quantity IS NOT NULL AND low_stock_threshold IS NULL")
+        .bind(ctx.actor.store_id).fetch_one(pool(&ctx.state)?).await?;
+    out.data["missing_threshold_count"] = json!(missing);
+    out.data["sales_window_days"] = json!(28);
+    Ok(out)
 }
 async fn setup(ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-    let flags:(bool,bool,bool,bool,bool)=sqlx::query_as(r#"
+    let flags:(bool,bool,bool,bool,bool,i64,i64,i64)=sqlx::query_as(r#"
         SELECT s.bank_account_number IS NOT NULL AND s.bank_bin IS NOT NULL AND s.bank_account_name IS NOT NULL,
             EXISTS(SELECT 1 FROM members m WHERE m.store_id=s.id AND m.active AND m.role='seller') OR
                 EXISTS(SELECT 1 FROM invites i WHERE i.store_id=s.id AND i.role='seller' AND (i.used_at IS NOT NULL OR i.expires_at>$2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')),
             s.low_stock_threshold<>5 OR EXISTS(SELECT 1 FROM products p WHERE p.store_id=s.id AND NOT p.archived AND p.low_stock_threshold IS NOT NULL),
             EXISTS(SELECT 1 FROM day_closes c WHERE c.store_id=s.id),
-            (SELECT count(*) FROM products p WHERE p.store_id=s.id AND NOT p.archived)>=10
+            (SELECT count(*) FROM products p WHERE p.store_id=s.id AND NOT p.archived)>=10,
+            (SELECT count(*) FROM members m WHERE m.store_id=s.id AND m.active),
+            (SELECT count(*) FROM products p WHERE p.store_id=s.id AND NOT p.archived AND p.stock_quantity IS NOT NULL AND p.low_stock_threshold IS NULL),
+            (SELECT count(*) FROM invites i WHERE i.store_id=s.id AND i.used_at IS NULL AND i.expires_at>$2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
         FROM stores s WHERE s.id=$1
     "#).bind(ctx.actor.store_id).bind(ctx.today).fetch_optional(pool(&ctx.state)?).await?.ok_or_else(||ToolError::NotFound("store".into()))?;
     let rows = vec![
         json!({"key":"vietqr","done":flags.0,"hint_vi":"Mở Tài khoản → Tài khoản ngân hàng VietQR để cài tài khoản nhận tiền."}),
         json!({"key":"seller","done":flags.1,"hint_vi":"Mở Tài khoản → Mời bằng mã QR để mời người bán."}),
         json!({"key":"can_enroll_reviewed","done":false,"hint_vi":"Chưa xác minh việc kiểm tra quyền thêm sản phẩm của người bán; cần chủ cửa hàng kiểm tra thủ công."}),
-        json!({"key":"thresholds","done":flags.2,"hint_vi":"Tùy chỉnh Ngưỡng sắp hết hàng ở Tài khoản hoặc ngưỡng riêng trong chi tiết sản phẩm."}),
+        json!({"key":"thresholds","done":flags.2 && flags.6==0,"hint_vi":"Tùy chỉnh Ngưỡng sắp hết hàng ở Tài khoản hoặc ngưỡng riêng trong chi tiết sản phẩm."}),
         json!({"key":"first_day_close","done":flags.3,"hint_vi":"Mở Báo cáo → Chốt sổ và nhập tiền đếm được."}),
         json!({"key":"ten_products","done":flags.4,"hint_vi":"Thêm ít nhất 10 sản phẩm vào kho bằng camera hoặc màn Thêm sản phẩm."}),
     ];
-    Ok(items(rows, 50, "Danh sách cài đặt cửa hàng"))
+    let mut out = items(rows, 50, "Danh sách cài đặt cửa hàng");
+    out.data["member_count"] = json!(flags.5);
+    out.data["threshold_missing_count"] = json!(flags.6);
+    out.data["pending_invite_count"] = json!(flags.7);
+    let members: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('display_name',display_name,'role',role,'can_enroll',role='lead' OR can_enroll) FROM members WHERE store_id=$1 AND active ORDER BY role,display_name,id")
+        .bind(ctx.actor.store_id).fetch_all(pool(&ctx.state)?).await?;
+    out.data["members"] = json!(members);
+    Ok(out)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -481,19 +535,42 @@ struct ReceiptArgs {
 }
 async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError> {
     let id = parse::<ReceiptArgs>(args)?.receipt_id;
-    let mut data:Value=sqlx::query_scalar("SELECT jsonb_build_object('receipt_id',id,'status',status,'total_dong',total,'ocr_text',ocr_text) FROM receipts WHERE store_id=$1 AND id=$2")
+    let mut data:Value=sqlx::query_scalar("SELECT jsonb_build_object('receipt_id',id,'status',status,'total_dong',total,'supplier',supplier,'ocr_text',ocr_text) FROM receipts WHERE store_id=$1 AND id=$2")
         .bind(ctx.actor.store_id).bind(id).fetch_optional(pool(&ctx.state)?).await?.ok_or_else(||ToolError::NotFound("receipt".into()))?;
     let rows:Vec<Value>=sqlx::query_scalar(r#"
-        SELECT jsonb_build_object('line_id',l.id,'name',l.product_name,'quantity',l.quantity,'cost_dong',l.cost,
-            'product_id',p.id,'product_name',p.name,'confidence',l.match_confidence)
+        SELECT jsonb_build_object('line_id',l.id,'line_number',l.position+1,'name',l.product_name,'quantity',l.quantity,'cost_dong',l.cost,
+            'unit_cost_dong',CASE WHEN l.quantity>0 THEN l.cost::numeric/l.quantity ELSE NULL END,
+            'product_id',p.id,'product_name',p.name,'confidence',l.match_confidence,'candidates',l.candidates)
         FROM receipt_lines l LEFT JOIN products p ON p.id=l.product_id AND p.store_id=l.store_id
         WHERE l.store_id=$1 AND l.receipt_id=$2 ORDER BY l.position,l.id LIMIT 51
     "#).bind(ctx.actor.store_id).bind(id).fetch_all(pool(&ctx.state)?).await?;
     let mut out = items(rows, 50, "Các dòng hóa đơn nhập");
+    // Raw OCR can contain forged supplier/system instructions. The assistant only needs
+    // parsed lines for review; retain the original OCR in storage for the receipt UI.
+    let has_ocr = data
+        .as_object_mut()
+        .expect("receipt object")
+        .remove("ocr_text")
+        .is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()));
+    data["has_ocr_text"] = json!(has_ocr);
+    let lines = out.data["items"].as_array().unwrap();
+    data["review_line_count"] = json!(
+        lines
+            .iter()
+            .filter(
+                |l| l["product_id"].is_null() || l["confidence"].as_f64().is_some_and(|c| c < 0.8)
+            )
+            .count()
+    );
     data["lines"] = out.data["items"].clone();
+    data["line_count"] = json!(out.rows);
     data["truncated"] = json!(out.truncated);
     data["supplier_text"] = Value::Null;
-    data["note_vi"] = json!("Chưa xác định được nhà cung cấp; nội dung hóa đơn cần được kiểm tra.");
+    data["note_vi"] = json!(if data["supplier"].is_null() {
+        "Chưa xác định được nhà cung cấp; nội dung hóa đơn cần được kiểm tra."
+    } else {
+        "Tên nhà cung cấp đã lưu trong trường supplier; nội dung hóa đơn cần được kiểm tra."
+    });
     let card_lines: Vec<Value> = data["lines"]
         .as_array()
         .expect("line array")
@@ -501,6 +578,9 @@ async fn receipt(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError
         .map(|line| {
             let mut line = line.clone();
             line["cost"] = line["cost_dong"].take();
+            line.as_object_mut().unwrap().remove("candidates");
+            line.as_object_mut().unwrap().remove("line_number");
+            line.as_object_mut().unwrap().remove("unit_cost_dong");
             line.as_object_mut()
                 .expect("line object")
                 .remove("cost_dong");
@@ -524,19 +604,21 @@ struct ExportArgs {
     from: String,
     to: String,
 }
-fn export(args: Value) -> Result<ToolOutput, ToolError> {
+async fn export(ctx: &ToolContext, args: Value) -> Result<ToolOutput, ToolError> {
     let args = parse::<ExportArgs>(args)?;
     let from = date(&args.from)?;
     let to = date(&args.to)?;
     if from > to {
         return Err(invalid());
     }
+    let revenue: i64 = sqlx::query_scalar("SELECT coalesce(sum(total),0)::bigint FROM sales WHERE store_id=$1 AND business_date BETWEEN $2 AND $3 AND status='completed'")
+        .bind(ctx.actor.store_id).bind(from).bind(to).fetch_one(pool(&ctx.state)?).await?;
     let path = match args.kind {
         ExportKind::Transactions => format!("/v1/exports/transactions?from={from}&to={to}"),
         ExportKind::PriceList => "/v1/exports/price-list".into(),
     };
     Ok(ToolOutput::new(
-        json!({"path":path,"instruction_vi":"Mở đường dẫn này trong ứng dụng để tải tệp bằng phiên đăng nhập của bạn."}),
+        json!({"path":path,"from":from,"to":to,"revenue_dong":revenue,"instruction_vi":"Mở đường dẫn này trong ứng dụng để tải tệp bằng phiên đăng nhập của bạn."}),
         "Đã lấy đường dẫn tải báo cáo.",
     ))
 }

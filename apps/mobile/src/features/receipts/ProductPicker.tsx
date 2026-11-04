@@ -19,7 +19,7 @@ export function ProductPicker({
   onChoose,
   onClose,
 }: {
-  line: ReceiptLine;
+  line: Pick<ReceiptLine, 'candidates'>;
   onChoose: (id: string) => void;
   onClose: () => void;
 }) {

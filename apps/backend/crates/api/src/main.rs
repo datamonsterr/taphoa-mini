@@ -77,6 +77,26 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
         tracing::warn!("assistant uses the scripted provider for local/e2e runs");
         state.assistant.model = Some(Arc::new(RuleModel));
     }
+    let voice_config = taphoa_api::voice::VoiceConfig::from_env()?;
+    match voice_config.provider {
+        taphoa_api::voice::VoiceProvider::OpenRouter => {
+            state.voice.model = OpenRouterConfig::from_env()?
+                .map(|c| {
+                    taphoa_api::voice::model::OpenRouterVoice::new(
+                        c,
+                        voice_config.model_timeout,
+                        voice_config.require_zdr,
+                    )
+                })
+                .transpose()?
+                .map(|client| Arc::new(client) as Arc<dyn taphoa_api::voice::VoiceModel>);
+        }
+        taphoa_api::voice::VoiceProvider::Scripted => {
+            tracing::warn!("voice uses the scripted provider for local/e2e runs");
+            state.voice.model = Some(Arc::new(taphoa_api::voice::scripted::MarkerVoiceModel));
+        }
+    }
+    state.voice.config = Arc::new(voice_config);
     state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {
@@ -102,6 +122,10 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
     let mut background = events::spawn_background(&state, shutdown_rx.clone());
     if let Some(pool) = pool.clone() {
         background.push(retention::spawn(pool.clone(), shutdown_rx.clone()));
+        background.push(taphoa_api::voice::retention::spawn(
+            pool.clone(),
+            shutdown_rx.clone(),
+        ));
         if digest_config.enabled {
             background.push(digest_job::spawn(
                 state.clone(),

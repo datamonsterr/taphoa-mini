@@ -1,0 +1,29 @@
+{
+  "id": "10-multi-three",
+  "source": "synthetic",
+  "transcript": "ba gói mì hảo hảo tôm chua cay, hai chai nước suối lavie và một lon bia tiger",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "mì hảo hảo tôm chua cay",
+      "product": "Mì Hảo Hảo tôm chua cay 75g",
+      "quantity": 3,
+      "unit_price": null
+    },
+    {
+      "spoken": "nước suối lavie",
+      "product": "Nước suối Lavie 500ml",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "bia tiger",
+      "product": "Bia Tiger lon 330ml",
+      "quantity": 1,
+      "unit_price": null
+    }
+  ],
+  "tags": ["smoke", "multi-line"]
+}

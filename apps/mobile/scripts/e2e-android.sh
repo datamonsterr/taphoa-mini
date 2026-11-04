@@ -2,6 +2,7 @@
 # Runs inside the emulator booted by reactivecircus/android-emulator-runner:
 # install the release APK, grant the camera, run the Maestro flows, then check the jank budget.
 # Usage: e2e-android.sh <apk> [flow...]
+# RUN_TAG (optional, [a-z0-9-]) is passed to the flows as env, so sign-in.yaml tags its Clerk users.
 # Each flow is a flow file or folder relative to apps/mobile; with none, the whole .maestro folder runs.
 set -euo pipefail
 
@@ -13,6 +14,25 @@ if [ "${#flows[@]}" -eq 0 ]; then flows=(.maestro); fi
 apk="$(realpath "$apk")"
 app_id=com.datamonsterr.taphoamini
 cd "$(dirname "$0")/.."
+
+# Move the emulator onto the backend pinned business clock (scripts/e2e/pin-clock.sh), so both
+# agree on today even when the run crosses 00:00 Asia/Ho_Chi_Minh. Needs root, which the
+# google_apis image allows; fail loudly, since a silent mismatch reappears as a midnight flake.
+if [ -n "${E2E_CLOCK_OFFSET_SECS:-}" ]; then
+  adb root
+  adb wait-for-device
+  adb shell settings put global auto_time 0
+  adb shell settings put global auto_time_zone 0
+  target=$(($(date +%s) + E2E_CLOCK_OFFSET_SECS))
+  adb shell "date -u $(date -u -d "@$target" +%m%d%H%M%Y.%S)" >/dev/null
+  actual="$(adb shell date +%s | tr -d '\r')"
+  drift=$((actual - target))
+  echo "emulator clock: target=$target actual=$actual drift=${drift}s"
+  if [ "${drift#-}" -gt 60 ]; then
+    echo "could not set the emulator clock" >&2
+    exit 1
+  fi
+fi
 
 adb install -r "$apk"
 adb shell pm grant "$app_id" android.permission.CAMERA
@@ -31,7 +51,9 @@ adb shell dumpsys gfxinfo "$app_id" reset >/dev/null || true
 # --debug-output keeps screenshots + logs for the artifact; flatten drops the per-run timestamp dirs.
 # Keep the exit code: the jank report must still be produced when a flow fails.
 maestro_status=0
-maestro test "${flows[@]}" \
+tag_args=()
+if [ -n "${RUN_TAG:-}" ]; then tag_args=(-e "RUN_TAG=$RUN_TAG"); fi
+maestro test "${tag_args[@]}" "${flows[@]}" \
   --format junit --output maestro-report.xml \
   --debug-output maestro-debug --flatten-debug-output || maestro_status=$?
 

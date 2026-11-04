@@ -80,7 +80,7 @@ describe('judgeAnswer', () => {
     expect(body.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('sends the rubric and the answer, and nothing else', async () => {
+  it('sends the rubric and the answer', async () => {
     const fetchFn = fakeFetch('{"score": 5, "reason": "ok"}');
     await judgeAnswer(INPUT, { apiKey: 'k', models: MODELS, fetch: fetchFn });
     const body = bodyOf(fetchFn);
@@ -88,6 +88,31 @@ describe('judgeAnswer', () => {
     expect(body.messages[1]!.content).toContain(INPUT.rubric_vi);
     expect(body.messages[1]!.content).toContain(INPUT.answer);
     expect(body.messages[0]!.content).not.toContain(INPUT.answer);
+  });
+
+  it('includes question history and fixture context as data, outside the system prompt', async () => {
+    const fetchFn = fakeFetch('{"score": 5, "reason": "ok"}');
+    const context = {
+      business_date: '2026-10-20',
+      role: 'seller',
+      language: 'en',
+    };
+    const messages = [
+      { role: 'user' as const, content: 'How many sold yesterday?' },
+    ];
+    await judgeAnswer(
+      { ...INPUT, messages, fixture_context: context },
+      {
+        apiKey: 'k',
+        models: MODELS,
+        fetch: fetchFn,
+      },
+    );
+    const body = bodyOf(fetchFn);
+    expect(body.messages[1]!.content).toContain(JSON.stringify(messages));
+    expect(body.messages[1]!.content).toContain(JSON.stringify(context));
+    expect(body.messages[0]!.content).not.toContain(messages[0]!.content);
+    expect(body.messages[1]!.content).toContain('\n');
   });
 
   it('uses the first model when nothing is excluded', async () => {
@@ -194,12 +219,9 @@ describe('judgeAnswer', () => {
 });
 
 describe('judgeModelsFromEnv', () => {
-  it('defaults to the two free judges', () => {
+  it('defaults to the calibrated paid judge', () => {
     expect(judgeModelsFromEnv({})).toEqual(DEFAULT_JUDGE_MODELS);
-    expect(DEFAULT_JUDGE_MODELS).toEqual([
-      'google/gemma-4-31b-it:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
-    ]);
+    expect(DEFAULT_JUDGE_MODELS).toEqual(['google/gemini-2.5-flash']);
   });
 
   it('parses a comma-separated EVAL_JUDGE_MODELS', () => {

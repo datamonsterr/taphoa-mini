@@ -76,11 +76,14 @@ it('unlocks Add at exactly three accepted angles and saves three references pend
   await takeAngle();
   await takeAngle();
   expect(screen.queryByTestId('quick-enroll-add')).toBeNull();
-  expect(screen.getByText('Thêm hàng nhanh · 2/3')).toBeOnTheScreen();
+  expect(screen.getByText('Xoay sản phẩm')).toBeOnTheScreen();
   await takeAngle();
   const references = selectReferences(useQuickEnrollStore.getState());
   await fireEvent.press(screen.getByLabelText('Thêm sản phẩm'));
   expect(screen.getByTestId('quick-enroll-sheet')).toBeOnTheScreen();
+  expect(
+    screen.getByRole('header', { name: 'Thêm hàng nhanh · 3/3' }),
+  ).toBeOnTheScreen();
   await fireEvent.changeText(
     screen.getByLabelText('Tên (không bắt buộc)'),
     'Sữa mới',
@@ -346,4 +349,20 @@ it('retries a suspected duplicate with force_new and the same references and id'
   expect(bodies[0]).toMatchObject({ force_new: false });
   expect(bodies[1]).toEqual({ ...bodies[0], force_new: true });
   await waitFor(() => expect(screen.queryByText('đang học')).toBeNull());
+});
+
+it('shows quick enroll header in sheet and updates when removing an angle', async () => {
+  await start();
+  await takeAngle();
+  await takeAngle();
+  await takeAngle();
+  await fireEvent.press(screen.getByLabelText('Thêm sản phẩm'));
+  expect(screen.getByTestId('quick-enroll-sheet')).toBeOnTheScreen();
+  expect(
+    screen.getByRole('header', { name: 'Thêm hàng nhanh · 3/3' }),
+  ).toBeOnTheScreen();
+  await fireEvent.press(screen.getByLabelText('Xóa ảnh 3'));
+  expect(
+    screen.getByRole('header', { name: 'Thêm hàng nhanh · 2/3' }),
+  ).toBeOnTheScreen();
 });

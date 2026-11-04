@@ -1,5 +1,5 @@
 //! One streaming OpenRouter chat completion per model attempt. Fallback belongs to the loop.
-use super::{ChatModel, ChatRequest, ChatResponse, ModelError, ToolCall, Usage};
+use super::{ChatModel, ChatRequest, ChatResponse, ModelError, ToolCall, Usage, UsageCost};
 use anyhow::{Context, ensure};
 use async_trait::async_trait;
 use reqwest::{
@@ -219,6 +219,8 @@ fn request_body(request: &ChatRequest) -> Value {
         "messages": messages,
         "stream": true,
         "max_tokens": request.max_tokens,
+        "temperature": 0,
+        "provider": {"sort": "latency"},
     });
     if !request.tools.is_empty() {
         let tools: Vec<_> = request
@@ -241,9 +243,27 @@ fn request_body(request: &ChatRequest) -> Value {
     if let Some(effort) = &request.reasoning_effort {
         body["reasoning"] = json!({"effort": effort});
     }
-    // Usage is always present in the final chunk (OpenRouter docs checked 2026-10-26).
+    // OpenRouter usage accounting is automatic in the final SSE chunk (docs checked 2026-10-29).
+    // Deprecated usage.include/stream_options.include_usage parameters have no effect.
     body
 }
+fn usage_cost(usage: &Value) -> Option<UsageCost> {
+    let amount = |v: &Value| v.as_f64().filter(|n| n.is_finite() && *n >= 0.0);
+    let total_usd = amount(&usage["cost"])?;
+    let input = amount(&usage["cost_details"]["upstream_inference_prompt_cost"]);
+    let output = amount(&usage["cost_details"]["upstream_inference_completions_cost"]);
+    // Upstream costs can differ from the account charge (e.g. BYOK). Never label
+    // those as account input/output components unless they reconcile with the total.
+    let split = input
+        .zip(output)
+        .filter(|(i, o)| (i + o - total_usd).abs() <= 1e-10);
+    Some(UsageCost {
+        input_usd: split.map(|(i, _)| i),
+        output_usd: split.map(|(_, o)| o),
+        total_usd,
+    })
+}
+
 fn transport(error: reqwest::Error, text_sent: bool) -> ModelError {
     if error.is_timeout() {
         ModelError::Timeout
@@ -327,6 +347,7 @@ impl Completion {
                 usage: Usage::default(),
                 http_status,
                 time_to_first_token: None,
+                generation_id: None,
             },
             calls: BTreeMap::new(),
             text_sent: false,
@@ -349,6 +370,13 @@ impl Completion {
         }
         let value: Value =
             serde_json::from_str(data).map_err(|_| self.failed("invalid stream JSON"))?;
+        if self.response.generation_id.is_none()
+            && let Some(id) = value["id"].as_str().map(str::trim)
+            && !id.is_empty()
+            && id.len() <= 128
+        {
+            self.response.generation_id = Some(id.to_owned());
+        }
         let choice = &value["choices"][0];
         if value.get("error").is_some_and(|error| !error.is_null())
             || choice["finish_reason"] == "error"
@@ -368,6 +396,7 @@ impl Completion {
                     .as_u64()
                     .and_then(|n| n.try_into().ok())
                     .unwrap_or_default(),
+                cost: usage_cost(usage),
             };
         }
         if let Some(reason) = choice["finish_reason"].as_str() {
@@ -558,7 +587,7 @@ mod tests {
     #[tokio::test]
     async fn text_comments_split_lines_and_usage() {
         let usage = event(
-            json!({"model":"served/model:free", "choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7}}),
+            json!({"id":"gen-stream-1","model":"served/model:free", "choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7}}),
         );
         let body = format!(
             ": OPENROUTER PROCESSING\r\n\r\n{}{}{}data: [DONE]\r\n\r\n",
@@ -574,17 +603,53 @@ mod tests {
         assert_eq!(deltas, ["Chào", "!"]);
         assert_eq!(response.content, "Chào!");
         assert_eq!(response.model, "served/model:free");
+        assert_eq!(response.generation_id.as_deref(), Some("gen-stream-1"));
         assert_eq!(response.finish_reason, "stop");
         assert_eq!(
             response.usage,
             Usage {
                 input_tokens: 11,
-                output_tokens: 7
+                output_tokens: 7,
+                ..Usage::default()
             }
         );
         assert_eq!(response.http_status, 200);
         assert!(response.time_to_first_token.is_some());
         assert!(response.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn paid_stream_retains_actual_cost_components_and_total() {
+        let body = text()
+            + &event(json!({"choices":[{"delta":{},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":20,"completion_tokens":8,"cost":0.000006,
+            "cost_details":{"upstream_inference_prompt_cost":0.000002,"upstream_inference_completions_cost":0.000004}}}))
+            + "data: [DONE]\n\n";
+        let response = run(&canned(200, body).await).await.0.unwrap();
+        assert_eq!(
+            response.usage.cost,
+            Some(UsageCost {
+                input_usd: Some(0.000002),
+                output_usd: Some(0.000004),
+                total_usd: 0.000006
+            })
+        );
+    }
+
+    #[test]
+    fn accounting_missing_invalid_or_different_upstream_is_not_fabricated() {
+        for value in [json!({}), json!({"cost":-1}), json!({"cost":"0.1"})] {
+            assert!(usage_cost(&value).is_none());
+        }
+        for details in [
+            json!({}),
+            json!({"upstream_inference_prompt_cost":1,"upstream_inference_completions_cost":2}),
+        ] {
+            let cost = usage_cost(&json!({"cost":0.1,"cost_details":details})).unwrap();
+            assert_eq!(cost.total_usd, 0.1);
+            assert!(cost.input_usd.is_none() && cost.output_usd.is_none());
+        }
+        assert_eq!(usage_cost(&json!({"cost":0,"cost_details":{"upstream_inference_prompt_cost":0,"upstream_inference_completions_cost":0}})).unwrap().input_usd,Some(0.0));
     }
 
     #[tokio::test]
@@ -717,7 +782,7 @@ mod tests {
         assert_eq!(headers["content-type"], "application/json");
         assert_eq!(
             body,
-            json!({"model":"test/model:free","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hello"},{"role":"assistant","content":null,"tool_calls":[{"id":"a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","content":"{\"ok\":true}"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup","parameters":{"type":"object"}}}],"tool_choice":"auto","stream":true,"max_tokens":123,"reasoning":{"effort":"low"}})
+            json!({"model":"test/model:free","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hello"},{"role":"assistant","content":null,"tool_calls":[{"id":"a","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","content":"{\"ok\":true}"}],"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup","parameters":{"type":"object"}}}],"tool_choice":"auto","stream":true,"max_tokens":123,"temperature":0,"provider":{"sort":"latency"},"reasoning":{"effort":"low"}})
         );
     }
     #[tokio::test]

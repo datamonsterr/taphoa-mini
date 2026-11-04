@@ -47,8 +47,12 @@ export function JoinStoreScreen() {
       });
       complete(membership);
     } catch (error) {
-      setFailure(t(onboardingErrorKey(error)));
+      const key = onboardingErrorKey(error);
+      setFailure(t(key));
       setBusy(false);
+      // The invite was already used by this very person (a lost answer, a second tap): the
+      // membership exists, so reload it and the gate opens the store.
+      if (key === 'error.alreadyMember') void me.refetch();
     }
   };
 

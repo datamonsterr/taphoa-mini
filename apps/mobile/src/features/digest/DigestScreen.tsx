@@ -2,13 +2,14 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import {
   BookUser,
   ChevronLeft,
-  ChevronRight,
+  DollarSign,
+  MessageCircleText,
   ReceiptText,
-  Sparkles,
+  Sun,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react-native';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, type ReactNode } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -20,13 +21,13 @@ import {
   Text,
 } from '@/components/ui';
 import { capture } from '@/lib/analytics';
-import { useDigest } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
+import { useOpenDigest } from '@/lib/api';
 import { fill, useT } from '@/lib/i18n';
-import { colors, radius, size, space, typography } from '@/theme';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { digestStrings } from './strings';
-import { formatDayMonth } from './utils';
+import { formatDigestStamp, summarySegments } from './utils';
 
 export function DigestScreen() {
   const t = useT(digestStrings);
@@ -42,12 +43,13 @@ export function DigestScreen() {
     });
   }, [params.entry]);
 
+  // Opening the digest is what marks it read; the dashboard card only peeks.
   const {
     data: digest,
     isPending,
     isError,
     refetch,
-  } = useDigest(params.business_date);
+  } = useOpenDigest(params.business_date);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -68,7 +70,13 @@ export function DigestScreen() {
   }, [t]);
 
   const dateStr = digest?.business_date ?? params.business_date;
-  const formattedDate = dateStr ? formatDayMonth(dateStr) : '';
+  const stamp = dateStr ? formatDigestStamp(dateStr, digest?.generated_at) : '';
+  const title = t('title');
+  const backLabel = t('back');
+  const retryLabel = t('retry');
+  const errorText = t('error');
+  const loadingLabel = t('loading');
+  const noDigest = t('noDigest');
 
   return (
     <ScrollView
@@ -84,158 +92,182 @@ export function DigestScreen() {
       <View style={styles.header}>
         <CircleButton
           icon={ChevronLeft}
-          accessibilityLabel={t('back')}
+          accessibilityLabel={backLabel}
           onPress={goBack}
         />
         <View style={styles.headerTitleWrap}>
           <Text accessibilityRole="header" style={styles.title}>
-            {t('title')}
+            {title}
           </Text>
-          {formattedDate ? (
-            <Text style={styles.date}>{formattedDate}</Text>
-          ) : null}
+          {stamp ? <Text style={styles.date}>{stamp}</Text> : null}
         </View>
+        <Icon icon={Sun} color={colors.accent} />
       </View>
 
       {isError ? (
         <View accessibilityRole="alert" style={styles.errorBox}>
-          <Text style={styles.errorText}>{t('error')}</Text>
+          <Text style={styles.errorText}>{errorText}</Text>
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel={t('retry')}
+            accessibilityLabel={retryLabel}
             pressedScale={0.96}
             onPress={() => void refetch()}
             style={styles.retryButton}
           >
-            <Text style={styles.retryText}>{t('retry')}</Text>
+            <Text style={styles.retryText}>{retryLabel}</Text>
           </PressableScale>
         </View>
       ) : isPending ? (
         <View
           accessibilityRole="progressbar"
-          accessibilityLabel={t('loading')}
+          accessibilityLabel={loadingLabel}
           style={styles.loadingContainer}
         >
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : digest ? (
         <View style={styles.body}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryText}>{digest.summary_vi}</Text>
-          </View>
+          <Text style={styles.summaryText}>
+            {summarySegments(digest.summary_vi).map((part, index) => (
+              <Text
+                key={index}
+                style={part.bold ? styles.summaryBold : undefined}
+              >
+                {part.text}
+              </Text>
+            ))}
+          </Text>
 
-          {/* Stat rows */}
-          <View style={styles.section}>
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>{t('revenue')}</Text>
-              <MoneyText amount={digest.sales.revenue} variant="heading" />
-            </View>
-
-            <View style={styles.statRow}>
-              <Text style={styles.statLabel}>{t('saleCount')}</Text>
-              <Text style={styles.statValue}>{digest.sales.sale_count}</Text>
-            </View>
-
+          <View style={styles.tiles}>
+            <Tile
+              icon={TrendingUp}
+              label={t('revenue')}
+              spoken={formatVnd(digest.sales.revenue)}
+            >
+              <MoneyText
+                amount={digest.sales.revenue}
+                variant="heading"
+                style={styles.tileValue}
+              />
+            </Tile>
+            <Tile
+              icon={ReceiptText}
+              label={t('saleCount')}
+              spoken={fill(t('ordersCount'), {
+                count: digest.sales.sale_count,
+              })}
+            >
+              <Text style={styles.tileValue}>
+                {fill(t('ordersCount'), { count: digest.sales.sale_count })}
+              </Text>
+            </Tile>
             {digest.sales.gross_profit !== null ? (
-              <View style={styles.statRow}>
-                <Text style={styles.statLabel}>{t('grossProfit')}</Text>
+              <Tile
+                icon={DollarSign}
+                label={t('grossProfit')}
+                spoken={formatVnd(digest.sales.gross_profit)}
+                tone="success"
+              >
                 <MoneyText
                   amount={digest.sales.gross_profit}
                   variant="heading"
+                  color={colors.success}
+                  style={styles.tileValue}
                 />
-              </View>
+              </Tile>
             ) : null}
-
             {digest.sales.change_pct !== null ? (
-              <View style={styles.statRow}>
-                <Text style={styles.statLabel}>{t('changeVsYesterday')}</Text>
-                <View style={styles.changeBadge}>
-                  {digest.sales.change_pct > 0 ? (
-                    <Icon icon={TrendingUp} size={18} color={colors.success} />
-                  ) : digest.sales.change_pct < 0 ? (
-                    <Icon icon={TrendingDown} size={18} color={colors.danger} />
-                  ) : null}
-                  <Text
-                    style={[
-                      styles.changeText,
-                      digest.sales.change_pct > 0 && styles.changePositive,
-                      digest.sales.change_pct < 0 && styles.changeNegative,
-                    ]}
-                  >
-                    {digest.sales.change_pct > 0 ? '+' : ''}
-                    {digest.sales.change_pct}%
-                  </Text>
-                </View>
-              </View>
+              <Tile
+                icon={digest.sales.change_pct < 0 ? TrendingDown : TrendingUp}
+                label={t('changeVsYesterday')}
+                spoken={changeText(digest.sales.change_pct)}
+                tone={
+                  digest.sales.change_pct > 0
+                    ? 'success'
+                    : digest.sales.change_pct < 0
+                      ? 'danger'
+                      : undefined
+                }
+              >
+                <Text
+                  style={[
+                    styles.tileValue,
+                    digest.sales.change_pct > 0 && styles.positive,
+                    digest.sales.change_pct < 0 && styles.negative,
+                  ]}
+                >
+                  {changeText(digest.sales.change_pct)}
+                </Text>
+              </Tile>
             ) : null}
           </View>
 
-          {/* Restock list */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('restockTitle')}</Text>
-            {digest.restock.length === 0 ? (
-              <Text style={styles.emptyText}>{t('restockEmpty')}</Text>
-            ) : (
-              <View style={styles.restockList}>
-                {digest.restock.map((item) => (
-                  <View key={item.product_id} style={styles.restockItem}>
-                    <View style={styles.restockInfo}>
-                      <Text style={styles.restockName}>{item.name}</Text>
-                      <Text style={styles.restockQuantity}>
-                        × {item.quantity}
-                      </Text>
-                    </View>
-                    {item.total_cost !== null ? (
-                      <MoneyText amount={item.total_cost} variant="label" />
-                    ) : null}
+          <Text style={styles.sectionTitle}>{t('restockTitle')}</Text>
+          {digest.restock.length === 0 ? (
+            <Text style={styles.emptyText}>{t('restockEmpty')}</Text>
+          ) : (
+            <View style={styles.restockList}>
+              {digest.restock.map((item) => (
+                <View key={item.product_id} style={styles.restockItem}>
+                  <View style={styles.restockInfo}>
+                    <Text style={styles.restockName}>{item.name}</Text>
+                    <Text style={styles.restockQuantity}>
+                      × {item.quantity}
+                    </Text>
                   </View>
-                ))}
-              </View>
-            )}
+                  {item.total_cost !== null ? (
+                    <MoneyText amount={item.total_cost} variant="label" />
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.chips}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={
+                t('openDrafts') + ', ' + digest.open_drafts.count
+              }
+              pressedScale={0.98}
+              onPress={openDrafts}
+              style={styles.chip}
+            >
+              <Icon icon={ReceiptText} color={colors.ink} />
+              <Text style={styles.chipText} numberOfLines={2}>
+                {fill(t('draftsChip'), { count: digest.open_drafts.count })}
+              </Text>
+            </PressableScale>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={
+                t('overdueDebts') + ', ' + digest.overdue_debts.count
+              }
+              pressedScale={0.98}
+              onPress={openDebts}
+              style={[
+                styles.chip,
+                digest.overdue_debts.count > 0 && styles.chipDanger,
+              ]}
+            >
+              <Icon
+                icon={BookUser}
+                color={
+                  digest.overdue_debts.count > 0 ? colors.danger : colors.ink
+                }
+              />
+              <Text
+                style={[
+                  styles.chipText,
+                  digest.overdue_debts.count > 0 && styles.negative,
+                ]}
+                numberOfLines={2}
+              >
+                {fill(t('overdueChip'), { count: digest.overdue_debts.count })}
+              </Text>
+            </PressableScale>
           </View>
 
-          {/* Overdue debts row */}
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`${t('overdueDebts')}, ${digest.overdue_debts.count}, ${formatVnd(digest.overdue_debts.total)}`}
-            pressedScale={0.98}
-            onPress={openDebts}
-            style={styles.actionRow}
-          >
-            <Icon icon={BookUser} color={colors.ink} />
-            <View style={styles.actionText}>
-              <Text style={styles.actionTitle}>{t('overdueDebts')}</Text>
-              <Text style={styles.actionCaption}>
-                {fill(t('overdueCount'), {
-                  count: digest.overdue_debts.count,
-                })}
-              </Text>
-            </View>
-            <MoneyText amount={digest.overdue_debts.total} variant="heading" />
-            <Icon icon={ChevronRight} color={colors.inkMuted} />
-          </PressableScale>
-
-          {/* Open drafts row */}
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`${t('openDrafts')}, ${digest.open_drafts.count}`}
-            pressedScale={0.98}
-            onPress={openDrafts}
-            style={styles.actionRow}
-          >
-            <Icon icon={ReceiptText} color={colors.ink} />
-            <View style={styles.actionText}>
-              <Text style={styles.actionTitle}>{t('openDrafts')}</Text>
-              <Text style={styles.actionCaption}>
-                {fill(t('openDraftsCount'), {
-                  count: digest.open_drafts.count,
-                })}
-              </Text>
-            </View>
-            <Icon icon={ChevronRight} color={colors.inkMuted} />
-          </PressableScale>
-
-          {/* Primary Ask Assistant Button */}
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={t('askAssistant')}
@@ -243,33 +275,60 @@ export function DigestScreen() {
             onPress={askAssistant}
             style={styles.primaryButton}
           >
-            <Icon icon={Sparkles} color={colors.onInk} />
+            <Icon icon={MessageCircleText} color={colors.onInk} />
             <Text style={styles.primaryButtonText}>{t('askAssistant')}</Text>
           </PressableScale>
         </View>
       ) : (
         <View accessibilityRole="alert" style={styles.emptyBox}>
-          <Text style={styles.emptyText}>{t('noDigest')}</Text>
+          <Text style={styles.emptyText}>{noDigest}</Text>
         </View>
       )}
     </ScrollView>
   );
 }
 
+const changeText = (pct: number) => (pct > 0 ? '+' : '') + pct + '%';
+
+type TileProps = {
+  icon: typeof TrendingUp;
+  label: string;
+  spoken: string;
+  tone?: 'success' | 'danger';
+  children: ReactNode;
+};
+
+/** Board stat tile: icon over the figure, half width, soft tone for profit and change. */
+function Tile({ icon, label, spoken, tone, children }: TileProps) {
+  const iconColor =
+    tone === 'success'
+      ? colors.success
+      : tone === 'danger'
+        ? colors.danger
+        : colors.inkMuted;
+  return (
+    <View
+      accessible
+      accessibilityLabel={label + ' ' + spoken}
+      style={[
+        styles.tile,
+        tone === 'success' && styles.tileSuccess,
+        tone === 'danger' && styles.tileDanger,
+      ]}
+    >
+      <View style={styles.tileIcon}>
+        <Icon icon={icon} color={iconColor} />
+      </View>
+      {children}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: space[4], gap: space[4] },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-  },
-  headerTitleWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  headerTitleWrap: { flex: 1, minWidth: 0 },
   title: { ...typography.heading, color: colors.ink },
   date: {
     ...typography.caption,
@@ -302,47 +361,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   body: { gap: space[4] },
-  summaryCard: {
+  summaryText: { ...typography.body, color: colors.ink },
+  summaryBold: { fontFamily: fontFamily.bold },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: space[3] },
+  tile: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    // Two per row even when the count is odd: a lone last tile keeps the half width.
+    maxWidth: '48%',
     padding: space[4],
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceSoft,
   },
-  summaryText: {
-    ...typography.body,
-    fontSize: 16,
-    lineHeight: 24,
+  tileSuccess: { backgroundColor: colors.successSoft },
+  tileDanger: { backgroundColor: colors.dangerSoft },
+  tileIcon: { height: 33 },
+  tileValue: {
+    marginTop: 4,
+    fontFamily: fontFamily.extrabold,
+    fontSize: 22,
+    lineHeight: 28,
     color: colors.ink,
+    fontVariant: ['tabular-nums'],
   },
-  section: {
-    padding: space[4],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceSoft,
-    gap: space[3],
-  },
-  sectionTitle: { ...typography.label, color: colors.ink },
-  statRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statLabel: { ...typography.body, color: colors.inkMuted },
-  statValue: {
+  positive: { color: colors.success },
+  negative: { color: colors.danger },
+  sectionTitle: {
     ...typography.heading,
     color: colors.ink,
-    fontVariant: ['tabular-nums'],
+    marginTop: space[1],
   },
-  changeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[1],
-  },
-  changeText: {
-    ...typography.label,
-    color: colors.inkMuted,
-    fontVariant: ['tabular-nums'],
-  },
-  changePositive: { color: colors.success },
-  changeNegative: { color: colors.danger },
   restockList: { gap: space[2] },
   restockItem: {
     flexDirection: 'row',
@@ -363,19 +411,19 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   emptyText: { ...typography.caption, color: colors.inkMuted },
-  actionRow: {
+  chips: { flexDirection: 'row', gap: space[3] },
+  chip: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    minHeight: size.tapLg,
+    minHeight: size.tapMin,
     paddingHorizontal: space[4],
-    paddingVertical: space[3],
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
     backgroundColor: colors.surfaceSoft,
   },
-  actionText: { flex: 1 },
-  actionTitle: { ...typography.label, color: colors.ink },
-  actionCaption: { ...typography.caption, color: colors.inkMuted },
+  chipDanger: { backgroundColor: colors.dangerSoft },
+  chipText: { ...typography.label, color: colors.ink, flex: 1 },
   primaryButton: {
     flexDirection: 'row',
     alignItems: 'center',

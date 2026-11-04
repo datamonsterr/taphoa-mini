@@ -1,7 +1,7 @@
 import { useGlobalSearchParams, usePathname } from 'expo-router';
 import { useInviteIntent } from '@/features/onboarding/inviteIntent';
 import { useAuth, useSessionList } from '@clerk/expo';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import {
   useLayoutEffect,
   useEffect,
@@ -17,6 +17,7 @@ import {
   bridgeUserId,
   serverBridgeUserId,
 } from '@/lib/api/clerkBridge';
+import { isApiError } from '@/lib/api/errors';
 import { useMe } from '@/lib/api/hooks';
 import { keys } from '@/lib/api/keys';
 import type { Me } from '@/lib/api/store';
@@ -31,6 +32,7 @@ import {
   resetStoreScopedState,
 } from './resetClientState';
 import { strings } from './strings';
+import { useLockOutgoingSession } from './useLockOutgoingSession';
 
 type GateState = { signedIn: boolean; hasMembership: boolean };
 
@@ -53,8 +55,10 @@ export function AuthGate({
   const isSignedIn = !!auth.isSignedIn && !locked;
   const userId = locked ? null : auth.userId;
   const qc = useQueryClient();
+  const restoring = useIsRestoring();
   const t = useT(strings);
   const signOut = useCurrentSessionSignOut();
+  useLockOutgoingSession();
   const { token: incomingToken } = useGlobalSearchParams<{
     token?: string | string[];
   }>();
@@ -98,6 +102,8 @@ export function AuthGate({
       membershipRequired: () => {
         void qc.invalidateQueries({ queryKey: keys.me(userId) });
       },
+      // The server locked this session: back to the person picker, which asks for the PIN.
+      pinRequired: () => useDeviceLock.getState().lock(),
     });
     return unregister;
   }, [getToken, locked, userId, qc]);
@@ -128,24 +134,48 @@ export function AuthGate({
   // A different person or store must never inherit cached shop data, a cart, alerts, camera or
   // quick-enroll state, and a different person not even a pending invite.
   useLayoutEffect(() => {
-    if (!isLoaded || !hydrated || previous.current === identity) return;
+    if (!isLoaded || !hydrated || restoring || previous.current === identity)
+      return;
+    const first = previous.current === undefined;
     previous.current = identity;
+    // On the first pass `me` is a copy restored from the device, not yet confirmed by the server:
+    // dropping it makes the gate wait for the answer instead of trusting a copy that can predate
+    // the store the person just created.
     const currentMe =
-      userId && me.data?.clerk_user_id === userId ? me.data : undefined;
-    void qc.cancelQueries();
-    qc.clear();
-    if (currentMe) qc.setQueryData(keys.me(userId), currentMe);
+      !first && userId && me.data?.clerk_user_id === userId
+        ? me.data
+        : undefined;
+    // The persisted offline cache (restored before this runs) stays only for the person and store
+    // it was saved for; on a cold start the same identity keeps its catalog.
+    const keepRestored =
+      first && qc.getQueryData(keys.cacheIdentity()) === identity;
+    if (!keepRestored) {
+      void qc.cancelQueries();
+      qc.clear();
+      if (currentMe) qc.setQueryData(keys.me(userId), currentMe);
+      if (userId && membership) qc.setQueryData(keys.cacheIdentity(), identity);
+    }
     resetStoreScopedState();
     if (previousUser.current && previousUser.current !== userId)
       resetPersonScopedState();
     previousUser.current = userId ?? null;
     setSettledIdentity(identity);
-  }, [isLoaded, hydrated, identity, userId, me.data, qc]);
+  }, [
+    isLoaded,
+    hydrated,
+    restoring,
+    identity,
+    userId,
+    me.data,
+    membership,
+    qc,
+  ]);
 
   if (
     !isLoaded ||
     !hydrated ||
     !lockHydrated ||
+    restoring ||
     bridgeUser !== userId ||
     settledIdentity !== identity ||
     (isSignedIn && !me.data && !me.isError)
@@ -160,7 +190,15 @@ export function AuthGate({
     return (
       <Frame title={t('title')} back={false}>
         <FormError
-          message={signOut.failed ? t('signOutError') : t('loadError')}
+          message={
+            signOut.failed
+              ? t('signOutError')
+              : t(
+                  isApiError(me.error) && me.error.status >= 500
+                    ? 'loadServerError'
+                    : 'loadError',
+                )
+          }
         />
         <ActionButton
           label={t('retry')}

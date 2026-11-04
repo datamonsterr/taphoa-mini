@@ -183,6 +183,31 @@ describe('Clerk Backend API', () => {
     );
   });
 
+  it('explains the user cap and the sweep command on user_quota_exceeded, without the body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            errors: [{ code: 'user_quota_exceeded', message: 'secret-ish' }],
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+    const clerk = await import('./clerk.js');
+    const error = await clerk
+      .createUser({ email: 'a+clerk_test@example.com' })
+      .catch((e: Error) => e);
+    const message = (error as Error).message;
+    expect(message).toContain('HTTP 403 (user_quota_exceeded)');
+    expect(message).toContain('user cap (100 on development instances)');
+    expect(message).toContain(
+      'pnpm --filter @taphoa/e2e clerk:sweep --max-age-hours 2',
+    );
+    expect(message).not.toContain('secret-ish');
+  });
+
   it.each([
     ['not json'],
     [JSON.stringify({ errors: [] })],

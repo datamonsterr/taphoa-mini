@@ -158,6 +158,17 @@ function sampleReport(): RunReport {
 }
 
 describe('renderResults', () => {
+  it('reports mean and nearest-rank p95 from actual per-turn usage, with coverage', () => {
+    const report = sampleReport();
+    report.results[0]!.turn.turn_costs_usd = [0.001, 0.003];
+    report.quotaBefore = { used: 0.4, remaining: 6.1, limit: 6.5, unit: 'USD' };
+    const md = renderResults(report);
+    expect(md).toContain('Usage-accounted turns: 2');
+    expect(md).toContain('Cost per turn mean USD: 0.00200000');
+    expect(md).toContain('Cost per turn p95 USD: 0.00300000');
+    expect(md).toContain('6.1 remaining USD');
+  });
+
   it('matches the snapshot', () => {
     expect(renderResults(sampleReport())).toMatchSnapshot();
   });

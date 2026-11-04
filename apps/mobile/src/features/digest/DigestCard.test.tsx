@@ -70,22 +70,25 @@ test('renders nothing while loading or on error or when null', async () => {
   expect(screen.queryByRole('button')).toBeNull();
 });
 
-test('renders summary, revenue, badge when unread and navigates on tap', async () => {
-  jest.spyOn(digestApi, 'getDigest').mockResolvedValue(mockDigest);
+test('renders title, yesterday revenue, restock count and badge when unread; navigates on tap', async () => {
+  const getDigest = jest
+    .spyOn(digestApi, 'getDigest')
+    .mockResolvedValue(mockDigest);
 
   await renderWithProviders(<DigestCard />);
 
   expect(await screen.findByText('Tóm tắt sáng nay')).toBeOnTheScreen();
   expect(screen.getByText('Mới')).toBeOnTheScreen();
   expect(
-    screen.getByText('Doanh thu hôm qua là 1.500.000 ₫.'),
+    screen.getByText('Hôm qua ' + formatVnd(1500000) + ' · 2 món cần nhập'),
   ).toBeOnTheScreen();
-  expect(screen.getByText(formatVnd(1500000))).toBeOnTheScreen();
-  expect(screen.getByText('2 cần nhập · 2 nợ quá hạn')).toBeOnTheScreen();
+  // The card never marks the digest read (issue 203): only the digest screen does.
+  expect(getDigest).toHaveBeenCalledWith(undefined);
+  expect(getDigest).not.toHaveBeenCalledWith(undefined, true);
 
   const button = screen.getByRole('button');
   expect(button.props.accessibilityLabel).toBe(
-    `Tóm tắt sáng nay, ${formatVnd(1500000)}, 2 cần nhập · 2 nợ quá hạn`,
+    'Tóm tắt sáng nay, mới, Hôm qua ' + formatVnd(1500000) + ', 2 món cần nhập',
   );
 
   fireEvent.press(button);
@@ -102,23 +105,28 @@ test('renders without Mới badge when already read', async () => {
 
   expect(await screen.findByText('Tóm tắt sáng nay')).toBeOnTheScreen();
   expect(screen.queryByText('Mới')).toBeNull();
+  expect(screen.getByRole('button').props.accessibilityLabel).not.toContain(
+    'mới',
+  );
 });
 
-test('hides zero parts in caption and adapts accessibility label', async () => {
+test('says so when nothing needs restocking and never ends the label with money', async () => {
   jest.spyOn(digestApi, 'getDigest').mockResolvedValue({
     ...mockDigest,
     restock: [],
-    overdue_debts: { count: 0, total: 0 },
   });
 
   await renderWithProviders(<DigestCard />);
 
   expect(await screen.findByText('Tóm tắt sáng nay')).toBeOnTheScreen();
-  expect(screen.queryByText(/cần nhập/)).toBeNull();
-  expect(screen.queryByText(/nợ quá hạn/)).toBeNull();
-
-  const button = screen.getByRole('button');
-  expect(button.props.accessibilityLabel).toBe(
-    `Tóm tắt sáng nay, ${formatVnd(1500000)}, Doanh thu hôm qua là 1.500.000 ₫.`,
+  expect(
+    screen.getByText(
+      'Hôm qua ' + formatVnd(1500000) + ' · không có món cần nhập',
+    ),
+  ).toBeOnTheScreen();
+  expect(screen.getByRole('button').props.accessibilityLabel).toBe(
+    'Tóm tắt sáng nay, mới, Hôm qua ' +
+      formatVnd(1500000) +
+      ', không có món cần nhập',
   );
 });

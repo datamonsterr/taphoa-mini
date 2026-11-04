@@ -233,7 +233,10 @@ export function createExpense(req: CreateExpenseRequest): {
 
   const expenseId = req.id;
   const alerts: MarginAlert[] = [];
+  const isLead = getCurrentMember().role === 'lead';
   for (const { line, factor } of purchases) {
+    // Only the Lead changes cost price; seller purchases leave it untouched.
+    if (!isLead) continue;
     const record = findProductRecord(line.product_id);
     record.product = {
       ...record.product,
@@ -328,9 +331,17 @@ function dayTotals(date: string) {
 }
 
 export function getDayClose(date: string): DayClose {
-  const close = getMockDb().dayCloses.get(date);
+  const db = getMockDb();
+  const close = db.dayCloses.get(date);
   if (!close) throw notFound('Day close');
-  return close;
+  // Like the server: sales received after the close are "late" and the close is stale.
+  const late = db.sales.filter(
+    (s) =>
+      s.business_date === date &&
+      s.status === 'completed' &&
+      s.received_at > close.closed_at,
+  ).length;
+  return late === 0 ? close : { ...close, late_sales_count: late };
 }
 
 export function getDailyReport(date: string = businessDate()): DailyReport {
@@ -370,6 +381,8 @@ export function putDayClose(
   date: string,
   input: { counted_cash: number; opening_float: number; note: string | null },
 ): DayClose {
+  if (date > businessDate())
+    throw badRequest('cannot close a business day in the future');
   const t = dayTotals(date);
   const expected = Math.max(
     0,
@@ -455,8 +468,8 @@ export function voidSale(id: string, body: Record<string, unknown>): Sale {
   if (sale.status === 'voided') return sale;
   if (typeof body.reason !== 'string' || !body.reason.trim())
     throw badRequest('reason required');
-  const at = body.voided_at === undefined ? nowIso() : String(body.voided_at);
-  if (Number.isNaN(Date.parse(at))) throw badRequest('Invalid voided_at');
+  // The server stamps the void with its own time and ignores a client voided_at.
+  const at = nowIso();
   sale.status = 'voided';
   sale.void = {
     reason: body.reason,

@@ -8,6 +8,7 @@ export const dashboardStrings: Dict = {
     'title.month': 'Tháng này',
     addExpense: 'Thêm khoản chi',
     receipts: 'Hóa đơn nhập',
+    receiptsShort: 'Hóa đơn',
     debts: 'Sổ nợ',
     debtsOverdue: '{count} khách quá hạn',
     lowStock: 'Sắp hết hàng',
@@ -38,6 +39,8 @@ export const dashboardStrings: Dict = {
     'period.week': 'Tuần',
     'period.month': 'Tháng',
     error: 'Không tải được báo cáo',
+    offline:
+      'Không tải được báo cáo. Không có mạng, số liệu sẽ cập nhật khi có mạng.',
     alertsError: 'Không tải được cảnh báo',
     retry: 'Thử lại',
     loading: 'Đang tải',
@@ -49,6 +52,7 @@ export const dashboardStrings: Dict = {
     'title.month': 'This month',
     addExpense: 'Add expense',
     receipts: 'Import receipts',
+    receiptsShort: 'Receipts',
     debts: 'Debt book',
     debtsOverdue: '{count} overdue',
     lowStock: 'Low stock',
@@ -79,6 +83,8 @@ export const dashboardStrings: Dict = {
     'period.week': 'Week',
     'period.month': 'Month',
     error: 'Could not load the report',
+    offline:
+      'Could not load the report. No network; the figures load when it returns.',
     alertsError: 'Could not load alerts',
     retry: 'Retry',
     loading: 'Loading',

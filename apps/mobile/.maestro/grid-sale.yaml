@@ -1,0 +1,58 @@
+appId: com.datamonsterr.taphoamini
+---
+# Sell two items from the grid and take cash (PRD S3): the product enrolled at the camera is in the
+# cart, the + on its grid tile adds a second, and the cart pill leads to the pay sheet.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Lưới'
+      OWNER_NAME: 'Cô Ba'
+- runFlow:
+    file: subflows/enroll-product.yaml
+    env:
+      PRODUCT_NAME: 'Kẹo dừa'
+# the enrolled product is already in the cart (15.000đ); go to the grid
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Kẹo dừa, 15.000đ'
+    timeout: 20000
+- assertVisible: 'Giỏ hàng: 1 món, 15.000đ'
+# the + on the tile adds a second one without opening the product
+- tapOn: 'Thêm Kẹo dừa vào giỏ'
+- extendedWaitUntil:
+    visible: 'Giỏ hàng: 2 món, 30.000đ'
+    timeout: 10000
+- takeScreenshot: grid-sale-01-grid-cart-pill
+# pill -> cart -> VietQR
+- tapOn: 'Giỏ hàng: 2 món, 30.000đ'
+- extendedWaitUntil:
+    visible: 'Hiện mã QR thanh toán'
+    timeout: 20000
+- tapOn: 'Hiện mã QR thanh toán'
+- extendedWaitUntil:
+    visible: 'Tiền mặt'
+    timeout: 20000
+# cash: 50.000 handed over for 30.000 -> 20.000 back
+- tapOn: 'Tiền mặt'
+- tapOn: '50.000'
+- extendedWaitUntil:
+    visible: 'Tiền thối'
+    timeout: 20000
+- assertVisible: '20.000đ'
+- takeScreenshot: grid-sale-02-pay-sheet
+- tapOn: 'Đã nhận tiền'
+# back at the camera with an empty cart
+- extendedWaitUntil:
+    visible: 'Giỏ hàng trống'
+    timeout: 30000
+# the sale is in the day's report
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- extendedWaitUntil:
+    visible: 'Doanh thu 30.000đ, 1 đơn'
+    timeout: 30000

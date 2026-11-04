@@ -16,7 +16,7 @@ use axum::{
     Json,
     extract::{Query, State, rejection::QueryRejection},
 };
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use futures_util::future::{BoxFuture, try_join_all};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -114,7 +114,9 @@ pub async fn list(
     if params.screen.trim().is_empty() {
         return Err(ApiError::validation_failed("screen is required"));
     }
-    let now = Utc::now()
+    let now = state
+        .clock
+        .now()
         .with_timezone(&crate::time::STORE_TZ)
         .naive_local();
     let input = RuleInput {

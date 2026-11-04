@@ -1,0 +1,24 @@
+{
+  "id": "46-two-speakers-sale",
+  "source": "synthetic",
+  "transcript": "hai lon coca thêm một chai nước suối lavie nữa",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "coca",
+      "product": "Coca-Cola lon 320ml",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "nước suối lavie",
+      "product": "Nước suối Lavie 500ml",
+      "quantity": 1,
+      "unit_price": null
+    }
+  ],
+  "tags": ["two-speakers", "multi-line"],
+  "segments": ["hai lon coca", "thêm một chai nước suối lavie nữa"]
+}

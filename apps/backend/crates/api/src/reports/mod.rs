@@ -4,16 +4,15 @@ mod export;
 
 use crate::{
     ApiError, ApiResult, AppState,
-    auth::{Action, Actor, data::pool},
+    auth::{Action, Actor, can, data::pool},
     money,
-    time::business_date,
 };
 use axum::{
     Json, Router,
     extract::{Query, State, rejection::QueryRejection},
     routing::get,
 };
-use chrono::{Datelike, Duration, Months, NaiveDate, Utc};
+use chrono::{Datelike, Duration, Months, NaiveDate};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -31,9 +30,7 @@ pub fn router() -> Router<AppState> {
         )
 }
 fn query<T>(input: Result<Query<T>, QueryRejection>) -> ApiResult<T> {
-    input
-        .map(|Query(v)| v)
-        .map_err(|e| ApiError::validation_failed(e.body_text()))
+    input.map(|Query(v)| v).map_err(ApiError::from)
 }
 #[derive(Deserialize)]
 struct Range {
@@ -101,22 +98,36 @@ async fn today(
     actor: Actor,
     params: Result<Query<TodayParams>, QueryRejection>,
 ) -> ApiResult<Json<Value>> {
-    let date = query(params)?
-        .date
-        .unwrap_or_else(|| business_date(Utc::now()));
+    let date = query(params)?.date.unwrap_or_else(|| state.clock.today());
     let r: DailyRow = sqlx::query_as(TODAY_SQL)
         .bind(actor.store_id)
         .bind(date)
         .fetch_one(pool(&state)?)
         .await?;
-    Ok(Json(
-        json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
+    // Amounts are bounded on write, so these only fail on rows stored before the bounds existed.
+    let net = r.revenue.checked_sub(r.expenses);
+    let expected = money::expected_cash(
+        r.opening_float,
+        r.cash_revenue,
+        0,
+        r.cash_repayments,
+        r.cash_expenses,
+    );
+    let (Some(net), Some(expected)) = (net, expected) else {
+        tracing::error!(%date, "daily report amounts exceed the i64 range");
+        return Err(ApiError::internal());
+    };
+    let mut report = json!({"business_date":date,"revenue":r.revenue,"sales_count":r.sales_count,
         "voided_count":r.voided_count,"cash_revenue":r.cash_revenue,"transfer_revenue":r.transfer_revenue,
         "cash_repayments":r.cash_repayments,"credit_sales":r.credit_sales,
-        "expenses":r.expenses,"net":r.revenue-r.expenses,
-        "expected_cash":money::expected_cash(r.opening_float,r.cash_revenue,0,r.cash_repayments,r.cash_expenses),
-        "manual_lines_open":r.manual_lines_open,"day_close":r.day_close}),
-    ))
+        "expenses":r.expenses,"net":net,
+        "manual_lines_open":r.manual_lines_open});
+    // Cash reconciliation is Lead-only, like closing the day: sellers get neither field.
+    if can(&actor, Action::DayClose) {
+        report["expected_cash"] = json!(expected);
+        report["day_close"] = json!(r.day_close);
+    }
+    Ok(Json(report))
 }
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -238,6 +249,20 @@ async fn top_products(
         ) r
     "#).bind(actor.store_id).bind(p.range.from).bind(p.range.to).bind(quantity_sort).bind(limit)
         .fetch_all(pool(&state)?).await?;
+    // Margin reveals the buying cost, which only the Lead may see (as on the catalog).
+    let items: Vec<Value> = if can(&actor, Action::ChangePrice) {
+        items
+    } else {
+        items
+            .into_iter()
+            .map(|mut item| {
+                if let Some(fields) = item.as_object_mut() {
+                    fields.remove("gross_margin");
+                }
+                item
+            })
+            .collect()
+    };
     Ok(Json(json!({"items":items})))
 }
 async fn recognition(

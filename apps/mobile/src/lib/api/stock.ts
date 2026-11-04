@@ -4,7 +4,7 @@ import { getApiClient } from './client';
 import { unwrap } from './errors';
 import type { Page, StockItem, StockMovement, StockAdjustment } from './types';
 
-export type StockStatus = 'all' | 'low' | 'out';
+export type StockStatus = 'all' | 'low' | 'out' | 'ok';
 export type CursorParams = { cursor?: string | null; limit?: number };
 export const cursorQuery = ({ cursor, ...params }: CursorParams) => ({
   ...params,

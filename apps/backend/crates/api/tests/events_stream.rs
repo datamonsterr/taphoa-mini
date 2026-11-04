@@ -607,3 +607,127 @@ async fn stream_ends_after_its_member_is_deactivated() {
     }
     server.stop().await;
 }
+
+async fn join_seller(base: &str, lead_token: &str) -> String {
+    let client = taphoa_api::http_client();
+    let invite: Value = client
+        .post(format!("{base}/v1/invites"))
+        .bearer_auth(lead_token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = common::clerk::token();
+    let joined = client
+        .post(format!("{base}/v1/auth/join"))
+        .bearer_auth(&token)
+        .json(&json!({"invite_token": invite["token"], "display_name": "Seller"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(joined.status(), 201);
+    token
+}
+async fn emit_typed(pool: &PgPool, store: Uuid, typ: &'static str, data: Value) {
+    let mut tx = pool.begin().await.unwrap();
+    emit(
+        &mut tx,
+        Event {
+            store_id: store,
+            actor: None,
+            typ,
+            version: 1,
+            data,
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn sellers_never_receive_cost_alert_or_day_close_events_live_or_on_replay() {
+    let (server, state) = start().await;
+    let lead = create_store(&server.base).await;
+    let lead_token = lead["access_token"].as_str().unwrap();
+    let seller_token = join_seller(&server.base, lead_token).await;
+    let store: Uuid = lead["store"]["id"].as_str().unwrap().parse().unwrap();
+    let pool = state.postgres.as_ref().unwrap();
+    let product = Uuid::new_v4();
+    let price = |field: &str, new: i64| {
+        json!({"product_id": product, "unit_id": null, "field": field, "old_value": null,
+        "new_value": new, "source": "manual", "via": "manual"})
+    };
+
+    // Replay: committed after this cursor and before either client connects.
+    let watermark: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(id),0) FROM outbox_events WHERE store_id=$1")
+            .bind(store)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let cursor = format!("evt_{watermark:015}");
+    emit_typed(pool, store, "price.changed", price("cost_price", 7777)).await;
+    emit_typed(pool, store, "price.changed", price("price", 10000)).await;
+    emit_typed(
+        pool,
+        store,
+        "day.closed",
+        json!({"business_date": "2026-03-05", "expected_cash": 123456, "counted_cash": 120000, "difference": -3456}),
+    )
+    .await;
+    emit_typed(
+        pool,
+        store,
+        "alert.created",
+        json!({"alert_id": Uuid::new_v4(), "product_id": product, "cost_price": 7777, "selling_price": 10000, "margin_pct": 5.0, "suggested_price": 11000}),
+    )
+    .await;
+    emit_typed(pool, store, "store.changed", json!({"fields": ["name"]})).await;
+
+    let from = Some(cursor.as_str());
+    let mut lead_stream = open(&server.base, lead_token, from).await;
+    let mut seller_stream = open(&server.base, &seller_token, from).await;
+    let (mut lead_buf, mut seller_buf) = (String::new(), String::new());
+    // The Lead replays all five events in order.
+    let mut lead_seen = vec![];
+    for _ in 0..5 {
+        lead_seen.push(event(&mut lead_stream, &mut lead_buf).await.1);
+    }
+    assert_eq!(
+        lead_seen,
+        [
+            "price.changed",
+            "price.changed",
+            "day.closed",
+            "alert.created",
+            "store.changed"
+        ]
+    );
+    // The seller replays only the price change and the store change.
+    let (_, name, data) = event(&mut seller_stream, &mut seller_buf).await;
+    assert_eq!(
+        (name.as_str(), data["data"]["field"].clone()),
+        ("price.changed", json!("price"))
+    );
+    let (_, name, _) = event(&mut seller_stream, &mut seller_buf).await;
+    assert_eq!(name, "store.changed");
+
+    // Live: the same filtering applies after the replay.
+    emit_typed(pool, store, "price.changed", price("cost_price", 8888)).await;
+    emit_typed(pool, store, "day.closed", json!({"business_date": "2026-03-06", "expected_cash": 1, "counted_cash": 1, "difference": 0})).await;
+    emit_typed(pool, store, "store.changed", json!({"fields": ["bank"]})).await;
+    let (_, name, data) = event(&mut seller_stream, &mut seller_buf).await;
+    assert_eq!(name, "store.changed", "seller got {data}");
+    assert_eq!(data["data"]["fields"][0], "bank");
+    for expected in ["price.changed", "day.closed", "store.changed"] {
+        assert_eq!(event(&mut lead_stream, &mut lead_buf).await.1, expected);
+    }
+    drop((lead_stream, seller_stream));
+    server.stop().await;
+}

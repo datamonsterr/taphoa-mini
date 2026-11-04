@@ -1,0 +1,17 @@
+{
+  "id": "24-price-per-item",
+  "source": "synthetic",
+  "transcript": "ba chai nước suối lavie năm nghìn",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "nước suối lavie",
+      "product": "Nước suối Lavie 500ml",
+      "quantity": 3,
+      "unit_price": 5000
+    }
+  ],
+  "tags": ["price-shorthand", "price-per-item"]
+}

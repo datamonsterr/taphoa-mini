@@ -1,4 +1,4 @@
-use super::{Actor, ClerkIdentity, Role, crypto::*, data::*};
+use super::{Actor, ClerkIdentity, LockedActor, Role, crypto::*, data::*};
 use crate::{ApiError, ApiResult, AppState, error::ValidJson};
 use axum::{
     Extension, Json,
@@ -206,9 +206,12 @@ pub async fn me(State(state): State<AppState>, identity: ClerkIdentity) -> ApiRe
 pub struct VerifyPin {
     pin: String,
 }
+/// Checks the PIN of the member in `X-Store-Id`. A right PIN unlocks this Clerk session on the
+/// server (see `pin_lock`). A member without a PIN answers 204 but unlocks nothing, so verifying
+/// a store that has no PIN can not open a session locked by the PIN of another store.
 pub async fn verify_member_pin(
     State(state): State<AppState>,
-    actor: Actor,
+    LockedActor(actor): LockedActor,
     ValidJson(input): ValidJson<VerifyPin>,
 ) -> ApiResult<StatusCode> {
     validate_pin(&input.pin)?;
@@ -217,7 +220,18 @@ pub async fn verify_member_pin(
     drop(conn);
     if let Some(hash) = member.pin_hash {
         verify_pin(&state, actor.member_id, Some(input.pin), hash).await?;
+        super::pin_lock::unlock(pool(&state)?, &actor.clerk_session_id, &actor.clerk_user_id)
+            .await?;
     }
+    Ok(StatusCode::NO_CONTENT)
+}
+/// Locks the calling Clerk session until its PIN is verified again. The app calls it for the
+/// person who stops being the active one on a shared phone. Needs no store: it only narrows access.
+pub async fn lock_session(
+    State(state): State<AppState>,
+    identity: ClerkIdentity,
+) -> ApiResult<StatusCode> {
+    super::pin_lock::lock(pool(&state)?, &identity.session_id, &identity.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 fn validate_pin(pin: &str) -> ApiResult<()> {
@@ -309,10 +323,16 @@ pub async fn set_pin(
         }
         Some(hash_secret(pin.to_owned()).await?)
     };
+    let hash_set = hash.is_some();
     let mut tx = pool(&state)?.begin().await?;
     lock_store(&mut tx, actor.store_id).await?;
     sqlx::query("UPDATE members SET pin_hash=$3,version=version+1,updated_at=now() WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(actor.member_id).bind(hash).execute(&mut *tx).await?;
     member_event(&mut tx, &actor, actor.member_id, "updated").await?;
     tx.commit().await?;
+    if hash_set {
+        // Whoever just chose the PIN knows it: this session stays usable.
+        super::pin_lock::unlock(pool(&state)?, &actor.clerk_session_id, &actor.clerk_user_id)
+            .await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }

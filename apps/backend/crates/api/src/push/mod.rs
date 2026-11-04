@@ -84,7 +84,7 @@ pub async fn send_to_devices(
     build: impl Fn(&Device) -> PushMessage,
 ) -> anyhow::Result<SendReport> {
     crate::telemetry::job("push.send", 1, async {
-        let devices: Vec<Device> = sqlx::query_as("SELECT * FROM devices WHERE store_id=$1 ORDER BY token")
+        let devices: Vec<Device> = sqlx::query_as("SELECT d.* FROM devices d JOIN members m ON m.id=d.member_id AND m.store_id=d.store_id WHERE d.store_id=$1 AND m.active ORDER BY d.token")
             .bind(store_id).fetch_all(pool).await?;
         let mut report = SendReport::default();
         for batch in devices.chunks(100) {

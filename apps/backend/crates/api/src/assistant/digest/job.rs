@@ -15,6 +15,9 @@ pub struct DigestJobConfig {
     pub send_at: NaiveTime,
     pub receipt_delay: Duration,
     pub active_window: chrono::Duration,
+    /// `None` visits every active store (the production default; `from_lookup` never sets it).
+    /// `Some(ids)` restricts each send pass to active stores in `ids` (integration tests share one database and run in parallel processes).
+    pub stores: Option<Vec<uuid::Uuid>>,
 }
 impl Default for DigestJobConfig {
     fn default() -> Self {
@@ -23,6 +26,7 @@ impl Default for DigestJobConfig {
             send_at: NaiveTime::from_hms_opt(7, 0, 0).unwrap(),
             receipt_delay: Duration::from_secs(15 * 60),
             active_window: chrono::Duration::days(30),
+            stores: None,
         }
     }
 }
@@ -117,7 +121,7 @@ pub async fn run_once(state: &AppState, now: DateTime<Utc>) -> anyhow::Result<Ru
     run_once_with_config(state, now, &DigestJobConfig::default()).await
 }
 
-async fn run_once_with_config(
+pub async fn run_once_with_config(
     state: &AppState,
     now: DateTime<Utc>,
     config: &DigestJobConfig,
@@ -125,7 +129,10 @@ async fn run_once_with_config(
     crate::telemetry::job("digest.run", 1, async {
         let db = state.postgres.as_ref().context("database unavailable")?;
         let business_date = time::business_date(now);
-        let ids = active_store_ids(db, config.active_window).await?;
+        let mut ids = active_store_ids(db, config.active_window).await?;
+        if let Some(stores) = &config.stores {
+            ids.retain(|id| stores.contains(id));
+        }
         let mut report = RunReport { stores: ids.len(), ..RunReport::default() };
         for store_id in ids {
             let result: anyhow::Result<()> = async {

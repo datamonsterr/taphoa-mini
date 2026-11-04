@@ -57,8 +57,7 @@ test.describe('camera', () => {
     await expect(addButton(page)).toBeEnabled();
 
     const strip = page.getByRole('radiogroup', { name: 'Chọn đúng món' });
-    await expect(strip).toHaveCount(0);
-    await pricePill(page).click();
+    // board 02: the candidates are under the viewfinder at once
     await expect(strip).toBeVisible();
     await expect(strip.getByRole('radio')).toHaveCount(
       detection.candidates.length,
@@ -108,11 +107,11 @@ test.describe('camera', () => {
     await tag.click();
     await expect(tag).toHaveAttribute('aria-selected', 'true');
     await expect(tag).toHaveCSS('background-color', 'rgb(90, 67, 232)');
-    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toBeVisible();
+    await expect(page.getByText('Xoay sản phẩm')).toBeVisible();
     await expect(page).not.toHaveURL(/\/enroll/);
     await tag.click();
     await expect(tag).toHaveAttribute('aria-selected', 'false');
-    await expect(page.getByText('Thêm hàng nhanh · 0/3')).toHaveCount(0);
+    await expect(page.getByText('Xoay sản phẩm')).toHaveCount(0);
     await expectLiveVideo(page);
   });
 

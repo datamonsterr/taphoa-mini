@@ -69,6 +69,8 @@ Offline credit sales and repayments replay idempotently through the existing out
 
 ## Customer profiles (amended 2026-10-27, design canvas boards 07b, 07c, 20)
 
+Status: Done · Merge: [#100](https://github.com/datamonsterr/taphoa-mini/pull/100) · Issue: [#78](https://github.com/datamonsterr/taphoa-mini/issues/78)
+
 - **Where a profile is created.** At the counter: Pay sheet → `Ghi nợ` → the customer picker
   (search, recent customers, `Khách mới` with name and optional phone) → `Tạo và ghi nợ`. Away
   from a sale: the `+` circle in the Sổ nợ header opens the same picker in create mode. Details

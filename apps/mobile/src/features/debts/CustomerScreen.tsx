@@ -1,23 +1,18 @@
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import {
-  Bell,
+  Banknote,
   ChevronLeft,
-  HandCoins,
+  Minus,
   Pencil,
-  SlidersHorizontal,
+  Plus,
+  Share as ShareIcon,
 } from 'lucide-react-native';
 import { useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  CircleButton,
-  Icon,
-  MoneyText,
-  PressableScale,
-  Text,
-} from '@/components/ui';
+import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import {
   isApiError,
   useCustomer,
@@ -26,9 +21,10 @@ import {
   type DebtEntry,
 } from '@/lib/api';
 import { useMembership } from '@/features/auth/useMembership';
+import { clockTime } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
-import { colors, radius, size, space, typography } from '@/theme';
+import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { dayMonth } from '../close/difference';
 import { AdjustmentSheet } from './AdjustmentSheet';
@@ -42,62 +38,66 @@ type Sheet = 'collect' | 'adjust' | 'edit' | null;
 type Translate = (key: string) => string;
 
 const signed = (amount: number) =>
-  amount > 0 ? `+${formatVnd(amount)}` : formatVnd(amount);
+  amount > 0 ? '+' + formatVnd(amount) : formatVnd(amount);
 
-/** "Trả nợ · Tiền mặt" / "Điều chỉnh · lý do": the kind, then how or why. */
+/** Trả nợ · Tiền mặt / Điều chỉnh · lý do: the kind, then how or why. */
 function entryTitle(entry: DebtEntry, t: Translate) {
   const detail =
     entry.kind === 'repayment' && entry.method
-      ? t(`method.${entry.method}`)
+      ? t('method.' + entry.method)
       : entry.kind === 'adjustment'
         ? entry.reason
         : null;
-  return detail
-    ? `${t(`kind.${entry.kind}`)} · ${detail}`
-    : t(`kind.${entry.kind}`);
+  const kind = t('kind.' + entry.kind);
+  return detail ? kind + ' · ' + detail : kind;
 }
 
+/**
+ * Board ledger row: a coloured +/− tile, the entry kind, then date and time (dd/mm · hh:mm), and
+ * the signed amount. The running balance stays in the spoken label only.
+ */
 function LedgerRow({ entry, t }: { entry: DebtEntry; t: Translate }) {
   const title = entryTitle(entry, t);
   const date = dayMonth(entry.business_date);
+  const time = clockTime(entry.created_at);
+  const when = time ? date + ' · ' + time : date;
   const balance = fill(t('ledger.balance'), {
     amount: formatVnd(entry.balance_after),
   });
+  const debit = entry.amount > 0;
   return (
     <View
       accessible
       testID="ledger-row"
-      accessibilityLabel={`${title}, ${signed(entry.amount)}, ${date}, ${balance}`}
+      accessibilityLabel={
+        title + ', ' + signed(entry.amount) + ', ' + date + ', ' + balance
+      }
       style={styles.ledgerRow}
     >
+      <View
+        style={[
+          styles.ledgerIcon,
+          { backgroundColor: debit ? colors.dangerSoft : colors.successSoft },
+        ]}
+      >
+        <Icon
+          icon={debit ? Plus : Minus}
+          color={debit ? colors.danger : colors.success}
+        />
+      </View>
       <View style={styles.rowText}>
         <Text style={styles.label}>{title}</Text>
-        <Text style={styles.caption}>{date}</Text>
+        <Text style={styles.caption}>{when}</Text>
       </View>
-      <View style={styles.amounts}>
-        <Text
-          style={[
-            styles.label,
-            { color: entry.amount > 0 ? colors.danger : colors.success },
-          ]}
-        >
-          {signed(entry.amount)}
-        </Text>
-        <Text style={styles.caption}>{balance}</Text>
-      </View>
-    </View>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <View
-      accessible
-      accessibilityLabel={`${label} ${value}`}
-      style={styles.fact}
-    >
-      <Text style={styles.caption}>{label}</Text>
-      <Text style={styles.factValue}>{value}</Text>
+      <Text
+        style={[
+          styles.ledgerAmount,
+          { color: debit ? colors.danger : colors.success },
+        ]}
+        numberOfLines={1}
+      >
+        {signed(entry.amount)}
+      </Text>
     </View>
   );
 }
@@ -160,6 +160,8 @@ export function CustomerScreen({ id }: { id: string }) {
       onPress={goBack}
     />
   );
+  const retryLabel = t('retry');
+  const loadingLabel = t('loading');
 
   const data = customer.data;
   if (!data) {
@@ -167,7 +169,7 @@ export function CustomerScreen({ id }: { id: string }) {
       <View style={[styles.screen, { paddingTop: insets.top + space[4] }]}>
         <View style={styles.header}>{back}</View>
         {customer.isPending ? (
-          <ActivityIndicator accessibilityLabel={t('loading')} />
+          <ActivityIndicator accessibilityLabel={loadingLabel} />
         ) : isApiError(customer.error) && customer.error.status === 404 ? (
           <Text style={styles.message}>{t('customer.notFound')}</Text>
         ) : (
@@ -177,11 +179,11 @@ export function CustomerScreen({ id }: { id: string }) {
             </Text>
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel={t('retry')}
+              accessibilityLabel={retryLabel}
               onPress={() => void customer.refetch()}
               style={styles.chip}
             >
-              <Text style={styles.label}>{t('retry')}</Text>
+              <Text style={styles.label}>{retryLabel}</Text>
             </PressableScale>
           </View>
         )}
@@ -211,6 +213,15 @@ export function CustomerScreen({ id }: { id: string }) {
       : data.balance < 0
         ? t('customer.credit')
         : t('customer.settled');
+  const limitText =
+    data.credit_limit === null
+      ? null
+      : t('customer.limit') + ' ' + formatVnd(data.credit_limit);
+  const adjustLabel = t('action.adjust');
+  const ledgerTitle = t('ledger.title');
+  const overLimitText = t('overLimit');
+  const remindError = t('remind.error');
+  const archivedText = t('customer.archived');
 
   const header = (
     <View style={styles.headerContent}>
@@ -218,65 +229,78 @@ export function CustomerScreen({ id }: { id: string }) {
         <View
           accessible
           testID="customer-balance"
-          accessibilityLabel={`${balanceLabel} ${formatVnd(Math.abs(data.balance))}`}
+          accessibilityLabel={
+            balanceLabel + ' ' + formatVnd(Math.abs(data.balance))
+          }
+          style={styles.balance}
         >
           <Text style={styles.caption}>{balanceLabel}</Text>
-          <MoneyText amount={Math.abs(data.balance)} variant="price" />
+          <Text style={styles.balanceAmount} numberOfLines={1}>
+            {formatVnd(Math.abs(data.balance))}
+          </Text>
         </View>
         {overdueDays === null ? null : <OverdueBadge days={overdueDays} />}
         {overLimit ? (
           <Text accessibilityRole="alert" style={styles.warning}>
-            {t('overLimit')}
+            {overLimitText}
           </Text>
         ) : null}
-        {data.phone ? (
-          <Fact label={t('customer.phone')} value={data.phone} />
+        {limitText ? (
+          <Text
+            accessible
+            accessibilityLabel={limitText}
+            style={styles.cardNote}
+          >
+            {limitText}
+          </Text>
         ) : null}
-        <Fact
-          label={t('customer.limit')}
-          value={
-            data.credit_limit === null
-              ? t('customer.noLimit')
-              : formatVnd(data.credit_limit)
-          }
-        />
         {data.note ? (
-          <Fact label={t('customer.note')} value={data.note} />
+          <Text
+            accessible
+            accessibilityLabel={t('customer.note') + ' ' + data.note}
+            style={styles.cardNote}
+          >
+            {data.note}
+          </Text>
         ) : null}
         {data.archived ? (
-          <Text style={styles.caption}>{t('customer.archived')}</Text>
+          <Text style={styles.caption}>{archivedText}</Text>
         ) : null}
       </View>
 
       <View style={styles.actions}>
         <ActionButton
           primary
-          icon={HandCoins}
+          icon={Banknote}
           label={t('action.collect')}
           onPress={() => setSheet('collect')}
         />
         <ActionButton
-          icon={Bell}
+          icon={ShareIcon}
           label={t('action.remind')}
           disabled={data.balance <= 0}
           onPress={() => void remind()}
         />
-        {isLead ? (
-          <ActionButton
-            icon={SlidersHorizontal}
-            label={t('action.adjust')}
-            onPress={() => setSheet('adjust')}
-          />
-        ) : null}
       </View>
+      {isLead ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={adjustLabel}
+          pressedScale={0.96}
+          onPress={() => setSheet('adjust')}
+          style={styles.quietLink}
+        >
+          <Text style={styles.quietLinkText}>{adjustLabel}</Text>
+        </PressableScale>
+      ) : null}
       {shareFailed ? (
         <Text accessibilityRole="alert" style={styles.errorText}>
-          {t('remind.error')}
+          {remindError}
         </Text>
       ) : null}
 
       <Text accessibilityRole="header" style={styles.section}>
-        {t('ledger.title')}
+        {ledgerTitle}
       </Text>
     </View>
   );
@@ -285,9 +309,20 @@ export function CustomerScreen({ id }: { id: string }) {
     <View style={[styles.screen, { paddingTop: insets.top + space[4] }]}>
       <View style={styles.header}>
         {back}
-        <Text accessibilityRole="header" style={styles.title} numberOfLines={1}>
-          {data.name}
-        </Text>
+        <View style={styles.headerText}>
+          <Text
+            accessibilityRole="header"
+            style={styles.title}
+            numberOfLines={1}
+          >
+            {data.name}
+          </Text>
+          {data.phone ? (
+            <Text style={styles.phone} numberOfLines={1}>
+              {data.phone}
+            </Text>
+          ) : null}
+        </View>
         <CircleButton
           icon={Pencil}
           accessibilityLabel={t('action.edit')}
@@ -311,7 +346,7 @@ export function CustomerScreen({ id }: { id: string }) {
         ]}
         ListEmptyComponent={
           entries.isPending ? (
-            <ActivityIndicator accessibilityLabel={t('loading')} />
+            <ActivityIndicator accessibilityLabel={loadingLabel} />
           ) : entries.isError ? (
             <View style={styles.message}>
               <Text accessibilityRole="alert" style={styles.errorText}>
@@ -319,11 +354,11 @@ export function CustomerScreen({ id }: { id: string }) {
               </Text>
               <PressableScale
                 accessibilityRole="button"
-                accessibilityLabel={t('retry')}
+                accessibilityLabel={retryLabel}
                 onPress={() => void entries.refetch()}
                 style={styles.chip}
               >
-                <Text style={styles.label}>{t('retry')}</Text>
+                <Text style={styles.label}>{retryLabel}</Text>
               </PressableScale>
             </View>
           ) : (
@@ -332,7 +367,7 @@ export function CustomerScreen({ id }: { id: string }) {
         }
         ListFooterComponent={
           entries.isFetchingNextPage ? (
-            <ActivityIndicator accessibilityLabel={t('loading')} />
+            <ActivityIndicator accessibilityLabel={loadingLabel} />
           ) : null
         }
         renderItem={({ item }) => <LedgerRow entry={item} t={t} />}
@@ -363,24 +398,40 @@ const styles = StyleSheet.create({
     gap: space[3],
     paddingHorizontal: space[4],
   },
-  title: { ...typography.heading, flex: 1, color: colors.ink },
+  headerText: { flex: 1, minWidth: 0 },
+  title: { ...typography.heading, color: colors.ink },
+  phone: {
+    ...typography.caption,
+    color: colors.inkMuted,
+    fontVariant: ['tabular-nums'],
+  },
   content: { paddingHorizontal: space[4] },
   headerContent: { gap: space[3], paddingBottom: space[2] },
   card: {
-    gap: space[3],
-    padding: space[4],
+    alignItems: 'center',
+    gap: space[2],
+    paddingVertical: space[6],
+    paddingHorizontal: space[4],
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceSoft,
   },
-  fact: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: space[3],
+  balance: { alignItems: 'center', gap: space[2] },
+  balanceAmount: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 48,
+    lineHeight: 52,
+    letterSpacing: -1,
+    color: colors.ink,
+    fontVariant: ['tabular-nums'],
   },
-  factValue: { ...typography.label, flexShrink: 1, color: colors.ink },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  cardNote: {
+    ...typography.caption,
+    color: colors.inkMuted,
+    textAlign: 'center',
+  },
+  actions: { flexDirection: 'row', gap: space[3] },
   action: {
-    flexGrow: 1,
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -392,16 +443,38 @@ const styles = StyleSheet.create({
   },
   actionPrimary: { backgroundColor: colors.ink },
   disabled: { opacity: 0.4 },
-  section: { ...typography.heading, color: colors.ink },
+  quietLink: {
+    alignSelf: 'center',
+    minHeight: size.tapMin,
+    paddingHorizontal: space[4],
+    justifyContent: 'center',
+  },
+  quietLinkText: { ...typography.label, color: colors.inkMuted },
+  section: { ...typography.heading, color: colors.ink, marginTop: space[1] },
   ledgerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    minHeight: size.tapMin,
+    minHeight: size.tapLg,
     paddingVertical: space[2],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.surfacePressed,
   },
-  rowText: { flex: 1, gap: space[1] },
-  amounts: { alignItems: 'flex-end', gap: space[1] },
+  ledgerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ledgerAmount: {
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 26,
+    flexShrink: 0,
+    fontVariant: ['tabular-nums'],
+  },
+  rowText: { flex: 1, minWidth: 0, gap: space[1] },
   label: { ...typography.label, color: colors.ink },
   caption: { ...typography.caption, color: colors.inkMuted },
   warning: { ...typography.label, color: colors.warning },

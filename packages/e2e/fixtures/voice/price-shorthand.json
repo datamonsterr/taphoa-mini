@@ -1,0 +1,16 @@
+{
+  "source": "synthetic",
+  "transcript": "ba gói mì hảo hảo hai chục",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "mì hảo hảo",
+      "quantity": 3,
+      "status": "matched",
+      "unit_price": 20000
+    }
+  ],
+  "requires_products": ["mì Hảo Hảo"]
+}

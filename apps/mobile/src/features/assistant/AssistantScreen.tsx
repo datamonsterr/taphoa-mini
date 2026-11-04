@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { List, Plus, X } from 'lucide-react-native';
+import { AlignLeft, ChevronDown, Plus } from 'lucide-react-native';
 import {
   useCallback,
   useEffect,
@@ -10,7 +10,6 @@ import {
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,8 +19,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CircleButton } from '@/components/ui/CircleButton';
+import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Text } from '@/components/ui/ScaledText';
 import { capture } from '@/lib/analytics';
+import { isApiError } from '@/lib/api/errors';
 import { fill, useT } from '@/lib/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { colors, radius, shadows, space, typography } from '@/theme';
@@ -31,7 +32,7 @@ import {
   useCreateAssistantThread,
   type CreateAssistantThreadInput,
 } from './api';
-import type { AssistantAttachment } from './chatReducer';
+import type { AssistantAttachment, ChatError } from './chatReducer';
 import { AssistantMessageView } from './chat/AssistantMessageView';
 import type { ReceiptCardLine } from './chat/cards/ReceiptLinesCard';
 import { Composer } from './chat/Composer';
@@ -44,7 +45,8 @@ import { dict } from './strings';
 import { useAssistantChat } from './useAssistantChat';
 import { useReceiptChat } from './useReceiptChat';
 
-const TOP_GAP = 8;
+/** Board 17: the sheet starts 56 px below the top, so the screen behind still shows. */
+const SHEET_TOP = 56;
 
 type Turn = {
   content: string;
@@ -73,7 +75,9 @@ export function AssistantScreen() {
   const [fromEntry, setFromEntry] = useState(true);
   const [showList, setShowList] = useState(false);
   const pending = useRef<PendingTurn | null>(null);
-  const [startFailed, setStartFailed] = useState(false);
+  /** Why creating the thread failed; null when it did not. */
+  const [startError, setStartError] = useState<ChatError | null>(null);
+  const startFailed = startError !== null;
   const [prefill, setPrefill] = useState<{ id: number; text: string }>();
   const lastTurn = useRef<Turn | null>(null);
 
@@ -105,12 +109,12 @@ export function AssistantScreen() {
         });
         if (accepted) {
           lastTurn.current = turn;
-          setStartFailed(false);
+          setStartError(null);
         }
         return accepted;
       }
       lastTurn.current = turn;
-      setStartFailed(false);
+      setStartError(null);
       starting.current = true;
       const context: CreateAssistantThreadInput['context'] = fromEntry
         ? {
@@ -129,9 +133,19 @@ export function AssistantScreen() {
           pending.current = { ...turn, threadId: thread.id };
           setThreadId(thread.id);
         },
-        () => {
+        (error: unknown) => {
           starting.current = false;
-          setStartFailed(true);
+          setStartError(
+            isApiError(error)
+              ? {
+                  code: 'http',
+                  status: error.status,
+                  ...(error.retryAfterMs
+                    ? { retryAfterMs: error.retryAfterMs }
+                    : {}),
+                }
+              : { code: 'network' },
+          );
         },
       );
       return true;
@@ -181,7 +195,7 @@ export function AssistantScreen() {
     setPhase('chosen');
     setFromEntry(false);
     setShowList(false);
-    setStartFailed(false);
+    setStartError(null);
   };
 
   const receipt = useReceiptChat({
@@ -196,8 +210,6 @@ export function AssistantScreen() {
   });
 
   const scroller = useRef<ScrollViewInstance>(null);
-  const title =
-    threads.data?.find((thread) => thread.id === threadId)?.title ?? t('title');
   const loading = phase === 'auto' || chat.loading;
   const messageProps = {
     onRetry: chat.retry,
@@ -218,34 +230,41 @@ export function AssistantScreen() {
         onPress={() => router.back()}
         style={styles.scrim}
       />
+      {/* Android is always edge-to-edge (target SDK 35+), so `adjustResize` no longer shrinks the
+          window: without `padding` the keyboard covers the composer. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        testID="assistant-keyboard-avoid"
+        behavior="padding"
         pointerEvents="box-none"
         style={styles.avoid}
       >
         <View
+          testID="assistant-panel"
           style={[
             styles.panel,
             {
-              marginTop: insets.top + TOP_GAP,
+              marginTop: Math.max(SHEET_TOP, insets.top + space[2]),
               paddingBottom: space[3] + insets.bottom,
             },
           ]}
         >
+          <View style={styles.grabberRow}>
+            <View testID="assistant-grabber" style={styles.grabber} />
+          </View>
           <View style={styles.header}>
+            <CircleButton
+              testID="assistant-threads"
+              icon={AlignLeft}
+              accessibilityLabel={t('threads')}
+              onPress={() => setShowList((open) => !open)}
+            />
             <Text
               accessibilityRole="header"
               numberOfLines={1}
               style={styles.title}
             >
-              {title}
+              {t('title')}
             </Text>
-            <CircleButton
-              testID="assistant-threads"
-              icon={List}
-              accessibilityLabel={t('openThreads')}
-              onPress={() => setShowList((open) => !open)}
-            />
             <CircleButton
               testID="assistant-new-chat"
               icon={Plus}
@@ -254,7 +273,7 @@ export function AssistantScreen() {
             />
             <CircleButton
               testID="assistant-close"
-              icon={X}
+              icon={ChevronDown}
               accessibilityLabel={t('close')}
               onPress={() => router.back()}
             />
@@ -276,45 +295,48 @@ export function AssistantScreen() {
               scroller.current?.scrollToEnd({ animated: false })
             }
           >
-            {showList ? (
-              <ThreadList
-                activeId={threadId}
-                onOpen={openThread}
-                onNew={() => openThread(undefined)}
-                onDeleted={(id) => {
-                  if (id === threadId) openThread(undefined);
-                }}
-              />
-            ) : loading ? (
-              <ActivityIndicator accessibilityLabel={t('loading')} />
-            ) : (
-              <>
-                {chat.messages.length === 0 ? (
-                  <Text testID="assistant-empty" style={styles.empty}>
-                    {t('emptyChat')}
-                  </Text>
-                ) : null}
-                {chat.messages.map((message) =>
-                  message.kind === 'user' ? (
-                    <UserBubble key={message.id} message={message} />
-                  ) : (
-                    <AssistantMessageView
-                      key={message.id}
-                      message={message}
-                      {...messageProps}
+            {/* Replies and thread titles name customers and show phone numbers: never record them. */}
+            <PostHogMaskView>
+              {showList ? (
+                <ThreadList
+                  activeId={threadId}
+                  onOpen={openThread}
+                  onNew={() => openThread(undefined)}
+                  onDeleted={(id) => {
+                    if (id === threadId) openThread(undefined);
+                  }}
+                />
+              ) : loading ? (
+                <ActivityIndicator accessibilityLabel={t('loading')} />
+              ) : (
+                <>
+                  {chat.messages.length === 0 ? (
+                    <Text testID="assistant-empty" style={styles.empty}>
+                      {t('emptyChat')}
+                    </Text>
+                  ) : null}
+                  {chat.messages.map((message) =>
+                    message.kind === 'user' ? (
+                      <UserBubble key={message.id} message={message} />
+                    ) : (
+                      <AssistantMessageView
+                        key={message.id}
+                        message={message}
+                        {...messageProps}
+                      />
+                    ),
+                  )}
+                  {startFailed ? (
+                    <ErrorNotice
+                      error={startError ?? { code: 'network' }}
+                      onRetry={() => {
+                        if (lastTurn.current) startTurn(lastTurn.current);
+                      }}
                     />
-                  ),
-                )}
-                {startFailed ? (
-                  <ErrorNotice
-                    error={{ code: 'network' }}
-                    onRetry={() => {
-                      if (lastTurn.current) startTurn(lastTurn.current);
-                    }}
-                  />
-                ) : null}
-              </>
-            )}
+                  ) : null}
+                </>
+              )}
+            </PostHogMaskView>
           </ScrollView>
           {showList ? null : (
             <Composer
@@ -337,11 +359,18 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: space[3],
     paddingHorizontal: space[4],
-    paddingTop: space[4],
+    paddingTop: space[3],
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     backgroundColor: colors.surface,
     ...shadows.sheet,
+  },
+  grabberRow: { alignItems: 'center' },
+  grabber: {
+    width: 40,
+    height: 5,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfacePressed,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   title: { ...typography.heading, flex: 1, color: colors.ink },

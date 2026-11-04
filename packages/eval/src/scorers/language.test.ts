@@ -51,6 +51,38 @@ describe('scoreLanguage: vi', () => {
 });
 
 describe('scoreLanguage: en', () => {
+  it('detects prose after removing known Vietnamese entity names only', () => {
+    const names = ['Sữa đặc Ông Thọ', 'Bánh quy bơ', 'Nước mắm cá cơm'];
+    expect(
+      scoreLanguage(
+        `There are three products: ${names.join(', ')}. They have not sold this month.`,
+        'en',
+        names,
+      ),
+    ).toBe(1);
+    expect(
+      scoreLanguage(
+        `Có ba món: ${names.join(', ')}. Chúng chưa bán được trong tháng này.`,
+        'en',
+        names,
+      ),
+    ).toBe(0);
+    expect(
+      scoreLanguage(
+        `The items are ${names.join(', ')}. Chúng chưa bán được trong tháng này và còn nhiều hàng.`,
+        'en',
+        names,
+      ),
+    ).toBe(0);
+    expect(scoreLanguage(names.join(', '), 'en', names)).toBe(0);
+    expect(
+      scoreLanguage(
+        'There are three products. They have not sold this month.',
+        'vi',
+        names,
+      ),
+    ).toBe(0);
+  });
   it('accepts an English answer', () => {
     expect(
       scoreLanguage(

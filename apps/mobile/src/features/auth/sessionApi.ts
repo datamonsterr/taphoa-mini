@@ -67,3 +67,16 @@ export async function verifySessionPin(
     clientFor(session, storeId).POST('/v1/me/pin/verify', { body: { pin } }),
   );
 }
+
+/**
+ * `POST /v1/me/pin/lock` as that session: from now on the server refuses it with `pin_required`
+ * until its PIN is verified again. Best effort: the person has already stopped being the active
+ * one, so a failure (offline, session already gone) must not interrupt the switch.
+ */
+export async function lockSession(session: TokenSource): Promise<void> {
+  try {
+    await unwrap(clientFor(session).POST('/v1/me/pin/lock'));
+  } catch {
+    // The session lock then waits for its idle timeout on the server.
+  }
+}

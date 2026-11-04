@@ -78,7 +78,7 @@ async fn today_report_figures() {
             "GET",
             &format!("/v1/reports/today?date={DAY}"),
             "/v1/reports/today",
-            &w.seller,
+            &w.lead,
             json!(null),
             StatusCode::OK,
         )
@@ -236,7 +236,7 @@ async fn top_products_ranking_and_margin() {
             "GET",
             &q(""),
             "/v1/reports/top-products",
-            &w.seller,
+            &w.lead,
             json!(null),
             StatusCode::OK,
         )
@@ -383,9 +383,10 @@ async fn day_close_expected_cash_overwrite_and_late_sales() {
         )
         .await;
     assert_eq!(t.body["day_close"]["counted_cash"], 200_000);
-    // a sale synced after the close is late
+    // a sale synced after the close is late. The Lead's keeps its date; a seller's sale for a
+    // closed past day is booked today instead (see sales.rs, #176).
     let p = w.product("Muộn", 1000, None).await;
-    sell(&w, &w.seller, "cash", &[(p, 1, 1000)], AT).await;
+    sell(&w, &w.lead, "cash", &[(p, 1, 1000)], AT).await;
     let g = w
         .checked(
             "GET",
@@ -416,7 +417,7 @@ async fn day_close_expected_cash_overwrite_and_late_sales() {
             "GET",
             "/v1/day-closes",
             "/v1/day-closes",
-            &w.seller,
+            &w.lead,
             json!(null),
             StatusCode::OK,
         )
@@ -518,5 +519,38 @@ async fn transactions_export_csv_and_xlsx() {
             .await
             .status,
         StatusCode::BAD_REQUEST
+    );
+}
+
+/// #149: a member name that looks like a formula must not run when the Lead opens the CSV.
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn transactions_export_csv_neutralizes_formula_names() {
+    let w = World::new().await;
+    sqlx::query("UPDATE members SET display_name=$2 WHERE id=$1")
+        .bind(w.seller_id)
+        .bind("=HYPERLINK(\"http://evil.test\",\"x\")")
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let p = w.product("Coca", 10000, None).await;
+    sell(&w, &w.seller, "cash", &[(p, 1, 10000)], AT).await;
+    let csv = w
+        .call(
+            "GET",
+            &format!("/v1/exports/transactions?from={DAY}&to={DAY}&format=csv"),
+            &w.lead,
+            json!(null),
+        )
+        .await;
+    assert_eq!(csv.status, StatusCode::OK);
+    let text = String::from_utf8(csv.raw).unwrap();
+    assert!(
+        text.contains("\"'=HYPERLINK(\"\"http://evil.test\"\",\"\"x\"\")\""),
+        "{text}"
+    );
+    assert!(
+        !text.contains(",=HYPERLINK") && !text.contains(",\"=HYPERLINK"),
+        "{text}"
     );
 }

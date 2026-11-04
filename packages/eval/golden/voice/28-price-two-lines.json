@@ -1,0 +1,23 @@
+{
+  "id": "28-price-two-lines",
+  "source": "synthetic",
+  "transcript": "một chai dầu ăn neptune năm mươi lăm nghìn và hai gói bột canh hải châu mười nghìn",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "dầu ăn neptune",
+      "product": "Dầu ăn Neptune 1L",
+      "quantity": 1,
+      "unit_price": 55000
+    },
+    {
+      "spoken": "bột canh hải châu",
+      "product": "Bột canh Hải Châu 190g",
+      "quantity": 2,
+      "unit_price": 10000
+    }
+  ],
+  "tags": ["price-shorthand", "multi-line"]
+}

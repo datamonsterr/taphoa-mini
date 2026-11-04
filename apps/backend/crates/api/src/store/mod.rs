@@ -218,6 +218,12 @@ async fn remove_member(
     keep_lead(&leads, &member, true)?;
     if member.active {
         sqlx::query("UPDATE members SET active=false,version=version+1,updated_at=now() WHERE store_id=$1 AND id=$2").bind(actor.store_id).bind(id).execute(&mut *tx).await?;
+        // A removed member must stop receiving store notifications on their phone.
+        sqlx::query("DELETE FROM devices WHERE store_id=$1 AND member_id=$2")
+            .bind(actor.store_id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         member_event(&mut tx, &actor, id, "deactivated").await?;
     }
     tx.commit().await?;

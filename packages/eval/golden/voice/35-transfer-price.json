@@ -1,0 +1,17 @@
+{
+  "id": "35-transfer-price",
+  "source": "synthetic",
+  "transcript": "một chai tương ớt chin su hai chục khách chuyển khoản",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "transfer",
+  "lines": [
+    {
+      "spoken": "tương ớt chin su",
+      "product": "Tương ớt Chin-su 250g",
+      "quantity": 1,
+      "unit_price": 20000
+    }
+  ],
+  "tags": ["transfer", "price-shorthand"]
+}

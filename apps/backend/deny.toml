@@ -1,0 +1,7 @@
+# `cargo deny check advisories` (run from apps/backend). Every ignore needs a reason and a way out.
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack: needs RSA decryption or signing with a private key. The backend only verifies Clerk JWT signatures with public keys (jsonwebtoken rust_crypto); the only private key is a test helper key. No patched rsa exists. Drop when jsonwebtoken stops using rsa or rsa ships a fix." },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 timing, pulled by p256/p384 0.13 inside jsonwebtoken. Only ECDSA verification with public Clerk keys, no secret scalars. Needs a jsonwebtoken release on elliptic-curve 0.14." },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained. It parses the one bundled font in the price list export (ab_glyph), never user-supplied fonts. Replace ab_glyph when a maintained fork lands." },
+]

@@ -1,5 +1,5 @@
 import { act, render, renderHook } from '@testing-library/react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Application from 'expo-application';
 import { Text } from 'react-native';
 import { capture, setAnalyticsSink, type AppEventProps } from './analytics';
@@ -35,9 +35,30 @@ beforeEach(() => {
   delete process.env.EXPO_PUBLIC_POSTHOG_KEY;
   delete process.env.EXPO_PUBLIC_POSTHOG_HOST;
   delete process.env.EXPO_PUBLIC_ENVIRONMENT;
+  delete process.env.EXPO_PUBLIC_SMOKE;
   mockPathname = '/product/123';
   mockSegments = ['product', '[id]'];
   useSettingsStore.setState({ language: 'vi' });
+});
+
+test('smoke builds tag app events and preserve the tag after sign-out', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  process.env.EXPO_PUBLIC_SMOKE = '1';
+  const hook = await renderHook(
+    ({ value }: { value: Parameters<typeof useAnalyticsIdentity>[0] }) =>
+      useAnalyticsIdentity(value),
+    {
+      initialProps: { value: { userId: 'smoke-user', storeId: 'smoke-store' } },
+      wrapper: AnalyticsProvider,
+    },
+  );
+  expect(posthog.register).toHaveBeenCalledWith(
+    expect.objectContaining({ smoke: true }),
+  );
+  await hook.rerender({ value: null });
+  expect(posthog.register).toHaveBeenLastCalledWith(
+    expect.objectContaining({ smoke: true }),
+  );
 });
 afterEach(() => {
   delete process.env.EXPO_PUBLIC_POSTHOG_KEY;
@@ -59,7 +80,21 @@ const samples = {
   next_step_shown: { kind: 'setup', position: 0 },
   next_step_tapped: { kind: 'restock', position: 1 },
   digest_opened: { entry: 'card' },
-  voice_input_used: { duration_ms: 1000, language: 'vi-VN', ok: true },
+  voice_input_used: {
+    duration_ms: 1000,
+    language: 'vi-VN',
+    ok: true,
+    engine: 'server',
+  },
+  voice_setup_completed: { platform: 'android', kind: 'bubble' },
+  voice_sale_started: { entry: 'longpress' },
+  voice_sale_confirmed: {
+    edited: false,
+    line_count: 2,
+    payment_method: 'cash',
+    total: 24500,
+  },
+  voice_sale_abandoned: { stage: 'draft' },
 } satisfies AppEventProps;
 const requiredKeys: Record<keyof AppEventProps, string[]> = {
   $screen: ['$screen_name'],
@@ -73,7 +108,11 @@ const requiredKeys: Record<keyof AppEventProps, string[]> = {
   next_step_shown: ['kind', 'position'],
   next_step_tapped: ['kind', 'position'],
   digest_opened: ['entry'],
-  voice_input_used: ['duration_ms', 'language', 'ok'],
+  voice_input_used: ['duration_ms', 'language', 'ok', 'engine'],
+  voice_setup_completed: ['platform', 'kind'],
+  voice_sale_started: ['entry'],
+  voice_sale_confirmed: ['edited', 'line_count', 'payment_method', 'total'],
+  voice_sale_abandoned: ['stage'],
 };
 // $screen_name is the contract's reserved screen property, not a person's name.
 function assertSafe(value: unknown) {
@@ -113,6 +152,52 @@ test('without a key renders children and leaves capture and bridge off', async (
   expect(isFeatureEnabled('flag')).toBeUndefined();
   captureException(new Error('off'));
   expect(posthog.captureException).not.toHaveBeenCalled();
+});
+
+test('Expo Go keeps analytics but never enables the native replay plugin', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  const environment = jest.replaceProperty(
+    Constants,
+    'executionEnvironment',
+    ExecutionEnvironment.StoreClient,
+  );
+  try {
+    const view = await render(
+      <AnalyticsProvider>
+        <Text>child</Text>
+      </AnalyticsProvider>,
+    );
+    expect(view.getByText('child')).toBeTruthy();
+    expect(providerProps.mock.calls[0][0].options.enableSessionReplay).toBe(
+      false,
+    );
+    capture('signed_out', { method: 'google' });
+    expect(posthog.capture).toHaveBeenCalledWith('signed_out', {
+      method: 'google',
+    });
+    await view.unmount();
+  } finally {
+    environment.restore();
+  }
+});
+
+test('test native builds record every session with masking enabled', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  process.env.EXPO_PUBLIC_ENVIRONMENT = 'test';
+  const view = await render(
+    <AnalyticsProvider>
+      <Text>child</Text>
+    </AnalyticsProvider>,
+  );
+  expect(
+    providerProps.mock.calls[0][0].options.sessionReplayConfig,
+  ).toMatchObject({
+    sampleRate: 1,
+    maskAllTextInputs: true,
+    maskAllImages: true,
+    maskAllSandboxedViews: true,
+  });
+  await view.unmount();
 });
 
 test('provider configures privacy, registers properties and clears sink and bridge on unmount', async () => {
@@ -210,19 +295,14 @@ test('identity is idempotent, omits absent person properties and resets on sign-
     storeName: 'Shop',
     memberId: 'member',
     role: 'lead' as const,
-    email: 'owner@example.test',
-    name: 'Owner',
   };
   const hook = await renderHook(
     ({ value }: { value: Parameters<typeof useAnalyticsIdentity>[0] }) =>
       useAnalyticsIdentity(value),
     { initialProps: { value: identity }, wrapper: AnalyticsProvider },
   );
-  expect(posthog.identify).toHaveBeenCalledWith('user', {
-    email: identity.email,
-    name: 'Owner',
-    role: 'lead',
-  });
+  // Only the Clerk id and role: no email or display name reaches PostHog.
+  expect(posthog.identify).toHaveBeenCalledWith('user', { role: 'lead' });
   expect(posthog.group).toHaveBeenCalledWith('store', 'store', {
     name: 'Shop',
   });
@@ -254,7 +334,7 @@ test('incomplete identity is ignored and absent properties are omitted', async (
     },
   );
   expect(posthog.identify).not.toHaveBeenCalled();
-  await hook.rerender({ value: { userId: 'u', storeId: 's', email: null } });
+  await hook.rerender({ value: { userId: 'u', storeId: 's' } });
   expect(posthog.identify).toHaveBeenCalledWith('u', {});
   expect(posthog.group).toHaveBeenCalledWith('store', 's', {});
   expect(posthog.register).toHaveBeenCalledWith({});
@@ -338,4 +418,17 @@ test('uses configured host and environment, with no native build version', async
 test('identity has no effect when analytics is off', async () => {
   await renderHook(() => useAnalyticsIdentity({ userId: 'u', storeId: 's' }));
   expect(posthog.identify).not.toHaveBeenCalled();
+});
+
+test('the PostHog sink strips personal data a caller passes by mistake', () => {
+  setAnalyticsSink(new PostHogSink(posthog));
+  const risky = {
+    entry: 'button',
+    customer_name: 'Lan',
+    note: 'call 090 123 4567',
+  } as unknown as AppEventProps['assistant_opened'];
+  capture('assistant_opened', risky);
+  expect(posthog.capture).toHaveBeenCalledWith('assistant_opened', {
+    entry: 'button',
+  });
 });

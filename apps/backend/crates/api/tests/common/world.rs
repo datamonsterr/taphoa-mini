@@ -35,6 +35,8 @@ async fn app() -> (Router, AppState) {
         // shared Redis never collide with other suites using the peer address.
         "CLIENT_IP_SOURCE" => Some("x-forwarded-for".into()),
         "TRUSTED_PROXY_HOPS" => Some("1".into()),
+        // Fixtures use fixed past dates; the sold_at window itself is tested with a narrow copy.
+        "SALE_MAX_AGE_HOURS" => Some("1000000".into()),
         "RATE_LIMIT_STORE_CREATE_PER_HOUR" | "RATE_LIMIT_JOIN_PER_HOUR" => Some("1000000".into()),
         _ => std::env::var(key).ok(),
     })

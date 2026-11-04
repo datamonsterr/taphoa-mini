@@ -5,7 +5,7 @@ import { isApiError } from '@/lib/api/errors';
  */
 export function onboardingErrorKey(
   error: unknown,
-  unauthorized = 'error.generic',
+  unauthorized = 'error.session',
 ): string {
   if (!isApiError(error)) return 'error.network';
   switch (error.status) {
@@ -13,6 +13,12 @@ export function onboardingErrorKey(
       return 'error.invalid';
     case 401:
       return unauthorized;
+    case 403:
+      return 'error.forbidden';
+    case 409:
+      return error.code === 'already_member'
+        ? 'error.alreadyMember'
+        : 'error.generic';
     case 410:
       return 'error.invite';
     case 429:

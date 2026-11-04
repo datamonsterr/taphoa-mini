@@ -1,0 +1,17 @@
+{
+  "id": "21-price-tram-ruoi",
+  "source": "synthetic",
+  "transcript": "một túi gạo nàng hoa trăm rưỡi",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "gạo nàng hoa",
+      "product": "Gạo Nàng Hoa 5kg",
+      "quantity": 1,
+      "unit_price": 150000
+    }
+  ],
+  "tags": ["price-shorthand", "price-ruoi"]
+}

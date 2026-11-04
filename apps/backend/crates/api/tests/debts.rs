@@ -1028,7 +1028,7 @@ async fn void_reverses_the_credit_once_and_leaves_aging() {
     .await;
     assert_eq!(entries_of(&w, customer).await.len(), 2);
     assert_eq!(w.events("debt.recorded").await, 1);
-    // Voiding the credit sale reverses exactly its credit on the void's business date.
+    // Voiding the credit sale reverses exactly its credit on the server's business date for the void.
     let path = format!("/v1/sales/{id}/void");
     let voided = w
         .checked(
@@ -1047,7 +1047,11 @@ async fn void_reverses_the_credit_once_and_leaves_aging() {
     let void = entries.iter().find(|e| e["kind"] == "void").unwrap();
     assert_eq!(void["amount"], -PRICE);
     assert_eq!(void["sale_id"], id);
-    assert_eq!(void["business_date"], "2026-03-06");
+    // The client `voided_at` above is ignored: the entry lands on the server's business day.
+    assert_eq!(
+        void["business_date"],
+        taphoa_api::time::business_date(chrono::Utc::now()).to_string()
+    );
     assert_eq!(void["balance_after"], 50);
     assert_eq!(void["member_id"], w.lead_id.to_string());
     let opening = entries.iter().find(|e| e["kind"] == "adjustment").unwrap();

@@ -10,7 +10,7 @@ import { fontFamily } from '@/theme/typography';
 type Props =
   | {
       id: string;
-      variant: 'selected' | 'deselected';
+      variant: 'selected' | 'deselected' | 'guess';
       price: number;
       name: string;
       /** True while the alternatives strip is open for this box. */
@@ -51,7 +51,8 @@ export const PricePill = memo(function PricePill(props: Props) {
   }
 
   const selected = props.variant === 'selected';
-  const tint = selected ? colors.ink : camera.white;
+  const guess = props.variant === 'guess';
+  const tint = guess ? colors.warning : selected ? colors.ink : camera.white;
   return (
     <Pressable
       accessibilityRole="button"
@@ -59,10 +60,13 @@ export const PricePill = memo(function PricePill(props: Props) {
       accessibilityState={{ expanded: !!props.expanded }}
       aria-expanded={!!props.expanded}
       onPress={press}
-      style={[styles.pill, selected ? styles.selected : styles.deselected]}
+      style={[
+        styles.pill,
+        guess ? styles.guess : selected ? styles.selected : styles.deselected,
+      ]}
     >
       <Text style={[styles.text, { color: tint }]}>
-        {formatVnd(props.price).replace('đ', '')}
+        {guess ? '?' : formatVnd(props.price).replace('đ', '')}
       </Text>
       <Icon icon={ChevronRight} size={16} strokeWidth={3} color={tint} />
     </Pressable>
@@ -83,6 +87,7 @@ const styles = StyleSheet.create({
   },
   selected: { backgroundColor: camera.white },
   deselected: { backgroundColor: camera.pillDark },
+  guess: { backgroundColor: colors.warningSoft },
   unknown: {
     justifyContent: 'center',
     gap: 6,

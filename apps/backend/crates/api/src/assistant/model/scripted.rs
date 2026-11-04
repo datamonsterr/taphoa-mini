@@ -193,6 +193,7 @@ impl ChatModel for ScriptedModel {
                     tool_calls,
                     usage,
                     http_status: 200,
+                    generation_id: None,
                     time_to_first_token,
                 })
             }
@@ -237,6 +238,7 @@ mod tests {
             Step::text("Xin chào").with_usage(Usage {
                 input_tokens: 12,
                 output_tokens: 3,
+                ..Usage::default()
             }),
             Step::chunks(["Bán ", "được ", "24 chai."]),
         ]);
@@ -250,7 +252,8 @@ mod tests {
             reply.usage,
             Usage {
                 input_tokens: 12,
-                output_tokens: 3
+                output_tokens: 3,
+                ..Usage::default()
             }
         );
         assert!(reply.tool_calls.is_empty() && reply.time_to_first_token.is_some());
@@ -407,6 +410,7 @@ mod tests {
         let usage = Usage {
             input_tokens: 1,
             output_tokens: 2,
+            ..Usage::default()
         };
         let delayed = Step::delayed(Duration::from_secs(1), Step::text("x")).with_usage(usage);
         match delayed {

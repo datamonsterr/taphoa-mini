@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { takePhoto, toScanMode, toUploadFile } from './capture';
 
 describe('takePhoto', () => {
@@ -34,5 +35,101 @@ describe('toUploadFile / toScanMode', () => {
   it('maps the toggle to the API mode', () => {
     expect(toScanMode('one')).toBe('single');
     expect(toScanMode('many')).toBe('multi');
+  });
+});
+
+// The low-rate loop uses a processed JPEG, never the raw multi-megabyte still.
+describe('probe capture', () => {
+  const { takeProbePhoto } = jest.requireActual('./capture');
+  const { ImageManipulator } = jest.requireMock('expo-image-manipulator');
+
+  it.each([
+    ['web', undefined, true],
+    ['web', 'user', true],
+    ['web', 'environment', false],
+    ['android', undefined, false],
+    ['android', 'environment', false],
+  ] as const)(
+    'uses Expo preview mirroring for %s with facingMode=%s',
+    async (platform, facingMode, previewMirrored) => {
+      const platformSpy = jest.replaceProperty(Platform, 'OS', platform);
+      try {
+        const photo = await takeProbePhoto({
+          takePictureAsync: jest.fn().mockResolvedValue({
+            uri: 'file:///probe.jpg',
+            width: 1080,
+            height: 1440,
+            exif: { facingMode },
+          }),
+        });
+        expect(photo.previewMirrored).toBe(previewMirrored);
+      } finally {
+        platformSpy.restore();
+      }
+    },
+  );
+
+  it.each([
+    [1080, 1440, 480, 640],
+    [1920, 1080, 640, 360],
+    [320, 240, 320, 240],
+  ])(
+    'silently recompresses %sx%s to %sx%s',
+    async (width, height, targetWidth, targetHeight) => {
+      const takePictureAsync = jest
+        .fn()
+        .mockResolvedValue({ uri: 'file:///probe.jpg', width, height });
+      const saveAsync = jest.fn().mockResolvedValue({
+        uri: 'file:///small.jpg',
+        width: targetWidth,
+        height: targetHeight,
+      });
+      const manipulate = jest
+        .spyOn(ImageManipulator, 'manipulate')
+        .mockReturnValue({ renderAsync: async () => ({ saveAsync }) });
+      const photo = await takeProbePhoto({ takePictureAsync });
+      expect(takePictureAsync).toHaveBeenCalledWith({
+        quality: 0.2,
+        shutterSound: false,
+        skipProcessing: true,
+      });
+      expect(manipulate).toHaveBeenCalledWith('file:///probe.jpg', {
+        maxWidth: 640,
+        maxHeight: 640,
+      });
+      expect(saveAsync).toHaveBeenCalledWith({ format: 'jpeg', compress: 0.3 });
+      expect(photo).toMatchObject({ width: targetWidth, height: targetHeight });
+      manipulate.mockRestore();
+    },
+  );
+
+  it('serializes a shutter press behind a pending silent capture', async () => {
+    let release!: (value: {
+      uri: string;
+      width: number;
+      height: number;
+    }) => void;
+    const camera = {
+      takePictureAsync: jest
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              release = resolve;
+            }),
+        )
+        .mockResolvedValueOnce({
+          uri: 'file:///full.jpg',
+          width: 1080,
+          height: 1440,
+        }),
+    };
+    const probe = takeProbePhoto(camera);
+    const full = takePhoto(camera);
+    expect(camera.takePictureAsync).toHaveBeenCalledTimes(1);
+    release({ uri: 'file:///probe.jpg', width: 480, height: 640 });
+    await probe;
+    await expect(full).resolves.toMatchObject({ uri: 'file:///full.jpg' });
+    expect(camera.takePictureAsync).toHaveBeenCalledTimes(2);
   });
 });

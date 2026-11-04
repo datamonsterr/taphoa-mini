@@ -1,0 +1,111 @@
+{
+  "runId": "voice-2026-10-29-e54972",
+  "date": "2026-10-29",
+  "model": "google/gemini-3.1-flash-lite",
+  "set": "partial",
+  "backendHost": "127.0.0.1:18081",
+  "gitSha": "7ee8d7ca264a",
+  "aggregate": {
+    "cases": 1,
+    "errors": 0,
+    "wer": 0.25,
+    "wer_nodiac": 0.25,
+    "line_accuracy": 0,
+    "price_accuracy": 0,
+    "quantity_accuracy": 1,
+    "intent_accuracy": 1,
+    "payment_accuracy": 1,
+    "customer_accuracy": null,
+    "exact_rate": 0,
+    "extra_lines": 0,
+    "latency_p50_ms": 2987,
+    "latency_p95_ms": 2987,
+    "server_latency_p50_ms": 1942,
+    "server_latency_p95_ms": 1942,
+    "cost_per_utterance_usd": null,
+    "cost_n": 0,
+    "pass": false
+  },
+  "results": [
+    {
+      "case_id": "05-single-trung",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "05-single-trung",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 4
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 4
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 1,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 2987,
+        "cost_usd": null,
+        "transcript": "10 quả trứng gà",
+        "intent": "sale",
+        "model": "google/gemini-3.1-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 1942,
+        "utterance_id": "01a183be-e51b-7297-a5cf-679d37cc16ee",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183be-ecb1-70a5-b624-7f35859eb4f5",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "quả",
+                "id": "e7a10e7a-0000-4000-8000-05000000006d",
+                "name": "Trứng gà ta",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000015",
+                    "name": "vỉ",
+                    "price": 43500,
+                    "quantity_in_base": 10
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000016",
+                    "name": "khay",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 10,
+              "spoken": "10 quả trứng gà",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 45000
+        }
+      }
+    }
+  ],
+  "notRun": [],
+  "aborted": null
+}

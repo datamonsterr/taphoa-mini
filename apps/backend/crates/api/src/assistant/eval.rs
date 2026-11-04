@@ -1,6 +1,6 @@
 //! Eval headers: the X7 harness pins the business date and tags its runs. They are honoured only
 //! when `ASSISTANT_ALLOW_EVAL_HEADERS` is on, and a bad value is ignored, never an error.
-use super::config::AssistantConfig;
+use super::config::{AssistantConfig, valid_model_id};
 use axum::http::HeaderMap;
 use chrono::NaiveDate;
 
@@ -13,7 +13,7 @@ pub struct EvalContext {
     pub run_id: String,
     /// Replaces the business date for the prompt and every tool of the turn.
     pub today: NaiveDate,
-    /// Pins one OpenRouter `:free` model instead of the configured fallback list.
+    /// Pins one OpenRouter model instead of the configured fallback list.
     pub model: Option<String>,
 }
 
@@ -27,7 +27,7 @@ pub fn from_headers(headers: &HeaderMap, config: &AssistantConfig) -> Option<Eva
         .filter(|date| date.len() == 10)
         .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())?;
     let model = text(headers, MODEL_HEADER)
-        .filter(|id| valid_model(id))
+        .filter(|id| valid_model_id(id))
         .map(str::to_owned);
     Some(EvalContext {
         run_id: run_id.to_owned(),
@@ -44,17 +44,6 @@ fn valid_run_id(id: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
 }
-/// An OpenRouter model id that can never bill: `:free` only.
-fn valid_model(id: &str) -> bool {
-    id.len() <= 100
-        && id
-            .strip_suffix(":free")
-            .is_some_and(|name| !name.is_empty())
-        && id.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'/' | b'~' | b'-')
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,14 +157,13 @@ mod tests {
 
     #[test]
     fn non_free_or_malformed_models_are_ignored() {
-        let too_long = format!("{}:free", "m".repeat(96));
+        let too_long = format!("a/{}", "m".repeat(199));
         for bad in [
-            "openai/gpt-5",
-            "google/gemma-4-31b-it",
-            "google/gemma-4-31b-it:free:extended",
+            "a/",
+            "/b",
+            "no-author",
             ":free",
             "a b/c:free",
-            "a/b:FREE",
             too_long.as_str(),
         ] {
             let map = headers(&[
@@ -186,8 +174,13 @@ mod tests {
             let context = from_headers(&map, &on()).expect("the rest stays valid");
             assert_eq!(context.model, None, "{bad}");
         }
-        let longest = format!("{}:free", "m".repeat(95));
-        for good in ["a/b:free", "~vendor/model-1.5_x:free", longest.as_str()] {
+        let longest = format!("a/{}", "m".repeat(198));
+        for good in [
+            "openai/gpt-4.1-mini",
+            "a/b:free",
+            "~vendor/model-1.5_x:free",
+            longest.as_str(),
+        ] {
             let map = headers(&[
                 (RUN_HEADER, "r1"),
                 (TODAY_HEADER, "2026-02-17"),

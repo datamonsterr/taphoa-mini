@@ -1,0 +1,17 @@
+{
+  "id": "26-price-line-total-mismatch",
+  "source": "synthetic",
+  "transcript": "hai gói mì hảo hảo sa tế hành mười lăm nghìn",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "mì hảo hảo sa tế hành",
+      "product": "Mì Hảo Hảo sa tế hành 75g",
+      "quantity": 2,
+      "unit_price": 15000
+    }
+  ],
+  "tags": ["price-shorthand", "line-total", "price-mismatch"]
+}

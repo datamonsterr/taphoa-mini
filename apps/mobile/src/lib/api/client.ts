@@ -5,11 +5,27 @@ import { analyticsSessionId } from '@/lib/analyticsBridge';
 import { createAuthFetch } from './authFetch';
 import { currentStoreId } from './clerkBridge';
 
-/** Used when `EXPO_PUBLIC_API_URL` is unset: the backend of `docker compose up`. */
+/** Used when `EXPO_PUBLIC_API_URL` is unset in development: the backend of `docker compose up`. */
 export const DEFAULT_API_URL = 'http://localhost:8080';
 
-export const apiBaseUrl = (): string =>
-  (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
+/** A release build has no backend URL; it must not fall back to localhost on a phone. */
+export class ApiNotConfiguredError extends Error {
+  constructor() {
+    super('EXPO_PUBLIC_API_URL is not set in this build');
+    this.name = 'ApiNotConfiguredError';
+  }
+}
+
+/** True when requests have a backend: the URL is set, or this is a development build. */
+export const apiConfigured = (): boolean =>
+  !!process.env.EXPO_PUBLIC_API_URL || __DEV__;
+
+export const apiBaseUrl = (): string => {
+  const url =
+    process.env.EXPO_PUBLIC_API_URL || (__DEV__ ? DEFAULT_API_URL : '');
+  if (!url) throw new ApiNotConfiguredError();
+  return url.replace(/\/+$/, '');
+};
 
 let client: ApiClient | null = null;
 let transport: typeof fetch | undefined;

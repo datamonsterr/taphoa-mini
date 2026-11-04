@@ -53,6 +53,19 @@ Dashboard **Quality**
 | Eval pass rate by use case              | table        | `eval_case_scored` by `use_case`, `scorer`                                            |
 | Online judge score on production sample | line         | PostHog evaluations on 10 % of production generations (or the nightly harness sample) |
 
+Dashboard **Voice** (voice generations carry `voice_call`; `$ai_session_id` = utterance id)
+
+| Chart                        | Type          | Data                                                                 |
+| ---------------------------- | ------------- | -------------------------------------------------------------------- |
+| Cost per utterance avg / p95 | line + target | `$ai_total_cost_usd` summed per `$ai_session_id`, per day; $0.002    |
+| Voice spend per day          | bars          | `$ai_total_cost_usd` sum of voice `$ai_generation`                   |
+| Utterance funnel             | funnel        | `voice_sale_started` > `voice_sale_drafted` > `voice_sale_confirmed` |
+| Abandoned by stage           | bars          | `voice_sale_abandoned` by `stage`                                    |
+| Engine split                 | pie           | `voice_input_used` by `engine`                                       |
+| Draft latency p50 / p95      | line + target | `voice_sale_drafted.latency_ms`; 3,000 ms                            |
+| STT fallback rate            | line          | `voice_sale_drafted.stt_fallback` share                              |
+| Calls and cost by model      | bars          | voice `$ai_generation` by `$ai_model`, `fallback_index`              |
+
 Dashboard **Users and stores**
 
 | Chart                             | Type      | Data                             |

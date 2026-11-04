@@ -178,6 +178,7 @@ pub enum ProductEvent {
         payment_method: PaymentMethod,
         has_credit: bool,
         manual_lines: u32,
+        voice_lines: u32,
     },
     SaleVoided {
         same_day: bool,
@@ -225,6 +226,14 @@ pub enum ProductEvent {
         kind: ActionKind,
         decision: ActionDecision,
     },
+    VoiceSaleDrafted {
+        lines: u32,
+        matched: u32,
+        ambiguous: u32,
+        unknown: u32,
+        latency_ms: u64,
+        stt_fallback: bool,
+    },
 }
 
 impl ProductEvent {
@@ -248,6 +257,7 @@ impl ProductEvent {
             Self::DebtAdjusted { .. } => "debt_adjusted",
             Self::AssistantActionProposed { .. } => "assistant_action_proposed",
             Self::AssistantActionDecided { .. } => "assistant_action_decided",
+            Self::VoiceSaleDrafted { .. } => "voice_sale_drafted",
         }
     }
 
@@ -257,7 +267,7 @@ impl ProductEvent {
             Self::MemberJoined { role, can_enroll } => json!({"role": role, "can_enroll": can_enroll}).as_object().expect("event properties are an object").clone(),
             Self::ProductEnrolled { reference_count, source } => json!({"reference_count": reference_count, "source": source}).as_object().expect("event properties are an object").clone(),
             Self::ScanCompleted { purpose, match_class, latency_ms } => json!({"purpose": purpose, "match_class": match_class, "latency_ms": latency_ms}).as_object().expect("event properties are an object").clone(),
-            Self::SaleCompleted { total, line_count, payment_method, has_credit, manual_lines } => json!({"total": total, "line_count": line_count, "payment_method": payment_method, "has_credit": has_credit, "manual_lines": manual_lines}).as_object().expect("event properties are an object").clone(),
+            Self::SaleCompleted { total, line_count, payment_method, has_credit, manual_lines, voice_lines } => json!({"total": total, "line_count": line_count, "payment_method": payment_method, "has_credit": has_credit, "manual_lines": manual_lines, "voice_lines": voice_lines}).as_object().expect("event properties are an object").clone(),
             Self::SaleVoided { same_day } => json!({"same_day": same_day}).as_object().expect("event properties are an object").clone(),
             Self::ReceiptScanned { line_count, matched_lines, latency_ms } => json!({"line_count": line_count, "matched_lines": matched_lines, "latency_ms": latency_ms}).as_object().expect("event properties are an object").clone(),
             Self::ReceiptConfirmed { line_count, via } => json!({"line_count": line_count, "via": via}).as_object().expect("event properties are an object").clone(),
@@ -271,6 +281,7 @@ impl ProductEvent {
             Self::DebtAdjusted { amount_bucket, method } => json!({"amount_bucket": amount_bucket, "method": method}).as_object().expect("event properties are an object").clone(),
             Self::AssistantActionProposed { kind } => json!({"kind": kind}).as_object().expect("event properties are an object").clone(),
             Self::AssistantActionDecided { kind, decision } => json!({"kind": kind, "decision": decision}).as_object().expect("event properties are an object").clone(),
+            Self::VoiceSaleDrafted { lines, matched, ambiguous, unknown, latency_ms, stt_fallback } => json!({"lines": lines, "matched": matched, "ambiguous": ambiguous, "unknown": unknown, "latency_ms": latency_ms, "stt_fallback": stt_fallback}).as_object().expect("event properties are an object").clone(),
         }
     }
 }
@@ -382,6 +393,7 @@ mod tests {
                     payment_method: PaymentMethod::Cash,
                     has_credit: false,
                     manual_lines: 1,
+                    voice_lines: 0,
                 },
                 &[
                     "total",
@@ -389,6 +401,7 @@ mod tests {
                     "payment_method",
                     "has_credit",
                     "manual_lines",
+                    "voice_lines",
                 ],
             ),
             (ProductEvent::SaleVoided { same_day: true }, &["same_day"]),
@@ -468,6 +481,24 @@ mod tests {
                 },
                 &["kind", "decision"],
             ),
+            (
+                ProductEvent::VoiceSaleDrafted {
+                    lines: 3,
+                    matched: 1,
+                    ambiguous: 1,
+                    unknown: 1,
+                    latency_ms: 900,
+                    stt_fallback: false,
+                },
+                &[
+                    "lines",
+                    "matched",
+                    "ambiguous",
+                    "unknown",
+                    "latency_ms",
+                    "stt_fallback",
+                ],
+            ),
         ]
     }
 
@@ -492,6 +523,7 @@ mod tests {
             "debt_adjusted",
             "assistant_action_proposed",
             "assistant_action_decided",
+            "voice_sale_drafted",
         ]);
         let events = samples();
         assert_eq!(events.len(), expected.len());
@@ -602,6 +634,7 @@ mod tests {
             payment_method: PaymentMethod::Cash,
             has_credit: false,
             manual_lines: 1,
+            voice_lines: 0,
         };
         let captured = CaptureEvent::product(&ctx, &sale);
         assert_eq!(captured.event, "sale_completed");

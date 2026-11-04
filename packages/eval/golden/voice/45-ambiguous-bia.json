@@ -1,0 +1,18 @@
+{
+  "id": "45-ambiguous-bia",
+  "source": "synthetic",
+  "transcript": "hai lon bia",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "bia",
+      "product": null,
+      "status": "ambiguous",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["ambiguous"]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "37-chat-stock",
+  "source": "synthetic",
+  "transcript": "còn bao nhiêu lon coca trong kho",
+  "language": "vi",
+  "intent": "chat",
+  "lines": [],
+  "tags": ["chat"]
+}

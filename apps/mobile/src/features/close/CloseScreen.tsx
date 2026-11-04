@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { Banknote, Calculator, X } from 'lucide-react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -18,6 +19,8 @@ import {
   Text,
 } from '@/components/ui';
 import { useCreateDayClose, useDayClose, useTodayReport } from '@/lib/api';
+import { isApiError } from '@/lib/api/errors';
+import { useIsLead } from '@/features/auth/useMembership';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
@@ -34,6 +37,16 @@ import { closeStrings } from './strings';
 
 /** Sheet height on the Close board. */
 const SHEET_HEIGHT = 748;
+
+/** Smaller keys while the late-sales notice takes a few lines, so the whole pad stays in view. */
+const STALE_KEY_DIAMETER = 52;
+
+/** Why a close failed, and the string that tells the Lead what to do. */
+const SAVE_ERROR_KEY = {
+  save: 'saveError',
+  offline: 'offlineError',
+  date: 'dateError',
+} as const;
 
 const differenceLabels = (t: (key: string) => string) => ({
   match: t('diff.match'),
@@ -59,7 +72,7 @@ function DebtLine({ label, amount }: { label: string; amount: number }) {
   );
 }
 
-export function CloseScreen() {
+function CloseBoard() {
   const t = useT(closeStrings);
   const diffLabels = useLabels(closeStrings, differenceLabels);
   const padLabels = useLabels(closeStrings, keypadLabels);
@@ -70,16 +83,29 @@ export function CloseScreen() {
   const create = useCreateDayClose();
   const { mutateAsync: createAsync } = create;
   const [digits, setDigits] = useState('');
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<keyof typeof SAVE_ERROR_KEY | null>(
+    null,
+  );
 
   const closed = dayClose.data ?? null;
-  const expected = closed?.expected_cash ?? report.data?.expected_cash;
-  const counted = closed ? closed.counted_cash : countedFromDigits(digits);
-  // Before closing the lines come from today's report; after, from the stored close.
-  const cashRepayments = closed
+  // Sales and repayments recorded after the close (offline outbox, a second phone) make the
+  // stored snapshot stale: the Lead sees the live figures and can close again (#202).
+  const lateCount = closed?.late_sales_count ?? 0;
+  const stale = closed !== null && lateCount > 0;
+  const readOnly = closed !== null && !stale;
+  const expected = readOnly
+    ? closed.expected_cash
+    : (report.data?.expected_cash ?? closed?.expected_cash);
+  // Until the Lead types a new count, a stale close still shows the count it was closed with.
+  const counted =
+    readOnly || (stale && digits === '')
+      ? closed.counted_cash
+      : countedFromDigits(digits);
+  // Before closing (or once stale) the lines come from today's report; after, from the close.
+  const cashRepayments = readOnly
     ? (closed.cash_repayments ?? 0)
     : (report.data?.cash_repayments ?? 0);
-  const creditSales = closed
+  const creditSales = readOnly
     ? (closed.credit_sales ?? 0)
     : (report.data?.credit_sales ?? 0);
 
@@ -95,11 +121,24 @@ export function CloseScreen() {
   }, [report, dayClose]);
 
   const submit = useCallback(async () => {
-    setFailed(false);
+    setFailed(null);
+    // The close records the cash counted now. Offline it is refused, not queued: sent minutes
+    // later it would carry a different count, and the seller must know it is not recorded.
+    if (!onlineManager.isOnline()) {
+      setFailed('offline');
+      return;
+    }
     try {
       await createAsync({ date, counted_cash: countedFromDigits(digits) });
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      // 400: the server does not accept this date (the phone clock disagrees with the store's).
+      setFailed(
+        !onlineManager.isOnline()
+          ? 'offline'
+          : isApiError(error) && error.status === 400
+            ? 'date'
+            : 'save',
+      );
       return;
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -114,17 +153,17 @@ export function CloseScreen() {
       height={SHEET_HEIGHT}
       onClose={dismissSheet}
       footer={
-        ready && !closed ? (
+        ready && !readOnly ? (
           <View style={styles.footer}>
             {failed ? (
               <Text accessibilityRole="alert" style={styles.saveError}>
-                {t('saveError')}
+                {t(SAVE_ERROR_KEY[failed])}
               </Text>
             ) : null}
             <CheckButton
               variant="ink"
               block
-              accessibilityLabel={t('save')}
+              accessibilityLabel={t(stale ? 'resave' : 'save')}
               disabled={create.isPending || digits === ''}
               onPress={submit}
             />
@@ -206,10 +245,28 @@ export function CloseScreen() {
             <DebtLine label={t('cashRepayments')} amount={cashRepayments} />
             <DebtLine label={t('creditSales')} amount={creditSales} />
 
-            {closed ? (
+            {readOnly ? (
               <Text style={styles.closedNote}>{t('closed')}</Text>
-            ) : (
-              <Keypad onKey={onKey} diameter={keyDiameter} labels={padLabels} />
+            ) : null}
+            {stale ? (
+              <Text
+                accessibilityRole="alert"
+                testID="close-late-notice"
+                style={styles.lateNote}
+              >
+                {t('lateNotice').replace('{n}', String(lateCount))}
+              </Text>
+            ) : null}
+            {readOnly ? null : (
+              <Keypad
+                onKey={onKey}
+                diameter={
+                  stale
+                    ? Math.min(keyDiameter, STALE_KEY_DIAMETER)
+                    : keyDiameter
+                }
+                labels={padLabels}
+              />
             )}
           </>
         ) : null}
@@ -265,6 +322,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: colors.success,
   },
+  lateNote: {
+    ...typography.caption,
+    textAlign: 'center',
+    color: colors.warning,
+  },
   footer: { gap: space[2] },
   saveError: {
     ...typography.caption,
@@ -288,3 +350,32 @@ const styles = StyleSheet.create({
   },
   retryText: { ...typography.label, color: colors.ink },
 });
+
+/** Only the Lead sees or closes the day's cash; the server answers 403 to a Seller. */
+function CloseForbidden() {
+  const t = useT(closeStrings);
+  return (
+    <Sheet height={SHEET_HEIGHT} onClose={dismissSheet}>
+      <View style={styles.body}>
+        <View style={styles.topRow}>
+          <CircleButton
+            icon={X}
+            accessibilityLabel={t('close')}
+            onPress={dismissSheet}
+            testID="close-close"
+          />
+          <Text accessibilityRole="header" style={styles.title}>
+            {t('screen')}
+          </Text>
+        </View>
+        <View accessibilityRole="alert" style={styles.error}>
+          <Text style={styles.errorText}>{t('forbidden')}</Text>
+        </View>
+      </View>
+    </Sheet>
+  );
+}
+
+export function CloseScreen() {
+  return useIsLead() ? <CloseBoard /> : <CloseForbidden />;
+}

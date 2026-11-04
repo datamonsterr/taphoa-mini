@@ -17,3 +17,5 @@ export {
   setDigestFixture,
   type AssistantReplyScript,
 } from './assistant';
+
+export { setVoiceQuotaExceeded, getVoiceOutcome } from './voice';

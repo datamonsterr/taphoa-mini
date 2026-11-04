@@ -16,9 +16,10 @@ appId: com.datamonsterr.taphoamini
     timeout: 20000
 - tapOn: 'Tên (không bắt buộc)'
 - inputText: ${PRODUCT_NAME}
-# Enter blurs the single-line name field and closes the keyboard. hideKeyboard is not used here:
-# when Maestro cannot tell the keyboard is up it presses Back, which closes the enroll sheet.
+# Enter blurs the single-line name field and closes the keyboard. Android Back can close
+# the enroll sheet when keyboard detection fails.
 - pressKey: Enter
+- assertVisible: 'Lưu vào kho và thêm vào giỏ'
 - extendedWaitUntil:
     visible: 'Lưu vào kho và thêm vào giỏ'
     timeout: 10000

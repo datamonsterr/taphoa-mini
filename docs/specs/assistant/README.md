@@ -49,8 +49,9 @@ The final DoD report lives at `docs/specs/assistant/dod-report.md` (written by e
   code + Google; multi-session; stores and members in our DB; reset data.
 - **Assistant:** ADR 0005. Backend agent loop; read + propose tools; confirm before any write;
   both roles, tools filtered by `auth::can`; Vietnamese default, follows the app language.
-- **Model:** free OpenRouter tool-capable models only, ordered list `ASSISTANT_MODELS`; the
-  account has 1,000 free requests per day shared by every environment and the eval.
+- **Model:** ordered list `ASSISTANT_MODELS`. Superseded on 2026-10-28 by an owner decision
+  (#58): paid `z-ai/glm-5.3-flash` first, `nvidia/nemotron-3.5-lightning:free` as last resort;
+  eval judge `google/gemini-2.5-flash`. See `packages/eval/results/model-choice.md`.
 - **Telemetry:** ADR 0007 (supersedes 0006). PostHog Cloud US only, including LLM analytics;
   OTel Collector in Railway `production` routes traces and logs to PostHog; no Langfuse;
   session replay on with masking.

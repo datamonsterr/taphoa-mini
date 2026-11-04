@@ -169,10 +169,7 @@ async fn setup(fail_decisions: bool) -> (World, Uuid, Vec<Uuid>, Arc<FakeDecisio
     } else {
         Ok(serde_json::from_value(json!({"answers":answers})).unwrap())
     };
-    let decisions = Arc::new(FakeDecisions::new(
-        "inception/mercury-decide:free",
-        [result],
-    ));
+    let decisions = Arc::new(FakeDecisions::new("inception/mercury-decide", [result]));
     w.state.receipt_ocr = Some(Arc::new(FakeReceiptOcr { lines }));
     w.state.decisions = Some(decisions.clone());
     w.app = taphoa_api::router(w.state.clone());
@@ -559,6 +556,21 @@ async fn confirm_validation_drops_lines_adds_lines_and_enroller_permission() {
     assert_eq!(result["lines"].as_array().unwrap().len(), 1);
     assert_eq!(result["lines"][0]["quantity"], 3);
     assert_eq!(result["total"], 100);
+    // Only the Lead changes cost: the enroller's confirmation must leave it alone.
+    let cost: Option<i64> = sqlx::query_scalar("SELECT cost_price FROM products WHERE id=$1")
+        .bind(products[0])
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(cost, None);
+    let history: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM price_history WHERE product_id=$1 AND field='cost_price'",
+    )
+    .bind(products[0])
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert_eq!(history, 0);
     assert_ne!(result["lines"][0]["id"], a["lines"][0]["id"]);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM receipt_lines WHERE receipt_id=$1")
         .bind(a["id"].as_str().unwrap().parse::<Uuid>().unwrap())
@@ -669,29 +681,58 @@ async fn confirmation_stock_overflow_rolls_back_expense_alerts_and_receipt() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
-async fn zero_cost_receipt_tracks_free_stock_without_relaxing_expense_api() {
+async fn zero_total_receipt_is_rejected_and_free_lines_keep_the_cost_price() {
     let (w, photo, products, _) = setup(false).await;
+    sqlx::query("UPDATE products SET cost_price=7000 WHERE id=ANY($1)")
+        .bind(&products[..2])
+        .execute(w.pool())
+        .await
+        .unwrap();
     let draft = create(&w, photo, "create").await;
+    let path = format!("/v1/receipts/{}/confirm", draft["id"].as_str().unwrap());
+    // A 0đ total is not a purchase: same rule as POST /v1/expenses, and nothing changes.
+    let rejected = request(
+        &w,
+        "POST",
+        &path,
+        &w.lead,
+        "zero",
+        json!({"paid_with":"other","lines":[{"product_id":products[0],"quantity":1,"cost":0}]}),
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await;
+    assert_eq!(rejected["code"], "validation_failed");
+    let (cost, stock, receipts): (Option<i64>, Option<i32>, i64) = sqlx::query_as("SELECT p.cost_price,p.stock_quantity,(SELECT count(*) FROM receipts WHERE id=$2 AND status='confirmed') FROM products p WHERE p.id=$1").bind(products[0]).bind(draft["id"].as_str().unwrap().parse::<Uuid>().unwrap()).fetch_one(w.pool()).await.unwrap();
+    assert_eq!((cost, receipts), (Some(7000), 0));
+    assert_ne!(stock, Some(1));
+    // A free line (gift) inside a paid receipt adds stock but keeps its cost price.
     let receipt = request(
         &w,
         "POST",
-        &format!("/v1/receipts/{}/confirm", draft["id"].as_str().unwrap()),
+        &path,
         &w.lead,
-        "free",
-        json!({"paid_with":"other","lines":[{"product_id":products[0],"quantity":2,"cost":0}]}),
+        "mixed",
+        json!({"paid_with":"other","lines":[{"product_id":products[0],"quantity":2,"cost":0},{"product_id":products[1],"quantity":1,"cost":5000}]}),
         StatusCode::OK,
     )
     .await;
-    assert_eq!(receipt["total"], 0);
-    let expense: Uuid = receipt["expense_id"].as_str().unwrap().parse().unwrap();
-    let row:(i64,i64,i32)=sqlx::query_as("SELECT e.amount,l.unit_cost,l.quantity FROM expenses e JOIN purchase_lines l ON l.expense_id=e.id WHERE e.id=$1").bind(expense).fetch_one(w.pool()).await.unwrap();
-    assert_eq!(row, (0, 0, 2));
-    let stock: Option<i32> = sqlx::query_scalar("SELECT stock_quantity FROM products WHERE id=$1")
-        .bind(products[0])
+    assert_eq!(receipt["total"], 5000);
+    let free: (Option<i32>, Option<i64>) =
+        sqlx::query_as("SELECT stock_quantity,cost_price FROM products WHERE id=$1")
+            .bind(products[0])
+            .fetch_one(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(free, (Some(2), Some(7000)));
+    let paid: Option<i64> = sqlx::query_scalar("SELECT cost_price FROM products WHERE id=$1")
+        .bind(products[1])
         .fetch_one(w.pool())
         .await
         .unwrap();
-    assert_eq!(stock, Some(2));
+    assert_eq!(paid, Some(5000));
+    let history: i64 = sqlx::query_scalar("SELECT count(*) FROM price_history WHERE product_id=$1 AND field='cost_price' AND new_value=0").bind(products[0]).fetch_one(w.pool()).await.unwrap();
+    assert_eq!(history, 0);
+    let expense: Uuid = receipt["expense_id"].as_str().unwrap().parse().unwrap();
     w.checked(
         "GET",
         &format!("/v1/expenses/{expense}"),
@@ -740,4 +781,49 @@ async fn decisions_cannot_persist_the_receipt_total_as_an_item() {
     assert_eq!(receipt["parser"], "decisions");
     assert_eq!(receipt["total"], 456000);
     assert_eq!(receipt["lines"].as_array().unwrap().len(), 4);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
+async fn create_is_rate_limited_per_member_and_replays_are_free() {
+    let (mut w, photo, _, _) = setup(true).await;
+    w.state.rate_limits.receipt_per_minute = 2;
+    w.app = taphoa_api::router(w.state.clone());
+    let first = create(&w, photo, "limit-1").await;
+    create(&w, photo, "limit-2").await;
+    // A replay of a finished request never reaches OCR, so it spends nothing.
+    let replay = create(&w, photo, "limit-1").await;
+    assert_eq!(replay["id"], first["id"]);
+    let denied = request(
+        &w,
+        "POST",
+        "/v1/receipts",
+        &w.lead,
+        "limit-3",
+        json!({"image_id":photo}),
+        StatusCode::TOO_MANY_REQUESTS,
+    )
+    .await;
+    assert_eq!(denied["code"], "too_many_requests");
+    assert!(denied["error"].as_str().unwrap().contains("receipt scans"));
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
+async fn create_is_rate_limited_per_store_per_day() {
+    let (mut w, photo, _, _) = setup(true).await;
+    w.state.rate_limits.receipt_store_per_day = 1;
+    w.app = taphoa_api::router(w.state.clone());
+    create(&w, photo, "day-1").await;
+    let denied = request(
+        &w,
+        "POST",
+        "/v1/receipts",
+        &w.lead,
+        "day-2",
+        json!({"image_id":photo}),
+        StatusCode::TOO_MANY_REQUESTS,
+    )
+    .await;
+    assert_eq!(denied["code"], "too_many_requests");
 }

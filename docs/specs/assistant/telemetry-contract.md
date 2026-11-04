@@ -79,6 +79,17 @@ so a slow turn can be followed into DB and tool spans.
 | `assistant.action {kind}`       | internal | `taphoa.action.id`, `taphoa.action.kind`, `taphoa.action.status` (confirmed, rejected, expired, failed); linked to the proposing `execute_tool` span with both its trace id and span id                                                                                                                                                                              |
 | `assistant.next_steps`          | internal | `taphoa.next_steps.count`, kinds                                                                                                                                                                                                                                                                                                                                     |
 
+### Voice spans
+
+| Span               | Kind     | Required attributes                                                                                                                                                                                                                             |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `voice.utterance`  | internal | `voice.mode` (sale, transcribe), `voice.entry`, `voice.audio_seconds`, `voice.model`, `voice.stt_fallback`, `voice.intent` (sale, chat, none), `voice.lines`, `voice.matched`, `voice.ambiguous`, `voice.unknown`, `voice.latency_ms`, identity |
+| `voice.model_call` | client   | child of `voice.utterance`; GenAI attributes as for `chat {model}` (`gen_ai.operation.name=chat`, `gen_ai.provider.name=openrouter`, models, token usage, finish reasons, `taphoa.assistant.fallback_index`, `error.type` on failure)           |
+
+No transcript in span attributes (it may contain a customer name); the transcript lives only in
+`voice_utterances`. Each model call also emits one `$ai_generation` event (see below) with
+`$ai_session_id` = utterance id and cost from `usage.cost`.
+
 Action links use nullable `assistant_actions.span_id` and `assistant_messages.span_id` (migration
 `0804_assistant_span_ids.sql`). Proposals store the executing tool span id; messages without a
 proposal retain the turn span id. Legacy rows without both valid ids have no link. The current
@@ -98,6 +109,11 @@ manual-capture docs for property names before coding.
 | `$ai_trace`      | one per turn   | `$ai_span_name=assistant.turn`, `$ai_input_state` (user text), `$ai_output_state` (final text), `$ai_latency`, `use_cases` (`U1`..`U23`), `entry` (button, chip, receipt, digest, push), `next_step_kind`, `prompt_version`, `eval_run_id` (eval only)                                                                                                                                                                                                                      |
 | `$ai_generation` | per model call | `$ai_span_id`, `$ai_parent_id`, `$ai_model`, `$ai_provider=openrouter`, `$ai_input` (messages), `$ai_output_choices`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_http_status`, `$ai_is_error`, `$ai_error`, `$ai_stop_reason`, `$ai_tools` (names only), `$ai_stream=true`, `fallback_index`, `$ai_time_to_first_token` (seconds), `time_to_first_token_ms`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd` (all zero for free models) |
 | `$ai_span`       | per tool call  | `$ai_span_id`, `$ai_parent_id`, `$ai_span_name=tool:<name>`, `$ai_input_state` (arguments), `$ai_output_state` (summary and row count, not full rows), `$ai_latency`, `$ai_is_error`, `tool_kind`, `denied`                                                                                                                                                                                                                                                                 |
+
+Voice model calls (`voice.model_call`) emit one `$ai_generation` each with `$ai_input_tokens`,
+`$ai_output_tokens`, `$ai_total_cost_usd` from `usage.cost`, `$ai_session_id` = utterance id,
+`$ai_trace_id` = the `voice.utterance` trace id. Voice `$ai_input` and `$ai_output_choices` omit
+the audio and the transcript (customer names); the audio is never sent to PostHog.
 
 Message content is allowed in `$ai_*` events (needed for debugging the assistant); mask 9-15
 digit sequences (phones, bank numbers) before sending. Free models report zero cost; set PostHog
@@ -135,35 +151,40 @@ events use `store:<store UUID>` with `$process_person_profile=false` and omit `m
 `role`. Outbox captures use UUID v5 (OID namespace, decimal outbox id bytes) as `uuid` for
 deduplication across relay retries, and `occurred_at` as the event timestamp. Person properties set by the app on identify: `email`, `name`, `role`.
 
-| Event                                             | Sent by | Properties                                                            |
-| ------------------------------------------------- | ------- | --------------------------------------------------------------------- |
-| `$screen`                                         | app     | `$screen_name` (auto)                                                 |
-| `signed_in` / `signed_out`                        | app     | `method` (email_code, google)                                         |
-| `account_switched`                                | app     | `with_pin`                                                            |
-| `store_created`                                   | backend | none                                                                  |
-| `member_joined`                                   | backend | `role`, `can_enroll`                                                  |
-| `product_enrolled`                                | backend | `reference_count`, `source`                                           |
-| `scan_completed`                                  | backend | `purpose`, `match_class`, `latency_ms`                                |
-| `sale_completed`                                  | backend | `total`, `line_count`, `payment_method`, `has_credit`, `manual_lines` |
-| `sale_voided`                                     | backend | `same_day`                                                            |
-| `receipt_scanned`                                 | backend | `line_count`, `matched_lines`, `latency_ms`                           |
-| `receipt_confirmed`                               | backend | `line_count`, `via` (chat, form)                                      |
-| `stock_adjusted`                                  | backend | `reason`, `via` (manual, assistant)                                   |
-| `expense_added`                                   | backend | `category`, `via`                                                     |
-| `price_changed`                                   | backend | `via` (manual, assistant)                                             |
-| `day_closed`                                      | backend | `difference_bucket` (zero, small, large)                              |
-| `customer_created`                                | backend | none                                                                  |
-| `debt_recorded` / `debt_repaid` / `debt_adjusted` | backend | `amount_bucket`, `method`                                             |
-| `assistant_opened`                                | app     | `entry` (button, chip, receipt, digest, push)                         |
-| `assistant_message_sent`                          | app     | `input` (text, voice), `thread_turn`                                  |
-| `assistant_reply_received`                        | app     | `latency_ms`, `tools_count`, `error_code`                             |
-| `assistant_action_proposed`                       | backend | `kind`, `$ai_trace_id`                                                |
-| `assistant_action_decided`                        | backend | `kind`, `decision`, `$ai_trace_id`                                    |
-| `assistant_feedback_given`                        | app     | `rating`                                                              |
-| `next_step_shown` / `next_step_tapped`            | app     | `kind`, `position`                                                    |
-| `digest_opened`                                   | app     | `entry` (card, push)                                                  |
-| `voice_input_used`                                | app     | `duration_ms`, `language`, `ok`                                       |
-| `$exception`                                      | app     | automatic error tracking                                              |
+| Event                                             | Sent by | Properties                                                                           |
+| ------------------------------------------------- | ------- | ------------------------------------------------------------------------------------ |
+| `$screen`                                         | app     | `$screen_name` (auto)                                                                |
+| `signed_in` / `signed_out`                        | app     | `method` (email_code, google)                                                        |
+| `account_switched`                                | app     | `with_pin`                                                                           |
+| `store_created`                                   | backend | none                                                                                 |
+| `member_joined`                                   | backend | `role`, `can_enroll`                                                                 |
+| `product_enrolled`                                | backend | `reference_count`, `source`                                                          |
+| `scan_completed`                                  | backend | `purpose`, `match_class`, `latency_ms`                                               |
+| `sale_completed`                                  | backend | `total`, `line_count`, `payment_method`, `has_credit`, `manual_lines`, `voice_lines` |
+| `sale_voided`                                     | backend | `same_day`                                                                           |
+| `receipt_scanned`                                 | backend | `line_count`, `matched_lines`, `latency_ms`                                          |
+| `receipt_confirmed`                               | backend | `line_count`, `via` (chat, form)                                                     |
+| `stock_adjusted`                                  | backend | `reason`, `via` (manual, assistant)                                                  |
+| `expense_added`                                   | backend | `category`, `via`                                                                    |
+| `price_changed`                                   | backend | `via` (manual, assistant)                                                            |
+| `day_closed`                                      | backend | `difference_bucket` (zero, small, large)                                             |
+| `customer_created`                                | backend | none                                                                                 |
+| `debt_recorded` / `debt_repaid` / `debt_adjusted` | backend | `amount_bucket`, `method`                                                            |
+| `assistant_opened`                                | app     | `entry` (button, chip, receipt, digest, push)                                        |
+| `assistant_message_sent`                          | app     | `input` (text, voice), `thread_turn`                                                 |
+| `assistant_reply_received`                        | app     | `latency_ms`, `tools_count`, `error_code`                                            |
+| `assistant_action_proposed`                       | backend | `kind`, `$ai_trace_id`                                                               |
+| `assistant_action_decided`                        | backend | `kind`, `decision`, `$ai_trace_id`                                                   |
+| `assistant_feedback_given`                        | app     | `rating`                                                                             |
+| `next_step_shown` / `next_step_tapped`            | app     | `kind`, `position`                                                                   |
+| `digest_opened`                                   | app     | `entry` (card, push)                                                                 |
+| `voice_input_used`                                | app     | `duration_ms`, `language`, `ok`, `engine` (device, server)                           |
+| `voice_setup_completed`                           | app     | `platform`, `kind` (bubble, tile, control, action_button, siri)                      |
+| `voice_sale_started`                              | app     | `entry`                                                                              |
+| `voice_sale_drafted`                              | backend | `lines`, `matched`, `ambiguous`, `unknown`, `latency_ms`, `stt_fallback`             |
+| `voice_sale_confirmed`                            | app     | `edited`, `line_count`, `payment_method`, `total`                                    |
+| `voice_sale_abandoned`                            | app     | `stage` (listening, draft, pay)                                                      |
+| `$exception`                                      | app     | automatic error tracking                                                             |
 
 Backend events are emitted from the outbox relay (one capture per committed business event),
 so they are never sent for rolled-back transactions. Amounts in events are buckets except
@@ -171,3 +192,8 @@ so they are never sent for rolled-back transactions. Amounts in events are bucke
 
 Session replay: on in the app with all text inputs masked, camera preview and product images
 masked (`ph-no-capture` equivalents in the React Native SDK), network bodies not recorded.
+Native builds use `posthog-react-native` with the linked replay plugin (Expo Go stays disabled).
+Web uses `posthog-js` with inputs and rendered text masked, media and explicit mask-wrapper
+subtrees blocked, headers/bodies/console recording off. Web analytics, replay, identity and API
+session headers share one client. Test builds sample 100% and permit browser automation;
+other environments retain the browser SDK's bot filter and project sampling settings.

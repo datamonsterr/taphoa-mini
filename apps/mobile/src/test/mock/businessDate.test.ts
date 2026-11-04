@@ -55,7 +55,7 @@ describe.each(CLOCKS)('at %s', (_label, instant, today) => {
 
   test('day close of today and the dashboard ranges agree', () => {
     const close = putDayClose(today, {
-      counted_cash: getDailyReport(today).expected_cash,
+      counted_cash: getDailyReport(today).expected_cash!,
       opening_float: 0,
       note: null,
     });

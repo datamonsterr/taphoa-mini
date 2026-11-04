@@ -112,7 +112,7 @@ up() {
   # The provider is the real OpenRouter one; models come from .env.example (the same list the
   # deployed environments start from). Secrets are handed over only when set.
   local models
-  models="$(sed -n 's/^ASSISTANT_MODELS=//p' "$repo/.env.example" | head -n 1)"
+  models="${ASSISTANT_MODELS:-$(sed -n 's/^ASSISTANT_MODELS=//p' "$repo/.env.example" | head -n 1)}"
   stack_backend_env=(ASSISTANT_MODEL_PROVIDER=openrouter "OPENROUTER_API_KEY=$OPENROUTER_EVAL_API_KEY")
   if [[ -n "$models" ]]; then stack_backend_env+=("ASSISTANT_MODELS=$models"); fi
   for name in CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY CLERK_API_URL; do

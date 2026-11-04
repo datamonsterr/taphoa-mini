@@ -1,0 +1,24 @@
+{
+  "id": "31-credit-hung",
+  "source": "synthetic",
+  "transcript": "ghi nợ anh Hùng ba lon bia tiger và một gói bột giặt omo",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "credit",
+  "customer_name": "anh Hùng",
+  "lines": [
+    {
+      "spoken": "bia tiger",
+      "product": "Bia Tiger lon 330ml",
+      "quantity": 3,
+      "unit_price": null
+    },
+    {
+      "spoken": "bột giặt omo",
+      "product": "Bột giặt OMO 400g",
+      "quantity": 1,
+      "unit_price": null
+    }
+  ],
+  "tags": ["credit", "multi-line"]
+}

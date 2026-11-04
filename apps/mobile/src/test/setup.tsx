@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories must require lazily */
 import 'react-native-gesture-handler/jestSetup';
 
+// The chat microphone defaults to server transcription in the app; suites that exercise the
+// on-device recognizer keep the old mode, and the server-mode suites switch it on themselves.
+process.env.EXPO_PUBLIC_VOICE_SERVER_CHAT = '0';
+
 // Reanimated's own jest mock needs native worklets; this one applies final values synchronously.
 // expo-router/testing-library swaps it for an empty object; see renderApp in ./router.
 // expo-router/testing-library would otherwise replace Reanimated (and expo-linking) with its own
@@ -71,6 +75,16 @@ jest.mock('lucide-react-native', () => {
   );
 });
 
+jest.mock('expo-speech', () => ({
+  speak: jest.fn(),
+  stop: jest.fn().mockResolvedValue(undefined),
+  isSpeakingAsync: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('expo-contacts', () => ({
+  Contact: { presentPicker: jest.fn().mockResolvedValue(null) },
+}));
+
 jest.mock('expo-camera', () => {
   const React = require('react');
   const { View } = require('react-native');
@@ -110,6 +124,9 @@ jest.mock('expo-secure-store', () => {
     }),
   };
 });
+
+// NetInfo has no native module under Jest: always connected unless a test drives `__emit`.
+jest.mock('@react-native-community/netinfo', () => require('./netinfo'));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),

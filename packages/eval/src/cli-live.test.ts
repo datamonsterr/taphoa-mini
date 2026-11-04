@@ -66,6 +66,9 @@ function router(remaining = 900) {
     if (url === 'https://openrouter.ai/api/v1/key') {
       return Response.json({
         data: {
+          limit: 10,
+          limit_remaining: remaining / 100,
+          usage: (1000 - remaining) / 100,
           free_model_daily_requests: {
             used: 1000 - remaining,
             limit: 1000,
@@ -121,10 +124,10 @@ describe('live smoke through main()', () => {
     expect(batch.api_key).toBe('phc_secret_token');
     expect(batch.batch.at(-1)!.event).toBe('eval_run_completed');
 
-    // the judge is a free model other than the one under test
+    // the judge is a calibrated paid model other than the one under test
     const judgeBody = seen.find((s) => s.url.endsWith('/chat/completions'))!
       .body as { model: string };
-    expect(judgeBody.model).toBe('google/gemma-4-31b-it:free');
+    expect(judgeBody.model).toBe('google/gemini-2.5-flash');
 
     // the assistant was reached with bearer tokens from the environment
     const first = stub.calls[0]!;
@@ -135,7 +138,36 @@ describe('live smoke through main()', () => {
     for (const secret of Object.values(ENV)) expect(text).not.toContain(secret);
     expect(
       readFileSync(join(out, '2026-10-25-stub-perfect-model-smoke.md'), 'utf8'),
-    ).toContain('900 remaining');
+    ).toContain('9 remaining USD');
+  });
+
+  it('runs a paid primary with a free last resort after free quota is exhausted', async () => {
+    const { fetchFn } = router(900);
+    const route: typeof fetch = async (input, init) => {
+      const res = await fetchFn(input, init);
+      if (String(input).endsWith('/api/v1/key')) {
+        const body = await res.json();
+        body.data.free_model_daily_requests.remaining = 0;
+        return Response.json(body);
+      }
+      return res;
+    };
+    expect(
+      await main(
+        [
+          'smoke',
+          '--backend',
+          stub.url,
+          '--dir',
+          golden,
+          '--out',
+          out,
+          '--no-posthog',
+        ],
+        { ...ENV, ASSISTANT_MODELS: 'z-ai/glm-5.3-flash,x/last:free' },
+        deps(route),
+      ),
+    ).toBe(0);
   });
 
   it('skips PostHog with --no-posthog and the judge with --no-judge', async () => {
@@ -177,7 +209,7 @@ describe('live smoke through main()', () => {
     const { fetchFn } = router(100);
     const code = await main(
       ['smoke', '--backend', stub.url, '--dir', golden, '--out', out],
-      ENV,
+      { ...ENV, ASSISTANT_MODELS: 'x/model:free' },
       deps(fetchFn),
     );
     expect(code).toBe(1);

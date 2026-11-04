@@ -348,7 +348,15 @@ async function prepare(
           fetch: deps.fetch,
         }),
     sink,
-    quota: { apiKey, fetch: deps.fetch },
+    quota: {
+      apiKey,
+      fetch: deps.fetch,
+      paid:
+        (values.get('--model') ?? env.ASSISTANT_MODELS ?? 'paid/default')
+          .split(',')[0]!
+          .trim()
+          .endsWith(':free') === false,
+    },
     outDir: outOption ?? DEFAULT_OUT,
     today,
     concurrency,
@@ -469,19 +477,29 @@ async function compare(
     if (smoke.length === 0)
       throw new UsageError('no smoke cases to compare on');
     if (p.quota) {
-      // One check for every candidate; the runs then skip their own.
-      const estimate =
-        models.length * estimateRequests(smoke, p.judge !== null);
-      await checkQuota({
-        apiKey: p.quota.apiKey,
-        estimate,
-        fetch: p.quota.fetch,
-      });
+      // Check paid credits and free request quota independently for mixed comparisons.
+      for (const paid of [true, false]) {
+        const n = models.filter((m) => !m.endsWith(':free') === paid).length;
+        if (n)
+          await checkQuota({
+            apiKey: p.quota.apiKey,
+            paid,
+            estimate: n * estimateRequests(smoke, p.judge !== null),
+            fetch: p.quota.fetch,
+          });
+      }
     }
+
     const base = {
       ...runOptions(p, deps, env, deps.log),
       set: 'smoke' as const,
-      quota: p.quota ? { ...p.quota, skipCheck: true } : null,
+      quota: p.quota
+        ? {
+            ...p.quota,
+            paid: models.every((m) => !m.endsWith(':free')),
+            skipCheck: true,
+          }
+        : null,
     };
 
     const rows: ModelChoiceRow[] = [];
@@ -489,7 +507,13 @@ async function compare(
     let aborted: RunSummary['aborted'] = null;
     for (const model of models) {
       deps.log(`\n== ${model}`);
-      const run = await runEval({ ...base, model });
+      const run = await runEval({
+        ...base,
+        model,
+        quota: base.quota
+          ? { ...base.quota, paid: !model.endsWith(':free') }
+          : null,
+      });
       printSummary(run, deps.log);
       for (const j of run.judgeModels)
         if (!judgeModels.includes(j)) judgeModels.push(j);

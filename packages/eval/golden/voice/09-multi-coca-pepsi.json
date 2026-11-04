@@ -1,0 +1,23 @@
+{
+  "id": "09-multi-coca-pepsi",
+  "source": "synthetic",
+  "transcript": "hai lon coca với một lon pepsi",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "coca",
+      "product": "Coca-Cola lon 320ml",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "pepsi",
+      "product": "Pepsi lon 320ml",
+      "quantity": 1,
+      "unit_price": null
+    }
+  ],
+  "tags": ["smoke", "multi-line"]
+}

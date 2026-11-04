@@ -9,13 +9,23 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-test-70c2.up.railway.app",
+        "EXPO_PUBLIC_ENVIRONMENT": "test"
+      },
       "android": {
         "buildType": "apk"
       }
     },
-    "production": {},
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-production-5f5c.up.railway.app",
+        "EXPO_PUBLIC_ENVIRONMENT": "production"
+      }
+    },
     "e2e": {
       "withoutCredentials": true,
+      "env": { "EXPO_PUBLIC_ENVIRONMENT": "test" },
       "android": {
         "buildType": "apk",
         "image": "latest"
@@ -24,7 +34,8 @@
     "test": {
       "extends": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://backend-test-70c2.up.railway.app"
+        "EXPO_PUBLIC_API_URL": "https://backend-test-70c2.up.railway.app",
+        "EXPO_PUBLIC_ENVIRONMENT": "test"
       }
     }
   }

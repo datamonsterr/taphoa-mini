@@ -1,0 +1,17 @@
+{
+  "id": "17-price-20k",
+  "source": "synthetic",
+  "transcript": "một chai tương ớt chin su hai mươi nghìn",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "tương ớt chin su",
+      "product": "Tương ớt Chin-su 250g",
+      "quantity": 1,
+      "unit_price": 20000
+    }
+  ],
+  "tags": ["price-shorthand", "price-nghin"]
+}

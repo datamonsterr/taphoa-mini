@@ -10,6 +10,8 @@ export function resetNotificationModuleWarning(): void {
 /**
  * Lazily loads expo-notifications native module.
  * Returns null on web, in Expo Go, or if the native module fails to load.
+ * SDK 58's entry point eagerly imports ExpoTopicSubscriptionModule on Android,
+ * which is absent in Expo Go: check the environment before evaluating the package.
  */
 export function loadNotifications():
   typeof import('expo-notifications') | null {

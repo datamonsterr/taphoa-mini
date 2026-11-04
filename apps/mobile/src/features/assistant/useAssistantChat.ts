@@ -9,6 +9,7 @@ import {
 
 import { capture } from '@/lib/analytics';
 import { getApiClient } from '@/lib/api/client';
+import { retryAfterMs } from '@/lib/api/errors';
 import { newUuid } from '@/lib/uuid';
 import type { Language } from '@/stores/settings';
 
@@ -42,6 +43,19 @@ export type AssistantChat = {
 
 const isAbort = (error: unknown) =>
   error instanceof Error && error.name === 'AbortError';
+
+/**
+ * What a non-OK response to a message means for the seller. The request reached the server, so
+ * "check your network" is wrong: 429 is the quota, 502/503/504 a busy server, other 5xx a fault.
+ */
+export function httpError(status: number, retryAfterMs?: number): ChatError {
+  if (status === 429) return { code: 'quota' };
+  if (status === 502 || status === 503 || status === 504)
+    return { code: 'busy' };
+  if (status >= 500) return { code: 'internal' };
+  // The server's English text (`body.error`) is for logs only; the notice maps the status.
+  return { code: 'http', status, ...(retryAfterMs ? { retryAfterMs } : {}) };
+}
 
 /**
  * One thread's chat: hydrates from the stored thread fetched after mount (and again while idle
@@ -130,7 +144,12 @@ export function useAssistantChat({
         typeof capture<'assistant_reply_received'>
       >[1]['error_code'] = null;
       const fail = (error: ChatError) => {
-        errorCode = error.code === 'interrupted' ? 'timeout' : 'internal';
+        errorCode =
+          error.code === 'interrupted'
+            ? 'timeout'
+            : error.code === 'quota'
+              ? 'quota'
+              : 'internal';
         dispatch({ type: 'failed', error });
       };
       try {
@@ -144,11 +163,9 @@ export function useAssistantChat({
           { signal: abort.signal },
         );
         if (!result.events) {
-          const body = result.error as { error?: unknown } | undefined;
-          fail({
-            code: 'network',
-            ...(typeof body?.error === 'string' ? { message: body.error } : {}),
-          });
+          fail(
+            httpError(result.response.status, retryAfterMs(result.response)),
+          );
         } else {
           for await (const event of result.events) {
             if (abort.signal.aborted) return;

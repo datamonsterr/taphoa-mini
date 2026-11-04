@@ -1,0 +1,18 @@
+{
+  "id": "32-credit-mai",
+  "source": "synthetic",
+  "transcript": "bán chịu cô Mai hai gói mì hảo hảo sa tế hành",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "credit",
+  "customer_name": "cô Mai",
+  "lines": [
+    {
+      "spoken": "mì hảo hảo sa tế hành",
+      "product": "Mì Hảo Hảo sa tế hành 75g",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["credit"]
+}

@@ -21,7 +21,7 @@ export const NextStepChip = memo(function NextStepChip({
   chip,
   onPress,
 }: NextStepChipProps) {
-  const device = chip.source === 'device';
+  const device = chip.tone ? chip.tone === 'accent' : chip.source === 'device';
   return (
     <PressableScale
       testID={`next-step-chip-${chip.id}`}

@@ -4,7 +4,12 @@ import { View } from 'react-native';
 import { colors, space } from '@/theme';
 import { strings } from './strings';
 
-export function ConfigurationError() {
+/** What is missing: the Clerk publishable key (default) or the backend URL of a release build. */
+export function ConfigurationError({
+  missing = 'clerk',
+}: {
+  missing?: 'clerk' | 'api';
+}) {
   const t = useT(strings);
   return (
     <View
@@ -18,10 +23,10 @@ export function ConfigurationError() {
       }}
     >
       <ScaledText variant="title" accessibilityRole="header">
-        {t('configTitle')}
+        {t(missing === 'api' ? 'apiConfigTitle' : 'configTitle')}
       </ScaledText>
       <ScaledText variant="body" accessibilityRole="alert">
-        {t('configMessage')}
+        {t(missing === 'api' ? 'apiConfigMessage' : 'configMessage')}
       </ScaledText>
     </View>
   );

@@ -1,0 +1,17 @@
+{
+  "id": "33-transfer-coca",
+  "source": "synthetic",
+  "transcript": "hai lon coca chuyển khoản",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "transfer",
+  "lines": [
+    {
+      "spoken": "coca",
+      "product": "Coca-Cola lon 320ml",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["smoke", "transfer"]
+}

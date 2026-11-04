@@ -57,7 +57,7 @@ test('dashboard, add expense, then close the day', async () => {
   await fireEvent.press(screen.getByRole('radio', { name: 'Ngày' }));
   await fireEvent.press(screen.getByRole('button', { name: 'Chốt sổ' }));
   await waitFor(() => expect(app.getPathname()).toBe('/close'));
-  const { expected_cash: expected } = await getTodayReport();
+  const expected = (await getTodayReport()).expected_cash!;
   await screen.findByLabelText(`Tiền mặt dự kiến ${formatVnd(expected)}`);
   for (const digit of String(expected)) {
     await fireEvent.press(screen.getByRole('button', { name: digit }));

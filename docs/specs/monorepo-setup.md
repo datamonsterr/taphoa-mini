@@ -16,7 +16,7 @@ No product features yet. Every layer must build, test and run.
 | JS package manager   | pnpm workspaces (pnpm 11, Node from `.nvmrc`)                                                                                                                                                                                                          |
 | Task runner          | Turborepo at the root (`turbo.json`)                                                                                                                                                                                                                   |
 | Mobile               | Expo (latest SDK from `create-expo-app@latest`), TypeScript, Expo Router. EAS project id `aacb6d3c-093a-4da0-ae2c-fbc9ce53a458`                                                                                                                        |
-| Mobile tests         | `jest-expo` + `@testing-library/react-native` (unit); Maestro flows (e2e) run by an EAS Workflow                                                                                                                                                       |
+| Mobile tests         | `jest-expo` + `@testing-library/react-native` (unit); Maestro flows (e2e) run in GitHub Actions on Namespace runners ([android-e2e.yml](../../.github/workflows/android-e2e.yml))                                                                      |
 | Mobile lint/format   | `expo lint` (ESLint flat config) + Prettier; `tsc --noEmit`                                                                                                                                                                                            |
 | Backend              | Rust stable (`rust-toolchain.toml`), Cargo workspace in `apps/backend`, axum + tokio                                                                                                                                                                   |
 | Recognition, phase 1 | SAM ONNX encoder/decoder run through the `ort` crate, following https://github.com/AndreyGermanov/sam_onnx_rust. Behind a `Segmenter` trait. YOLO ONNX adapter is a stub implementing the same trait (phase 2).                                        |
@@ -25,7 +25,7 @@ No product features yet. Every layer must build, test and run.
 | Cache                | Redis 7. Rust client via `redis` crate (tokio + connection manager) or `deadpool-redis`.                                                                                                                                                               |
 | Containers           | Multi-stage Dockerfile for backend (cargo-chef caching, slim runtime). Dev Dockerfile for mobile that runs the Expo dev server. Root `docker-compose.yml`.                                                                                             |
 | Hosting              | Railway. Infrastructure as Code in `.railway/railway.ts` (`railway config plan/apply`); legacy `railway.json` is deprecated and not used. Railway services: `backend`, Postgres, Redis. Mobile is not hosted on Railway; native builds go through EAS. |
-| CI                   | GitHub Actions. Deploy to Railway from `main` with `RAILWAY_TOKEN`. EAS Workflows for mobile build and Maestro e2e.                                                                                                                                    |
+| CI                   | GitHub Actions. Deploy to Railway from `main` with `RAILWAY_TOKEN`. EAS Workflows for mobile builds; Maestro e2e in [android-e2e.yml](../../.github/workflows/android-e2e.yml) on Namespace runners.                                                   |
 | Git hooks            | lefthook: `pre-commit` format check on staged files, `commit-msg` Conventional Commits (commitlint), `pre-push` lint + typecheck + unit tests.                                                                                                         |
 
 ## Layout
@@ -65,13 +65,13 @@ Graceful shutdown on SIGTERM. Migrations run at startup.
 
 ## Test levels
 
-| Level       | Mobile                                   | Backend                                                                                                                                 |
-| ----------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit        | jest-expo                                | `cargo test` with a mock `Segmenter`                                                                                                    |
-| Integration | —                                        | `cargo test -- --ignored` or feature-gated tests against real Postgres + Redis (`DATABASE_URL`, `REDIS_URL` set; CI service containers) |
-| Model       | —                                        | SAM inference test, skipped when model files are absent                                                                                 |
-| e2e         | Maestro smoke flow via EAS Workflow      | `docker compose up` then HTTP smoke script against `/healthz`, `/readyz`, `/v1/segment`                                                 |
-| Build       | `expo export` (CI), EAS build (workflow) | `cargo build --release`, `docker build`                                                                                                 |
+| Level       | Mobile                                                | Backend                                                                                                                                 |
+| ----------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit        | jest-expo                                             | `cargo test` with a mock `Segmenter`                                                                                                    |
+| Integration | —                                                     | `cargo test -- --ignored` or feature-gated tests against real Postgres + Redis (`DATABASE_URL`, `REDIS_URL` set; CI service containers) |
+| Model       | —                                                     | SAM inference test, skipped when model files are absent                                                                                 |
+| e2e         | Maestro flows via GitHub Actions on Namespace runners | `docker compose up` then HTTP smoke script against `/healthz`, `/readyz`, `/v1/segment`                                                 |
+| Build       | `expo export` (CI), EAS build (workflow)              | `cargo build --release`, `docker build`                                                                                                 |
 
 ## Root commands
 

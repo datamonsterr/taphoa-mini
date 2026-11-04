@@ -1,0 +1,19 @@
+{
+  "id": "47-two-speakers-credit",
+  "source": "synthetic",
+  "transcript": "ghi nợ chị Lan hai gói bột giặt omo",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "credit",
+  "customer_name": "chị Lan",
+  "lines": [
+    {
+      "spoken": "bột giặt omo",
+      "product": "Bột giặt OMO 400g",
+      "quantity": 2,
+      "unit_price": null
+    }
+  ],
+  "tags": ["two-speakers", "credit"],
+  "segments": ["ghi nợ chị Lan", "hai gói bột giặt omo"]
+}

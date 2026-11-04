@@ -12,6 +12,7 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V0 · Voice contract and shared interfaces
 
+- **Status:** done on 2026-10-29, PR #103.
 - **Branch:** `epic/v0-voice-contract` · **Depends:** none · **Wave:** 1 (merge first)
 - **Goal:** land the API contract, schemas, telemetry rows and mock handlers so V1, V2 and V5
   run in parallel.
@@ -35,6 +36,10 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V1 · Voice backend
 
+- **Status:** done on 2026-10-29, PR #111. Default `VOICE_MODELS` is
+  `google/gemini-3.1-flash-lite,google/gemini-2.5-flash-lite` (golden-set result in
+  `packages/eval/results/voice-model-choice.md`); a server-side speech gate answers silence
+  with `no_speech` before any model call.
 - **Branch:** `epic/v1-voice-backend` · **Depends:** V0 · **Wave:** 2 · **Migrations:** `11xx`
 - **Spec:** voice.md "Architecture", "Speech model request", "Catalog match", ADR 0008.
 - **Owns:** new `apps/backend/crates/api/src/voice/**` (handlers, service, parse rules, catalog
@@ -54,7 +59,7 @@ change; "Touches" lists agreed integration points it may edit minimally.
   customer match reusing the debt book search; quota; outcome endpoint and alias learning;
   retention job (30 days, donated clips excluded); spans, `$ai_generation` with cost and
   product events per the contract; e2e with the fixture clips on Railway `test` including a
-  latency gate (p95 under 3 s over 10 runs).
+  latency gate (p95 under 3 s over at least 10 runs; the test samples 20).
 - **Acceptance (tests first):** unit tests per rule and band; fallback-chain tests with the
   scripted client; `voice_quota` 429 test; retention test; span tests; e2e green on `test`;
   DoD rows 2, 3, 6.
@@ -64,6 +69,8 @@ change; "Touches" lists agreed integration points it may edit minimally.
 ---
 
 ## V2 · Voice mobile core
+
+Status: done on 2026-10-29, PR #116
 
 - **Branch:** `epic/v2-voice-mobile` · **Depends:** V0 · **Wave:** 2
 - **Spec:** voice.md "Mobile UI", "Entry points" (in-app rows only), DESIGN.md screens 15-16.
@@ -92,6 +99,10 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V3 · Android entry points
 
+- **Status:** code done on 2026-10-29, PR #117: overlay bubble, Quick Settings tile, static
+  shortcut, boot receiver and Account toggles, covered by Kotlin unit tests, Jest and the
+  `voice-bubble` Maestro flow. The real-device check (DoD row 1) follows the script in
+  [play-console.md](play-console.md).
 - **Branch:** `epic/v3-voice-android-entry` · **Depends:** V2 · **Wave:** 3
 - **Spec:** voice.md "Entry points" Android rows, ADR 0008.
 - **Owns:** local Expo Module `apps/mobile/modules/voice-bubble/**` (Kotlin: foreground
@@ -135,6 +146,9 @@ change; "Touches" lists agreed integration points it may edit minimally.
 
 ## V5 · Voice golden set and evaluation
 
+- **Status:** done on 2026-10-29, PR #122. 52 synthetic Vietnamese clips (two TTS voices, noise
+  and silence cases) plus 10 e2e fixtures; final default-chain run: line 98.5 %, price 98.5 %,
+  p95 3.0 s local, $0.0013 per utterance. Owner-recorded clips join with `"source": "recorded"`.
 - **Branch:** `epic/v5-voice-golden-set` · **Depends:** V0 (final run needs V1) · **Wave:** 2
 - **Spec:** [assistant golden-set.md](../assistant/golden-set.md) for the harness and PostHog
   scoring; this program adds audio cases.
@@ -160,15 +174,20 @@ change; "Touches" lists agreed integration points it may edit minimally.
 ## V6 · Design canvas and docs
 
 - **Branch:** `epic/v6-voice-design` · **Depends:** none · **Wave:** 1
-- **Owns:** `docs/design/canvas/VoiceBubble.dc.html`, `VoiceSale.dc.html`,
-  `ChatVoice.dc.html`, `canvas.json`, DESIGN.md screens 14-16 and components, the Flow
-  board update, the design canvas artifact (owner's claude.ai canvas) refresh.
+- **Owns:** `docs/design/canvas/VoiceBubble.dc.html`, `VoiceListen.dc.html`, `VoiceSale.dc.html`,
+  `ChatVoice.dc.html`, `FlowVoice.dc.html`, `VoiceSystem.dc.html`, `canvas.json`, DESIGN.md
+  screens 14-17 and components, the Flow board update, the design canvas artifact
+  (owner's claude.ai canvas) refresh.
 - **Done on 2026-10-27:** canvas v0.2 (https://claude.ai/artifact/4V8zoNh4hMuTNzxWNhV5q9)
   holds boards 14-17 (bubble, listening, voice sale draft, chat listening), the voice flow board
   and the Account voice setup rows; `docs/design/canvas/` mirrors it.
-- **Tasks:** the understanding state, the credit customer row on the sheet, the Android
-  notification, the iOS Control Center control and the Quick Settings tile; keep the canvas and
-  DESIGN.md in sync as V1-V4 change the UI.
-- **Acceptance:** boards open from `canvas.json`; DESIGN.md §3 lists 14-16 with controls;
+- **Remaining boards done on 2026-10-28 (published as canvas version 31):**
+  - [x] Understanding state: large grey transcript, progress line and cancel on `VoiceListen.dc.html`.
+  - [x] Credit customer row: matched name or “Chọn khách”, using the 07b row on `VoiceSale.dc.html`.
+  - [x] Android persistent notification with “Tắt”, Quick Settings tile and iOS Control Center
+        control on `VoiceSystem.dc.html`; registered in `canvas.json`, documented in DESIGN.md.
+- **Follow-up:** keep the canvas and DESIGN.md in sync as
+  V1-V4 change the UI.
+- **Acceptance:** boards open from `canvas.json`; DESIGN.md §3 lists 14-17 with controls;
   reviewed by the owner.
 - **Out of scope:** app code.

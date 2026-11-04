@@ -283,6 +283,140 @@
       "title": "19b Receipt OCR: adjust lines",
       "is_interactive": true,
       "radius": 44
+    },
+    "VoiceSystem.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Voice · Android & iOS system surfaces",
+      "w": 1240,
+      "x": 3210,
+      "y": 4128
+    },
+    "SaleDetail.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "28 Sale detail + refund",
+      "w": 390,
+      "x": 0,
+      "y": 6732
+    },
+    "RecentSales.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "28a Recent sales",
+      "w": 390,
+      "x": 470,
+      "y": 6732
+    },
+    "Export.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "29 Transaction export",
+      "w": 390,
+      "x": 940,
+      "y": 6732
+    },
+    "ProductUnits.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "09b Product units editor",
+      "w": 390,
+      "x": 1410,
+      "y": 6732
+    },
+    "InventorySell.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "08b Inventory: sell from the grid",
+      "w": 390,
+      "x": 3290,
+      "y": 1244
+    },
+    "InventoryElder.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "08c Inventory: elder mode",
+      "w": 390,
+      "x": 3760,
+      "y": 1244
+    },
+    "PayElder.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "07d Pay: elder mode, spoken total",
+      "w": 390,
+      "x": 4230,
+      "y": 1244
+    },
+    "Landing.dc.html": {
+      "x": 0,
+      "y": 8176,
+      "w": 1440,
+      "h": 5600,
+      "title": "Landing · desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "LandingPhone.dc.html": {
+      "x": 1560,
+      "y": 8176,
+      "w": 390,
+      "h": 8200,
+      "title": "Landing · phone",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "CaptureIdentify.dc.html": {
+      "x": 2070,
+      "y": 8176,
+      "w": 390,
+      "h": 844,
+      "title": "C1 Object · live boxes",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "CaptureResult.dc.html": {
+      "x": 2540,
+      "y": 8176,
+      "w": 390,
+      "h": 844,
+      "title": "C2 Identify · confirm",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "CaptureCode.dc.html": {
+      "x": 3010,
+      "y": 8176,
+      "w": 390,
+      "h": 844,
+      "title": "C3 Code mode",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "CaptureLock.dc.html": {
+      "x": 2070,
+      "y": 9140,
+      "w": 390,
+      "h": 844,
+      "title": "E1 Enroll · lock + coverage",
+      "is_interactive": true,
+      "radius": 44
+    },
+    "CaptureVoice.dc.html": {
+      "x": 2540,
+      "y": 9140,
+      "w": 390,
+      "h": 844,
+      "title": "E2 Enroll · name + price by voice",
+      "is_interactive": true,
+      "radius": 44
     }
   },
   "createdOnFiles": {
@@ -312,8 +446,8 @@
     },
     "rowB": {
       "kind": "title1",
-      "maxW": 3210,
-      "text": "Shop — inventory, product, dashboard, expense, account, close, stock",
+      "maxW": 4620,
+      "text": "Shop — inventory, product, dashboard, expense, account, close, stock — grid sale and elder mode",
       "w": 240,
       "x": 0,
       "y": 944
@@ -328,8 +462,8 @@
     },
     "rowD": {
       "kind": "title1",
-      "maxW": 3130,
-      "text": "Voice — bubble, listen, sale, flow (program V0-V6, planned)",
+      "maxW": 4450,
+      "text": "Voice — bubble, listen, sale, flow, system surfaces (program V0-V6, planned)",
       "w": 240,
       "x": 0,
       "y": 3828
@@ -341,6 +475,21 @@
       "w": 240,
       "x": 0,
       "y": 5072
+    },
+    "rowF": {
+      "kind": "title1",
+      "maxW": 3400,
+      "text": "Object capture (ADR 0010) and landing page",
+      "w": 240,
+      "x": 0,
+      "y": 7876
+    },
+    "rowFflow": {
+      "x": 3010,
+      "y": 9140,
+      "w": 390,
+      "fill": "blue",
+      "text": "Identify: phone ML Kit boxes live, shutter or 700 ms stable sends frame + boxes; server kNN; per-track vote over last 3 results. Amber = ambiguous, never a green check.\n\nEnroll (≤16 s): tag, tap the box, ring fills from auto keyframes (8–24, ≤10 s), say name + price, save. Top bar: Object or Code; Một món / Nhiều món toggle removed."
     }
   },
   "order": [
@@ -361,6 +510,9 @@
     "Account.dc.html",
     "Close.dc.html",
     "Stock.dc.html",
+    "InventorySell.dc.html",
+    "InventoryElder.dc.html",
+    "PayElder.dc.html",
     "Assistant.dc.html",
     "ChatVoice.dc.html",
     "Digest.dc.html",
@@ -374,8 +526,16 @@
     "VoiceListen.dc.html",
     "VoiceSale.dc.html",
     "FlowVoice.dc.html",
+    "VoiceSystem.dc.html",
     "Flow.dc.html",
-    "Components.dc.html"
+    "Components.dc.html",
+    "Landing.dc.html",
+    "LandingPhone.dc.html",
+    "CaptureIdentify.dc.html",
+    "CaptureResult.dc.html",
+    "CaptureCode.dc.html",
+    "CaptureLock.dc.html",
+    "CaptureVoice.dc.html"
   ],
   "pages": [],
   "title": "Tạp Hóa Mini App v0.2"

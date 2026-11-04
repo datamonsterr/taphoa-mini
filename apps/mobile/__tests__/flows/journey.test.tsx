@@ -201,8 +201,8 @@ describe('journey', () => {
 
     await press('Chốt sổ');
     await waitFor(() => expect(screen).toHavePathname('/close'));
-    const expected = (await getTodayReport()).expected_cash;
-    expect(expected).toBe(today.expected_cash - 5000);
+    const expected = (await getTodayReport()).expected_cash!;
+    expect(expected).toBe(today.expected_cash! - 5000);
     await screen.findByLabelText(`Tiền mặt dự kiến ${formatVnd(expected)}`);
     for (const digit of String(expected)) await press(digit);
     await press('Chốt sổ hôm nay');

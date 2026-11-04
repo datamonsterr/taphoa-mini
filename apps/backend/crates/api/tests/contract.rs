@@ -331,18 +331,53 @@ fn stock_and_receipt_input_constraints() {
     }
     assert!(validate(
         "ScanDocument",
-        json!({"detected":false,"score":0,"text_lines":0})
+        json!({"detected":false,"score":0,"text_lines":0,"line_boxes":[]})
     ));
     assert!(!validate(
         "ScanDocument",
-        json!({"detected":true,"score":1.1,"text_lines":6})
+        json!({"detected":true,"score":1.1,"text_lines":6,"line_boxes":[]})
     ));
+    let signal =
+        json!({"detected":true,"score":0.9,"text_lines":6,"line_boxes":[[0.1,0.2,0.6,0.1]]});
+    assert!(validate("DocumentSignal", signal.clone()));
+    for boxes in [
+        json!([[0., 0., 1.]]),
+        json!([[0., 0., 1., 1., 0.]]),
+        json!([[-0.1, 0., 1., 1.]]),
+        json!([[0., 0., 1.1, 1.]]),
+        json!(vec![[0., 0., 1., 1.]; 41]),
+    ] {
+        let mut invalid = signal.clone();
+        invalid["line_boxes"] = boxes;
+        assert!(!validate("DocumentSignal", invalid));
+    }
+    let mut old_signal = signal;
+    old_signal.as_object_mut().unwrap().remove("line_boxes");
+    assert!(!validate("DocumentSignal", old_signal));
     for name in ["ProductPatch", "StorePatch"] {
         assert!(validate(name, json!({"low_stock_threshold":0})));
         assert!(validate(name, json!({"low_stock_threshold":100000})));
         assert!(!validate(name, json!({"low_stock_threshold":-1})));
         assert!(!validate(name, json!({"low_stock_threshold":100001})));
     }
+    for name in [
+        "VoiceUtterance",
+        "VoiceSaleDraft",
+        "VoiceDraftLine",
+        "CustomerMatch",
+        "ProductSummary",
+        "VoiceOutcomeRequest",
+    ] {
+        assert!(
+            doc["components"]["schemas"][name].is_object(),
+            "missing schema {name}"
+        );
+    }
+    assert!(validate(
+        "VoiceOutcomeRequest",
+        json!({"outcome":"abandoned","stage":"draft"})
+    ));
+    assert!(!validate("VoiceOutcomeRequest", json!({"outcome":"later"})));
     assert!(
         doc["components"]["schemas"]["Scan"]["required"]
             .as_array()

@@ -11,12 +11,19 @@ import { tokenCache } from '@clerk/expo/token-cache';
 import { AnalyticsIdentity, AnalyticsSignedOut } from '@/lib/AnalyticsIdentity';
 import { AnalyticsProvider } from '@/lib/analyticsPostHog';
 import { AuthGate } from '@/features/auth/AuthGate';
+import { apiConfigured } from '@/lib/api/client';
 import { ConfigurationError } from '@/features/auth/ConfigurationError';
 import {
   configureNotificationHandler,
   useNotificationObserver,
 } from '@/lib/notifications';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { OfflineSync } from '@/lib/offline/OfflineSync';
+import {
+  createAppQueryClient,
+  persistOptions,
+  revalidateRestoredMe,
+} from '@/lib/offline/persist';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -28,6 +35,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 void SplashScreen.preventAutoHideAsync();
 
 configureNotificationHandler();
+
+/** A route chunk that fails to load must not leave a blank page: see RouteErrorBoundary. */
+export { RouteErrorBoundary as ErrorBoundary } from '@/features/errors/RouteErrorBoundary';
 
 export const unstable_settings = { anchor: 'index' };
 
@@ -54,6 +64,8 @@ function NavigationTree({
           options={{ animation: 'slide_from_bottom' }}
         />
         <Stack.Screen name="product/[id]" />
+        <Stack.Screen name="sales" />
+        <Stack.Screen name="sale/[id]" />
         <Stack.Screen name="stock" />
         <Stack.Screen name="receipt/[id]" />
         <Stack.Screen name="receipts" />
@@ -70,6 +82,13 @@ function NavigationTree({
         />
         <Stack.Screen
           name="assistant"
+          options={{
+            presentation: 'transparentModal',
+            animation: 'slide_from_bottom',
+          }}
+        />
+        <Stack.Screen
+          name="voice"
           options={{
             presentation: 'transparentModal',
             animation: 'slide_from_bottom',
@@ -111,7 +130,7 @@ function NavigationTree({
 }
 
 export default function RootLayout() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(createAppQueryClient);
   const [fontsLoaded, fontError] = useFonts({
     BeVietnamPro_400Regular,
     BeVietnamPro_500Medium,
@@ -133,9 +152,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          {!publishableKey ? (
-            <ConfigurationError />
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={persistOptions}
+          onSuccess={() => void revalidateRestoredMe(queryClient)}
+        >
+          {!publishableKey || !apiConfigured() ? (
+            <ConfigurationError missing={publishableKey ? 'api' : 'clerk'} />
           ) : (
             <ClerkProvider
               publishableKey={publishableKey}
@@ -147,7 +170,10 @@ export default function RootLayout() {
                   {({ signedIn, hasMembership }) => (
                     <>
                       {hasMembership ? (
-                        <AnalyticsIdentity />
+                        <>
+                          <AnalyticsIdentity />
+                          <OfflineSync />
+                        </>
                       ) : (
                         <AnalyticsSignedOut />
                       )}
@@ -162,7 +188,7 @@ export default function RootLayout() {
               </AnalyticsProvider>
             </ClerkProvider>
           )}
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

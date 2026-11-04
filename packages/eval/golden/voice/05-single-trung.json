@@ -1,0 +1,17 @@
+{
+  "id": "05-single-trung",
+  "source": "synthetic",
+  "transcript": "mười quả trứng gà",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "trứng gà",
+      "product": "Trứng gà ta",
+      "quantity": 10,
+      "unit_price": null
+    }
+  ],
+  "tags": ["single-line"]
+}

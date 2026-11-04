@@ -18,11 +18,20 @@ test.each([
       <StockBadge quantity={quantity} status={status} />,
     );
     const badge = screen.getByLabelText(`Tồn kho ${quantity}, ${label}`);
-    expect(badge).toHaveTextContent(new RegExp(String(quantity)));
+    expect(badge).toHaveTextContent(String(quantity));
     expect(badge).toHaveStyle({ backgroundColor });
-    expect(screen.getByText(label)).toHaveStyle({ color });
+    expect(screen.getByText(String(quantity))).toHaveStyle({ color });
+    // Board 08: the chip is the count alone; the status word lives in the accessible name.
+    expect(screen.queryByText(label)).toBeNull();
   },
 );
+
+test('on a photo the normal chip is white', async () => {
+  await renderWithProviders(<StockBadge quantity={24} status="ok" onPhoto />);
+  expect(screen.getByLabelText('Tồn kho 24, Còn hàng')).toHaveStyle({
+    backgroundColor: colors.surface,
+  });
+});
 
 test('untracked products have no badge', async () => {
   await renderWithProviders(<StockBadge quantity={null} status="untracked" />);

@@ -1,0 +1,10 @@
+{
+  "id": "40-noise-only",
+  "source": "synthetic",
+  "transcript": "",
+  "language": "vi",
+  "intent": "none",
+  "lines": [],
+  "tags": ["silence", "noise"],
+  "noise": true
+}

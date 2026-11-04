@@ -37,6 +37,9 @@ the WAN upload from the client.
 | `POST /v1/segment`             | 1359, 1406, 1460, 1458, 1372 | 1460 ms |
 | scan before background uploads | 2862, 2971, 3178, 2860, 2920 | 3178 ms |
 
+The look-alike e2e, “matches enrolled products and flags look-alikes as ambiguous,” passed on
+Railway `test` in run [40726908085](https://github.com/datamonsterr/taphoa-mini/actions/runs/40726908085).
+
 Server-side breakdown of a 20-detection scan on Railway: segment about 1.2 s, embed 0.25-0.4 s,
 search 20 ms, persist 80-160 ms. A bucket PUT on Railway takes 0.85-1.7 s (the original photo
 upload overlaps with inference; crop thumbnails upload in the background after the response).
@@ -53,9 +56,13 @@ vary by +-30 % in segmentation time.
   (`SAM_DECODERS`, default `min(threads, 8)` so 8-vCPU hosts use all cores).
 - Masks are decoded at 256 px (`SAM_MASK_SIDE`) and boxes are scaled back to the photo.
 - **Embedder input is 112 px** (`EMBED_SIDE`, multiple of 14, max 224) to fit the budget:
-  segmentation 1.6 s + embedding 0.4 s + upload and persistence on 4 cores. Accuracy at 112
-  px is not yet measured against the A1 test set (the architecture asks for >= 90 % top-1);
-  raise `EMBED_SIDE` when the plan has spare cores.
+  segmentation 1.6 s + embedding 0.4 s + upload and persistence on 4 cores. Top-1 accuracy at
+  112 px has not been measured: the A1 set (50 products, 200 labeled checkout scans) is not
+  available in the repository or elsewhere available to this work. The evaluator is ready at
+  `apps/backend/crates/recognition/examples/embed_accuracy.rs` and
+  `apps/backend/scripts/embed-accuracy.sh` (documented in
+  `apps/backend/scripts/recognition-evidence.md`); collecting the photos and running it is an
+  open owner item. The architecture target remains >= 90 % top-1.
 - **Requires >= 4 vCPU.** With 2 vCPU segmentation alone is 2.9 s. Railway's per-service
   limits are plan dependent; `.railway/railway.ts` sets none.
 - **ONNX Runtime thread spinning is off by default** (`ORT_SPINNING`, set `1` or `true` to
@@ -74,16 +81,27 @@ cargo run --release -p taphoa-recognition --example embed_bench -- models/dinov2
 cargo test --release -p taphoa-recognition --test model -- --test-threads=1 --nocapture
 ```
 
+### Additional Railway scan measurements
+
+On 2026-10-28, run [40719821066](https://github.com/datamonsterr/taphoa-mini/actions/runs/40719821066)
+measured 12 sequential multi scans of `shelf-1600.jpg` on Railway `test` (sfo), from a GitHub
+runner. Scan wall times were 1041, 938, 959, 1023, 1045, 961, 2206, 1010, 1024, 895, 950,
+935 ms; nearest-rank p90 was 1045 ms. For the 1600 px segment endpoint, 12 wall-time samples
+ranged from 522 to 605 ms, with p90 582 ms. A later `main` run
+[40720095867](https://github.com/datamonsterr/taphoa-mini/actions/runs/40720095867)
+(commit `fe601d4`) measured scan p90 1830 ms and segment p90 958 ms.
+
 ## Point-prompted segmentation (quick enroll)
 
-**Local only, 2026-10-24; Railway D2 pending.** Five sequential uploads of
+**Local measured 2026-10-24; Railway `test` measured 2026-10-28.** Five sequential uploads of
 `shelf-1024.jpg` (1024×768, resized with LANCZOS, JPEG quality 85), each with a new
 `image_id` for a cold encoder cache; foreground prompt `(98.6, 179.2)`, then a cached
 second call adding background point `(6.4, 6.4)`. Release API, real MobileSAM,
 ONNX Runtime 1.23.2, `SAM_THREADS=4`, shared Ryzen 5 2600 host (6 cores / 12 logical CPUs,
 no CPU quota). Times are ms; client wall time includes upload and segmentation response,
 plus any busy-slot retries. Local traffic uses loopback; Railway runs include WAN upload.
-Nearest-rank p95 of five samples is the maximum; cached encoder time is zero.
+The Railway gate is nearest-rank p90 of 12 runs, as updated for PR #98 / issue #56;
+the local five-run nearest-rank p95 is the maximum. Cached encoder time is zero.
 
 | Run | Upload | Upload + cold segment | Encode | Decode | Server total | Cached 2-point wall | Cached encode | Cached decode | Cached server total |
 | --- | ------ | --------------------- | ------ | ------ | ------------ | ------------------- | ------------- | ------------- | ------------------- |
@@ -93,10 +111,20 @@ Nearest-rank p95 of five samples is the maximum; cached encoder time is zero.
 | 4   | 10.1   | 1159.9                | 965    | 175    | 1147         | 242.5               | 0             | 235           | 238                 |
 | 5   | 135.2  | 1538.2                | 1163   | 214    | 1401         | 171.0               | 0             | 165           | 168                 |
 
-| Environment             | Encoder threads | Cold-photo upload + segment p95 | Cached 2-point p95 |
-| ----------------------- | --------------- | ------------------------------- | ------------------ |
-| Local                   | 4               | **1538.2 ms** (< 3000 ms)       | 242.5 ms           |
-| Railway `test`: pending | pending         | pending                         | pending            |
+| Environment    | Encoder threads        | Cold-photo upload + segment                   | Cached 2-point wall         |
+| -------------- | ---------------------- | --------------------------------------------- | --------------------------- |
+| Local          | 4                      | **1538.2 ms** (p95; < 3000 ms)                | 242.5 ms (p95)              |
+| Railway `test` | default (0; all cores) | **1320.6 ms** (p90; max 1457.8 ms, < 3000 ms) | 170.4 ms p90 (180.4 ms max) |
+
+On 2026-10-28, GitHub Actions deploy run
+[40726908085](https://github.com/datamonsterr/taphoa-mini/actions/runs/40726908085)
+(branch `claude/i91-evidence`, commit `2827c12`, 16:51 UTC) ran
+`tests/segment-points.test.ts` against Railway `test` in sfo. Twelve cold uploads of
+`shelf-1024.jpg`, each with a new `image_id`, had upload-plus-segment wall times 1457.8,
+1320.6, 1238.4, 705.9, 880.7, 728.1, 814.8, 766.8, 810.8, 735.8, 756.4, and 718.2 ms.
+Nearest-rank p90 was 1320.6 ms and maximum was 1457.8 ms, below the 3000 ms budget. Server
+encode took 320-378 ms, decode 73-88 ms, and total 461-1102 ms. Cached two-point wall time
+ranged 146.0-180.4 ms (p90 170.4 ms; maximum 180.4 ms); cached encode was zero.
 
 Local reproduction from the repository root: configure exported database, Redis, JWT and
 storage variables using `apps/backend/.env.example` and the ports in `docker-compose.yml`.
@@ -114,14 +142,33 @@ BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run \
   --config vitest.e2e.config.ts tests/segment-points.test.ts --silent=false --reporter=verbose
 ```
 
-Railway reproduction against an existing `test` API with real models and storage:
-require **3 passed, no skips** for D2. No deployment performed.
+Railway reproduction against an existing `test` API with real models and storage requires
+**12 runs for the p90 gate**, with no skips. The linked run above deployed and passed.
 
 ```sh
 BACKEND_URL=https://<railway-test-api-domain> SEGMENT_POINTS_BUDGET_MS=3000 \
   pnpm --filter @taphoa/e2e exec vitest run --config vitest.e2e.config.ts \
   tests/segment-points.test.ts --silent=false --reporter=verbose
 ```
+
+## Cost per scan
+
+Controlled workload on 2026-10-28 16:25:17-16:30:55 UTC: 30 sequential multi scans of
+`shelf-1600.jpg` (median 20 detections) from a client in Vietnam against Railway `test`, running
+`main` commit `fe601d4`. The service was otherwise idle, used one replica, and had
+`OCR_THREADS=4`. Railway `CPU_USAGE` GraphQL metrics at 60-second resolution summed to 3.119
+vCPU-minutes over the seven buckets from 16:25 through 16:31. After subtracting the idle median
+of 0.0011 vCPU, this is 6.2 vCPU-seconds per scan. At $0.000463 per vCPU-minute ($20 per
+vCPU-month; Railway pricing checked 2026-10-28), compute cost is $0.000048 per scan, or about
+$0.05 per 1,000 scans.
+
+Median storage was 280 KB per scan (164 KB original plus 115 KB crop thumbnails). At Railway
+Buckets' $0.015 per GB-month, this is about $0.004 per 1,000 scans per month retained; bucket
+egress and S3 operations are free. Backend RAM is a fixed 2.3-3.8 GB baseline, not a per-scan
+cost. Database CPU is excluded. These figures are CPU-based; the system runs on CPU, not GPU.
+
+Pricing references: [Railway plans](https://docs.railway.com/reference/pricing/plans) and
+[Railway Buckets](https://docs.railway.com/storage-buckets), checked 2026-10-28.
 
 ## Receipt OCR
 

@@ -44,7 +44,7 @@ impl Tool for Sales {
     fn description_vi(&self) -> &'static str {
         match self {
             Self::Summary => {
-                "Xem doanh thu, số đơn, đơn hủy theo ngày, tuần hoặc thành viên và so với kỳ trước cùng độ dài. Lợi nhuận dùng giá vốn hiện tại như báo cáo ứng dụng; bỏ qua dòng chưa biết giá vốn, lược bỏ lợi nhuận nếu không có quyền đổi giá."
+                "Xem doanh thu, số đơn, đơn hủy theo ngày, tuần hoặc thành viên và so với kỳ trước cùng độ dài. Tóm tắt buổi sáng/hôm qua cần thêm get_restock_plan hoặc get_stock_levels; hỏi ai hủy nhiều nhất dùng get_member_activity. Lợi nhuận dùng giá vốn hiện tại như báo cáo ứng dụng; bỏ qua dòng chưa biết giá vốn, lược bỏ lợi nhuận nếu không có quyền đổi giá."
             }
             Self::Top => {
                 "Xem sản phẩm bán chạy theo số lượng đơn vị cơ sở hoặc doanh thu, kèm biểu đồ."
@@ -75,11 +75,11 @@ impl Tool for Sales {
                 json!({"product_query":{"type":"string","minLength":1,"maxLength":120,"description":"Tên sản phẩm hoặc nhãn hàng ngoài danh mục, không phân biệt dấu."},"member":{"type":"string","minLength":1,"maxLength":120,"description":"Tên hiển thị hoặc mã thành viên."}}),
             ),
             Self::Margin => schema(
-                json!({"min_margin_pct":{"type":"number","minimum":0,"exclusiveMaximum":100,"default":10,"description":"Biên lợi nhuận tối thiểu, phần trăm doanh thu."}}),
+                json!({"min_margin_pct":{"type":"number","minimum":0,"exclusiveMaximum":100,"default":10,"description":"Biên lợi nhuận tối thiểu, phần trăm doanh thu."},"product_query":{"type":"string","minLength":1,"maxLength":120,"description":"Tên sản phẩm cụ thể cần xem biên lãi; bỏ trống để liệt kê các món dưới ngưỡng."}}),
                 &[],
             ),
             Self::Forecast => schema(
-                json!({"days":{"type":"integer","minimum":1,"maximum":14,"description":"Số ngày dự báo, bắt đầu ngày mai."},"product_query":{"type":"string","minLength":1,"maxLength":120,"description":"Tên sản phẩm không phân biệt dấu; bỏ trống lấy 20 sản phẩm."}}),
+                json!({"days":{"type":"integer","minimum":1,"maximum":14,"description":"Số ngày dự báo, bắt đầu ngày mai."},"product_query":{"type":"string","minLength":1,"maxLength":120,"description":"Tên sản phẩm hoặc tên nhóm/danh mục không phân biệt dấu; bỏ trống lấy 20 sản phẩm."}}),
                 &["days"],
             ),
             Self::Expenses => ranged(
@@ -155,19 +155,17 @@ async fn summary(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
     let previous_from = shift(from, -((to - from).num_days() + 1))?;
     let previous_to = shift(from, -1)?;
     let db = pool(&ctx.state)?;
-    let sql = concat!(summary_base!(), totals!());
-    let mut totals: Value = sqlx::query_scalar(sql)
+    let totals_sql = concat!(summary_base!(), totals!());
+    let current_query = sqlx::query_scalar::<_, Value>(totals_sql)
         .bind(ctx.actor.store_id)
         .bind(from)
         .bind(to)
-        .fetch_one(db)
-        .await?;
-    let mut previous: Value = sqlx::query_scalar(sql)
+        .fetch_one(db);
+    let previous_query = sqlx::query_scalar::<_, Value>(totals_sql)
         .bind(ctx.actor.store_id)
         .bind(previous_from)
         .bind(previous_to)
-        .fetch_one(db)
-        .await?;
+        .fetch_one(db);
     let group_by = text(args, "group_by").unwrap_or("day");
     let sql = concat!(
         summary_base!(),
@@ -186,13 +184,16 @@ async fn summary(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
             FROM selected GROUP BY bucket,member_name ORDER BY bucket LIMIT 51
         ) r"#
     );
-    let groups: Vec<Value> = sqlx::query_scalar(sql)
+    let groups_query = sqlx::query_scalar::<_, Value>(sql)
         .bind(ctx.actor.store_id)
         .bind(from)
         .bind(to)
         .bind(group_by)
-        .fetch_all(db)
-        .await?;
+        .fetch_all(db);
+    // These read-only aggregates are independent. Preserve their existing semantics while
+    // paying one database round trip in the critical path instead of three.
+    let (mut totals, mut previous, groups) =
+        tokio::try_join!(current_query, previous_query, groups_query)?;
     let (mut groups, truncated) = capped(groups, 50);
     let can_cost = auth::can(&ctx.actor, Action::ChangePrice);
     if !can_cost {
@@ -288,22 +289,43 @@ async fn margin(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError
         purchase_cte!(),
         r#"
         SELECT to_jsonb(r) FROM (
-            SELECT p.id product_id,COALESCE(p.name,'Chưa đặt tên') name,c.unit_cost_dong,p.price price_dong,
-                CASE WHEN p.price=0 THEN NULL ELSE round((p.price::numeric-c.unit_cost_dong)*100/p.price,2)::float8 END margin_pct,
-                (ceil(c.unit_cost_dong::numeric / (1-$3::float8::numeric/100) / 500)*500)::bigint suggested_price_dong
-            FROM products p JOIN latest c ON c.product_id=p.id
+            SELECT p.id product_id,COALESCE(p.name,'Chưa đặt tên') name,COALESCE(c.unit_cost_dong,p.cost_price) unit_cost_dong,p.price price_dong,
+                p.price-COALESCE(c.unit_cost_dong,p.cost_price) unit_margin_dong,
+                CASE WHEN p.price=0 THEN NULL ELSE round((p.price::numeric-COALESCE(c.unit_cost_dong,p.cost_price))*100/p.price,2)::float8 END margin_pct,
+                (ceil(COALESCE(c.unit_cost_dong,p.cost_price)::numeric / (1-$3::float8::numeric/100) / 500)*500)::bigint suggested_price_dong
+            FROM products p LEFT JOIN latest c ON c.product_id=p.id
             WHERE p.store_id=$1 AND NOT p.archived AND
-                ((p.price=0 AND c.unit_cost_dong>0) OR (p.price>0 AND (p.price::numeric-c.unit_cost_dong)*100 < p.price::numeric*$3::float8::numeric))
-            ORDER BY (p.price::numeric-c.unit_cost_dong)/NULLIF(p.price,0) NULLS FIRST,p.id LIMIT 51
+                ($4::text IS NOT NULL OR (p.price=0 AND COALESCE(c.unit_cost_dong,p.cost_price)>0) OR (p.price>0 AND (p.price::numeric-COALESCE(c.unit_cost_dong,p.cost_price))*100 < p.price::numeric*$3::float8::numeric))
+            AND ($4::text IS NULL OR immutable_unaccent(lower(p.name)) LIKE '%'||immutable_unaccent(lower($4))||'%')
+            ORDER BY (p.price::numeric-COALESCE(c.unit_cost_dong,p.cost_price))/NULLIF(p.price,0) NULLS FIRST,p.id LIMIT 51
         ) r"#
     );
     let items = sqlx::query_scalar(sql)
         .bind(ctx.actor.store_id)
         .bind(ctx.today)
         .bind(min)
+        .bind(text(args, "product_query"))
         .fetch_all(pool(&ctx.state)?)
         .await?;
-    Ok(items_output(items, 50, "sản phẩm có biên lợi nhuận thấp"))
+    let mut out = items_output(items, 50, "sản phẩm có biên lợi nhuận thấp");
+    let items = out.data["items"].as_array().unwrap();
+    out.data["negative_margin_count"] = json!(
+        items
+            .iter()
+            .filter(|i| i["margin_pct"].as_f64().is_some_and(|m| m < 0.0))
+            .count()
+    );
+    let items = out.data["items"].as_array().unwrap();
+    out.data["thin_margin_count"] = json!(
+        items
+            .iter()
+            .filter(|i| i["margin_pct"]
+                .as_f64()
+                .is_some_and(|m| m >= 0.0 && m < min))
+            .count()
+    );
+    out.data["warning_threshold_pct"] = json!(min);
+    Ok(out)
 }
 async fn expenses(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> {
     let (from, to) = range(ctx, args)?;
@@ -315,10 +337,15 @@ async fn expenses(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErr
             SELECT business_date date,category,amount amount_dong,paid_with,note FROM selected ORDER BY spent_at DESC,id DESC LIMIT 51
         ), totals AS (SELECT category,sum(amount)::bigint amount FROM selected GROUP BY category)
         SELECT jsonb_build_object('items',COALESCE((SELECT jsonb_agg(to_jsonb(i)) FROM items i),'[]'::jsonb),
-            'totals_by_category_dong',COALESCE((SELECT jsonb_object_agg(category,amount) FROM totals),'{}'::jsonb))
+            'totals_by_category_dong',COALESCE((SELECT jsonb_object_agg(category,amount) FROM totals),'{}'::jsonb),
+            'utilities_total_dong',(SELECT coalesce(sum(amount),0)::bigint FROM expenses WHERE store_id=$1
+                AND business_date BETWEEN $2 AND $3 AND deleted_at IS NULL AND category IN ('dien','nuoc')))
     "#).bind(ctx.actor.store_id).bind(from).bind(to).bind(text(args,"category")).fetch_one(pool(&ctx.state)?).await?;
     let mut out = items_output(result["items"].as_array().unwrap().clone(), 50, "khoản chi");
     out.data["totals_by_category_dong"] = result["totals_by_category_dong"].clone();
+    out.data["utilities_total_dong"] = result["utilities_total_dong"].clone();
+    out.data["from"] = json!(from);
+    out.data["to"] = json!(to);
     Ok(out)
 }
 async fn forecast(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> {
@@ -358,9 +385,10 @@ async fn forecast(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErr
         estimates AS (
             SELECT p.id product_id,COALESCE(p.name,'Chưa đặt tên') name,COALESCE(t.trend,1.0) trend,
                 f.date,f.uplift,f.holiday,COALESCE(w.units,0)*COALESCE(t.trend,1.0)*f.uplift expected_units
-            FROM products p CROSS JOIN future f LEFT JOIN trends t ON t.product_id=p.id
+            FROM products p LEFT JOIN categories c ON c.id=p.category_id AND c.store_id=p.store_id
+            CROSS JOIN future f LEFT JOIN trends t ON t.product_id=p.id
             LEFT JOIN profiles w ON w.product_id=p.id AND w.weekday=extract(isodow FROM f.date)::int
-            WHERE p.store_id=$1 AND NOT p.archived AND ($3::text IS NULL OR immutable_unaccent(lower(p.name)) LIKE '%'||immutable_unaccent(lower($3))||'%')
+            WHERE p.store_id=$1 AND NOT p.archived AND ($3::text IS NULL OR immutable_unaccent(lower(p.name)) LIKE '%'||immutable_unaccent(lower($3))||'%' OR immutable_unaccent(lower(c.name)) LIKE '%'||immutable_unaccent(lower($3))||'%')
         ), ranked AS (
             SELECT product_id,name,trend,sum(expected_units) expected_units,
                 jsonb_agg(jsonb_build_object('date',date,'expected_units',expected_units,'uplift',uplift,'holiday',holiday) ORDER BY date) days
@@ -369,8 +397,73 @@ async fn forecast(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErr
     "#).bind(ctx.actor.store_id).bind(ctx.today).bind(text(args,"product_query"))
         .bind(dates).bind(factors).bind(names).bind(limit+1).fetch_all(pool(&ctx.state)?).await?;
     let mut out = items_output(items, limit as usize, "sản phẩm được dự báo (ước lượng)");
+    // Totals describe only the returned products. A date map avoids counting the
+    // product-level and per-day estimates twice when presenting weekend demand.
+    let mut daily = std::collections::BTreeMap::<String, f64>::new();
+    let mut total = 0.0;
+    for item in out.data["items"].as_array().unwrap() {
+        total += item["expected_units"].as_f64().unwrap_or(0.0);
+        for day in item["days"].as_array().unwrap() {
+            *daily
+                .entry(day["date"].as_str().unwrap().to_owned())
+                .or_default() += day["expected_units"].as_f64().unwrap_or(0.0);
+        }
+    }
+    let weekend: f64 = daily
+        .iter()
+        .filter(|(date, _)| {
+            use chrono::Datelike;
+            date.parse::<chrono::NaiveDate>()
+                .is_ok_and(|d| d.weekday().number_from_monday() >= 6)
+        })
+        .map(|(_, value)| value)
+        .sum();
+    out.data["total_expected_units"] = json!(total);
+    out.data["daily_expected_units"] = json!(daily);
+    out.data["weekend_expected_units"] = json!(weekend);
+    out.data["weekend_share_pct"] = json!(if total > 0.0 {
+        weekend * 100.0 / total
+    } else {
+        0.0
+    });
+    let friday_sunday: f64 = daily
+        .iter()
+        .filter(|(date, _)| {
+            use chrono::Datelike;
+            date.parse::<chrono::NaiveDate>()
+                .is_ok_and(|d| d.weekday().number_from_monday() >= 5)
+        })
+        .map(|(_, value)| value)
+        .sum();
+    out.data["friday_sunday_expected_units"] = json!(friday_sunday);
+    // Dates/holiday factors are identical for every product. Send that calendar
+    // once, with aligned daily quantities, so a current forecast survives the
+    // tool-context budget alongside stock and restock data.
+    let calendar: Vec<Value> = out.data["items"]
+        .as_array()
+        .unwrap()
+        .first()
+        .and_then(|item| item["days"].as_array())
+        .into_iter()
+        .flatten()
+        .map(|day| json!({"date":day["date"],"uplift":day["uplift"],"holiday":day["holiday"]}))
+        .collect();
+    out.data["calendar"] = json!(calendar);
+    for item in out.data["items"].as_array_mut().unwrap() {
+        let days = item.as_object_mut().unwrap().remove("days").unwrap();
+        item["daily_units"] = json!(
+            days.as_array()
+                .unwrap()
+                .iter()
+                .map(|day| day["expected_units"].clone())
+                .collect::<Vec<_>>()
+        );
+    }
     out.data["history_from"] = json!(shift(ctx.today, -55)?);
     out.data["history_to"] = json!(ctx.today);
     out.data["heuristic"] = json!(true);
+    out.data["forecast_days"] = json!(count);
+    out.data["history_weeks"] = json!(8);
+    out.data["trend_days"] = json!(14);
     Ok(out)
 }

@@ -24,6 +24,8 @@ export type DashboardTotals = {
 export type DashboardData =
   | { status: 'loading'; refetch: () => void }
   | { status: 'error'; refetch: () => void }
+  /** No network and nothing cached for this period: the queries wait instead of failing. */
+  | { status: 'offline'; refetch: () => void }
   | {
       status: 'ready';
       refetch: () => void;
@@ -84,6 +86,8 @@ export function useDashboardData(period: Period): DashboardData {
   const needed = isDay ? [today, summary] : [summary, sales];
   if (needed.some((query) => query.isError))
     return { status: 'error', refetch };
+  if (needed.some((query) => query.isPending && query.fetchStatus === 'paused'))
+    return { status: 'offline', refetch };
   if (needed.some((query) => query.isPending)) {
     return { status: 'loading', refetch };
   }

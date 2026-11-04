@@ -103,6 +103,7 @@ fn map_inner(envelope: &Value, members: &MemberLookup) -> Option<CaptureEvent> {
                 has_credit: defaulted::<i64>(data, "credit_amount", 0)? > 0
                     || payment_method == PaymentMethod::Credit,
                 manual_lines: defaulted(data, "manual_lines", 0)?,
+                voice_lines: defaulted(data, "voice_lines", 0)?,
             }
         }
         "sale.voided" => ProductEvent::SaleVoided {
@@ -303,7 +304,13 @@ mod tests {
                 "sale.created",
                 json!({"total":5000,"line_count":2,"payment_method":"cash","credit_amount":1000,"manual_lines":1}),
                 "sale_completed",
-                json!({"total":5000,"line_count":2,"payment_method":"cash","has_credit":true,"manual_lines":1}),
+                json!({"total":5000,"line_count":2,"payment_method":"cash","has_credit":true,"manual_lines":1,"voice_lines":0}),
+            ),
+            (
+                "sale.created",
+                json!({"total":5000,"line_count":3,"payment_method":"cash","manual_lines":1,"voice_lines":2}),
+                "sale_completed",
+                json!({"total":5000,"line_count":3,"payment_method":"cash","has_credit":false,"manual_lines":1,"voice_lines":2}),
             ),
             (
                 "sale.voided",

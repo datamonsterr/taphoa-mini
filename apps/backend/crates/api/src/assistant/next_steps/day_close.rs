@@ -34,6 +34,27 @@ pub fn run<'a>(db: &'a PgPool, actor: &'a Actor, input: &'a RuleInput) -> RuleFu
 mod tests {
     use super::*;
     #[test]
+    fn pinned_business_clock_controls_day_close() {
+        for (pinned, expected) in [
+            ("2026-01-15T10:00:00+07:00", false),
+            ("2026-01-15T21:00:00+07:00", true),
+        ] {
+            let clock = crate::time::Clock::from_lookup(|name| {
+                (name == "TAPHOA_TEST_NOW").then(|| pinned.into())
+            })
+            .unwrap();
+            let now = clock
+                .now()
+                .with_timezone(&crate::time::STORE_TZ)
+                .naive_local();
+            assert_eq!(due(now, false), expected);
+            assert!(!due(now, true));
+            assert_eq!(clock.today(), now.date());
+            assert_eq!(now.format("%H").to_string(), &pinned[11..13]);
+        }
+    }
+
+    #[test]
     fn local_time_boundary() {
         let at = |s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap();
         assert!(!due(at("2026-10-26 19:59:00"), false));

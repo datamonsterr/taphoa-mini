@@ -144,3 +144,42 @@ describe('estimateRequests', () => {
     expect(estimateRequests([], true)).toBe(0);
   });
 });
+
+describe('paid budget guard', () => {
+  const response = (remaining: number | null) =>
+    Response.json({
+      data: {
+        limit: 10,
+        usage: 2,
+        limit_remaining: remaining,
+        free_model_daily_requests: { remaining: 0, used: 1000, limit: 1000 },
+      },
+    });
+  it('uses USD even when the free request quota is exhausted', async () => {
+    expect(
+      await checkQuota({
+        apiKey: 'k',
+        paid: true,
+        estimate: 500,
+        fetch: fakeFetch(() => response(8)),
+      }),
+    ).toEqual({ remaining: 8, limit: 10, used: 2, unit: 'USD' });
+  });
+  it('refuses insufficient credits and unbounded keys', async () => {
+    await expect(
+      checkQuota({
+        apiKey: 'k',
+        paid: true,
+        estimate: 500,
+        fetch: fakeFetch(() => response(0.2)),
+      }),
+    ).rejects.toThrow('credits too low');
+    await expect(
+      fetchQuota({
+        apiKey: 'k',
+        paid: true,
+        fetch: fakeFetch(() => response(null)),
+      }),
+    ).rejects.toThrow('finite key limit');
+  });
+});

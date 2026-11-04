@@ -1,0 +1,3871 @@
+{
+  "runId": "voice-2026-10-29-3d9d24",
+  "date": "2026-10-29",
+  "model": "google/gemini-2.5-flash-lite",
+  "set": "full",
+  "backendHost": "127.0.0.1:18081",
+  "gitSha": "b0d0b317e50e",
+  "aggregate": {
+    "cases": 52,
+    "errors": 5,
+    "wer": 0.1297709923664122,
+    "wer_nodiac": 0.1297709923664122,
+    "line_accuracy": 0.7424242424242424,
+    "price_accuracy": 0.7424242424242424,
+    "quantity_accuracy": 0.7878787878787878,
+    "intent_accuracy": 0.9038461538461539,
+    "payment_accuracy": 0.8723404255319149,
+    "customer_accuracy": 0.8333333333333334,
+    "exact_rate": 0.75,
+    "extra_lines": 6,
+    "latency_p50_ms": 3578,
+    "latency_p95_ms": 4979,
+    "server_latency_p50_ms": 3567,
+    "server_latency_p95_ms": 4854,
+    "cost_per_utterance_usd": 0.0002769997094736842,
+    "cost_n": 38,
+    "pass": false
+  },
+  "results": [
+    {
+      "case_id": "01-single-coca",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "01-single-coca",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 3
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 3
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 2,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 5879,
+        "cost_usd": 0.0004382,
+        "transcript": "hai lon ca",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4128,
+        "utterance_id": "01a183cf-67d5-7157-9c74-33b393dea393",
+        "sale_draft": {
+          "lines": [
+            {
+              "candidates": [
+                {
+                  "base_unit": "lon",
+                  "id": "e7a10e7a-0000-4000-8000-05000000000d",
+                  "name": "Pepsi lon 320ml",
+                  "price": 10500,
+                  "units": [
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-060000000004",
+                      "name": "lốc",
+                      "price": 61000,
+                      "quantity_in_base": 6
+                    },
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-060000000005",
+                      "name": "thùng",
+                      "price": 244500,
+                      "quantity_in_base": 24
+                    }
+                  ]
+                },
+                {
+                  "base_unit": "lon",
+                  "id": "e7a10e7a-0000-4000-8000-050000000019",
+                  "name": "Bia 333 lon 330ml",
+                  "price": 13500,
+                  "units": [
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-06000000000c",
+                      "name": "lốc",
+                      "price": 78500,
+                      "quantity_in_base": 6
+                    },
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-06000000000d",
+                      "name": "thùng",
+                      "price": 314500,
+                      "quantity_in_base": 24
+                    }
+                  ]
+                },
+                {
+                  "base_unit": "lon",
+                  "id": "e7a10e7a-0000-4000-8000-05000000000e",
+                  "name": "Sprite lon 320ml",
+                  "price": 10500,
+                  "units": [
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-060000000006",
+                      "name": "lốc",
+                      "price": 61000,
+                      "quantity_in_base": 6
+                    },
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-060000000007",
+                      "name": "thùng",
+                      "price": 244500,
+                      "quantity_in_base": 24
+                    }
+                  ]
+                }
+              ],
+              "id": "01a183cf-77ee-76e0-963a-2890563e1861",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000d",
+                "name": "Pepsi lon 320ml",
+                "price": 10500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000004",
+                    "name": "lốc",
+                    "price": 61000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000005",
+                    "name": "thùng",
+                    "price": 244500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon",
+              "status": "ambiguous",
+              "unit_id": null,
+              "unit_price": 2000
+            },
+            {
+              "candidates": [
+                {
+                  "base_unit": "gói",
+                  "id": "e7a10e7a-0000-4000-8000-050000000073",
+                  "name": "Cá viên Cầu Tre 200g",
+                  "price": 30000,
+                  "units": []
+                },
+                {
+                  "base_unit": "hộp",
+                  "id": "e7a10e7a-0000-4000-8000-050000000051",
+                  "name": "Cà phê G7 3in1 hộp 16 gói",
+                  "price": 62000,
+                  "units": []
+                },
+                {
+                  "base_unit": "lon",
+                  "id": "e7a10e7a-0000-4000-8000-050000000016",
+                  "name": "Cà phê sữa Birdy lon 170ml",
+                  "price": 12000,
+                  "units": []
+                }
+              ],
+              "id": "01a183cf-77ee-76e0-963a-28910d3caf88",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000073",
+                "name": "Cá viên Cầu Tre 200g",
+                "price": 30000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "ca",
+              "status": "ambiguous",
+              "unit_id": null,
+              "unit_price": 30000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 34000
+        }
+      }
+    },
+    {
+      "case_id": "02-single-lavie",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "02-single-lavie",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 5
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 5
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4138,
+        "cost_usd": 0.0004465,
+        "transcript": "một chai Nước suối Lavie",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4125,
+        "utterance_id": "01a183cf-7807-71b5-85ce-1dbc98e5ce73",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-8824-7650-af87-3031fea59be2",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000000f",
+                "name": "Nước suối Lavie 500ml",
+                "price": 5000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000008",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000009",
+                    "name": "thùng",
+                    "price": 116500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một chai Nước suối Lavie",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 5000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 5000
+        }
+      }
+    },
+    {
+      "case_id": "03-single-hao-hao",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "03-single-hao-hao",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 8
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 8
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3571,
+        "cost_usd": 0.0004551,
+        "transcript": "năm gói mì Hảo Hảo tôm chua cay",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3560,
+        "utterance_id": "01a183cf-882e-7563-a70f-afe8c52b21a5",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-9616-727f-bf8b-349c5a1b59b6",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000000",
+                "name": "Mì Hảo Hảo tôm chua cay 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000000",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 5,
+              "spoken": "năm gói mì Hảo Hảo tôm chua cay",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 22500
+        }
+      }
+    },
+    {
+      "case_id": "04-single-tiger",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "04-single-tiger",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 4
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 4
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3162,
+        "cost_usd": 0.0004394,
+        "transcript": "một lon bia Tiger",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3149,
+        "utterance_id": "01a183cf-9623-76e6-aa96-910ffec8c508",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-a26f-712e-930e-b102de069ea7",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-050000000018",
+                "name": "Bia Tiger lon 330ml",
+                "price": 17000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000a",
+                    "name": "lốc",
+                    "price": 99000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000b",
+                    "name": "thùng",
+                    "price": 396000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một lon bia Tiger",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 17000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 17000
+        }
+      }
+    },
+    {
+      "case_id": "05-single-trung",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "05-single-trung",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 4
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 4
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3817,
+        "cost_usd": 0.0001739,
+        "transcript": "10 quả trứng gà",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3805,
+        "utterance_id": "01a183cf-a27c-7322-9f0c-9f889a611026",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-b15a-70c0-97df-cbf35e4feeeb",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "quả",
+                "id": "e7a10e7a-0000-4000-8000-05000000006d",
+                "name": "Trứng gà ta",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000015",
+                    "name": "vỉ",
+                    "price": 43500,
+                    "quantity_in_base": 10
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000016",
+                    "name": "khay",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 10,
+              "spoken": "10 quả trứng gà",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 45000
+        }
+      }
+    },
+    {
+      "case_id": "06-single-no-qty",
+      "intent": "sale",
+      "tags": ["single-line", "no-quantity"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "06-single-no-qty",
+        "tags": ["single-line", "no-quantity"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 6
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 6
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3502,
+        "cost_usd": 0.0004432,
+        "transcript": "lấy chai tương ớt Chin-su",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3489,
+        "utterance_id": "01a183cf-b165-728a-865d-09004e8027a8",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-bf06-734e-9307-4d6983a2a827",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000042",
+                "name": "Tương ớt Chin-su 250g",
+                "price": 15000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "lấy chai tương ớt Chin-su",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 15000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 15000
+        }
+      }
+    },
+    {
+      "case_id": "07-single-sua",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "07-single-sua",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 6
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 6
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3010,
+        "cost_usd": 0.0004486,
+        "transcript": "ba hộp sữa Vinamilk có đường",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2999,
+        "utterance_id": "01a183cf-bf14-77bc-a8a7-e1375f6a689a",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-caca-74a1-acd7-c0f1390eb61c",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "hộp",
+                "id": "e7a10e7a-0000-4000-8000-050000000024",
+                "name": "Sữa Vinamilk có đường 180ml",
+                "price": 7500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000010",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 4
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000011",
+                    "name": "thùng",
+                    "price": 349000,
+                    "quantity_in_base": 48
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba hộp sữa Vinamilk có đường",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 7500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 22500
+        }
+      }
+    },
+    {
+      "case_id": "08-single-omo",
+      "intent": "sale",
+      "tags": ["single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "08-single-omo",
+        "tags": ["single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 5
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 5
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 2778,
+        "cost_usd": 0.0004333,
+        "transcript": "một gói bột giặt OMO",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2770,
+        "utterance_id": "01a183cf-cad2-73c3-a0fc-7c36064f0944",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-d5a4-7220-81d1-2ddf0710598b",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000055",
+                "name": "Bột giặt OMO 400g",
+                "price": 33000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một gói bột giặt OMO",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 33000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 33000
+        }
+      }
+    },
+    {
+      "case_id": "09-multi-coca-pepsi",
+      "intent": "sale",
+      "tags": ["smoke", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "09-multi-coca-pepsi",
+        "tags": ["smoke", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 7
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4109,
+        "cost_usd": 0.00018997,
+        "transcript": "hai lon Coca-Cola với một lon Pepsi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4097,
+        "utterance_id": "01a183cf-d5b0-77f4-a7de-356ad4405eea",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-e5b0-724c-8607-30a5c162fe1b",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000c",
+                "name": "Coca-Cola lon 320ml",
+                "price": 11000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000002",
+                    "name": "lốc",
+                    "price": 64000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000003",
+                    "name": "thùng",
+                    "price": 256000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon Coca-Cola",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            },
+            {
+              "id": "01a183cf-e5b0-724c-8607-30a6be177e88",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000d",
+                "name": "Pepsi lon 320ml",
+                "price": 10500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000004",
+                    "name": "lốc",
+                    "price": 61000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000005",
+                    "name": "thùng",
+                    "price": 244500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một lon Pepsi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 32500
+        }
+      }
+    },
+    {
+      "case_id": "10-multi-three",
+      "intent": "sale",
+      "tags": ["smoke", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "10-multi-three",
+        "tags": ["smoke", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 18
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 18
+        },
+        "lines_expected": 3,
+        "lines_ok": 3,
+        "quantity_ok": 3,
+        "price_ok": 3,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4979,
+        "cost_usd": 0.0005449,
+        "transcript": "ba gói mì Hảo Hảo tôm chua cay hai chai nước suối Lavie và một lon bia Tiger",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4964,
+        "utterance_id": "01a183cf-e5c0-70b3-9ad0-f405e55ab719",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183cf-f923-7421-a20e-9ad7fb67d6b8",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000000",
+                "name": "Mì Hảo Hảo tôm chua cay 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000000",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba gói mì Hảo Hảo tôm chua cay",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            },
+            {
+              "id": "01a183cf-f923-7421-a20e-9ad837c7f6bf",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000000f",
+                "name": "Nước suối Lavie 500ml",
+                "price": 5000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000008",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000009",
+                    "name": "thùng",
+                    "price": 116500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai chai nước suối Lavie",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 5000
+            },
+            {
+              "id": "01a183cf-f923-7421-a20e-9ad96c6f186d",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-050000000018",
+                "name": "Bia Tiger lon 330ml",
+                "price": 17000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000a",
+                    "name": "lốc",
+                    "price": 99000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000b",
+                    "name": "thùng",
+                    "price": 396000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một lon bia Tiger",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 17000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 40500
+        }
+      }
+    },
+    {
+      "case_id": "11-multi-beers",
+      "intent": "sale",
+      "tags": ["multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "11-multi-beers",
+        "tags": ["multi-line"],
+        "error": "voice_unavailable",
+        "intent_ok": false,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 2,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": false,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 503,
+        "error_code": "voice_unavailable",
+        "wall_ms": 5349,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "12-multi-four",
+      "intent": "sale",
+      "tags": ["multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "12-multi-four",
+        "tags": ["multi-line"],
+        "error": "voice_unavailable",
+        "intent_ok": false,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 4,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": false,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 503,
+        "error_code": "voice_unavailable",
+        "wall_ms": 4790,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "13-multi-snacks",
+      "intent": "sale",
+      "tags": ["multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "13-multi-snacks",
+        "tags": ["multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 4,
+          "words": 13
+        },
+        "wer_nodiac": {
+          "edits": 4,
+          "words": 13
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 5356,
+        "cost_usd": 0.00022158896,
+        "transcript": "2 gói snack oishi tôm cay với 3 gói kẹo cao su double min.",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": true,
+        "latency_ms": 5346,
+        "utterance_id": "01a183d0-20cc-7052-8f96-d4e111f9dec0",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-35ae-7319-bf9f-0c2292c02d8d",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000033",
+                "name": "Snack Oishi tôm cay 40g",
+                "price": 6000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000014",
+                    "name": "lốc",
+                    "price": 35000,
+                    "quantity_in_base": 6
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "2 gói snack oishi tôm cay",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 6000
+            },
+            {
+              "id": "01a183d0-35ae-7319-bf9f-0c2313450821",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000036",
+                "name": "Kẹo cao su Doublemint gói 12 viên",
+                "price": 5000,
+                "units": []
+              },
+              "quantity": 3,
+              "spoken": "3 gói kẹo cao su double min",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 5000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 27000
+        }
+      }
+    },
+    {
+      "case_id": "14-multi-milk-eggs",
+      "intent": "sale",
+      "tags": ["multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "14-multi-milk-eggs",
+        "tags": ["multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 12
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 12
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3437,
+        "cost_usd": 0.00019917,
+        "transcript": "Sáu hộp sữa Vinamilk có đường và mười hai quả trứng gà.",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2915,
+        "utterance_id": "01a183d0-37b5-72dc-a1ed-a5aeed4bf1f4",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-4318-76a4-90b5-22e3fe0aa4e8",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "hộp",
+                "id": "e7a10e7a-0000-4000-8000-050000000024",
+                "name": "Sữa Vinamilk có đường 180ml",
+                "price": 7500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000010",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 4
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000011",
+                    "name": "thùng",
+                    "price": 349000,
+                    "quantity_in_base": 48
+                  }
+                ]
+              },
+              "quantity": 6,
+              "spoken": "Sáu hộp sữa Vinamilk có đường",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 7500
+            },
+            {
+              "id": "01a183d0-4318-76a4-90b5-22e4bd3ac43b",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "quả",
+                "id": "e7a10e7a-0000-4000-8000-05000000006d",
+                "name": "Trứng gà ta",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000015",
+                    "name": "vỉ",
+                    "price": 43500,
+                    "quantity_in_base": 10
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000016",
+                    "name": "khay",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 12,
+              "spoken": "và mười hai quả trứng gà",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 99000
+        }
+      }
+    },
+    {
+      "case_id": "15-multi-drinks",
+      "intent": "sale",
+      "tags": ["multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "15-multi-drinks",
+        "tags": ["multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 9
+        },
+        "lines_expected": 3,
+        "lines_ok": 3,
+        "quantity_ok": 3,
+        "price_ok": 3,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4259,
+        "cost_usd": 0.0005174,
+        "transcript": "ba lon Coca hai lon Pepsi một lon Sprite",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4246,
+        "utterance_id": "01a183d0-4324-7509-a856-a1b19d636d86",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-53ba-753c-b9de-c06b006e744d",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000c",
+                "name": "Coca-Cola lon 320ml",
+                "price": 11000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000002",
+                    "name": "lốc",
+                    "price": 64000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000003",
+                    "name": "thùng",
+                    "price": 256000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba lon Coca",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            },
+            {
+              "id": "01a183d0-53ba-753c-b9de-c06cfee0e7a1",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000d",
+                "name": "Pepsi lon 320ml",
+                "price": 10500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000004",
+                    "name": "lốc",
+                    "price": 61000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000005",
+                    "name": "thùng",
+                    "price": 244500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon Pepsi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10500
+            },
+            {
+              "id": "01a183d0-53ba-753c-b9de-c06dd62342b7",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000e",
+                "name": "Sprite lon 320ml",
+                "price": 10500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000006",
+                    "name": "lốc",
+                    "price": 61000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000007",
+                    "name": "thùng",
+                    "price": 244500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một lon Sprite",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 64500
+        }
+      }
+    },
+    {
+      "case_id": "16-multi-household",
+      "intent": "sale",
+      "tags": ["multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "16-multi-household",
+        "tags": ["multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 12
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 12
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3289,
+        "cost_usd": 0.00021597,
+        "transcript": "một chai nước rửa chén Sunlight hai gói bột giặt OMO",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3275,
+        "utterance_id": "01a183d0-53c9-708a-a888-470b5d0d4059",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-6092-7574-beaf-7f3c232ab257",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000056",
+                "name": "Nước rửa chén Sunlight 750g",
+                "price": 28000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai nước rửa chén Sunlight",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 28000
+            },
+            {
+              "id": "01a183d0-6092-7574-beaf-7f3d8dadd9e6",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000055",
+                "name": "Bột giặt OMO 400g",
+                "price": 33000,
+                "units": []
+              },
+              "quantity": 2,
+              "spoken": "hai gói bột giặt OMO",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 33000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 94000
+        }
+      }
+    },
+    {
+      "case_id": "17-price-20k",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-nghin"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "17-price-20k",
+        "tags": ["price-shorthand", "price-nghin"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 9
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3782,
+        "cost_usd": 0.00018673,
+        "transcript": "một chai tương ớt Chin-su hai mươi nghìn",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3771,
+        "utterance_id": "01a183d0-60a0-7341-b96e-8fbfca3ee333",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-6f5b-7478-815c-8d81aadbcfdf",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000042",
+                "name": "Tương ớt Chin-su 250g",
+                "price": 15000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai tương ớt Chin-su hai mươi nghìn",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 20000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 20000
+        }
+      }
+    },
+    {
+      "case_id": "18-price-hai-chuc",
+      "intent": "sale",
+      "tags": ["smoke", "price-shorthand", "price-chuc"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "18-price-hai-chuc",
+        "tags": ["smoke", "price-shorthand", "price-chuc"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 8
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 8
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3578,
+        "cost_usd": 0.00018448,
+        "transcript": "một chai nước mắm chin-su hai mươi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3567,
+        "utterance_id": "01a183d0-6f66-73c8-afda-1e013d84726f",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-7d55-7194-b165-65a979cfdd8e",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000040",
+                "name": "Nước mắm Chin-su 500ml",
+                "price": 34000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai nước mắm chin-su hai mươi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 20000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 20000
+        }
+      }
+    },
+    {
+      "case_id": "19-price-hai-lam",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-bare"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "19-price-hai-lam",
+        "tags": ["price-shorthand", "price-bare"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 8
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 8
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 2826,
+        "cost_usd": 0.00018294,
+        "transcript": "Nước rửa chén Sunlight hai lăm",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2816,
+        "utterance_id": "01a183d0-7d5f-74e8-b059-564c0497e4e3",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-885f-711c-822f-9f70df0228f5",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000056",
+                "name": "Nước rửa chén Sunlight 750g",
+                "price": 28000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "Nước rửa chén Sunlight hai lăm",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 25000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 25000
+        }
+      }
+    },
+    {
+      "case_id": "20-price-muoi-ruoi",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-ruoi"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "20-price-muoi-ruoi",
+        "tags": ["price-shorthand", "price-ruoi"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 7
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3115,
+        "cost_usd": 0.00019216,
+        "transcript": "một gói bánh quy Cosy 140g mười rưỡi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3106,
+        "utterance_id": "01a183d0-886a-711e-9325-d4572de984e3",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-948c-7069-8aa0-3c9422ad7677",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000031",
+                "name": "Bánh quy Cosy vani 140g",
+                "price": 15000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một gói bánh quy Cosy 140g mười rưỡi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 10500
+        }
+      }
+    },
+    {
+      "case_id": "21-price-tram-ruoi",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-ruoi"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "21-price-tram-ruoi",
+        "tags": ["price-shorthand", "price-ruoi"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 7
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3752,
+        "cost_usd": 0.00017034,
+        "transcript": "một túi gạo nàng hoa trăm rưỡi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3745,
+        "utterance_id": "01a183d0-9491-7699-a732-c953013c7c05",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-a332-706e-8019-a1360491f0ce",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "túi",
+                "id": "e7a10e7a-0000-4000-8000-05000000004a",
+                "name": "Gạo Nàng Hoa 5kg",
+                "price": 105000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một túi gạo nàng hoa trăm rưỡi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 150000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 150000
+        }
+      }
+    },
+    {
+      "case_id": "22-price-hai-tram",
+      "intent": "sale",
+      "tags": ["smoke", "price-shorthand", "price-tram"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "22-price-hai-tram",
+        "tags": ["smoke", "price-shorthand", "price-tram"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 9
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 1,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3812,
+        "cost_usd": 0.00019089,
+        "transcript": "một hộp sữa bột Dielac Alpha Gold",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3800,
+        "utterance_id": "01a183d0-a33d-7747-a4f7-d4b9010a80b5",
+        "sale_draft": {
+          "lines": [
+            {
+              "candidates": [
+                {
+                  "base_unit": "hộp",
+                  "id": "e7a10e7a-0000-4000-8000-05000000002c",
+                  "name": "Sữa bột Dielac Alpha Gold 2 400g",
+                  "price": 165000,
+                  "units": []
+                }
+              ],
+              "id": "01a183d0-b215-7769-a5a8-93a26b72e635",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "hộp",
+                "id": "e7a10e7a-0000-4000-8000-05000000002c",
+                "name": "Sữa bột Dielac Alpha Gold 2 400g",
+                "price": 165000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một hộp sữa bột Dielac Alpha Gold",
+              "status": "ambiguous",
+              "unit_id": null,
+              "unit_price": 165000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 165000
+        }
+      }
+    },
+    {
+      "case_id": "23-price-bare",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-bare"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "23-price-bare",
+        "tags": ["price-shorthand", "price-bare"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 6
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 6
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 1,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3671,
+        "cost_usd": 0.00018136,
+        "transcript": "hai gói mì Omachi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3660,
+        "utterance_id": "01a183d0-b221-71ee-8cb1-bf13c6feca75",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-c06c-76ec-84a6-0fa833075be6",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000002",
+                "name": "Mì Omachi sườn hầm ngũ quả 80g",
+                "price": 9500,
+                "units": []
+              },
+              "quantity": 2,
+              "spoken": "hai gói mì Omachi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 9500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 19000
+        }
+      }
+    },
+    {
+      "case_id": "24-price-per-item",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-per-item"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "24-price-per-item",
+        "tags": ["price-shorthand", "price-per-item"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 7
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4043,
+        "cost_usd": 0.00017409,
+        "transcript": "ba chai nước suối Lavie 5 nghìn",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4031,
+        "utterance_id": "01a183d0-c078-716a-bff0-ba56b699ccbb",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-d037-71cc-b910-652852e853fd",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000000f",
+                "name": "Nước suối Lavie 500ml",
+                "price": 5000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000008",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000009",
+                    "name": "thùng",
+                    "price": 116500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba chai nước suối Lavie",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 5000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 15000
+        }
+      }
+    },
+    {
+      "case_id": "25-price-line-total",
+      "intent": "sale",
+      "tags": ["smoke", "price-shorthand", "line-total"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "25-price-line-total",
+        "tags": ["smoke", "price-shorthand", "line-total"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 3,
+          "words": 8
+        },
+        "wer_nodiac": {
+          "edits": 3,
+          "words": 8
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 2991,
+        "cost_usd": 0.00018776,
+        "transcript": "ba chai nước suối Lavie 15000",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2979,
+        "utterance_id": "01a183d0-d044-73b4-8430-4624c0a5de5b",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-dbe7-702a-aa2c-f71fdb210ea1",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000000f",
+                "name": "Nước suối Lavie 500ml",
+                "price": 5000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000008",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000009",
+                    "name": "thùng",
+                    "price": 116500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba chai nước suối Lavie",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 5000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 15000
+        }
+      }
+    },
+    {
+      "case_id": "26-price-line-total-mismatch",
+      "intent": "sale",
+      "tags": ["price-shorthand", "line-total", "price-mismatch"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "26-price-line-total-mismatch",
+        "tags": ["price-shorthand", "line-total", "price-mismatch"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 5,
+          "words": 11
+        },
+        "wer_nodiac": {
+          "edits": 5,
+          "words": 11
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 1,
+        "price_ok": 0,
+        "extra_lines": 1,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3020,
+        "cost_usd": 0.00022606,
+        "transcript": "hai gói mì hảo hảo hảo hảo sa tế hành 15000",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3008,
+        "utterance_id": "01a183d0-dbf2-7501-bdcc-ad0586d8fc0d",
+        "sale_draft": {
+          "lines": [
+            {
+              "candidates": [
+                {
+                  "base_unit": "gói",
+                  "id": "e7a10e7a-0000-4000-8000-050000000001",
+                  "name": "Mì Hảo Hảo sa tế hành 75g",
+                  "price": 4500,
+                  "units": [
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-060000000001",
+                      "name": "thùng",
+                      "price": 131000,
+                      "quantity_in_base": 30
+                    }
+                  ]
+                },
+                {
+                  "base_unit": "gói",
+                  "id": "e7a10e7a-0000-4000-8000-050000000000",
+                  "name": "Mì Hảo Hảo tôm chua cay 75g",
+                  "price": 4500,
+                  "units": [
+                    {
+                      "barcode": null,
+                      "id": "e7a10e7a-0000-4000-8000-060000000000",
+                      "name": "thùng",
+                      "price": 131000,
+                      "quantity_in_base": 30
+                    }
+                  ]
+                },
+                {
+                  "base_unit": "ly",
+                  "id": "e7a10e7a-0000-4000-8000-05000000000a",
+                  "name": "Mì ly Hảo Hảo hải sản 67g",
+                  "price": 12000,
+                  "units": []
+                }
+              ],
+              "id": "01a183d0-e7b1-72b3-b26f-9b47a766d8cb",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000001",
+                "name": "Mì Hảo Hảo sa tế hành 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000001",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai gói mì hảo hảo",
+              "status": "ambiguous",
+              "unit_id": null,
+              "unit_price": 4500
+            },
+            {
+              "id": "01a183d0-e7b1-72b3-b26f-9b483dcf9c28",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000001",
+                "name": "Mì Hảo Hảo sa tế hành 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000001",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "hảo hảo sa tế hành 15000",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 15000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 24000
+        }
+      }
+    },
+    {
+      "case_id": "27-price-unit",
+      "intent": "sale",
+      "tags": ["price-shorthand", "price-nghin"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "27-price-unit",
+        "tags": ["price-shorthand", "price-nghin"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 9
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3601,
+        "cost_usd": 0.0004464,
+        "transcript": "hai lon bia Tiger mười tám nghìn một lon",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3590,
+        "utterance_id": "01a183d0-e7bd-7654-9a25-e49f306eb212",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d0-f5c3-70c7-95ea-23bc5a8dfa9e",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-050000000018",
+                "name": "Bia Tiger lon 330ml",
+                "price": 17000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000a",
+                    "name": "lốc",
+                    "price": 99000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000b",
+                    "name": "thùng",
+                    "price": 396000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon bia Tiger",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 18000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 36000
+        }
+      }
+    },
+    {
+      "case_id": "28-price-two-lines",
+      "intent": "sale",
+      "tags": ["price-shorthand", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "28-price-two-lines",
+        "tags": ["price-shorthand", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 6,
+          "words": 18
+        },
+        "wer_nodiac": {
+          "edits": 6,
+          "words": 18
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3701,
+        "cost_usd": 0.00023664,
+        "transcript": "một chai dầu ăn Neptune 55000 và hai gói bột canh Hải Châu 10000",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3690,
+        "utterance_id": "01a183d0-f5cf-77b6-91ef-f813bbba6e97",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d1-0438-745b-81c8-444f56e23417",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000003e",
+                "name": "Dầu ăn Neptune 1L",
+                "price": 48000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai dầu ăn Neptune",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 55000
+            },
+            {
+              "id": "01a183d1-0438-745b-81c8-4450e2bf8ae9",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000047",
+                "name": "Bột canh Hải Châu 190g",
+                "price": 9000,
+                "units": []
+              },
+              "quantity": 2,
+              "spoken": "hai gói bột canh Hải Châu",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 75000
+        }
+      }
+    },
+    {
+      "case_id": "29-credit-lan-nuoc-mam",
+      "intent": "sale",
+      "tags": ["smoke", "credit", "price-shorthand"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "29-credit-lan-nuoc-mam",
+        "tags": ["smoke", "credit", "price-shorthand"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 12
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 12
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": true
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4128,
+        "cost_usd": 0.00018151,
+        "transcript": "ghi nợ chị Lan hai chai nước mắm Nam Ngư sáu chục",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3586,
+        "utterance_id": "01a183d1-0657-7714-8aae-1c3ffebcd452",
+        "sale_draft": {
+          "customer": {
+            "spoken_name": "Lan",
+            "status": "none"
+          },
+          "lines": [
+            {
+              "id": "01a183d1-1455-7146-ad64-56e74a65719b",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000003f",
+                "name": "Nước mắm Nam Ngư 500ml",
+                "price": 38000,
+                "units": []
+              },
+              "quantity": 2,
+              "spoken": "hai chai nước mắm Nam Ngư sáu chục",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 60000
+            }
+          ],
+          "payment_method": "credit",
+          "total": 120000
+        }
+      }
+    },
+    {
+      "case_id": "30-credit-lan-coca",
+      "intent": "sale",
+      "tags": ["credit"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "30-credit-lan-coca",
+        "tags": ["credit"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 7
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": true
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3550,
+        "cost_usd": 0.00017651,
+        "transcript": "hai lon Coca ghi nợ chị Lan",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3536,
+        "utterance_id": "01a183d1-1465-77a5-8381-c46fcf406292",
+        "sale_draft": {
+          "customer": {
+            "spoken_name": "chị Lan",
+            "status": "none"
+          },
+          "lines": [
+            {
+              "id": "01a183d1-2231-70da-82ac-ce995a752c31",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000c",
+                "name": "Coca-Cola lon 320ml",
+                "price": 11000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000002",
+                    "name": "lốc",
+                    "price": 64000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000003",
+                    "name": "thùng",
+                    "price": 256000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon Coca",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            }
+          ],
+          "payment_method": "credit",
+          "total": 22000
+        }
+      }
+    },
+    {
+      "case_id": "31-credit-hung",
+      "intent": "sale",
+      "tags": ["credit", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "31-credit-hung",
+        "tags": ["credit", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 14
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 14
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": true
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4038,
+        "cost_usd": 0.00022209,
+        "transcript": "Anh Hùng ghi nợ anh Hùng ba lon bia Tiger và một gói bột giặt OMO",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4027,
+        "utterance_id": "01a183d1-2243-718e-8d07-3c3d847afb4f",
+        "sale_draft": {
+          "customer": {
+            "spoken_name": "Anh Hùng",
+            "status": "none"
+          },
+          "lines": [
+            {
+              "id": "01a183d1-31fa-754d-8bc2-f917b464a0b6",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-050000000018",
+                "name": "Bia Tiger lon 330ml",
+                "price": 17000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000a",
+                    "name": "lốc",
+                    "price": 99000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000b",
+                    "name": "thùng",
+                    "price": 396000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba lon bia Tiger",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 17000
+            },
+            {
+              "id": "01a183d1-31fb-7065-ad76-fee88d94822f",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000055",
+                "name": "Bột giặt OMO 400g",
+                "price": 33000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một gói bột giặt OMO",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 33000
+            }
+          ],
+          "payment_method": "credit",
+          "total": 84000
+        }
+      }
+    },
+    {
+      "case_id": "32-credit-mai",
+      "intent": "sale",
+      "tags": ["credit"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "32-credit-mai",
+        "tags": ["credit"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 12
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 12
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": false,
+        "customer_ok": false
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3895,
+        "cost_usd": 0.0004596,
+        "transcript": "bán chịu cô mai hai gói mì hảo hảo sa tế hành",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3885,
+        "utterance_id": "01a183d1-3206-721c-9a94-da136f1d141c",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d1-4133-7747-912e-72e290d6cca4",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000001",
+                "name": "Mì Hảo Hảo sa tế hành 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000001",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai gói mì Hảo Hảo sa tế hành",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 9000
+        }
+      }
+    },
+    {
+      "case_id": "33-transfer-coca",
+      "intent": "sale",
+      "tags": ["smoke", "transfer"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "33-transfer-coca",
+        "tags": ["smoke", "transfer"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 5
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 5
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3177,
+        "cost_usd": 0.0001739,
+        "transcript": "hai lon Coca-Cola",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3166,
+        "utterance_id": "01a183d1-413f-757d-b2a6-3cc25ac1b5db",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d1-4d9d-753c-859b-b451efd02845",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000c",
+                "name": "Coca-Cola lon 320ml",
+                "price": 11000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000002",
+                    "name": "lốc",
+                    "price": 64000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000003",
+                    "name": "thùng",
+                    "price": 256000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon Coca-Cola",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            }
+          ],
+          "payment_method": "transfer",
+          "total": 22000
+        }
+      }
+    },
+    {
+      "case_id": "34-transfer-multi",
+      "intent": "sale",
+      "tags": ["transfer", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "34-transfer-multi",
+        "tags": ["transfer", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 17
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 17
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 2888,
+        "cost_usd": 0.0005201,
+        "transcript": "một chai nước mắm Chin-su ba gói mì Hảo Hảo tôm chua cay chuyển khoản",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2876,
+        "utterance_id": "01a183d1-4da9-70b0-bde0-d88569617411",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d1-58e4-76ba-bcc8-e63127723531",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000040",
+                "name": "Nước mắm Chin-su 500ml",
+                "price": 34000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai nước mắm Chin-su",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 34000
+            },
+            {
+              "id": "01a183d1-58e4-76ba-bcc8-e632713bf5e4",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000000",
+                "name": "Mì Hảo Hảo tôm chua cay 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000000",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba gói mì Hảo Hảo tôm chua cay",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "transfer",
+          "total": 47500
+        }
+      }
+    },
+    {
+      "case_id": "35-transfer-price",
+      "intent": "sale",
+      "tags": ["transfer", "price-shorthand"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "35-transfer-price",
+        "tags": ["transfer", "price-shorthand"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 11
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 11
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3562,
+        "cost_usd": 0.00017677,
+        "transcript": "một chai tương ớt Chin-su hai chục khách chuyển khoản",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3551,
+        "utterance_id": "01a183d1-58f0-7605-a1e7-04c9d80cc4d5",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d1-66ce-7492-831b-b35ad3ed413b",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000042",
+                "name": "Tương ớt Chin-su 250g",
+                "price": 15000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai tương ớt Chin-su hai chục",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 20000
+            }
+          ],
+          "payment_method": "transfer",
+          "total": 20000
+        }
+      }
+    },
+    {
+      "case_id": "36-chat-sold-today",
+      "intent": "chat",
+      "tags": ["smoke", "chat"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "36-chat-sold-today",
+        "tags": ["smoke", "chat"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 6
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 6
+        },
+        "lines_expected": 0,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": null,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 2803,
+        "cost_usd": 0.0001487,
+        "transcript": "hôm nay bán được bao nhiêu",
+        "intent": "chat",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 2793,
+        "utterance_id": "01a183d1-66d9-7331-9fcd-8dafc0d56416"
+      }
+    },
+    {
+      "case_id": "37-chat-stock",
+      "intent": "chat",
+      "tags": ["chat"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "37-chat-stock",
+        "tags": ["chat"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 7
+        },
+        "lines_expected": 0,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": null,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3175,
+        "cost_usd": 0.00015096,
+        "transcript": "bao nhiêu lon coca trong kho",
+        "intent": "chat",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3165,
+        "utterance_id": "01a183d1-71cd-71e0-afd0-cc272f1e9e2a"
+      }
+    },
+    {
+      "case_id": "38-chat-debt",
+      "intent": "chat",
+      "tags": ["chat"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "38-chat-debt",
+        "tags": ["chat"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 7
+        },
+        "lines_expected": 0,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": null,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3107,
+        "cost_usd": 0.0004089,
+        "transcript": "chị lan đang nợ bao nhiêu tiền",
+        "intent": "chat",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3097,
+        "utterance_id": "01a183d1-7e34-7030-9622-af9a180411fe"
+      }
+    },
+    {
+      "case_id": "39-silence",
+      "intent": "none",
+      "tags": ["smoke", "silence"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "39-silence",
+        "tags": ["smoke", "silence"],
+        "error": null,
+        "intent_ok": true,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 0,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": null,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 422,
+        "error_code": "no_speech",
+        "wall_ms": 2613,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "40-noise-only",
+      "intent": "none",
+      "tags": ["silence", "noise"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "40-noise-only",
+        "tags": ["silence", "noise"],
+        "error": null,
+        "intent_ok": true,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 0,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": null,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 422,
+        "error_code": "no_speech",
+        "wall_ms": 3359,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "41-unknown-rau",
+      "intent": "sale",
+      "tags": ["price-shorthand"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "41-unknown-rau",
+        "tags": ["price-shorthand"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 6
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 6
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3563,
+        "cost_usd": 0.0001799,
+        "transcript": "một bó rau muống hai mươi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3552,
+        "utterance_id": "01a183d1-a1ab-773a-ad2d-afd4bbd5469f",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d1-af8a-7746-a3f9-3eab7e42622b",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "bó",
+                "id": "e7a10e7a-0000-4000-8000-050000000075",
+                "name": "Rau muống bó",
+                "price": 8000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một bó rau muống hai mươi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 20000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 20000
+        }
+      }
+    },
+    {
+      "case_id": "42-unknown-banh-trang",
+      "intent": "sale",
+      "tags": ["unknown"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "42-unknown-banh-trang",
+        "tags": ["unknown"],
+        "error": "voice_unavailable",
+        "intent_ok": false,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": false,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 503,
+        "error_code": "voice_unavailable",
+        "wall_ms": 8010,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "43-unknown-mixed",
+      "intent": "sale",
+      "tags": ["smoke", "unknown", "multi-line", "price-shorthand"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "43-unknown-mixed",
+        "tags": ["smoke", "unknown", "multi-line", "price-shorthand"],
+        "error": "voice_unavailable",
+        "intent_ok": false,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 2,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": false,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 503,
+        "error_code": "voice_unavailable",
+        "wall_ms": 5712,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "44-ambiguous-hao-hao",
+      "intent": "sale",
+      "tags": ["ambiguous"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "44-ambiguous-hao-hao",
+        "tags": ["ambiguous"],
+        "error": "voice_unavailable",
+        "intent_ok": false,
+        "wer": null,
+        "wer_nodiac": null,
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 0,
+        "exact": false,
+        "payment_ok": false,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 503,
+        "error_code": "voice_unavailable",
+        "wall_ms": 5470,
+        "cost_usd": null
+      }
+    },
+    {
+      "case_id": "45-ambiguous-bia",
+      "intent": "sale",
+      "tags": ["ambiguous"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "45-ambiguous-bia",
+        "tags": ["ambiguous"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 3
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 3
+        },
+        "lines_expected": 1,
+        "lines_ok": 0,
+        "quantity_ok": 0,
+        "price_ok": 0,
+        "extra_lines": 1,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4865,
+        "cost_usd": 0,
+        "transcript": "hai lon bia Hà Nội",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 4854,
+        "utterance_id": "01a183d1-fa8f-77dd-93a4-2aa03a456243",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d2-0d85-7760-845a-7c073557db53",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000001d",
+                "name": "Bia Hà Nội lon 330ml",
+                "price": 12500,
+                "units": []
+              },
+              "quantity": 2,
+              "spoken": "hai lon bia Hà Nội",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 12500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 25000
+        }
+      }
+    },
+    {
+      "case_id": "46-two-speakers-sale",
+      "intent": "sale",
+      "tags": ["two-speakers", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "46-two-speakers-sale",
+        "tags": ["two-speakers", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 10
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 10
+        },
+        "lines_expected": 2,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 1,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 4007,
+        "cost_usd": null,
+        "transcript": "hai lon có ca thêm một chai nước suối Lavie nữa",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3996,
+        "utterance_id": "01a183d2-0d90-765d-a01d-0a7a7e4ed51b",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d2-1d2b-75c7-9153-5550cec3f81c",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000001d",
+                "name": "Bia Hà Nội lon 330ml",
+                "price": 12500,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "hai lon có ca",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 12500
+            },
+            {
+              "id": "01a183d2-1d2b-75c7-9153-55518403610e",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-05000000000f",
+                "name": "Nước suối Lavie 500ml",
+                "price": 5000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000008",
+                    "name": "lốc",
+                    "price": 29000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000009",
+                    "name": "thùng",
+                    "price": 116500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "thêm một chai nước suối Lavie nữa",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 5000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 17500
+        }
+      }
+    },
+    {
+      "case_id": "47-two-speakers-credit",
+      "intent": "sale",
+      "tags": ["two-speakers", "credit"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "47-two-speakers-credit",
+        "tags": ["two-speakers", "credit"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 9
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": true
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3155,
+        "cost_usd": null,
+        "transcript": "ghi nợ chị Lan hai gói bột giặt OMO",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3145,
+        "utterance_id": "01a183d2-1d35-71b5-9cba-315ee56f8812",
+        "sale_draft": {
+          "customer": {
+            "spoken_name": "Lan",
+            "status": "none"
+          },
+          "lines": [
+            {
+              "id": "01a183d2-297a-77d2-b433-35fd3b12ba15",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000055",
+                "name": "Bột giặt OMO 400g",
+                "price": 33000,
+                "units": []
+              },
+              "quantity": 2,
+              "spoken": "hai gói bột giặt OMO",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 33000
+            }
+          ],
+          "payment_method": "credit",
+          "total": 66000
+        }
+      }
+    },
+    {
+      "case_id": "48-two-speakers-sauce",
+      "intent": "sale",
+      "tags": ["two-speakers", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "48-two-speakers-sauce",
+        "tags": ["two-speakers", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 6,
+          "words": 16
+        },
+        "wer_nodiac": {
+          "edits": 6,
+          "words": 16
+        },
+        "lines_expected": 2,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 1,
+        "exact": false,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3809,
+        "cost_usd": null,
+        "transcript": "một chai Trà xanh 0 độ hai gói Mì Hảo Hảo tôm chua cay",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3798,
+        "utterance_id": "01a183d2-2988-7120-882d-184ce5cdbfc5",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d2-385d-73b3-9321-48f2e36e12a7",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "chai",
+                "id": "e7a10e7a-0000-4000-8000-050000000011",
+                "name": "Trà xanh 0 độ chai 455ml",
+                "price": 11000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một chai Trà xanh 0 độ",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            },
+            {
+              "id": "01a183d2-385e-72ee-aca4-c25d2b520962",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000000",
+                "name": "Mì Hảo Hảo tôm chua cay 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000000",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai gói Mì Hảo Hảo tôm chua cay",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 20000
+        }
+      }
+    },
+    {
+      "case_id": "49-noise-two-line",
+      "intent": "sale",
+      "tags": ["noise", "multi-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "49-noise-two-line",
+        "tags": ["noise", "multi-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 1,
+          "words": 7
+        },
+        "wer_nodiac": {
+          "edits": 1,
+          "words": 7
+        },
+        "lines_expected": 2,
+        "lines_ok": 2,
+        "quantity_ok": 2,
+        "price_ok": 2,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3919,
+        "cost_usd": null,
+        "transcript": "hai lon Coca-Cola một lon Pepsi",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3907,
+        "utterance_id": "01a183d2-386b-7628-8f85-e58a43de57b9",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d2-47ad-7439-82a4-64ccbc1c119f",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000c",
+                "name": "Coca-Cola lon 320ml",
+                "price": 11000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000002",
+                    "name": "lốc",
+                    "price": 64000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000003",
+                    "name": "thùng",
+                    "price": 256000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 2,
+              "spoken": "hai lon Coca-Cola",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 11000
+            },
+            {
+              "id": "01a183d2-47ad-7439-82a4-64cdade8cebf",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-05000000000d",
+                "name": "Pepsi lon 320ml",
+                "price": 10500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000004",
+                    "name": "lốc",
+                    "price": 61000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000005",
+                    "name": "thùng",
+                    "price": 244500,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 1,
+              "spoken": "một lon Pepsi",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 10500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 32500
+        }
+      }
+    },
+    {
+      "case_id": "50-noise-price",
+      "intent": "sale",
+      "tags": ["noise", "price-shorthand"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "50-noise-price",
+        "tags": ["noise", "price-shorthand"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 2,
+          "words": 9
+        },
+        "wer_nodiac": {
+          "edits": 2,
+          "words": 9
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3645,
+        "cost_usd": null,
+        "transcript": "một hộp sữa bột Dielac Alpha Gold 2 400g hai trăm",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3635,
+        "utterance_id": "01a183d2-47b9-7500-8748-bbaf2fa0411f",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d2-55eb-74ec-88cf-bd7702b6954c",
+              "needs_price": false,
+              "price_mismatch": true,
+              "price_source": "spoken",
+              "product": {
+                "base_unit": "hộp",
+                "id": "e7a10e7a-0000-4000-8000-05000000002c",
+                "name": "Sữa bột Dielac Alpha Gold 2 400g",
+                "price": 165000,
+                "units": []
+              },
+              "quantity": 1,
+              "spoken": "một hộp sữa bột Dielac Alpha Gold 2 400g hai trăm",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 200000
+            }
+          ],
+          "payment_method": "cash",
+          "total": 200000
+        }
+      }
+    },
+    {
+      "case_id": "51-noise-credit",
+      "intent": "sale",
+      "tags": ["noise", "credit"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "51-noise-credit",
+        "tags": ["noise", "credit"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 8
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 8
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": true
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3197,
+        "cost_usd": null,
+        "transcript": "ghi nợ chị Lan ba lon bia Tiger",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3188,
+        "utterance_id": "01a183d2-55f4-7474-aadc-8094b24e7962",
+        "sale_draft": {
+          "customer": {
+            "spoken_name": "Lan",
+            "status": "none"
+          },
+          "lines": [
+            {
+              "id": "01a183d2-6264-773b-91fb-132379231fc1",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "lon",
+                "id": "e7a10e7a-0000-4000-8000-050000000018",
+                "name": "Bia Tiger lon 330ml",
+                "price": 17000,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000a",
+                    "name": "lốc",
+                    "price": 99000,
+                    "quantity_in_base": 6
+                  },
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-06000000000b",
+                    "name": "thùng",
+                    "price": 396000,
+                    "quantity_in_base": 24
+                  }
+                ]
+              },
+              "quantity": 3,
+              "spoken": "ba lon bia Tiger",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 17000
+            }
+          ],
+          "payment_method": "credit",
+          "total": 51000
+        }
+      }
+    },
+    {
+      "case_id": "52-noise-single",
+      "intent": "sale",
+      "tags": ["noise", "single-line"],
+      "source": "synthetic",
+      "score": {
+        "case_id": "52-noise-single",
+        "tags": ["noise", "single-line"],
+        "error": null,
+        "intent_ok": true,
+        "wer": {
+          "edits": 0,
+          "words": 8
+        },
+        "wer_nodiac": {
+          "edits": 0,
+          "words": 8
+        },
+        "lines_expected": 1,
+        "lines_ok": 1,
+        "quantity_ok": 1,
+        "price_ok": 1,
+        "extra_lines": 0,
+        "exact": true,
+        "payment_ok": true,
+        "customer_ok": null
+      },
+      "outcome": {
+        "status": 201,
+        "wall_ms": 3264,
+        "cost_usd": null,
+        "transcript": "năm gói mì Hảo Hảo tôm chua cay",
+        "intent": "sale",
+        "model": "google/gemini-2.5-flash-lite",
+        "stt_fallback": false,
+        "latency_ms": 3254,
+        "utterance_id": "01a183d2-6272-73e4-befb-c9e22b14e9c4",
+        "sale_draft": {
+          "lines": [
+            {
+              "id": "01a183d2-6f27-75bc-bfda-f6f90281fc64",
+              "needs_price": false,
+              "price_mismatch": false,
+              "price_source": "catalog",
+              "product": {
+                "base_unit": "gói",
+                "id": "e7a10e7a-0000-4000-8000-050000000000",
+                "name": "Mì Hảo Hảo tôm chua cay 75g",
+                "price": 4500,
+                "units": [
+                  {
+                    "barcode": null,
+                    "id": "e7a10e7a-0000-4000-8000-060000000000",
+                    "name": "thùng",
+                    "price": 131000,
+                    "quantity_in_base": 30
+                  }
+                ]
+              },
+              "quantity": 5,
+              "spoken": "năm gói mì Hảo Hảo tôm chua cay",
+              "status": "matched",
+              "unit_id": null,
+              "unit_price": 4500
+            }
+          ],
+          "payment_method": "cash",
+          "total": 22500
+        }
+      }
+    }
+  ],
+  "notRun": [],
+  "aborted": null
+}

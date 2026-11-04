@@ -1,0 +1,17 @@
+{
+  "id": "27-price-unit",
+  "source": "synthetic",
+  "transcript": "hai lon bia tiger mười tám nghìn một lon",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "bia tiger",
+      "product": "Bia Tiger lon 330ml",
+      "quantity": 2,
+      "unit_price": 18000
+    }
+  ],
+  "tags": ["price-shorthand", "price-nghin"]
+}

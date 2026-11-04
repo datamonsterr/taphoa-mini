@@ -14,6 +14,8 @@ import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 
 import { newUuid } from '@/lib/uuid';
+import { localProducts } from '@/lib/offline/catalog';
+import { useOnline } from '@/lib/online';
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -65,6 +67,7 @@ import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
 import { listManualLines, resolveManualLine } from './review';
 import {
+  barcodeAliases,
   addProductImage,
   createProduct,
   getProduct,
@@ -143,12 +146,34 @@ const productsQuery = (params: Omit<ListProductsParams, 'cursor'>) => ({
 
 /** Products matching `params` (e.g. `{ q }`), flattened across cursor pages. */
 export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
+  const qc = useQueryClient();
+  const online = useOnline();
   return useInfiniteQuery({
     ...productsQuery(params),
-    // Typing a search keeps the previous grid on screen until the new page arrives.
-    placeholderData: keepPreviousData,
+    // Typing a search keeps the previous grid on screen until the new page arrives. Offline, a
+    // search nobody cached is answered from the catalog snapshot.
+    placeholderData: (previous) =>
+      (!online ? localProducts(qc, params) : null) ??
+      keepPreviousData(previous),
     select: (data) => data.pages.flatMap((page) => page.items),
   });
+}
+
+/** Exact barcode lookup shares product list keys and mutation invalidation. Cached per session. */
+export function useLookupBarcode() {
+  const client = useQueryClient();
+  return async (barcode: string) => {
+    for (const code of barcodeAliases(barcode)) {
+      const data = await client.fetchInfiniteQuery({
+        ...productsQuery({ barcode: code, limit: 1 }),
+        staleTime: Infinity,
+        gcTime: Infinity,
+      });
+      const product = data.pages[0]?.items[0];
+      if (product) return product;
+    }
+    return null;
+  };
 }
 
 export const useProduct = (id: string | undefined) =>
@@ -286,6 +311,29 @@ export const useDigest = (businessDate?: string) =>
     retry: false,
   });
 
+/**
+ * The digest screen's read: marks the digest read for the caller, then refreshes the dashboard
+ * card (a separate query) so its "Mới" badge goes away only after the digest was opened.
+ */
+export const useOpenDigest = (businessDate?: string) => {
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: keys.digestOpen(businessDate),
+    queryFn: async () => {
+      try {
+        const digest = await getDigest(businessDate, true);
+        void client.invalidateQueries({ queryKey: [...keys.all, 'digest'] });
+        return digest;
+      } catch (error) {
+        if (isApiError(error) && error.status === 404) return null;
+        throw error;
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+};
+
 /** Cursor lists expose flattened items, like useProducts. */
 export const useStock = (status: StockStatus = 'all') =>
   useInfiniteQuery({
@@ -374,6 +422,8 @@ export function useConfirmReceipt(id: string) {
   const qc = useQueryClient();
   const operationKey = useOperationKey();
   return useMutation({
+    // Offline the request must fail, not wait: a paused confirm leaves only a spinner.
+    networkMode: 'always',
     mutationFn: (input: Idempotent<ReceiptConfirm>) => {
       const { idempotencyKey: _key, ...body } = input;
       return confirmReceipt(id, body, operationKey(input));
@@ -395,6 +445,7 @@ export function useConfirmReceipt(id: string) {
 export function useDiscardReceipt(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    networkMode: 'always',
     mutationFn: () => discardReceipt(id),
     onSuccess: () => invalidate(qc, keys.receipts.all()),
   });
@@ -555,6 +606,8 @@ export function useDismissAlert() {
 export function useCreateDayClose() {
   const qc = useQueryClient();
   return useMutation({
+    // A close records the count taken now: offline it must fail, never wait and send later.
+    networkMode: 'always',
     mutationFn: (input: {
       date: string;
       counted_cash: number;
@@ -711,6 +764,8 @@ export function useUpdateCustomer(id: string) {
 export function useCreateRepayment(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    // Offline the request must fail (and the sheet say so), not wait in a paused state.
+    networkMode: 'always',
     mutationFn: ({
       idempotencyKey,
       ...body

@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "transcript": "hai lon coca chuyển khoản",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "transfer",
+  "lines": [
+    {
+      "spoken": "coca",
+      "quantity": 2,
+      "status": "matched"
+    }
+  ],
+  "requires_products": ["Coca-Cola lon"]
+}

@@ -19,7 +19,7 @@ use taphoa_api::{
 };
 use uuid::Uuid;
 
-// run_once intentionally visits every active store in this database.
+// The database is shared across parallel test processes, so each send pass is scoped.
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Default)]
@@ -68,6 +68,13 @@ impl PushApi for MockPush {
     }
     fn server_address(&self) -> &str {
         "mock-push"
+    }
+}
+
+fn scoped(stores: &[Uuid]) -> DigestJobConfig {
+    DigestJobConfig {
+        stores: Some(stores.to_vec()),
+        ..DigestJobConfig::default()
     }
 }
 
@@ -139,9 +146,11 @@ async fn registered_device_activates_store_and_pushes_only_once_per_day() {
             .contains(&world.store_id)
     );
     let now = Utc::now();
-    let first = job::run_once(&world.state, now).await.unwrap();
-    assert!(first.generated >= 1);
-    assert!(first.pushed_stores >= 1);
+    let first = job::run_once_with_config(&world.state, now, &scoped(&[world.store_id]))
+        .await
+        .unwrap();
+    assert_eq!(first.generated, 1);
+    assert_eq!(first.pushed_stores, 1);
     assert!(pushed_at(&world).await.is_some());
     let digest = digest::get_or_generate(
         &world.state,
@@ -151,7 +160,9 @@ async fn registered_device_activates_store_and_pushes_only_once_per_day() {
     .await
     .unwrap();
     let generated_at = digest.generated_at;
-    let second = job::run_once(&world.state, now).await.unwrap();
+    let second = job::run_once_with_config(&world.state, now, &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert_eq!(second.generated, 0);
     assert_eq!(second.pushed_stores, 0);
     let messages: Vec<Value> = {
@@ -199,7 +210,9 @@ async fn store_with_only_sale_is_not_scheduled_and_on_demand_get_generates() {
             .unwrap()
             .contains(&world.store_id)
     );
-    job::run_once(&world.state, Utc::now()).await.unwrap();
+    job::run_once_with_config(&world.state, Utc::now(), &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert!(pushed_at(&world).await.is_none());
     let res = world
         .checked(
@@ -233,7 +246,9 @@ async fn unregistered_ticket_removes_device_and_counts_failure() {
             error: Some("DeviceNotRegistered".into()),
         },
     );
-    let report = job::run_once(&world.state, Utc::now()).await.unwrap();
+    let report = job::run_once_with_config(&world.state, Utc::now(), &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert!(report.failed >= 1);
     assert!(report.unregistered >= 1);
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM devices WHERE token=$1)")
@@ -269,7 +284,9 @@ async fn receipts_after_delay_mark_ticket_ok() {
             error: None,
         },
     );
-    job::run_once(&world.state, Utc::now()).await.unwrap();
+    job::run_once_with_config(&world.state, Utc::now(), &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     let created_at: chrono::DateTime<Utc> =
         sqlx::query_scalar("SELECT created_at FROM push_tickets WHERE ticket_id=$1")
             .bind(&ticket_id)
@@ -306,8 +323,10 @@ async fn missing_push_adapter_leaves_generated_digest_unclaimed() {
     let (mut world, mock) = fixture().await;
     register(&world).await;
     world.state.push = None;
-    let report = job::run_once(&world.state, Utc::now()).await.unwrap();
-    assert!(report.generated >= 1);
+    let report = job::run_once_with_config(&world.state, Utc::now(), &scoped(&[world.store_id]))
+        .await
+        .unwrap();
+    assert_eq!(report.generated, 1);
     assert_eq!(report.sent, 0);
     assert_eq!(report.pushed_stores, 0);
     assert!(pushed_at(&world).await.is_none());
@@ -329,9 +348,10 @@ async fn concurrent_runs_claim_each_store_only_once() {
     let (world, mock) = fixture().await;
     let token = register(&world).await;
     let now = Utc::now();
+    let config = scoped(&[world.store_id]);
     let (first, second) = tokio::join!(
-        job::run_once(&world.state, now),
-        job::run_once(&world.state, now)
+        job::run_once_with_config(&world.state, now, &config),
+        job::run_once_with_config(&world.state, now, &config)
     );
     first.unwrap();
     second.unwrap();
@@ -346,6 +366,46 @@ async fn concurrent_runs_claim_each_store_only_once() {
     );
     assert!(pushed_at(&world).await.is_some());
     cleanup(&world).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn scoped_pass_leaves_unrelated_active_store_untouched() {
+    let _serial = SERIAL.lock().await;
+    let (selected, mock) = fixture().await;
+    let (unrelated, _) = fixture().await;
+    let selected_token = register(&selected).await;
+    let unrelated_token = register(&unrelated).await;
+
+    let report =
+        job::run_once_with_config(&selected.state, Utc::now(), &scoped(&[selected.store_id]))
+            .await
+            .unwrap();
+    assert_eq!(report.stores, 1);
+    let unrelated_digest: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM assistant_digests WHERE store_id=$1)")
+            .bind(unrelated.store_id)
+            .fetch_one(unrelated.pool())
+            .await
+            .unwrap();
+    assert!(!unrelated_digest);
+    assert!(
+        mock.messages
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|m| m.to == selected_token)
+    );
+    assert!(
+        !mock
+            .messages
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|m| m.to == unrelated_token)
+    );
+    cleanup(&selected).await;
+    cleanup(&unrelated).await;
 }
 
 #[tokio::test]
@@ -366,7 +426,17 @@ async fn one_store_generation_or_delivery_failure_does_not_stop_other_stores() {
         .await
         .unwrap();
     mock.fail_tokens.lock().unwrap().insert(failed_token);
-    let report = job::run_once(&healthy.state, Utc::now()).await.unwrap();
+    let report = job::run_once_with_config(
+        &healthy.state,
+        Utc::now(),
+        &scoped(&[
+            broken_generation.store_id,
+            broken_delivery.store_id,
+            healthy.store_id,
+        ]),
+    )
+    .await
+    .unwrap();
     assert!(report.failed >= 1);
     assert!(pushed_at(&healthy).await.is_some());
     assert_eq!(
@@ -390,6 +460,7 @@ async fn startup_catches_up_and_restart_does_not_repeat_push() {
     let (world, mock) = fixture().await;
     let token = register(&world).await;
     let config = DigestJobConfig {
+        stores: Some(vec![world.store_id]),
         send_at: chrono::NaiveTime::MIN,
         ..DigestJobConfig::default()
     };
@@ -412,15 +483,25 @@ async fn startup_catches_up_and_restart_does_not_repeat_push() {
     let task = job::spawn(world.state.clone(), config.clone(), receive);
     wait_for(token.clone()).await;
     stop.send(true).unwrap();
-    task.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(10), task)
+        .await
+        .expect("digest scheduler must stop")
+        .unwrap();
     // A new active store proves that the restarted scheduler completes its catch-up.
     let (probe, _) = fixture().await;
     let probe_token = register(&probe).await;
+    let config = DigestJobConfig {
+        stores: Some(vec![world.store_id, probe.store_id]),
+        ..config
+    };
     let (stop, receive) = tokio::sync::watch::channel(false);
     let task = job::spawn(world.state.clone(), config, receive);
     wait_for(probe_token).await;
     stop.send(true).unwrap();
-    task.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(10), task)
+        .await
+        .expect("digest scheduler must stop")
+        .unwrap();
     assert_eq!(
         mock.messages
             .lock()
@@ -467,6 +548,7 @@ async fn scheduler_honors_custom_active_window_and_receipt_delay() {
         },
     );
     let config = DigestJobConfig {
+        stores: Some(vec![world.store_id, old.store_id]),
         send_at: chrono::NaiveTime::MIN,
         active_window: Duration::days(1),
         receipt_delay: std::time::Duration::from_millis(20),
@@ -491,7 +573,10 @@ async fn scheduler_honors_custom_active_window_and_receipt_delay() {
     .await
     .expect("scheduler must check receipts using its configured delay");
     stop.send(true).unwrap();
-    task.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(10), task)
+        .await
+        .expect("digest scheduler must stop")
+        .unwrap();
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM assistant_digests WHERE store_id=$1)")
             .bind(old.store_id)
@@ -514,7 +599,9 @@ async fn failed_send_without_tickets_releases_claim_and_retries() {
     let token = register(&world).await;
     mock.fail_tokens.lock().unwrap().insert(token.clone());
     let now = Utc::now();
-    let report = job::run_once(&world.state, now).await.unwrap();
+    let report = job::run_once_with_config(&world.state, now, &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert!(report.failed >= 1);
     assert!(
         pushed_at(&world).await.is_none(),
@@ -527,7 +614,9 @@ async fn failed_send_without_tickets_releases_claim_and_retries() {
         .unwrap();
     assert_eq!(count, 0);
     mock.fail_tokens.lock().unwrap().remove(&token);
-    job::run_once(&world.state, now).await.unwrap();
+    job::run_once_with_config(&world.state, now, &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert!(pushed_at(&world).await.is_some());
     assert_eq!(
         mock.messages
@@ -566,7 +655,9 @@ async fn failed_later_batch_keeps_claim_when_tickets_were_already_recorded() {
         .bind(&tokens).bind(world.store_id).bind(world.lead_id).execute(world.pool()).await.unwrap();
     mock.fail_tokens.lock().unwrap().insert(tokens[100].clone());
     let now = Utc::now();
-    let report = job::run_once(&world.state, now).await.unwrap();
+    let report = job::run_once_with_config(&world.state, now, &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert!(report.failed >= 1);
     assert!(pushed_at(&world).await.is_some());
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_tickets WHERE store_id=$1")
@@ -576,7 +667,9 @@ async fn failed_later_batch_keeps_claim_when_tickets_were_already_recorded() {
         .unwrap();
     assert_eq!(count, 100);
     mock.fail_tokens.lock().unwrap().clear();
-    job::run_once(&world.state, now).await.unwrap();
+    job::run_once_with_config(&world.state, now, &scoped(&[world.store_id]))
+        .await
+        .unwrap();
     assert_eq!(
         mock.messages
             .lock()

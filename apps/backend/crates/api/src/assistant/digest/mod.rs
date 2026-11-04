@@ -122,6 +122,19 @@ pub async fn active_store_ids(pool: &PgPool, since: Duration) -> Result<Vec<Uuid
 #[derive(Deserialize)]
 pub struct Params {
     business_date: Option<NaiveDate>,
+    /// Only the digest screen sets this; the dashboard card reads without marking.
+    #[serde(default)]
+    mark_read: bool,
+}
+
+async fn stored_read_at(
+    db: &PgPool,
+    store_id: Uuid,
+    date: NaiveDate,
+    member_id: Uuid,
+) -> Result<Option<DateTime<Utc>>, sqlx::Error> {
+    sqlx::query_scalar("SELECT read_at FROM assistant_digest_reads WHERE store_id=$1 AND business_date=$2 AND member_id=$3")
+        .bind(store_id).bind(date).bind(member_id).fetch_optional(db).await
 }
 
 #[tracing::instrument(name = "assistant.digest", skip_all, fields(otel.name = "assistant.digest", taphoa.digest.source = tracing::field::Empty))]
@@ -132,7 +145,7 @@ pub async fn get(
 ) -> ApiResult<Json<Value>> {
     let Query(params) =
         params.map_err(|_| ApiError::validation_failed("invalid digest business_date"))?;
-    let today = crate::time::business_date(Utc::now());
+    let today = state.clock.today();
     let date = params.business_date.unwrap_or(today);
     let db = pool(&state)?;
     let digest = if date == today {
@@ -151,6 +164,10 @@ pub async fn get(
             .ok_or_else(ApiError::not_found)?
     };
     tracing::Span::current().record("taphoa.digest.source", digest.source.as_str());
-    let read_at = try_mark_read(db, actor.store_id, date, actor.member_id).await?;
+    let read_at = if params.mark_read {
+        try_mark_read(db, actor.store_id, date, actor.member_id).await?
+    } else {
+        stored_read_at(db, actor.store_id, date, actor.member_id).await?
+    };
     Ok(Json(view(&digest, &actor, read_at)))
 }

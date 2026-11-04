@@ -1,6 +1,10 @@
 //! Deterministic wording shared by every role: never render profit or costs.
-use super::super::tools::vnd;
 use serde_json::Value;
+
+/// Money the way the app writes it everywhere else: `20.000đ`, never `20.000 ₫`.
+fn vnd(amount: i64) -> String {
+    super::super::tools::vnd(amount).replace(" ₫", "đ")
+}
 
 pub fn render(data: &Value) -> String {
     let sales = &data["sales"];
@@ -78,8 +82,16 @@ mod tests {
     fn owner_summary_mentions_sales_restock_debts_and_drafts_without_profit() {
         assert_eq!(
             render(&data()),
-            "Hôm qua cửa hàng bán 12 đơn, doanh thu 1.250.000 ₫, tăng 8% so với hôm kia. Cần nhập 3 sản phẩm: Coca, Bia, Mì. 2 khách nợ quá hạn, tổng 450.000 ₫. 1 việc đang chờ xử lý."
+            "Hôm qua cửa hàng bán 12 đơn, doanh thu 1.250.000đ, tăng 8% so với hôm kia. Cần nhập 3 sản phẩm: Coca, Bia, Mì. 2 khách nợ quá hạn, tổng 450.000đ. 1 việc đang chờ xử lý."
         );
+    }
+    #[test]
+    fn money_uses_the_app_format_without_space_or_dong_sign() {
+        let mut d = data();
+        d["sales"]["revenue"] = json!(20000);
+        let text = render(&d);
+        assert!(text.contains("doanh thu 20.000đ,"), "{text}");
+        assert!(!text.contains('₫'), "{text}");
     }
     #[test]
     fn zero_sales_restock_debts_and_drafts_have_sensible_wording() {

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>PayElder</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;padding:0;background:#ffffff}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; padding: 16px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 16px">
+
+  <div style="display: flex; align-items: center; gap: 12px">
+    <a href="Cart.dc.html" class="th-ib" aria-label="Quay lại giỏ hàng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>
+    <h1 class="heading" style="margin: 0; flex: 1">Thanh toán</h1>
+  </div>
+  <div role="radiogroup" aria-label="Cách trả" style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--surface-soft)">
+    <button type="button" role="radio" aria-checked="{{qrOn}}" aria-label="Chuyển khoản" onClick="{{pickQr}}" style="{{qrStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>Chuyển khoản</button>
+    <button type="button" role="radio" aria-checked="{{cashOn}}" aria-label="Tiền mặt" onClick="{{pickCash}}" style="{{cashStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>Tiền mặt</button>
+    <button type="button" role="radio" aria-checked="{{creditOn}}" aria-label="Ghi nợ" onClick="{{pickCredit}}" style="{{creditStyle}}"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h4"/></svg>Ghi nợ</button>
+  </div>
+
+  <div class="th-big-total" style="text-align: center">49.500đ</div>
+  <div role="status" style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 16px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 600 18px/24px var(--font-sans)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="stroke: currentColor"><path d="M11 5L6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>Đọc: bốn mươi chín nghìn năm trăm đồng</div>
+
+  <sc-if value="{{isQr}}" hint-placeholder-val="{{true}}">
+    <div class="th-qr" style="padding: 20px 16px 16px">
+      <div class="th-qr-frame">
+        <div role="img" aria-label="Mã VietQR 49.500đ" style="display: grid; grid-template-columns: repeat(25, 9px); grid-auto-rows: 9px; width: 225px; height: 225px">
+          <sc-for list="{{cells}}" as="c" hint-placeholder-count="625"><span style="{{c.s}}"></span></sc-for>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font: 500 15px/20px var(--font-sans); color: var(--ink-muted)">
+        <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round"><path d="M3 21h18M5 21V10M19 21V10M9 21v-7M15 21v-7M2 10l10-6 10 6z"/></svg>
+        <span class="th-num">VCB · 0123 456 789</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isCash}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 28px; background: var(--surface-soft)">
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{notes}}" as="n" hint-placeholder-count="4">
+          <button type="button" class="th-chip th-num" aria-pressed="{{n.pressed}}" onClick="{{n.pick}}" style="justify-content: center; min-height: 64px; font-size: 20px; background: {{n.bg}}; color: {{n.fg}}">{{n.label}}</button>
+        </sc-for>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 0 8px">
+        <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted)"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 0 1 0 8h-1"/></svg>
+        <b class="th-num" aria-label="Tiền thối" style="font: 800 40px/46px var(--font-sans); color: var(--success)">{{changeText}}</b>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isCredit}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 28px; background: var(--surface-soft)">
+      <a href="CustomerPick.dc.html" aria-label="Khách: Chị Lan, đang nợ 1.250.000đ. Đổi khách hàng" style="display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 12px 0 6px; border-radius: 9999px; background: var(--surface)"><span style="display: grid; place-items: center; width: 48px; height: 48px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent); font: 800 20px/1 var(--font-sans)">L</span><span style="flex: 1; min-width: 0"><span class="label" style="display: block">Chị Lan</span><span class="caption th-num" style="display: block; color: var(--ink-muted)">Đang nợ 1.250.000đ · 0912 345 678</span></span><span class="caption" style="color: var(--accent); font-weight: 600">Đổi</span><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--accent); width: 20px; height: 20px"><path d="M9 6l6 6-6 6"/></svg></a>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span class="label" style="flex: none">Trả trước</span>
+        <div role="radiogroup" aria-label="Trả trước" style="flex: 1; display: flex; gap: 6px; overflow-x: auto">
+          <button type="button" class="th-chip th-num" role="radio" aria-checked="true" aria-pressed="true" style="min-height: 48px">0đ</button>
+          <button type="button" class="th-chip th-num" role="radio" aria-checked="false" aria-pressed="false" style="min-height: 48px; background: var(--surface)">20.000</button>
+          <button type="button" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" style="min-height: 48px; background: var(--surface)">Khác</button>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 4px 0 0; font: 500 15px/20px var(--font-sans); color: var(--ink-muted)">Nợ mới của khách <b class="th-num" style="font: 800 22px/28px var(--font-sans); color: var(--ink)">1.299.500đ</b></div>
+    </div>
+  </sc-if>
+
+  <div aria-label="Món trong đơn" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+      <div class="th-photo" style="position: relative; width: 64px; border-radius: 14px; overflow: visible"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 22px; height: 38px"><rect x="15" y="2" width="10" height="8" rx="2" fill="#111114"/><path d="M14 10h12l4 10v44a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V20z" fill="#c62f2f"/><rect x="10" y="32" width="20" height="14" fill="#ffffff" opacity=".85"/></svg><b class="th-num" style="position: absolute; right: -6px; top: -6px; width: 24px; height: 24px; border-radius: 9999px; background: var(--ink); color: var(--on-ink); font-size: 13px; line-height: 24px; text-align: center">2</b></div>
+      <b class="th-num" style="font-size: 15px; line-height: 20px">20.000</b>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+      <div class="th-photo" style="width: 64px; border-radius: 14px"><svg viewBox="0 0 40 40" aria-hidden="true" style="width: 34px; height: 34px"><rect x="0" y="0" width="40" height="40" rx="6" fill="#e2a94b"/><circle cx="20" cy="22" r="10" fill="#c62f2f"/><rect x="5" y="4" width="30" height="5" rx="2" fill="#ffffff" opacity=".7"/></svg></div>
+      <b class="th-num" style="font-size: 15px; line-height: 20px">4.500</b>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+      <div class="th-photo" style="width: 64px; border-radius: 14px"><svg viewBox="0 0 40 70" aria-hidden="true" style="width: 22px; height: 38px"><rect x="8" y="10" width="24" height="52" rx="6" fill="#c62f2f"/><rect x="10" y="6" width="20" height="6" rx="3" fill="#a1a1a8"/><path d="M8 34c8-6 16 6 24 0" stroke="#ffffff" stroke-width="3" fill="none"/></svg></div>
+      <b class="th-num" style="font-size: 15px; line-height: 20px">10.000</b>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+      <div class="th-photo" style="width: 64px; border-radius: 14px"><svg viewBox="0 0 60 60" aria-hidden="true" style="width: 40px; height: 40px"><path d="M12 14c6-4 30-4 36 0l4 38a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4z" fill="#f2e6cf"/><path d="M14 8h32l2 8H12z" fill="#d9c8a6"/><circle cx="22" cy="32" r="5" fill="#a34f00"/><circle cx="36" cy="28" r="5" fill="#a34f00"/><circle cx="30" cy="42" r="5" fill="#a34f00"/></svg></div>
+      <b class="th-num" style="font-size: 15px; line-height: 20px">15.000</b>
+    </div>
+  </div>
+
+  <sc-if value="{{isNotCredit}}" hint-placeholder-val="{{true}}">
+    <a href="Main.dc.html" class="th-btn th-btn-block th-btn-xl" aria-label="Đã nhận tiền" style="margin-top: auto; background: var(--success); color: var(--on-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 32px; height: 32px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></a>
+  </sc-if>
+  <sc-if value="{{isCredit}}" hint-placeholder-val="{{false}}">
+    <a href="Main.dc.html" class="th-btn th-btn-ink th-btn-block th-btn-xl" aria-label="Ghi nợ 49.500đ cho Chị Lan" style="margin-top: auto"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h4"/></svg>Ghi nợ <span class="th-num" style="margin-left: 6px">49.500đ</span></a>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const m = (this.state && this.state.m) || 'qr';
+    const got = (this.state && this.state.got) || 100000;
+    const total = 49500;
+    const fmt = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const seg = (on) => 'flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 48px; padding: 0 8px; border: 0; border-radius: 9999px; cursor: pointer; font: 600 14px/18px var(--font-sans); white-space: nowrap; ' + (on ? 'background: #111114; color: #ffffff;' : 'background: transparent; color: #111114;');
+    const N = 25, cells = [];
+    const finder = (r, c) => {
+      const f = (r0, c0) => { const y = r - r0, x = c - c0; if (y < 0 || x < 0 || y > 6 || x > 6) return null; return (y === 0 || y === 6 || x === 0 || x === 6 || (y >= 2 && y <= 4 && x >= 2 && x <= 4)); };
+      const a = f(0, 0), b = f(0, N - 7), d = f(N - 7, 0);
+      return a !== null ? a : b !== null ? b : d;
+    };
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const fv = finder(r, c);
+      const sep = (r === 7 && (c < 8 || c > N - 9)) || (c === 7 && (r < 8 || r > N - 9)) || (r < 8 && c === N - 8) || (c < 8 && r === N - 8);
+      const on = fv !== null ? fv : sep ? false : (((r * 31 + c * 17 + r * c * 7) % 11) < 5);
+      cells.push({ s: on ? 'background: #111114' : 'background: transparent' });
+    }
+    const notes = [50000, 100000, 200000, 500000].map((v) => ({
+      label: fmt(v), pressed: got === v ? 'true' : 'false',
+      bg: got === v ? '#111114' : '#ffffff', fg: got === v ? '#ffffff' : '#111114',
+      pick: () => this.setState({ got: v })
+    }));
+    return {
+      isQr: m === 'qr', isCash: m === 'cash', isCredit: m === 'credit', isNotCredit: m !== 'credit',
+      qrOn: m === 'qr' ? 'true' : 'false', cashOn: m === 'cash' ? 'true' : 'false', creditOn: m === 'credit' ? 'true' : 'false',
+      qrStyle: seg(m === 'qr'), cashStyle: seg(m === 'cash'), creditStyle: seg(m === 'credit'),
+      pickQr: () => this.setState({ m: 'qr' }), pickCash: () => this.setState({ m: 'cash' }), pickCredit: () => this.setState({ m: 'credit' }),
+      cells, notes, changeText: fmt(Math.max(0, got - total)) + 'đ'
+    };
+  }
+}
+</script>
+</body>
+</html>

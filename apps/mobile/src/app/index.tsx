@@ -1,1 +1,1 @@
-export { CameraScreen as default } from '@/features/camera/CameraScreen';
+export { Home as default } from '@/features/home/Home';

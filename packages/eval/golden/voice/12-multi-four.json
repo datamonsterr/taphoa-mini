@@ -1,0 +1,35 @@
+{
+  "id": "12-multi-four",
+  "source": "synthetic",
+  "transcript": "một chai dầu ăn simply, hai gói bột ngọt ajinomoto, một chai nước mắm nam ngư và năm quả trứng gà",
+  "language": "vi",
+  "intent": "sale",
+  "payment_method": "cash",
+  "lines": [
+    {
+      "spoken": "dầu ăn simply",
+      "product": "Dầu ăn Simply 1L",
+      "quantity": 1,
+      "unit_price": null
+    },
+    {
+      "spoken": "bột ngọt ajinomoto",
+      "product": "Bột ngọt Ajinomoto 400g",
+      "quantity": 2,
+      "unit_price": null
+    },
+    {
+      "spoken": "nước mắm nam ngư",
+      "product": "Nước mắm Nam Ngư 500ml",
+      "quantity": 1,
+      "unit_price": null
+    },
+    {
+      "spoken": "trứng gà",
+      "product": "Trứng gà ta",
+      "quantity": 5,
+      "unit_price": null
+    }
+  ],
+  "tags": ["multi-line"]
+}

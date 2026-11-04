@@ -171,7 +171,10 @@ async fn load_entities(
     let mut entities = HashMap::new();
     let customer_ids = ids("customer");
     if !customer_ids.is_empty() {
-        for (id, data) in crate::debts::load_customers(conn, actor.store_id, &customer_ids).await? {
+        for (id, data) in
+            crate::debts::load_customers(conn, actor.store_id, &customer_ids, state.clock.today())
+                .await?
+        {
             entities.insert(("customer".into(), id), data);
         }
     }

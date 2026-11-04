@@ -13,6 +13,7 @@ export type SwitchProps = {
   onValueChange: (value: boolean) => void;
   accessibilityLabel: string;
   disabled?: boolean;
+  testID?: string;
 };
 
 const KNOB_OFF = 4;
@@ -23,6 +24,7 @@ export const Switch = memo(function Switch({
   onValueChange,
   accessibilityLabel,
   disabled = false,
+  testID,
 }: SwitchProps) {
   const x = useSharedValue(value ? KNOB_ON : KNOB_OFF);
   useEffect(() => {
@@ -31,6 +33,7 @@ export const Switch = memo(function Switch({
   const knobStyle = useAnimatedStyle(() => ({ left: x.value }));
   return (
     <Pressable
+      testID={testID}
       accessibilityRole="switch"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ checked: value, disabled }}

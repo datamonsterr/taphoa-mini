@@ -111,6 +111,10 @@ fn probability(value: f32) -> f32 {
     }
 }
 
+/// Rule-fallback auto-match bar (decisions model unavailable).
+const FALLBACK_MIN_SIMILARITY: f32 = 0.85;
+const FALLBACK_MIN_MARGIN: f32 = 0.15;
+
 pub async fn map_lines(
     client: Option<&dyn DecisionClient>,
     candidates: &[LineCandidate],
@@ -122,10 +126,21 @@ pub async fn map_lines(
         if candidates.is_empty() {
             None
         } else {
-            client
+            match client
                 .decide(&build_request(client.model(), candidates, catalog))
                 .await
-                .ok()
+            {
+                Ok(response) => Some(response),
+                Err(error) => {
+                    // Without this line an operator cannot tell the feature is degraded.
+                    tracing::warn!(
+                        model = client.model(),
+                        error = %error,
+                        "receipt decisions call failed; using the rule fallback"
+                    );
+                    None
+                }
+            }
         }
     } else {
         None
@@ -183,9 +198,17 @@ pub async fn map_lines(
             )
         } else {
             let role = rule_role;
-            let matched = products
-                .first()
-                .filter(|p| p.similarity.is_finite() && (0.6..=1.0).contains(&p.similarity));
+            // Trigram similarity alone is weak evidence: two names sharing a common
+            // first word reach 0.7. Auto-match only a near-identical name that clearly
+            // beats the runner-up; everything else stays for the person to pick.
+            let matched = products.first().filter(|p| {
+                p.similarity.is_finite()
+                    && (FALLBACK_MIN_SIMILARITY..=1.0).contains(&p.similarity)
+                    && products.get(1).is_none_or(|next| {
+                        !next.similarity.is_finite()
+                            || p.similarity - next.similarity >= FALLBACK_MIN_MARGIN
+                    })
+            });
             (
                 role,
                 matched.map(|p| p.product_id),
@@ -405,7 +428,7 @@ mod tests {
     }
     #[tokio::test]
     async fn fallback_errors_missing_client_and_similarity_threshold() {
-        for similarity in [0.599, 0.6] {
+        for similarity in [0.849, 0.85] {
             for client_present in [true, false] {
                 let client =
                     FakeDecisions::new("configured/model", [Err(DecisionError::Transport)]);
@@ -425,9 +448,36 @@ mod tests {
                 assert_eq!(outcome.lines.len(), 1);
                 assert_eq!(
                     outcome.lines[0].product_id,
-                    (similarity >= 0.6).then(|| Uuid::from_u128(1))
+                    (similarity >= 0.85).then(|| Uuid::from_u128(1))
                 );
             }
         }
+    }
+    #[tokio::test]
+    async fn fallback_does_not_match_names_sharing_only_a_common_word() {
+        // "Bánh Chocopie hập 5" vs the only catalog "Bánh bi": 0.714 in production.
+        let mut products = catalog();
+        products[0].similarity = 0.714;
+        let outcome = map_lines(None, &[line("Bánh Chocopie hập 5")], &[products]).await;
+        assert_eq!(outcome.parser, "fallback");
+        assert_eq!(outcome.lines.len(), 1);
+        assert_eq!(outcome.lines[0].product_id, None);
+        assert_eq!(outcome.lines[0].match_confidence, None);
+        assert_eq!(
+            outcome.lines[0].candidates.len(),
+            2,
+            "candidates stay as suggestions"
+        );
+    }
+    #[tokio::test]
+    async fn fallback_requires_a_margin_over_the_runner_up() {
+        let mut products = catalog();
+        products[0].similarity = 0.9;
+        products[1].similarity = 0.85;
+        let outcome = map_lines(None, &[line("Coca")], &[products.clone()]).await;
+        assert_eq!(outcome.lines[0].product_id, None);
+        products[1].similarity = 0.5;
+        let outcome = map_lines(None, &[line("Coca")], &[products]).await;
+        assert_eq!(outcome.lines[0].product_id, Some(Uuid::from_u128(1)));
     }
 }

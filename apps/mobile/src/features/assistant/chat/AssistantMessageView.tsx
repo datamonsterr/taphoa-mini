@@ -6,13 +6,14 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/ui/Icon';
 import { Text } from '@/components/ui/ScaledText';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, space, typography } from '@/theme';
 
 import type {
   AssistantChatMessage,
   FeedbackRating,
   ToolLine,
 } from '../chatReducer';
+import { plainMoney } from '../money';
 import { dict } from '../strings';
 import { ActionCard } from './ActionCard';
 import { CardView } from './cards/CardView';
@@ -37,15 +38,15 @@ const ToolStatus = memo(function ToolStatus({ tool }: { tool: ToolLine }) {
         <Icon
           icon={tool.status === 'ok' ? Check : X}
           size={18}
-          color={tool.status === 'ok' ? colors.success : colors.danger}
+          color={tool.status === 'ok' ? colors.inkMuted : colors.danger}
         />
       )}
       <Text style={styles.toolText}>
         {tool.status === 'running'
           ? tool.label
           : tool.status === 'ok'
-            ? (tool.summary ?? tool.label)
-            : (tool.summary ?? t('toolFailed'))}
+            ? plainMoney(tool.summary ?? tool.label)
+            : plainMoney(tool.summary ?? t('toolFailed'))}
       </Text>
     </View>
   );
@@ -73,7 +74,9 @@ export const AssistantMessageView = memo(function AssistantMessageView({
       {message.tools.map((tool) => (
         <ToolStatus key={tool.call_id} tool={tool} />
       ))}
-      {message.text ? <Text style={styles.text}>{message.text}</Text> : null}
+      {message.text ? (
+        <Text style={styles.text}>{plainMoney(message.text)}</Text>
+      ) : null}
       {message.status === 'streaming' && !message.text ? (
         <View testID="assistant-typing" style={styles.typing}>
           <ActivityIndicator
@@ -118,10 +121,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[2],
     alignSelf: 'flex-start',
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceSoft,
   },
   toolText: { ...typography.caption, color: colors.inkMuted },
   typing: { alignSelf: 'flex-start', padding: space[2] },

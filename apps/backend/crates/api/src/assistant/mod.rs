@@ -5,6 +5,7 @@ pub mod agent;
 pub mod config;
 pub mod digest;
 pub mod eval;
+mod grounding;
 pub mod model;
 pub mod next_steps;
 pub mod quota;
@@ -120,3 +121,5 @@ mod tests {
         assert_eq!(state.confirms.available_permits(), 4);
     }
 }
+
+mod policy;
