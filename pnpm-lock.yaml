@@ -22,8 +22,8 @@ importers:
         specifier: ^21.2.4
         version: 21.2.4
       '@redocly/cli':
-        specifier: ^2.71.1
-        version: 2.71.1
+        specifier: ^2.72.1
+        version: 2.72.1
       '@stoplight/prism-cli':
         specifier: ^5.16.0
         version: 5.16.0
@@ -2028,8 +2028,8 @@ packages:
   '@redocly/ajv@8.11.2':
     resolution: {integrity: sha512-io1JpnwtIcvojV7QKDUSIuMN/ikdOUd1ReEnUnMKGfDVridQZ31J0MmIuqwuRjWDZfmvr+Q0MqCcfHM2gTivOg==}
 
-  '@redocly/cli@2.71.1':
-    resolution: {integrity: sha512-oGJZuFi44K4ehsrPsqeh72k1rVEnqFrFuHPwk8mR0fHenNT6NARrZsPpBvCkNEm71tvBA6JU8ZqRzK/l2bmzkg==}
+  '@redocly/cli@2.72.1':
+    resolution: {integrity: sha512-eARHR2ZsqIlrnV4mcKA+CK3ptV0u2d74xOhNQMlrmixMEbV4RfrnAdwNyIcGhO+3A6B3YzzG6nj5kZRKKCiGLw==}
     engines: {node: '>=22.12.0 || >=20.19.0 <21.0.0', npm: '>=10'}
     hasBin: true
 
@@ -6449,6 +6449,10 @@ packages:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
     hasBin: true
 
+  semver@6.3.2:
+    resolution: {integrity: sha512-GYrCADwpu6yV5OAvchkQ27Z5wwMxWAEMg5NNWjyHh/5DboFFqbdbvYNIvZouQpxXyeMPoTOh0vdPYKlf0ZswdQ==}
+    hasBin: true
+
   semver@7.6.3:
     resolution: {integrity: sha512-oVekP1cKtI+CTDvHWYFUcMtsK/00wmAEfyqKfNdARm8u1wNVhSgaX7A8d4UuIlUI5e84iEwOhs7ZPYRmzU9U6A==}
     engines: {node: '>=10'}
@@ -9580,7 +9584,7 @@ snapshots:
       require-from-string: 2.0.2
       uri-js-replace: 1.0.1
 
-  '@redocly/cli@2.71.1': {}
+  '@redocly/cli@2.72.1': {}
 
   '@redocly/config@0.22.0': {}
 
@@ -12609,7 +12613,7 @@ snapshots:
       '@babel/parser': 7.29.12
       '@istanbuljs/schema': 0.1.6
       istanbul-lib-coverage: 3.2.2
-      semver: 6.3.1
+      semver: 6.3.2
     transitivePeerDependencies:
       - supports-color
 
@@ -14731,6 +14735,8 @@ snapshots:
   seedrandom@3.0.5: {}
 
   semver@6.3.1: {}
+
+  semver@6.3.2: {}
 
   semver@7.6.3: {}
 
