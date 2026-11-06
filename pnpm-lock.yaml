@@ -63,8 +63,8 @@ importers:
         specifier: ^0.4.1
         version: 0.4.1
       '@posthog/react-native-plugin':
-        specifier: ^2.12.7
-        version: 2.12.7(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+        specifier: ^2.13.0
+        version: 2.13.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))
@@ -178,7 +178,7 @@ importers:
         version: 1.440.0(@types/react@19.3.0)(react@19.3.0)
       posthog-react-native:
         specifier: ^4.85.0
-        version: 4.85.0(0e7482fe29231f4a7b00bb4c56549483)
+        version: 4.85.0(b2256f58316b8f453172b0c3aac79459)
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -1753,8 +1753,8 @@ packages:
   '@posthog/core@1.61.2':
     resolution: {integrity: sha512-l3b6Dc2NmItwmyu6ot7K2jtStQOAQjZw/PB/gpZwk2W6SBCbvPg6YJzReSBSQLuok19ridbfVNk70a5hgoGX2Q==}
 
-  '@posthog/react-native-plugin@2.12.7':
-    resolution: {integrity: sha512-YnnVKC0+0yMgggjNLP+kEdXnPEgsIGip6xb32e6pT3L01kgZpOcs6Q10mjVD65ZhxQkBnC2FgbgQstZgJdNolw==}
+  '@posthog/react-native-plugin@2.13.0':
+    resolution: {integrity: sha512-OACM1UnyBf9Ld1KsKXFF1cvQu426EcvboZihaVbISLybiurdsqN6qnZzD7B6Q1Wg9/3bGqXQNzQKdIy115Iyag==}
     peerDependencies:
       react: '*'
       react-native: '*'
@@ -6449,6 +6449,10 @@ packages:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
     hasBin: true
 
+  semver@6.3.2:
+    resolution: {integrity: sha512-GYrCADwpu6yV5OAvchkQ27Z5wwMxWAEMg5NNWjyHh/5DboFFqbdbvYNIvZouQpxXyeMPoTOh0vdPYKlf0ZswdQ==}
+    hasBin: true
+
   semver@7.6.3:
     resolution: {integrity: sha512-oVekP1cKtI+CTDvHWYFUcMtsK/00wmAEfyqKfNdARm8u1wNVhSgaX7A8d4UuIlUI5e84iEwOhs7ZPYRmzU9U6A==}
     engines: {node: '>=10'}
@@ -9268,7 +9272,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.418.0
 
-  '@posthog/react-native-plugin@2.12.7(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
+  '@posthog/react-native-plugin@2.13.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)
@@ -12609,7 +12613,7 @@ snapshots:
       '@babel/parser': 7.29.12
       '@istanbuljs/schema': 0.1.6
       istanbul-lib-coverage: 3.2.2
-      semver: 6.3.1
+      semver: 6.3.2
     transitivePeerDependencies:
       - supports-color
 
@@ -14264,12 +14268,12 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-react-native@4.85.0(0e7482fe29231f4a7b00bb4c56549483):
+  posthog-react-native@4.85.0(b2256f58316b8f453172b0c3aac79459):
     dependencies:
       '@posthog/core': 1.61.2
       '@posthog/types': 1.418.0
     optionalDependencies:
-      '@posthog/react-native-plugin': 2.12.7(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+      '@posthog/react-native-plugin': 2.13.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))
       expo-application: 58.1.2(expo@58.0.19)
       expo-device: 58.0.5(expo@58.0.19)
@@ -14731,6 +14735,8 @@ snapshots:
   seedrandom@3.0.5: {}
 
   semver@6.3.1: {}
+
+  semver@6.3.2: {}
 
   semver@7.6.3: {}
 
