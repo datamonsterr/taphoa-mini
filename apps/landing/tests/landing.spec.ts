@@ -226,6 +226,67 @@ test('1040px and 720px breakpoints preserve the board layout changes', async ({
   }
 });
 
+test("reduced motion preserves the board's tick-five demo states", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await expect(page.locator('[data-frames]')).toHaveText('15');
+  await expect(page.locator('.ringstage')).not.toHaveClass(/isSaved/);
+  await expect(page.locator('.vtotal')).not.toHaveClass(/on/);
+});
+
+test('revenue chart description agrees with its bars', async ({ page }) => {
+  const chart = page.locator('.bars');
+  const label = (await chart.getAttribute('aria-label'))!;
+  const heights = await chart
+    .locator('.bar > div')
+    .evaluateAll((bars) =>
+      bars.map((bar) => Number.parseFloat(getComputedStyle(bar).height)),
+    );
+  const todayIsHighest = heights.at(-1)! >= Math.max(...heights.slice(0, -1));
+  const descriptionClaimsTodayIsHighest = /hôm nay cao nhất tuần/i.test(label);
+  expect(descriptionClaimsTodayIsHighest).toBe(todayIsHighest);
+});
+
+test('waitlist placeholders meet normal-text contrast', async ({ page }) => {
+  for (const index of [0, 1]) {
+    const widget = await openWaitlist(page, index);
+    await expect
+      .poll(() => widget.evaluate((el) => getComputedStyle(el).backgroundColor))
+      .toBe('rgb(255, 255, 255)');
+    const ratio = await widget.evaluate((el) => {
+      const input = el.querySelector<HTMLInputElement>('.wl-in')!;
+      const parse = (color: string) =>
+        color
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number);
+      const luminance = ([r, g, b]: number[]) => {
+        const linear = [r, g, b].map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045
+            ? value / 12.92
+            : ((value + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+      };
+      const foreground = luminance(
+        parse(getComputedStyle(input, '::placeholder').color),
+      );
+      const background = luminance(parse(getComputedStyle(el).backgroundColor));
+      return (
+        (Math.max(foreground, background) + 0.05) /
+        (Math.min(foreground, background) + 0.05)
+      );
+    });
+    expect(
+      ratio,
+      `waitlist ${index + 1} placeholder contrast`,
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
 test('scan tracks three products, flags ambiguous Pringles, confirms 60.000đ, and loops', async ({
   page,
 }) => {
@@ -286,17 +347,18 @@ test('voice transcription, cart, revenue, bars, and top items update', async ({
   await expect(page.locator('.bento')).toContainText('Chốt sổ cuối ngày');
 });
 
-test('reduced motion shows completed static demos and removes all animation and transitions', async ({
+test('reduced motion keeps tick-five demos static and removes all animation and transitions', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   await expect(page.locator('.scr')).toHaveClass(/s5/);
-  await expect(page.locator('.ring .seg.on')).toHaveCount(8);
-  await expect(page.locator('.ringstage')).toHaveClass(/isSaved/);
-  await expect(page.locator('.ask')).toHaveCSS('opacity', '1');
-  await expect(page.locator('.vtotal')).toHaveClass(/on/);
+  await expect(page.locator('[data-frames]')).toHaveText('15');
+  await expect(page.locator('.ring .seg.on')).toHaveCount(5);
+  await expect(page.locator('.ringstage')).not.toHaveClass(/isSaved/);
+  await expect(page.locator('.ask')).toHaveCSS('opacity', '0');
+  await expect(page.locator('.vtotal')).not.toHaveClass(/on/);
   const before = await page.locator('.lp').innerHTML();
   await page.clock.runFor(30_000);
   expect(await page.locator('.lp').innerHTML()).toBe(before);

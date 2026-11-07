@@ -120,7 +120,7 @@ function render(tick, reduce = false) {
   text('[data-scan-hint]', hints[p]);
   text('[data-scan-cta]', p >= 5 ? 'Đã thêm vào giỏ' : 'Thêm vào giỏ');
 
-  const e = reduce ? 11 : tick % 13;
+  const e = reduce ? 5 : tick % 13;
   const fill = Math.min(e, 8);
   $('.ringstage').className =
     'ringstage' +
@@ -142,7 +142,7 @@ function render(tick, reduce = false) {
     step.classList.toggle('on', [e <= 1, e >= 2 && e <= 8, e >= 9][i]),
   );
 
-  const v = reduce ? 8 : tick % 11;
+  const v = reduce ? 5 : tick % 11;
   $('.vcard').classList.toggle('listening', v >= 1 && v <= 4);
   $$('.w').forEach((word, i) =>
     word.classList.toggle('on', i < Math.min(7, v * 2)),

@@ -340,7 +340,7 @@ a:hover {
   outline: none;
 }
 .wl-in::placeholder {
-  color: #8a8a92;
+  color: var(--ink-muted);
 }
 .wl-go {
   display: grid;
