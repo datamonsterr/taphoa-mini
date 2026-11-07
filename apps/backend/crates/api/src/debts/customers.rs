@@ -212,7 +212,9 @@ pub(super) async fn list(
         ));
     }
     let today = state.clock.today();
-    let mut rows:Vec<ListRow>=sqlx::query_as("SELECT *,lower(name) AS sort_name FROM customers WHERE store_id=$1 AND (archived_at IS NOT NULL)=$2 AND ($3::text IS NULL OR strpos(lower(name),lower($3))>0 OR strpos(lower(coalesce(phone,'')),lower($3))>0) AND ($4::bool IS NULL OR coalesce(oldest_debt_date < $5::date - 7,false)=$4) AND ($6::uuid IS NULL OR ($7='balance' AND (balance < $8 OR (balance=$8 AND id>$6))) OR ($7='recent' AND (updated_at < $9 OR (updated_at=$9 AND id>$6))) OR ($7='name' AND (lower(name),id)>($10,$6))) ORDER BY CASE WHEN $7='balance' THEN balance END DESC, CASE WHEN $7='recent' THEN updated_at END DESC, CASE WHEN $7='name' THEN lower(name) END, id LIMIT $11")
+    // last_activity_at: greatest of latest completed sale or debt repayment for this store.
+    // Voided sales and debt adjustments are excluded per CONTEXT.md definition.
+    let mut rows:Vec<ListRow>=sqlx::query_as("WITH activity AS (SELECT customer_id, max(at) AS last_activity_at FROM (SELECT customer_id, sold_at AS at FROM sales WHERE store_id=$1 AND status='completed' AND customer_id IS NOT NULL UNION ALL SELECT customer_id, created_at AS at FROM debt_entries WHERE store_id=$1 AND kind='repayment') events GROUP BY customer_id) SELECT c.*,lower(c.name) AS sort_name,a.last_activity_at FROM customers c LEFT JOIN activity a ON a.customer_id=c.id WHERE c.store_id=$1 AND (c.archived_at IS NOT NULL)=$2 AND ($3::text IS NULL OR strpos(lower(c.name),lower($3))>0 OR strpos(lower(coalesce(c.phone,'')),lower($3))>0) AND ($4::bool IS NULL OR coalesce(c.oldest_debt_date < $5::date - 7,false)=$4) AND ($6::uuid IS NULL OR ($7='balance' AND (c.balance < $8 OR (c.balance=$8 AND c.id>$6))) OR ($7='recent' AND (c.updated_at < $9 OR (c.updated_at=$9 AND c.id>$6))) OR ($7='name' AND (lower(c.name),c.id)>($10,$6))) ORDER BY CASE WHEN $7='balance' THEN c.balance END DESC, CASE WHEN $7='recent' THEN c.updated_at END DESC, CASE WHEN $7='name' THEN lower(c.name) END, c.id LIMIT $11")
         .bind(actor.store_id).bind(f.archived.unwrap_or(false)).bind(f.query.as_deref()).bind(f.overdue).bind(today)
         .bind(cursor.as_ref().map(|c|c.id)).bind(sort).bind(cursor.as_ref().map(|c|c.balance)).bind(cursor.as_ref().map(|c|c.recent)).bind(cursor.as_ref().map(|c|c.name.as_str())).bind(i64::from(page.limit)+1)
         .fetch_all(pool(&state)?).await.map_err(db_error)?;
@@ -237,7 +239,14 @@ pub(super) async fn list(
         None
     };
     Ok(Json(Page {
-        items: rows.iter().map(|r| r.customer.json(today)).collect(),
+        items: rows
+            .iter()
+            .map(|r| {
+                let mut value = r.customer.json(today);
+                value["last_activity_at"] = json!(r.customer.last_activity_at);
+                value
+            })
+            .collect(),
         next_cursor,
     }))
 }

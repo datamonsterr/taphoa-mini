@@ -61,7 +61,12 @@ pub async fn get_or_generate(
     generate(state, store_id, business_date).await
 }
 
-pub fn view(stored: &StoredDigest, actor: &Actor, read_at: Option<DateTime<Utc>>) -> Value {
+pub async fn view(
+    state: &AppState,
+    stored: &StoredDigest,
+    actor: &Actor,
+    read_at: Option<DateTime<Utc>>,
+) -> ApiResult<Value> {
     let mut data = stored.payload.clone();
     if !auth::can(actor, Action::ChangePrice) {
         data["sales"]["gross_profit"] = Value::Null;
@@ -72,12 +77,50 @@ pub fn view(stored: &StoredDigest, actor: &Actor, read_at: Option<DateTime<Utc>>
             }
         }
     }
+    // Older cached digests lack these fields; fetch all missing products together.
+    if let Some(items) = data["restock"].as_array_mut() {
+        let ids: Vec<Uuid> = items
+            .iter()
+            .filter(|item| item.get("sales_rate").is_none())
+            .filter_map(|item| item["product_id"].as_str()?.parse().ok())
+            .collect();
+        if !ids.is_empty() {
+            let rows: Vec<(Uuid, i32, f64, Option<String>)> = sqlx::query_as("WITH speed AS (SELECT l.product_id, sum(l.quantity::bigint*l.quantity_in_base)::float8/14 rate FROM sales s JOIN sale_lines l ON l.sale_id=s.id AND l.store_id=s.store_id WHERE s.store_id=$1 AND s.status='completed' AND s.business_date BETWEEN $2::date-13 AND $2 GROUP BY l.product_id) SELECT p.id,coalesce(p.stock_quantity,0),coalesce(speed.rate,0.0),(SELECT i.object_key FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=p.store_id WHERE pi.product_id=p.id ORDER BY pi.position,pi.image_id LIMIT 1) FROM products p LEFT JOIN speed ON speed.product_id=p.id WHERE p.store_id=$1 AND p.id=ANY($3)")
+                .bind(stored.store_id).bind(stored.business_date).bind(&ids).fetch_all(pool(state)?).await?;
+            for item in items {
+                if item.get("sales_rate").is_none() {
+                    let id = item["product_id"]
+                        .as_str()
+                        .and_then(|s| s.parse::<Uuid>().ok());
+                    let row = rows.iter().find(|r| Some(r.0) == id);
+                    item["sales_rate"] = json!(row.map_or(0.0, |r| r.2));
+                    item["stock_quantity"] = json!(row.map_or(0, |r| r.1));
+                    item["image_key"] = json!(row.and_then(|r| r.3.as_ref()));
+                }
+            }
+        }
+    }
+    // Sign thumbnail URLs at response time; image_key is stored, never the signed URL.
+    if let Some(items) = data["restock"].as_array_mut() {
+        for item in items {
+            let image_url = if let Some(key) = item["image_key"].as_str() {
+                match crate::catalog::products::signed_url(state, key).await {
+                    Ok((url, _)) => Value::String(url),
+                    Err(_) => Value::Null,
+                }
+            } else {
+                Value::Null
+            };
+            item["image_url"] = image_url;
+            item.as_object_mut().map(|o| o.remove("image_key"));
+        }
+    }
     data["business_date"] = json!(stored.business_date);
     data["generated_at"] = json!(stored.generated_at);
     data["source"] = json!(stored.source);
     data["summary_vi"] = json!(stored.summary_vi);
     data["read_at"] = json!(read_at);
-    data
+    Ok(data)
 }
 
 async fn try_mark_read(
@@ -169,5 +212,5 @@ pub async fn get(
     } else {
         stored_read_at(db, actor.store_id, date, actor.member_id).await?
     };
-    Ok(Json(view(&digest, &actor, read_at)))
+    Ok(Json(view(&state, &digest, &actor, read_at).await?))
 }

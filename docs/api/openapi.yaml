@@ -3502,6 +3502,12 @@ components:
           }
         status: { type: string, enum: [ok, low, out, untracked] }
         updated_at: { type: string, format: date-time }
+        sales_rate:
+          {
+            type: number,
+            minimum: 0,
+            description: 'Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales.',
+          }
     StockList:
       allOf:
         - $ref: '#/components/schemas/Page'
@@ -3652,6 +3658,13 @@ components:
         expense_id: { type: [string, 'null'], format: uuid }
         created_at: { type: string, format: date-time }
         confirmed_at: { type: [string, 'null'], format: date-time }
+        supplier:
+          type: [string, 'null']
+          description: Supplier display name as recorded on the receipt; null when unknown.
+        ocr_line_count:
+          type: [integer, 'null']
+          minimum: 0
+          description: Number of text lines returned by OCR; null for receipts scanned before migration 1701.
     ReceiptSummary:
       type: object
       required:
@@ -3681,6 +3694,13 @@ components:
         created_at: { type: string, format: date-time }
         confirmed_at: { type: [string, 'null'], format: date-time }
         expense_id: { type: [string, 'null'], format: uuid }
+        supplier:
+          type: [string, 'null']
+          description: Supplier display name as recorded on the receipt; null when unknown.
+        ocr_line_count:
+          type: [integer, 'null']
+          minimum: 0
+          description: Number of text lines returned by OCR; null for receipts scanned before migration 1701.
     ReceiptList:
       allOf:
         - $ref: '#/components/schemas/Page'
@@ -3792,6 +3812,10 @@ components:
         archived: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          description: 'Returned on customer list rows. Timestamp of the latest completed sale or debt repayment for this store; null when neither exists.'
     CreateCustomerRequest:
       type: object
       required: [id, name]
@@ -4666,6 +4690,17 @@ components:
           anyOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
+        sales_rate:
+          type: number
+          minimum: 0
+          description: 'Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales.'
+        stock_quantity:
+          type: integer
+          description: Current stock in base units.
+        image_url:
+          type: [string, 'null']
+          format: uri
+          description: 'Short-lived presigned thumbnail URL, or null when no image.'
       description: Suggested base-unit quantity. Cost fields are null when the caller cannot view costs.
     AssistantCard:
       oneOf:
