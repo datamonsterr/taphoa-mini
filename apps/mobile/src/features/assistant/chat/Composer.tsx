@@ -1,4 +1,4 @@
-import { ArrowRight } from 'lucide-react-native';
+import { ArrowRight } from '@/components/icons';
 import { memo, useRef, useState } from 'react';
 import { Platform, StyleSheet, TextInput, View } from 'react-native';
 

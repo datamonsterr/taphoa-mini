@@ -1,6 +1,6 @@
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
-import { ChevronLeft, Search, UserPlus } from 'lucide-react-native';
+import { ChevronLeft, Search, UserPlus } from '@/components/icons';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

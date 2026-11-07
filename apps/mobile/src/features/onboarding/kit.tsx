@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ChevronLeft, Focus, type LucideIcon } from 'lucide-react-native';
+import { ChevronLeft, Focus, type LucideIcon } from '@/components/icons';
 import type { ReactNode } from 'react';
 import {
   ActivityIndicator,

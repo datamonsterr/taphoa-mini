@@ -1,4 +1,4 @@
-import { Focus, Grid2x2Plus } from 'lucide-react-native';
+import { Focus, Grid2x2Plus } from '@/components/icons';
 import { memo, useEffect } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
