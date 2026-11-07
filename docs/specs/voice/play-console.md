@@ -24,11 +24,11 @@ is submitted by the repository.
 - Processed ephemerally: no. Audio is normally discarded after processing, but members can opt in to store sale recordings in a private bucket for recognition improvement.
 - Required or optional: optional (a seller can type the sale by hand, and donation is off by default).
 - Purpose: App functionality (spoken sale draft) and improving recognition.
-- Encrypted in transit: yes (HTTPS). Donated clips and their utterance records are deleted by the daily retention job after 30 days. Turning the switch off stops future donations on that device; existing donations are deleted by retention, not immediately on opt-out. Do not claim immediate user-requested deletion until that capability exists.
+- Encrypted in transit: yes (HTTPS). Donated clips and their utterance records are deleted after 30 days, at most one hour later during normal operation. Failures or missing storage delay deletion until service is restored. Turning the switch off stops future donations on that device; existing donations are deleted by retention, not immediately on opt-out. Do not claim immediate user-requested deletion until that capability exists.
 
-Entry text (English): _"Voice recordings are used to create sale drafts. If you opt in, recordings are also kept to improve recognition and deleted after 30 days. Turning off the option stops future donations; existing recordings are deleted by the retention job."_
+Entry text (English): _"Voice recordings are used to create sale drafts. If you opt in, recordings are also kept to improve recognition and deleted 30 days after recording, at most one hour later during normal operation. Turning off the option stops future donations; existing recordings are deleted by the retention job."_
 
-Entry text (Vietnamese): _"Bản ghi giọng nói được dùng để tạo đơn nháp. Nếu bạn đồng ý góp giọng, bản ghi còn được giữ để cải thiện nhận dạng và xóa sau 30 ngày. Tắt tùy chọn sẽ dừng góp bản ghi mới; bản ghi đã góp được xóa theo lịch lưu giữ."_
+Entry text (Vietnamese): _"Bản ghi giọng nói được dùng để tạo đơn nháp. Nếu bạn đồng ý góp giọng, bản ghi còn được giữ để cải thiện nhận dạng và xóa sau 30 ngày, chậm nhất thêm một giờ khi hệ thống hoạt động bình thường. Tắt tùy chọn sẽ dừng góp bản ghi mới; bản ghi đã góp được xóa theo lịch lưu giữ."_
 
 ## Foreground service declaration (`specialUse`)
 

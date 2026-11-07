@@ -746,6 +746,36 @@ async fn donated_retention_continues_after_failure_and_retries() {
 
 #[tokio::test]
 #[ignore = "requires Postgres"]
+async fn donated_retention_respects_the_thirty_day_boundary() {
+    let (w, _) = setup(vec![], |_| {}).await;
+    let young = Uuid::now_v7();
+    let expired = Uuid::now_v7();
+    for (id, offset) in [(young, "29 days 23 hours"), (expired, "30 days 1 second")] {
+        sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) VALUES ($1,$2,now()-$3::interval)")
+            .bind(id).bind(w.store_id).bind(offset).execute(w.pool()).await.unwrap();
+    }
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(
+            w.pool(),
+            &Keep::default(),
+            w.store_id,
+            30
+        )
+        .await
+        .unwrap(),
+        1
+    );
+    let ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT utterance_id FROM voice_donations WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_all(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(ids, vec![young]);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
 async fn eval_model_header_needs_the_flag_and_a_configured_slug() {
     let parse = || {
         sale(

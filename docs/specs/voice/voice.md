@@ -291,7 +291,7 @@ same two-step shape the owner described (explain, enable in Settings), minus the
 - `voice_utterances` keeps transcript, parsed JSON, draft, outcome and corrections for 30 days
   (retention job). With the optional donation switch, sale audio is stored in the private
   bucket under `voice/<store>/<uuid>.<ext>` and removed along with its row after 30 days
-  by the daily job (`VOICE_DONATED_RETENTION_DAYS`, default 30). Failed deletes are retried.
+  by the hourly job, at most one hour after expiry during normal operation (`VOICE_DONATED_RETENTION_DAYS`, default and maximum 30). Failed deletes are retried and outages can delay deletion. If object storage is missing, startup warns when donations exist; restore storage so cleanup can resume.
   Switching off stops future donations on that device; it does not delete existing clips,
   which remain until the retention job removes them.
 - Play Console: data-safety entry "Audio: voice recordings, collected optionally"; foreground

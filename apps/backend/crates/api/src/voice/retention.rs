@@ -141,7 +141,7 @@ pub fn spawn_donated(
             biased;
             _ = async { loop { if *shutdown.borrow_and_update() || shutdown.changed().await.is_err() { break; } } } => {},
             _ = async {
-                let mut interval = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
+                let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     interval.tick().await;

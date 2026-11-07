@@ -114,6 +114,7 @@ impl VoiceConfig {
                 u32::try_from(n).context("VOICE_DAILY_UTTERANCES_PER_STORE is too large")?;
         }
         if let Some(n) = positive("VOICE_DONATED_RETENTION_DAYS")? {
+            ensure!(n <= 30, "VOICE_DONATED_RETENTION_DAYS must be at most 30");
             config.donated_retention_days =
                 i32::try_from(n).context("VOICE_DONATED_RETENTION_DAYS is too large")?;
         }
@@ -223,6 +224,12 @@ mod tests {
         assert_eq!(c.donated_retention_days, 7);
         assert!(c.allow_eval_headers);
         assert_eq!(c.total_timeout, Duration::from_millis(2500));
+    }
+    #[test]
+    fn donated_retention_cannot_exceed_thirty_days() {
+        assert!(
+            VoiceConfig::from_lookup(lookup(&[("VOICE_DONATED_RETENTION_DAYS", "31")])).is_err()
+        );
     }
     #[test]
     fn rejects_bad_values() {
