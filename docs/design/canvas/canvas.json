@@ -3,7 +3,7 @@
   "attachments": {},
   "boards": {
     "Account.dc.html": {
-      "h": 1240,
+      "h": 844,
       "is_interactive": true,
       "radius": 44,
       "title": "12 Account + voice setup",
@@ -64,7 +64,7 @@
       "y": 2884
     },
     "Dashboard.dc.html": {
-      "h": 1240,
+      "h": 844,
       "is_interactive": true,
       "radius": 44,
       "title": "10 Dashboard",

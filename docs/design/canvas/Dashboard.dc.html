@@ -16,7 +16,7 @@ a{color:inherit;text-decoration:none}
 .th-stat:not(.th-stat-wide) b{font-size:22px;line-height:28px;white-space:nowrap}
 </style>
 </helmet>
-<div style="position: relative; width: 390px; height: 1240px; box-sizing: border-box; padding: 24px 16px 112px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 20px">
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans)"><div style="height: 844px; box-sizing: border-box; padding: 24px 16px 112px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px">
   <div style="display: flex; align-items: center; justify-content: space-between">
     <h1 class="title" style="margin: 0">Hôm nay</h1>
     <a href="Expense.dc.html" class="th-ib" aria-label="Thêm khoản chi"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></a>
@@ -69,6 +69,8 @@ a{color:inherit;text-decoration:none}
     </div>
   </div>
 
+  <section style="display:flex;flex-direction:column;gap:8px"><div style="display:flex;align-items:center;justify-content:space-between"><h2 class="heading" style="margin:0">Sắp hết hàng</h2><a class="th-btn th-btn-soft" href="Stock.dc.html">Xem tất cả</a></div><div style="padding:8px;border-radius:28px;background:var(--surface-soft)"><div style="min-height:56px;padding:8px 12px;box-sizing:border-box"><div class="label">Hảo Hảo</div><div class="caption" style="color:var(--warning)">Sắp hết · 3 còn lại</div></div><div style="min-height:56px;padding:8px 12px;box-sizing:border-box"><div class="label">Bánh bi</div><div class="caption" style="color:var(--warning)">Sắp hết · 8 còn lại</div></div></div></section>
+
   <div style="display: flex; gap: 12px">
     <a href="Inventory.dc.html" aria-label="3 món sắp hết" style="flex: 1; display: flex; align-items: center; gap: 10px; height: 64px; padding: 0 18px; border-radius: 9999px; background: var(--warning-soft); color: var(--warning)">
       <svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg><b class="th-num" style="font-size: 22px">3</b>
@@ -94,6 +96,8 @@ a{color:inherit;text-decoration:none}
 
   <a href="Close.dc.html" class="th-btn th-btn-ink th-btn-block"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg>Chốt sổ</a>
 
+  <nav style="display:flex;justify-content:center;gap:16px"><a class="label" href="RecentSales.dc.html">Đơn gần đây</a><a class="label" href="Export.dc.html">Xuất giao dịch</a></nav>
+  </div>
   <div class="th-navwrap" style="position: absolute; left: 16px; bottom: 16px; width: 358px">
     <a href="Main.dc.html" class="th-ib th-ib-lg th-ib-accent th-ib-float" aria-label="Mở camera"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg></a>
     <nav class="th-nav" aria-label="Chính">
@@ -104,9 +108,8 @@ a{color:inherit;text-decoration:none}
     <a href="Assistant.dc.html" class="th-ib th-ib-accent th-ib-float" aria-label="Mở trợ lý"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"/><path d="M9 11h6M9 14h3"/></svg></a>
   </div>
 </div>
-<nav style="padding:16px;display:flex;gap:16px"><a href="RecentSales.dc.html">Đơn gần đây</a><a href="Export.dc.html">Xuất giao dịch</a></nav>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1240}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
 class Component extends DCLogic {
   renderVals() {
     const per = (this.state && this.state.per) || 'day';

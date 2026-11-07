@@ -12,6 +12,8 @@ holds 37 boards: the 32 copied on 2026-10-27, `VoiceSystem.dc.html` and four rep
 Screens 22, 25 and 27 have no board; the app code under `apps/mobile/src/features/` is their
 reference.
 
+When a board and the shipped app disagree on a deliberate feature, update the board in the same PR.
+
 ## 1. Principles
 
 - **Camera first.** The app opens on the camera (01). Nothing else shows until the seller acts.
@@ -48,7 +50,7 @@ Icons are Lucide line icons (`lucide-react-native` in the app; inline SVG on the
 
 ## 3. Screens
 
-Phone boards are 390×844 (Dashboard 390×1080). Route paths are Expo Router routes under
+Phone boards are 390×844. Route paths are Expo Router routes under
 `apps/mobile/src/app/`.
 
 ### Row A — Scan and sell (dark camera surface)
