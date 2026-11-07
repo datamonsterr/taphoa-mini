@@ -1,5 +1,5 @@
 import { router, type Href } from 'expo-router';
-import { Sun } from 'lucide-react-native';
+import { Sun } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 
 import { Icon, PressableScale, Text } from '@/components/ui';

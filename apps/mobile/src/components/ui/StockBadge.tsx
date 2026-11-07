@@ -1,4 +1,4 @@
-import { TriangleAlert } from 'lucide-react-native';
+import { TriangleAlert } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 

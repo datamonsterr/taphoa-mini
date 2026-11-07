@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { RotateCcw, X } from 'lucide-react-native';
+import { RotateCcw, X } from '@/components/icons';
 import { memo, useCallback, useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 

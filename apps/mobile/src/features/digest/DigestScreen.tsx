@@ -8,7 +8,7 @@ import {
   Sun,
   TrendingDown,
   TrendingUp,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { useCallback, useEffect, type ReactNode } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

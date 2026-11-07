@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react-native';
+import { Search } from '@/components/icons';
 import { memo, useState } from 'react';
 import {
   ActivityIndicator,

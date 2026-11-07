@@ -1,4 +1,4 @@
-import { Check, Tag } from 'lucide-react-native';
+import { Check, Tag } from '@/components/icons';
 import { memo, useCallback } from 'react';
 import { StyleSheet, View } from 'react-native';
 

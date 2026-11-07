@@ -1,5 +1,5 @@
 import { Contact } from 'expo-contacts';
-import { ContactRound, Phone, Plus, Search, User } from 'lucide-react-native';
+import { ContactRound, Phone, Plus, Search, User } from '@/components/icons';
 import { useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 

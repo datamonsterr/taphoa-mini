@@ -1,4 +1,4 @@
-import { ChartColumn, Focus, Package, User } from 'lucide-react-native';
+import { ChartColumn, Focus, Package, User } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 

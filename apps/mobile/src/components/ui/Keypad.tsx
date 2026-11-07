@@ -1,4 +1,4 @@
-import { Delete } from 'lucide-react-native';
+import { Delete } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
