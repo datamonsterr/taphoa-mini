@@ -352,7 +352,9 @@ function Review({ receipt }: { receipt: Receipt }) {
             numberOfLines={1}
             style={[styles.photoLabel, summary && styles.photoLabelCentre]}
           >
-            {t('photo')}
+            {!summary && receipt.ocr_line_count != null
+              ? fill(t('photoLines'), { count: receipt.ocr_line_count })
+              : t('photo')}
           </Text>
           {summary ? null : <Icon icon={ZoomIn} color={colors.cameraMuted} />}
         </PressableScale>

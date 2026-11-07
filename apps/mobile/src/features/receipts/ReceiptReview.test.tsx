@@ -72,6 +72,12 @@ test('review_subtitle_includes_supplier', async () => {
   ).toBeOnTheScreen();
 });
 
+test('review_photo_shows_ocr_count', async () => {
+  Object.assign(getMockDb().receipts[0], { ocr_line_count: 12 });
+  await open();
+  expect(screen.getByText('Ảnh hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
+});
+
 test('renders OCR source, status, fix count and photo; summary blocks unmatched confirm and names the line', async () => {
   await open();
   expect(screen.getAllByText('Coca-Cola lon 330ml').length).toBeGreaterThan(0);

@@ -187,6 +187,7 @@ export function createReceipt(imageId: unknown): Receipt {
     status: 'draft',
     total: 456000,
     supplier: null,
+    ocr_line_count: null,
     parser: 'decisions',
     model: 'inception/mercury-decide:free',
     lines,
@@ -215,6 +216,7 @@ export function listReceipts(status: string | null): ReceiptSummary[] {
       confirmed_at: r.confirmed_at,
       expense_id: r.expense_id,
       supplier: r.supplier ?? null,
+      ocr_line_count: r.ocr_line_count ?? null,
     }));
 }
 
