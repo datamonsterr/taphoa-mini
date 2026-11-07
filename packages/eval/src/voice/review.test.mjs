@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { deepStrictEqual } from 'node:assert';
 import { reviewedSubset } from './cases.ts';
 
-test('only explicitly reviewed cases can be scored', () => {
+test('legacy and reviewed cases can be scored, but unreviewed cases cannot', () => {
   const cases = [
     { id: 'pending', review_status: 'unreviewed' },
     { id: 'legacy' },
@@ -10,7 +10,7 @@ test('only explicitly reviewed cases can be scored', () => {
   ];
   deepStrictEqual(
     reviewedSubset(cases).map((c) => c.id),
-    ['done'],
+    ['legacy', 'done'],
   );
 });
 

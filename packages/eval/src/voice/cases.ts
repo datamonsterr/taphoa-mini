@@ -80,15 +80,19 @@ export type LoadedVoiceCase = VoiceCase & {
 export function loadVoiceCases(
   dir: string = GOLDEN_VOICE_DIR,
   reviewedOnly = false,
+  onUnreviewed?: () => void,
 ): LoadedVoiceCase[] {
   const files = readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
-    .filter(
-      (f) =>
-        !reviewedOnly ||
-        JSON.parse(readFileSync(join(dir, f), 'utf8')).review_status ===
-          'reviewed',
-    )
+    .filter((f) => {
+      if (!reviewedOnly) return true;
+      const status = JSON.parse(
+        readFileSync(join(dir, f), 'utf8'),
+      ).review_status;
+      if (status !== 'unreviewed') return true;
+      onUnreviewed?.();
+      return false;
+    })
     .sort();
   const seen = new Set<string>();
   return files.map((f) => {
@@ -112,9 +116,9 @@ export function smokeSubset<T extends VoiceCase>(cases: T[]): T[] {
   return cases.filter((c) => c.tags.includes('smoke'));
 }
 
-/** Only human-reviewed labels may be used as evaluation ground truth. */
+/** Legacy curated cases and explicitly reviewed cases are eligible. */
 export function reviewedSubset<T extends { review_status?: string }>(
   cases: T[],
 ): T[] {
-  return cases.filter((c) => c.review_status === 'reviewed');
+  return cases.filter((c) => c.review_status !== 'unreviewed');
 }

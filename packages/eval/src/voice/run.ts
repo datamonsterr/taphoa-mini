@@ -430,7 +430,11 @@ export async function main(
     const outDir = values.get('--out')
       ? resolve(values.get('--out')!)
       : join(import.meta.dirname, '..', '..', 'results');
-    let cases = reviewedSubset(loadVoiceCases(dir, true));
+    let skippedUnreviewed = 0;
+    let cases = reviewedSubset(
+      loadVoiceCases(dir, true, () => skippedUnreviewed++),
+    );
+    log(`Skipped ${skippedUnreviewed} unreviewed voice cases`);
     const ids = values
       .get('--ids')
       ?.split(',')

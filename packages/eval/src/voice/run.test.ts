@@ -128,11 +128,14 @@ const base = {
 };
 
 describe('runVoiceCases', () => {
-  it('never sends an unreviewed clip', async () => {
+  it('sends legacy clips and never sends an unreviewed clip', async () => {
     const { seen, fetch } = fakeBackend();
     await runVoiceCases({
       ...base,
-      cases: [cases[0]!, { ...cases[1]!, review_status: 'unreviewed' }],
+      cases: [
+        { ...cases[0]!, review_status: undefined },
+        { ...cases[1]!, review_status: 'unreviewed' },
+      ],
       fetch,
     });
     expect(seen.map((s) => s.id)).toEqual([cases[0]!.id]);
@@ -312,6 +315,36 @@ describe('results and PostHog', () => {
 });
 
 describe('main (dry run against a fake backend)', () => {
+  it('scores a legacy clip and reports how many unreviewed clips it skipped', async () => {
+    const dir = reviewedFixtures();
+    const legacy = join(dir, `${cases[0]!.id}.json`);
+    const pending = join(dir, `${cases[1]!.id}.json`);
+    const old = JSON.parse(readFileSync(legacy, 'utf8'));
+    delete old.review_status;
+    writeFileSync(legacy, JSON.stringify(old));
+    const unreviewed = JSON.parse(readFileSync(pending, 'utf8'));
+    unreviewed.review_status = 'unreviewed';
+    writeFileSync(pending, JSON.stringify(unreviewed));
+    const { seen, fetch } = fakeBackend();
+    const lines: string[] = [];
+    await main(
+      [
+        '--dir',
+        dir,
+        '--ids',
+        `${cases[0]!.id},${cases[1]!.id}`,
+        '--backend',
+        'https://backend.test',
+        '--out',
+        mkdtempSync(join(tmpdir(), 'voice-main-')),
+        '--no-posthog',
+      ],
+      {},
+      { fetch, auth, log: (line) => lines.push(line) },
+    );
+    expect(seen.map((s) => s.id)).toEqual([cases[0]!.id]);
+    expect(lines.join('\n')).toContain('Skipped 1 unreviewed');
+  });
   it('runs the smoke subset, writes results and exits 0', async () => {
     const { seen, fetch } = fakeBackend();
     const out = mkdtempSync(join(tmpdir(), 'voice-main-'));

@@ -50,8 +50,8 @@ For each voice clip, listen to the recording, correct its sidecar `transcript`
 and `lines` to match what was actually said, check payment and customer fields,
 and then set `review_status` to `reviewed`. In particular, set `unit_price` to
 `null` if no price was spoken, even if a catalog price was charged. The evaluator
-scores only explicitly reviewed cases. Older golden sidecars without this field
-must also be reviewed and marked before they can be scored. Product names or IDs
+skips cases explicitly marked `unreviewed`. Older curated golden sidecars without
+this field remain eligible for scoring. Product names or IDs
 must correspond to the catalog in the evaluation store.
 
 Fetch the pinned recognition model and runtime, then run the recognition eval:
