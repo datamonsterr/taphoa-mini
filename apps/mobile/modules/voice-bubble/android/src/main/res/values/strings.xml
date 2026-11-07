@@ -2,7 +2,7 @@
 <resources>
     <string name="voice_bubble_description">Bán hàng bằng giọng nói</string>
     <string name="voice_bubble_notification_title">Nút nói đang bật</string>
-    <string name="voice_bubble_notification_text">Bấm nút nổi để bán hàng bằng giọng nói</string>
+    <string name="voice_bubble_notification_text">Chạm nút nói trên màn hình để bán hàng.</string>
     <string name="voice_bubble_notification_stop">Tắt</string>
     <string name="voice_bubble_channel_name">Nút nói</string>
     <string name="voice_tile_label">Bán hàng</string>
