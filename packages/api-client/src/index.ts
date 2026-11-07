@@ -198,6 +198,13 @@ export function createApiClient(options: ApiClientOptions) {
       }),
     createVoiceUtterance: (input: CreateVoiceUtteranceInput) =>
       client.POST('/v1/voice/utterances', {
+        ...(input.expectedVoiceUser !== undefined
+          ? {
+              headers: {
+                'X-Taphoa-Expected-Voice-User': input.expectedVoiceUser,
+              },
+            }
+          : {}),
         // The generated type models a binary part as string; the serializer sends a real file part.
         body: {
           audio: input.audio as unknown as string,
@@ -241,6 +248,8 @@ export type CreateVoiceUtteranceInput = {
   language?: 'vi' | 'en';
   /** Keep the clip for the golden set (the member's opt-in). */
   donate?: boolean;
+  /** Internal mobile transport guard, removed before the request leaves the device. */
+  expectedVoiceUser?: string;
   context: components['schemas']['VoiceUtteranceContext'];
 };
 

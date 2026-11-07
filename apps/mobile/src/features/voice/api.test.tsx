@@ -112,6 +112,9 @@ describe('donate flag', () => {
       false,
       true,
     ]);
+    expect(
+      spy.mock.calls.map(([request]) => request.expectedVoiceUser),
+    ).toEqual(['person-a', 'person-b', 'person-a']);
     spy.mockRestore();
   });
 

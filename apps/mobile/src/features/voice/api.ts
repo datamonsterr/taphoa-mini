@@ -33,6 +33,7 @@ export async function uploadUtterance(
     getApiClient().createVoiceUtterance({
       audio,
       filename,
+      expectedVoiceUser: userId ?? '',
       mode: input.mode,
       language: input.language,
       donate:

@@ -1,4 +1,9 @@
-import { clerkToken, membershipRequired, pinRequired } from './clerkBridge';
+import {
+  bridgeUserId,
+  clerkToken,
+  membershipRequired,
+  pinRequired,
+} from './clerkBridge';
 
 export const isPublicPath = (pathname: string) =>
   pathname === '/healthz' || pathname === '/readyz';
@@ -34,7 +39,20 @@ export function createAuthFetch({
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     if (isPublicPath(new URL(request.url).pathname)) return send(request);
+    const expectedVoiceUser = request.headers.get(
+      'X-Taphoa-Expected-Voice-User',
+    );
+    request.headers.delete('X-Taphoa-Expected-Voice-User');
+    const checkVoiceUser = () => {
+      if (
+        expectedVoiceUser !== null &&
+        (bridgeUserId() ?? '') !== expectedVoiceUser
+      )
+        throw new Error('Voice upload identity changed');
+    };
+    checkVoiceUser();
     const token = await clerkToken();
+    checkVoiceUser();
     if (token) request.headers.set('Authorization', `Bearer ${token}`);
     else request.headers.delete('Authorization');
     const replay = request.clone();
@@ -46,7 +64,9 @@ export function createAuthFetch({
       (await responseCode(response)) === 'invalid_pin'
     )
       return inspect(response, inStore);
+    checkVoiceUser();
     const fresh = await clerkToken({ skipCache: true });
+    checkVoiceUser();
     if (!fresh) return response;
     replay.headers.set('Authorization', `Bearer ${fresh}`);
     return inspect(await send(replay), inStore);
