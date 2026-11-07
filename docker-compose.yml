@@ -70,8 +70,8 @@ services:
       S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:${STORAGE_PORT:-9000}}
       IMAGE_URL_TTL_SECONDS: ${IMAGE_URL_TTL_SECONDS:-900}
       RUST_LOG: ${RUST_LOG:-info}
-      # `mock` stands in for the DINO model so enrollment works without model files (local only).
-      EMBEDDER: ${EMBEDDER:-}
+      # `mock` stands in for the real embedder for model-free local enrollment.
+      EMBEDDER: ${EMBEDDER:-siglip2}
       # Deterministic assistant and pinned dates for the local/e2e backend.
       ASSISTANT_MODEL_PROVIDER: ${ASSISTANT_MODEL_PROVIDER:-scripted}
       ASSISTANT_ALLOW_EVAL_HEADERS: ${ASSISTANT_ALLOW_EVAL_HEADERS:-1}

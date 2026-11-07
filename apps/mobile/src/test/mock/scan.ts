@@ -121,7 +121,7 @@ export function buildScan(input: {
     mode: input.mode,
     purpose: input.purpose,
     pipeline: {
-      segmenter: 'mock-segmenter',
+      segmenter: 'mobilesam-onnx@1',
       embedder: 'mock-embedder',
       catalog_version: db.products.length,
     },

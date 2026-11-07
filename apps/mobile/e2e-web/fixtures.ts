@@ -838,7 +838,7 @@ export const callInference = <T = any>(
  * Taps the shutter: the photo is uploaded to the real recognition pipeline (SAM + DINO), and the
  * frozen result shows. Returns the POST /v1/recognition/scans call.
  */
-export async function shoot(page: Page, mode: 'single' | 'multi' = 'single') {
+export async function shoot(page: Page, mode: 'single' | 'multi' = 'multi') {
   const call = await withScanSlot(() =>
     callApi(page, 'POST', '/v1/recognition/scans', () => shutter(page).click()),
   );
@@ -848,7 +848,21 @@ export async function shoot(page: Page, mode: 'single' | 'multi' = 'single') {
     image: { type: expect.stringMatching(/^image\/(jpeg|png)$/) },
   });
   await expect(reshoot(page)).toBeVisible();
-  await expect(detectionBoxes(page).first()).toBeVisible();
+  const detections = call.body.detections;
+  expect(detections.length).toBeGreaterThan(0);
+  await expect(detectionBoxes(page)).toHaveCount(detections.length);
+  const unknown = detections.filter(
+    (d: any) => d.match === 'unknown' || d.candidates.length === 0,
+  );
+  const known = detections.filter((d: any) => !unknown.includes(d));
+  await expect(unknownPill(page)).toHaveCount(unknown.length);
+  await expect(pricePill(page)).toHaveCount(known.length);
+  for (let index = 0; index < known.length; index++) {
+    const candidate = known[index].candidates[0];
+    await expect(pricePill(page).nth(index)).toHaveAccessibleName(
+      `${candidate.name} ${formatVnd(candidate.price)}, xem món khác`,
+    );
+  }
   return call;
 }
 
@@ -917,7 +931,8 @@ export async function enrollFromCamera(
   product: { name: string; price: number },
 ) {
   const scan = await shoot(page);
-  await unknownPill(page).click();
+  // Object mode can return several unknown crops; enroll the first server detection.
+  await unknownPill(page).first().click();
   await expect(page).toHaveURL(/\/enroll/);
   await fillEnroll(page, product);
   const saved = await saveEnroll(page);
@@ -976,6 +991,25 @@ export async function acceptQuickAngle(page: Page) {
   };
 }
 
+/** Choose one server detection for tests whose next step needs exactly one cart item. */
+export async function selectOnlyDetection(page: Page, scan: any, index = 0) {
+  expect(scan.detections[index].match).toBe('matched');
+  for (let other = 0; other < scan.detections.length; other++) {
+    const box = detectionBoxes(page).nth(other);
+    const matched = scan.detections[other].match === 'matched';
+    await expect(box).toHaveAttribute('aria-selected', String(matched));
+    if (matched && other !== index) {
+      // Keyboard activation addresses each box even when SAM's nested crops overlap.
+      await box.press('Space');
+      await expect(box).toHaveAttribute('aria-selected', 'false');
+    }
+  }
+  await expect(detectionBoxes(page).nth(index)).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+}
+
 /**
  * Shoot, check the server matched the seeded product, tap + : the line is in the cart.
  * Returns the scan call.
@@ -988,11 +1022,13 @@ export async function scanAndAdd(
   const detection = scan.body.detections[0];
   expect(detection.match).toBe('matched');
   expect(detection.candidates[0].product_id).toBe(product.id);
-  await expect(pricePill(page)).toHaveAccessibleName(
+  await expect(pricePill(page).first()).toHaveAccessibleName(
     `${product.name} ${formatVnd(product.price)}, xem món khác`,
   );
+  await selectOnlyDetection(page, scan.body);
   await addButton(page).click();
-  await expect(shutter(page)).toBeVisible();
+  // Multi results retain any unconfirmed crops after adding. Retake before the next sale.
+  await backToLive(page);
   return scan;
 }
 

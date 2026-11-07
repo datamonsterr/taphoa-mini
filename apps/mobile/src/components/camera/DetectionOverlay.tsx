@@ -4,7 +4,6 @@ import { StyleSheet, View } from 'react-native';
 import { mapBox, stripTop, type BBox, type Fit, type Size } from '@/lib/bbox';
 
 import { AlternativesStrip, type StripItem } from './AlternativesStrip';
-import type { CaptureMode } from './ModeToggle';
 import { DetectionBox } from './DetectionBox';
 import { PricePill } from './PricePill';
 
@@ -30,7 +29,7 @@ type Props = {
   detections: readonly Detection[];
   /** Missing id counts as deselected. */
   selected: Readonly<Record<string, boolean>>;
-  mode: CaptureMode;
+  mode: 'one' | 'many';
   /** Detection whose alternatives strip is open. */
   openId?: string | null;
   /** False hides the enroll path: unknown pills render disabled. Default true. */

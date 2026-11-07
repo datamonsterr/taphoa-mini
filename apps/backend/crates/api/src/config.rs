@@ -3,7 +3,9 @@ use anyhow::{Context, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD_INDIFFERENT};
 use std::{path::PathBuf, sync::Arc};
 use taphoa_recognition::ocr::{PpOcrDetector, VietOcr};
-use taphoa_recognition::{DinoEmbedder, Embedder, SamOptions, SamSegmenter, Segmenter};
+use taphoa_recognition::{
+    DinoEmbedder, Embedder, ModelSpec, OnnxEmbedder, SamOptions, SamSegmenter, Segmenter,
+};
 
 // No Debug: contains the optional Clerk secret key.
 #[derive(Clone)]
@@ -84,12 +86,16 @@ pub struct Config {
     pub encoder: Option<PathBuf>,
     pub decoder: Option<PathBuf>,
     pub dino_model: Option<PathBuf>,
+    pub siglip2_model: Option<PathBuf>,
+    pub embedder_name: String,
+    pub embed_threads: usize,
     pub ocr_det: Option<PathBuf>,
     pub ocr_encoder: Option<PathBuf>,
     pub ocr_decoder: Option<PathBuf>,
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
     pub document_probe_concurrency: usize,
+    pub inference_queue_wait: std::time::Duration,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
     pub rate_limits: RateLimits,
@@ -100,6 +106,12 @@ impl Config {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        let embedder_name = get("EMBEDDER")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "siglip2".into());
+        if !matches!(embedder_name.as_str(), "siglip2" | "dinov2" | "mock") {
+            bail!("EMBEDDER must be siglip2 or dinov2 (mock is for local/e2e only)");
+        }
         let clerk = ClerkSettings::from_lookup(&get)?;
         if clerk.is_none() {
             bail!("CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required");
@@ -184,6 +196,10 @@ impl Config {
             ocr_vocab,
             ocr_threads,
             document_probe_concurrency: positive("DOCUMENT_PROBE_CONCURRENCY", 1)? as usize,
+            inference_queue_wait: std::time::Duration::from_millis(u64::from(positive(
+                "INFERENCE_QUEUE_WAIT_MS",
+                5000,
+            )?)),
             rate_limits,
             client_ip,
             port: get("PORT")
@@ -195,6 +211,9 @@ impl Config {
             encoder: get("SAM_ENCODER_PATH").map(PathBuf::from),
             decoder: get("SAM_DECODER_PATH").map(PathBuf::from),
             dino_model: get("DINO_MODEL_PATH").map(PathBuf::from),
+            siglip2_model: get("SIGLIP2_MODEL_PATH").map(PathBuf::from),
+            embedder_name,
+            embed_threads: positive("EMBED_THREADS", 4)? as usize,
             clerk,
             db_max_connections,
         })
@@ -248,19 +267,94 @@ impl Config {
         Ok(self.sam_segmenter()?.map(|s| s as Arc<dyn Segmenter>))
     }
     pub fn embedder(&self) -> anyhow::Result<Option<Arc<dyn Embedder>>> {
-        match &self.dino_model {
+        if self.embedder_name == "mock" {
+            return Ok(Some(Arc::new(taphoa_recognition::MockEmbedder)));
+        }
+        let path = if self.embedder_name == "siglip2" {
+            &self.siglip2_model
+        } else {
+            &self.dino_model
+        };
+        match path {
             None => Ok(None),
             Some(model) if !model.exists() => {
-                tracing::warn!("DINO weights absent; scan recognition is unavailable");
+                tracing::warn!(
+                    embedder = self.embedder_name,
+                    "embedder weights absent; scan recognition is unavailable"
+                );
                 Ok(None)
             }
-            Some(model) => Ok(Some(Arc::new(DinoEmbedder::load(model, 0)?))),
+            Some(model) => {
+                let embedder = if self.embedder_name == "siglip2" {
+                    OnnxEmbedder::load_with_spec(model, self.embed_threads, ModelSpec::siglip2())?
+                } else {
+                    DinoEmbedder::load(model, self.embed_threads)?
+                };
+                Ok(Some(Arc::new(embedder)))
+            }
         }
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inference_queue_wait_requires_positive_milliseconds() {
+        for value in ["0", "-1", "invalid", "4294967296"] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "INFERENCE_QUEUE_WAIT_MS" => Some(value.into()),
+                _ => None,
+            });
+            assert!(config.is_err(), "invalid inference wait accepted: {value}");
+        }
+    }
+
+    #[test]
+    fn inference_queue_wait_defaults_to_five_seconds_and_can_be_overridden() {
+        for (value, milliseconds) in [(None, 5000), (Some("750"), 750)] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "INFERENCE_QUEUE_WAIT_MS" => value.map(str::to_owned),
+                _ => None,
+            })
+            .unwrap();
+            assert_eq!(config.inference_queue_wait.as_millis(), milliseconds);
+        }
+    }
+    #[test]
+    fn embedder_selection_defaults_to_siglip_and_reads_only_its_path() {
+        let config = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+            "DINO_MODEL_PATH" => Some("dino.onnx".into()),
+            "SIGLIP2_MODEL_PATH" => Some("siglip.onnx".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(config.embedder_name, "siglip2");
+        assert_eq!(config.embed_threads, 4);
+        assert_eq!(config.siglip2_model, Some(PathBuf::from("siglip.onnx")));
+        let dino = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+            "EMBEDDER" => Some("dinov2".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(dino.embedder_name, "dinov2");
+    }
+
+    #[test]
+    fn unknown_embedder_fails_configuration() {
+        assert!(
+            Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "EMBEDDER" => Some("siglip-typo".into()),
+                _ => None,
+            })
+            .is_err()
+        );
+    }
+
     #[test]
     fn startup_validates_business_clock_override() {
         for (raw, environment, valid) in [
@@ -447,8 +541,10 @@ mod tests {
                 "CLERK_ISSUER" => "https://test.clerk.accounts.dev".into(),
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
-                "OCR_THREADS" => "4".into(),
+                "OCR_THREADS" | "EMBED_THREADS" => "4".into(),
+                "EMBEDDER" => "siglip2".into(),
                 "DOCUMENT_PROBE_CONCURRENCY" => "2".into(),
+                "INFERENCE_QUEUE_WAIT_MS" => "750".into(),
                 "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),
                 "TRUSTED_PROXY_HOPS" => "2".into(),
@@ -461,6 +557,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(config.port, 9000);
+        assert_eq!(config.inference_queue_wait.as_millis(), 750);
         assert_eq!(config.sale_window.max_age, chrono::Duration::hours(48));
         assert_eq!(
             config.sale_window.max_future,

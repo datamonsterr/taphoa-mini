@@ -20,7 +20,7 @@ export function resetStoreScopedState() {
   // Photos, server image ids and cut-outs of the product being enrolled.
   useQuickEnrollStore.setState(initialQuickEnroll);
   useReceiptNotice.setState({ count: null });
-  useCaptureModeStore.setState({ mode: 'one' });
+  useCaptureModeStore.setState({ mode: 'object' });
 }
 
 /**

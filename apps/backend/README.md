@@ -87,12 +87,21 @@ binary downloads, and ships Microsoft's ONNX Runtime 1.23.2 shared library. Loca
 Linux x86-64 setup uses the checksum-verified runtime helper. Other platforms must
 install a compatible runtime >=1.23 and set `ORT_DYLIB_PATH` themselves.
 
-Model downloads: [MobileSAM ONNX](https://huggingface.co/Acly/MobileSAM) and
+Model downloads: [MobileSAM ONNX](https://huggingface.co/Acly/MobileSAM),
+[SigLIP2 B/16 224 ONNX](https://github.com/datamonsterr/taphoa-mini/releases/tag/models-siglip2-b16-224-v1), and
 [DINOv2-small ONNX](https://huggingface.co/onnx-community/dinov2-small) at the pinned
 revisions in `scripts/fetch-models.sh` (see `docs/specs/recognition-latency.md` for why
 not SAM ViT-B). The fetch script checks pinned SHA-256 hashes before an atomic rename, prints checksums, and reuses
 verified files. Weights, runtime downloads, and Cargo artifacts are gitignored.
 `tests/fixtures/sample.png` is an original generated two-rectangle test image.
+
+`EMBEDDER=siglip2` (default) selects 768-d pooled embeddings at 224 px from
+`SIGLIP2_MODEL_PATH`. `EMBEDDER=dinov2` selects the retained 384-d model at
+`DINO_MODEL_PATH`; only DINOv2 uses `EMBED_SIDE`. `EMBED_THREADS` defaults to 4.
+Unset paths or absent weights leave recognition unavailable; a present but invalid
+model fails startup. `EMBEDDER=mock` is for local/e2e fixtures. Model-specific
+thresholds and the additive migration/backfill/rollback procedure are documented in
+[retrieval-v2.md](../../docs/specs/retrieval-v2.md).
 
 Validation and root Turborepo integration:
 

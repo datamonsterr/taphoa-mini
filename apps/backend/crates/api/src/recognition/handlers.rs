@@ -165,6 +165,7 @@ struct ScanRequest {
     mode: pipeline::ScanMode,
     purpose: pipeline::ScanPurpose,
     top_k: u8,
+    boxes: Option<Vec<pipeline::ClientBox>>,
 }
 
 /// Field order rules: the inference slot is taken by the caller before the
@@ -176,6 +177,7 @@ async fn parse_request(multipart: Result<Multipart, MultipartRejection>) -> ApiR
     let mut mode = None;
     let mut purpose = None;
     let mut top_k = None;
+    let mut boxes = None;
     while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
         match field.name() {
             Some("image") if image.is_none() && image_id.is_none() => {
@@ -224,6 +226,17 @@ async fn parse_request(multipart: Result<Multipart, MultipartRejection>) -> ApiR
                         .ok_or_else(bad_request)?,
                 );
             }
+            Some("boxes") if boxes.is_none() => {
+                let value = read_text(&mut field, 8192)
+                    .await
+                    .map_err(|_| invalid_boxes())?;
+                let parsed: Vec<pipeline::ClientBox> =
+                    serde_json::from_str(&value).map_err(|_| invalid_boxes())?;
+                if parsed.len() > 10 {
+                    return Err(invalid_boxes());
+                }
+                boxes = Some(parsed);
+            }
             Some("top_k") if top_k.is_none() => {
                 let parsed: u8 = match read_text(&mut field, 4).await?.parse() {
                     Ok(value) if (1..=5).contains(&value) => value,
@@ -243,6 +256,7 @@ async fn parse_request(multipart: Result<Multipart, MultipartRejection>) -> ApiR
         mode: mode.unwrap_or(pipeline::ScanMode::Multi),
         purpose: purpose.unwrap_or(pipeline::ScanPurpose::Checkout),
         top_k: top_k.unwrap_or(4),
+        boxes,
     })
 }
 
@@ -252,6 +266,10 @@ fn unsupported_media_type() -> ApiError {
         "unsupported_media_type",
         "expected a JPEG or PNG image",
     )
+}
+
+fn invalid_boxes() -> ApiError {
+    ApiError::validation_failed("invalid boxes").problem_json()
 }
 
 fn top_k_error() -> ApiError {
@@ -353,12 +371,13 @@ async fn create_scan(
         "scans",
     )
     .await?;
-    // Cheap early rejection while the slot is taken; the permit itself is only held around
-    // the blocking segment + embed work below, so storage and database I/O of other scans
-    // is never serialized behind it (architecture 5.3).
-    if state.inference_slots.available_permits() == 0 {
-        return Err(busy());
-    }
+    // Bound queued multipart bodies before reading them. Model execution still has one
+    // shared permit, held only around blocking inference, not storage/database I/O.
+    let _request_slot = state
+        .scan_requests
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| busy())?;
     let (segmenter, embedder, vector_index) = match (
         state.segmenter.as_ref().map(Arc::clone),
         state.embedder.as_ref().map(Arc::clone),
@@ -417,15 +436,17 @@ async fn create_scan(
         return Err(unsupported_media_type());
     }
     // Taken before anything is stored, so a busy slot leaves no orphan original behind.
-    let permit = state
-        .inference_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
+    let permit = state.acquire_inference_slot().await?;
     let config = state.recognition;
     let block_embedder = Arc::clone(&embedder);
     let block_segmenter = Arc::clone(&segmenter);
     let mode = request.mode;
+    let client_boxes = request.boxes.clone();
+    let segmenter_name = if client_boxes.as_ref().is_some_and(|b| !b.is_empty()) {
+        "client"
+    } else {
+        pipeline::SCAN_SEGMENTER
+    };
     let pipeline_bytes = image_bytes.clone();
     // Storing the original (a bucket round trip) overlaps with inference.
     let record = async {
@@ -462,6 +483,7 @@ async fn create_scan(
             &pipeline_bytes,
             mode,
             config.max_detections,
+            client_boxes,
         )
     });
     let record = async {
@@ -472,8 +494,11 @@ async fn create_scan(
     let (original, inference) = tokio::join!(record, inference);
     let (original, original_ms) = original;
     let original = original?;
-    let work: pipeline::BlockingResult = match inference {
+    let mut work: pipeline::BlockingResult = match inference {
         Ok(Ok(work)) => work,
+        Ok(Err(pipeline::StageError::InvalidBoxes)) => {
+            return Err(invalid_boxes());
+        }
         Ok(Err(pipeline::StageError::InvalidImage(_))) => {
             return Err(ApiError::validation_failed("could not decode the image"));
         }
@@ -514,7 +539,7 @@ async fn create_scan(
                 .await
         }
     });
-    let hits: Vec<Vec<VectorHit>> = join_all(searches)
+    let mut hits: Vec<Vec<VectorHit>> = join_all(searches)
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>()
@@ -522,6 +547,107 @@ async fn create_scan(
             crate::error::log_anyhow_error!(error, &error, "vector search failed");
             ApiError::internal()
         })?;
+    if let Some(embedding) = &work.whole_embedding {
+        let whole = vector_index
+            .search(
+                actor.store_id,
+                embedder.model(),
+                embedding,
+                usize::from(request.top_k),
+            )
+            .await
+            .map_err(|_| ApiError::internal())?;
+        if whole.first().map_or(f32::NEG_INFINITY, |h| h.similarity)
+            > hits[0].first().map_or(f32::NEG_INFINITY, |h| h.similarity)
+        {
+            hits[0] = whole;
+            work.detections[0].embedding = embedding.clone();
+        }
+    }
+    let threshold = match request.purpose {
+        pipeline::ScanPurpose::Enrollment => config.duplicate_threshold,
+        pipeline::ScanPurpose::Checkout => config.match_threshold,
+    };
+    let tta_start = Instant::now();
+    let indices: Vec<usize> = if std::env::var("SCAN_TTA").as_deref() == Ok("0") {
+        vec![]
+    } else {
+        hits.iter()
+            .enumerate()
+            .filter(|(_, h)| {
+                classify::classify(
+                    h.first().map(|v| v.similarity),
+                    h.get(1).map(|v| v.similarity),
+                    threshold,
+                    config.match_margin,
+                    config.match_floor,
+                ) == classify::MatchClass::Ambiguous
+            })
+            .map(|(i, _)| i)
+            .take(4)
+            .collect()
+    };
+    if !indices.is_empty() {
+        let crops: Vec<_> = indices
+            .iter()
+            .flat_map(|&i| {
+                let c = &work.detections[i].crop;
+                [
+                    image::imageops::flip_horizontal(c),
+                    image::imageops::rotate90(c),
+                    image::imageops::rotate270(c),
+                ]
+            })
+            .collect();
+        let tta_embedder = Arc::clone(&embedder);
+        let permit = state.acquire_inference_slot().await?;
+        let vectors = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            tta_embedder.embed_crops(&crops)
+        })
+        .await
+        .map_err(|_| ApiError::internal())?
+        .map_err(|_| ApiError::internal())?;
+        if vectors.len() != indices.len() * 3 {
+            return Err(ApiError::internal());
+        }
+        let searches = vectors.iter().map(|v| {
+            vector_index.search(
+                actor.store_id,
+                embedder.model(),
+                v,
+                usize::from(request.top_k),
+            )
+        });
+        let extra = join_all(searches)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ApiError::internal())?;
+        for (n, &i) in indices.iter().enumerate() {
+            let mut scores = std::collections::HashMap::<Uuid, f32>::new();
+            for h in hits[i]
+                .iter()
+                .chain(extra[n * 3..n * 3 + 3].iter().flatten())
+            {
+                *scores.entry(h.product_id).or_default() += h.similarity / 4.0;
+            }
+            hits[i] = scores
+                .into_iter()
+                .map(|(product_id, similarity)| VectorHit {
+                    product_id,
+                    similarity,
+                })
+                .collect();
+            hits[i].sort_by(|a, b| {
+                b.similarity
+                    .total_cmp(&a.similarity)
+                    .then(a.product_id.cmp(&b.product_id))
+            });
+            hits[i].truncate(usize::from(request.top_k));
+        }
+    }
+    let tta_ms = tta_start.elapsed().as_secs_f64() * 1000.0;
     let search_ms = search_wall.elapsed().as_secs_f64() * 1000.0;
     let mut product_ids: Vec<Uuid> = hits
         .iter()
@@ -540,6 +666,7 @@ async fn create_scan(
     };
     let rated: Vec<pipeline::RatedDetection> = std::iter::zip(&work.detections, hits)
         .map(|(detection, hits)| pipeline::RatedDetection {
+            track_id: detection.track_id,
             bbox: detection.bbox,
             score: detection.score,
             area: detection.area,
@@ -555,7 +682,7 @@ async fn create_scan(
             candidates: pipeline::candidate_displays(&hits, &products),
         })
         .collect();
-    let ordered = pipeline::arrange_display_order(rated);
+    let ordered = pipeline::arrange_display_order(rated, segmenter_name == "client");
     // Crop thumbnails reach the bucket once; only object keys are persisted.
     // A bucket round trip costs ~0.85 s on Railway, a third of the 3 s budget, and the phone
     // only needs the thumbnails after it has rendered the lines. They upload concurrently in
@@ -588,6 +715,7 @@ async fn create_scan(
         .zip(&crop_keys)
         .map(|(detection, key)| pipeline::PersistDetection {
             id: Uuid::new_v4(),
+            track_id: detection.track_id,
             bbox: detection.bbox,
             score: detection.score,
             area: detection.area,
@@ -614,6 +742,7 @@ async fn create_scan(
     );
     // Keep the signal in the existing scan snapshot; render_scan exposes it at the
     // contract's top level and removes this internal timing entry.
+    timings_ms["tta"] = serde_json::json!(tta_ms.round() as u64);
     timings_ms["document"] = serde_json::to_value(document).map_err(|_| ApiError::internal())?;
     let persist_started = Instant::now();
     let (scan_id, created_at, catalog_version) = match pipeline::persist_scan(
@@ -623,6 +752,7 @@ async fn create_scan(
             image_id: original.id,
             mode: request.mode,
             purpose: request.purpose,
+            segmenter: segmenter_name.to_owned(),
             embedder_model: embedder.model().to_owned(),
             wall_time_ms: wall.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             timings_ms: timings_ms.clone(),
@@ -654,6 +784,7 @@ async fn create_scan(
         .zip(detection_ids)
         .map(|((detection, crop_key), id)| pipeline::DetectionDisplay {
             id,
+            track_id: detection.track_id,
             bbox: detection.bbox,
             score: detection.score,
             crop_key: Some(crop_key),
@@ -667,7 +798,7 @@ async fn create_scan(
         original,
         mode: request.mode,
         purpose: request.purpose,
-        segmenter: pipeline::SCAN_SEGMENTER.to_string(),
+        segmenter: segmenter_name.to_string(),
         embedder: embedder.model().to_string(),
         catalog_version,
         timings_ms,
@@ -687,6 +818,7 @@ async fn create_scan(
         segment_ms,
         embed_ms,
         search_ms,
+        tta_ms = tta_ms.round() as u64,
         read_ms,
         original_ms,
         persist_ms = persist_started.elapsed().as_millis() as u64,
@@ -747,6 +879,7 @@ async fn get_scan(
             |detection| -> Result<pipeline::DetectionDisplay, ApiError> {
                 Ok(pipeline::DetectionDisplay {
                     id: detection.id,
+                    track_id: detection.track_id,
                     bbox: bbox_of(&detection.bbox)?,
                     score: detection.score,
                     crop_key: detection.crop_key,

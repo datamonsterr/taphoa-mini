@@ -6,8 +6,6 @@ use std::sync::Arc;
 use taphoa_recognition::{EmbedError, Embedder, crop};
 use uuid::Uuid;
 
-use super::model::DUPLICATE_THRESHOLD;
-
 pub(crate) struct ImageRef {
     pub id: Uuid,
     pub object_key: String,
@@ -91,12 +89,7 @@ pub(crate) async fn embed_reference(
             bbox,
         ),
     };
-    let permit = state
-        .inference_slots
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| ApiError::internal())?;
+    let permit = state.acquire_inference_slot().await?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let input = if let Some(bbox) = crop_bbox {
@@ -136,30 +129,16 @@ pub(crate) fn vector_text(vector: &[f32]) -> String {
     )
 }
 
-const SQL_SEARCH: &str = crate::recognition::pgvector::SEARCH_SQL;
-
 async fn search_sql(
     state: &AppState,
     store_id: Uuid,
     model_name: &str,
     vector: &[f32],
 ) -> ApiResult<Vec<DuplicateHit>> {
-    let rows: Vec<(Uuid, f32)> = sqlx::query_as(SQL_SEARCH)
-        .bind(vector_text(vector))
-        .bind(store_id)
-        .bind(model_name)
-        .bind(40_i64)
-        .bind(5_i64)
-        .fetch_all(pool(state)?)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .filter(|(_, similarity)| f64::from(*similarity) >= DUPLICATE_THRESHOLD)
-        .map(|(product_id, similarity)| DuplicateHit {
-            product_id,
-            similarity: f64::from(similarity),
-        })
-        .collect())
+    let index = Arc::new(crate::recognition::pgvector::PgVectorIndex::new(
+        pool(state)?.clone(),
+    ));
+    search_index(state, index, store_id, model_name, vector).await
 }
 
 async fn search_index(
@@ -189,7 +168,8 @@ async fn search_index(
     Ok(hits
         .into_iter()
         .filter(|hit| {
-            f64::from(hit.similarity) >= DUPLICATE_THRESHOLD && rows.contains(&hit.product_id)
+            hit.similarity >= state.recognition.duplicate_threshold
+                && rows.contains(&hit.product_id)
         })
         .map(|hit| DuplicateHit {
             product_id: hit.product_id,

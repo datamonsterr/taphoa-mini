@@ -3,6 +3,7 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     title: 'Tài khoản',
+    autoIdentify: 'Tự nhận diện',
     stockThreshold: 'Ngưỡng sắp hết hàng',
     stockDecrease: 'Giảm ngưỡng sắp hết',
     stockIncrease: 'Tăng ngưỡng sắp hết',
@@ -73,6 +74,7 @@ export const strings: Dict = {
   },
   en: {
     title: 'Account',
+    autoIdentify: 'Auto identify',
     stockThreshold: 'Low stock threshold',
     stockDecrease: 'Decrease low stock threshold',
     stockIncrease: 'Increase low stock threshold',

@@ -1,0 +1,33 @@
+appId: com.datamonsterr.taphoamini
+---
+# Auto identify can finish before Maestro sees the initial shutter. Opt out through the
+# real setting for manual workflows; preserve a separate flow for automatic results.
+- runFlow: open-account.yaml
+- scrollUntilVisible:
+    element:
+      id: 'auto-identify-switch'
+    centerElement: true
+- runFlow:
+    when:
+      visible:
+        id: 'auto-identify-switch'
+        checked: true
+    commands:
+      - tapOn:
+          id: 'auto-identify-switch'
+          checked: true
+- assertVisible:
+    id: 'auto-identify-switch'
+    checked: false
+- tapOn: 'Mở camera'
+# A result captured before visiting Account may still need an explicit retake.
+- runFlow:
+    when:
+      visible: 'Chụp lại'
+    commands:
+      - tapOn: 'Chụp lại'
+- extendedWaitUntil:
+    visible:
+      text: 'Chụp'
+      enabled: true
+    timeout: 20000

@@ -314,3 +314,11 @@ same two-step shape the owner described (explain, enable in Settings), minus the
   the sale.
 - Voice golden set (V5): at least 40 clips, scorers for transcript WER, line accuracy, price
   accuracy, latency and cost per model.
+
+## Product enrollment draft
+
+Send the existing multipart utterance request with `mode=product` for a name, optional
+price in đồng and optional unit in `product_draft`. Omitted `mode` defaults to `sale`;
+`transcribe` remains available. The same audio model chain and STT fallback apply. The
+server stores the transcript and draft under intent `product`, never audio, and does not
+create a catalog product. The enrollment form remains editable before saving.

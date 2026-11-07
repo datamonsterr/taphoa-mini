@@ -33,6 +33,11 @@ fetch "$sam_url/sam_mask_decoder_multi.onnx" "$model_dir/sam_mask_decoder_multi.
 dino_url="https://huggingface.co/onnx-community/dinov2-small/resolve/8b1f705a3a7f6f062f6bdd21986c1583d3ef105d"
 fetch "$dino_url/onnx/model.onnx" "$model_dir/dinov2_small.onnx" f22797eabf810a75e41de68d378541ebea372122b25c4ce3ef25ff618250c20a
 
+# SigLIP2 B/16, pooled 768-d vision export; upstream revision and recipe are in
+# export-embedder.py. Public, versioned GitHub release; no runtime model download.
+siglip_url="https://github.com/datamonsterr/taphoa-mini/releases/download/models-siglip2-b16-224-v1"
+fetch "$siglip_url/siglip2_base_patch16_224.fp32.onnx" "$model_dir/siglip2_base_patch16_224.onnx" 1a9a53cfdf5409f64cd02b9b8b4cea9aad2366576d63acf30cff412cbfcea6db
+
 # Apache-2.0: VietOCR by pbcquoc; PP-OCRv6 detection export via RapidOCR.
 # ONNX exports: https://github.com/duchoa1297/vietocr-onnx/releases/tag/ocr-v1
 ocr_url="https://github.com/duchoa1297/vietocr-onnx/releases/download/ocr-v1"

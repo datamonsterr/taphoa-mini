@@ -1,24 +1,11 @@
 appId: com.datamonsterr.taphoamini
 ---
-# From the welcome screen (signed in with sign-in.yaml, no store yet): create a store through the
-# real backend (POST /v1/stores, name + display name only) and land on the camera. Every run
-# makes a store of its own, so flows never see each other's data.
+# Manual sale/enrollment flows explicitly choose the persisted Account setting.
+# The auto-identify flow uses create-store-auto.yaml to prove the production default.
 # Input: STORE_NAME, OWNER_NAME.
-- extendedWaitUntil:
-    visible:
-      id: 'onboarding-create'
-    timeout: 30000
-- tapOn:
-    id: 'onboarding-create'
-- tapOn:
-    id: 'create-store-name'
-- inputText: ${STORE_NAME}
-- tapOn:
-    id: 'create-display-name'
-- inputText: ${OWNER_NAME}
-# Enter submits the form (the display-name field's onSubmitEditing).
-- pressKey: Enter
-- extendedWaitUntil:
-    visible: 'Chụp'
-    timeout: 60000
-- assertVisible: 'Giỏ hàng trống'
+- runFlow:
+    file: create-store-auto.yaml
+    env:
+      STORE_NAME: ${STORE_NAME}
+      OWNER_NAME: ${OWNER_NAME}
+- runFlow: manual-camera.yaml

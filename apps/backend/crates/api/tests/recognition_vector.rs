@@ -181,7 +181,7 @@ fn random_vector(rng: &mut Prng) -> Vec<f32> {
 
 #[tokio::test]
 #[ignore = "real Postgres with pgvector required"]
-async fn best_per_product_limit_and_store_or_model_isolation() {
+async fn voting_per_product_limit_and_store_or_model_isolation() {
     let Some(pool) = pool().await else { return };
     let _tidy = Tidy::start(pool.clone()).await;
     let index = PgVectorIndex::new(pool.clone());
@@ -236,9 +236,9 @@ async fn best_per_product_limit_and_store_or_model_isolation() {
     let hits = index.search(store, MODEL, &query, 10).await.unwrap();
     assert_eq!(hits.len(), 2);
     assert_eq!(hits[0].product_id, p1);
-    assert_eq!(hits[0].similarity, 1.);
+    assert_eq!(hits[0].similarity, 1. / 3.);
     assert!(
-        (hits[1].similarity - 0.70710677).abs() < 1e-6,
+        (hits[1].similarity - 0.70710677 / 3.).abs() < 1e-6,
         "p2: {}",
         hits[1].similarity
     );
@@ -251,7 +251,7 @@ async fn best_per_product_limit_and_store_or_model_isolation() {
     let other_hits = index.search(other, MODEL, &axis(0), 10).await.unwrap();
     assert_eq!(other_hits.len(), 1);
     assert_eq!(other_hits[0].product_id, p3);
-    assert_eq!(other_hits[0].similarity, 1.);
+    assert_eq!(other_hits[0].similarity, 1. / 3.);
 
     // Model isolation within one store after removing p1 and p2.
     index.remove_product(store, p1).await.unwrap();
@@ -320,7 +320,11 @@ async fn upsert_same_reference_key_replaces_instead_of_duplicating() {
         .await
         .unwrap();
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].similarity, 1., "old embedding must be replaced");
+    assert_eq!(
+        hits[0].similarity,
+        1. / 3.,
+        "old embedding must be replaced"
+    );
     // The old axis-0 vector is gone: the only row left is orthogonal to it.
     let orthogonal = index.search(store, MODEL, &axis(0), 10).await.unwrap();
     assert_eq!(orthogonal.len(), 1);
@@ -399,7 +403,7 @@ async fn equal_similarities_tie_break_by_product_id_ascending() {
     }
     let hits = index.search(store, MODEL, &axis(0), 10).await.unwrap();
     assert_eq!(hits.len(), 2);
-    assert!(hits[0].similarity == hits[1].similarity && hits[0].similarity == 1.);
+    assert!(hits[0].similarity == hits[1].similarity && hits[0].similarity == 1. / 3.);
     assert!(
         hits[0].product_id < hits[1].product_id,
         "ties must sort by product_id"
@@ -511,7 +515,7 @@ async fn filtered_search_returns_small_store_neighbors_among_other_store_hotspot
         let product = new_product(&pool, store).await;
         let mut vector = needle.clone();
         vector[1] = 0.25 * f32::from(i);
-        let similarity = best_similarity(&needle, &vector);
+        let similarity = best_similarity(&needle, &vector) / 3.;
         index
             .upsert(
                 store,
@@ -603,92 +607,58 @@ async fn agrees_with_in_memory_index_on_random_data() {
 
 #[tokio::test]
 #[ignore = "real Postgres with pgvector required"]
-async fn prototype_wins_when_references_are_noisy() {
-    use taphoa_api::recognition::classify::{
-        DEFAULT_MATCH_FLOOR, DEFAULT_MATCH_MARGIN, DEFAULT_MATCH_THRESHOLD, MatchClass, classify,
-    };
+async fn voting_beats_single_stronger_hit_and_prototypes_only_fill_missing_products() {
+    use taphoa_api::recognition::classify::{MatchClass, RecognitionConfig, classify};
     let pool = pool().await.expect("DATABASE_URL required");
     let _tidy = Tidy::start(pool.clone()).await;
     let store = new_store(&pool).await;
-    let a = new_product(&pool, store).await;
-    let b = new_product(&pool, store).await;
+    let supported = new_product(&pool, store).await;
+    let singleton = new_product(&pool, store).await;
+    let fallback = new_product(&pool, store).await;
     let index = PgVectorIndex::new(pool.clone());
-    let query = axis(0);
-    let noise = 0.42_f32.sqrt();
-    let mut mean = vec![0.; DIM];
-    for angle in [
-        0.,
-        std::f32::consts::TAU / 3.,
-        2. * std::f32::consts::TAU / 3.,
+    for (product, score) in [
+        (supported, 0.91_f32),
+        (supported, 0.90),
+        (supported, 0.89),
+        (supported, 0.10),
+        (singleton, 1.),
     ] {
-        let mut reference = vec![0.; DIM];
-        reference[..4].copy_from_slice(&[0.7, 0.3, noise * angle.cos(), noise * angle.sin()]);
-        assert!(best_similarity(&query, &reference) < DEFAULT_MATCH_THRESHOLD);
-        for (sum, value) in mean.iter_mut().zip(&reference) {
-            *sum += value / 3.;
-        }
+        let mut vector = vec![0.; DIM];
+        vector[0] = score;
+        vector[1] = (1. - score * score).sqrt();
         index
-            .upsert(store, a, new_image(&pool, store).await, MODEL, reference)
+            .upsert(store, product, new_image(&pool, store).await, MODEL, vector)
             .await
             .unwrap();
     }
-    let magnitude = mean.iter().map(|v| v * v).sum::<f32>().sqrt();
-    mean.iter_mut().for_each(|v| *v /= magnitude);
-    let proto_score = best_similarity(&query, &mean);
-    assert!(proto_score > DEFAULT_MATCH_THRESHOLD);
-    sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 3)")
-        .bind(store).bind(a).bind(MODEL).bind(pgvector::Vector::from(mean)).execute(&pool).await.unwrap();
-    let hits = index.search(store, MODEL, &query, 5).await.unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].product_id, a);
-    assert!(
-        (hits[0].similarity - proto_score).abs() < 1e-6,
-        "prototype must beat references: {hits:?}"
-    );
-    assert_eq!(
-        (
-            DEFAULT_MATCH_THRESHOLD,
-            DEFAULT_MATCH_MARGIN,
-            DEFAULT_MATCH_FLOOR
-        ),
-        (0.80, 0.05, 0.60)
-    );
-    assert_eq!(
-        classify(
-            Some(hits[0].similarity),
-            None,
-            DEFAULT_MATCH_THRESHOLD,
-            DEFAULT_MATCH_MARGIN,
-            DEFAULT_MATCH_FLOOR
-        ),
-        MatchClass::Matched
-    );
-    let mut strong = axis(0);
-    strong[0] = 0.98;
-    strong[1] = (1. - 0.98_f32.powi(2)).sqrt();
-    index
-        .upsert(store, b, new_image(&pool, store).await, MODEL, strong)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
-        .bind(store).bind(b).bind(MODEL).bind(pgvector::Vector::from(axis(1))).execute(&pool).await.unwrap();
-    let hits = index.search(store, MODEL, &query, 2).await.unwrap();
+    for (product, score) in [(supported, 1.0_f32), (singleton, 1.), (fallback, 0.82)] {
+        let mut vector = vec![0.; DIM];
+        vector[0] = score;
+        vector[1] = (1. - score * score).sqrt();
+        sqlx::query("INSERT INTO product_prototypes (store_id,product_id,model,embedding,reference_count) VALUES ($1,$2,$3,$4,3)")
+            .bind(store).bind(product).bind(MODEL).bind(pgvector::Vector::from(vector)).execute(&pool).await.unwrap();
+    }
+    let hits = index.search(store, MODEL, &axis(0), 3).await.unwrap();
     assert_eq!(
         hits.iter().map(|h| h.product_id).collect::<Vec<_>>(),
-        vec![b, a]
+        vec![supported, fallback, singleton]
     );
-    assert!((hits[0].similarity - 0.98).abs() < 1e-6);
-    assert!((hits[1].similarity - proto_score).abs() < 1e-6);
+    for (hit, expected) in hits.iter().zip([0.9, 0.82, 1. / 3.]) {
+        assert!((hit.similarity - expected).abs() < 1e-6, "{hits:?}");
+    }
+    let config =
+        RecognitionConfig::from_lookup(|name| (name == "EMBEDDER").then(|| "mock".into())).unwrap();
     assert_eq!(
         classify(
             Some(hits[0].similarity),
             Some(hits[1].similarity),
-            DEFAULT_MATCH_THRESHOLD,
-            DEFAULT_MATCH_MARGIN,
-            DEFAULT_MATCH_FLOOR
+            config.match_threshold,
+            config.match_margin,
+            config.match_floor
         ),
         MatchClass::Matched
     );
+    assert!((hits[0].similarity - hits[1].similarity - 0.08).abs() < 1e-6);
 }
 
 #[tokio::test]
@@ -755,7 +725,7 @@ async fn prototype_only_scope_archive_cutout_and_removal() {
 }
 
 #[tokio::test]
-async fn in_memory_prototypes_take_max_and_preserve_scope_and_validation() {
+async fn in_memory_prototypes_fall_back_and_preserve_scope_and_validation() {
     let index = InMemoryVectorIndex::default();
     let store = Uuid::new_v4();
     let product = Uuid::new_v4();
@@ -781,21 +751,25 @@ async fn in_memory_prototypes_take_max_and_preserve_scope_and_validation() {
         .unwrap();
     let hits = index.search(store, MODEL, &[1., 0., 0.], 5).await.unwrap();
     assert_eq!(hits.len(), 1);
-    assert!((hits[0].similarity - best_similarity(&[1., 0., 0.], &[0.7, 0.3, 0.])).abs() < 1e-6);
+    assert!(
+        (hits[0].similarity - best_similarity(&[1., 0., 0.], &[0.7, 0.3, 0.42_f32.sqrt()]) / 3.)
+            .abs()
+            < 1e-6
+    );
     index
         .upsert(store, product, Uuid::new_v4(), MODEL, vec![1., 0., 0.])
         .await
         .unwrap();
     assert_eq!(
         index.search(store, MODEL, &[1., 0., 0.], 5).await.unwrap()[0].similarity,
-        1.
+        (0.7 + 1.) / 3.
     );
     index
         .upsert_prototype(store, product, MODEL, vec![0., 1., 0.])
         .unwrap();
     assert_eq!(
         index.search(store, MODEL, &[1., 0., 0.], 5).await.unwrap()[0].similarity,
-        1.
+        (0.7 + 1.) / 3.
     );
     assert!(
         index
@@ -843,4 +817,73 @@ async fn in_memory_prototypes_take_max_and_preserve_scope_and_validation() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn wide_vectors_roundtrip_vote_fallback_and_isolate_models() {
+    let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let fallback = new_product(&pool, store).await;
+    let other_store = new_store(&pool).await;
+    let foreign = new_product(&pool, other_store).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+    let mut v = vec![0.; 768];
+    v[767] = 1.;
+    for _ in 0..3 {
+        index
+            .upsert(
+                store,
+                product,
+                new_image(&pool, store).await,
+                model,
+                v.clone(),
+            )
+            .await
+            .unwrap();
+    }
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            MODEL,
+            axis(0),
+        )
+        .await
+        .unwrap();
+    index
+        .upsert(
+            other_store,
+            foreign,
+            new_image(&pool, other_store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_prototypes (store_id,product_id,model,embedding_768,reference_count) VALUES ($1,$2,$3,$4,1)")
+        .bind(store).bind(fallback).bind(model).bind(pgvector::Vector::from(v.clone())).execute(&pool).await.unwrap();
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(
+        hits.iter()
+            .all(|h| h.similarity > 0.999 && [product, fallback].contains(&h.product_id))
+    );
+    assert!(
+        index
+            .search(store, "another-wide-model", &v, 5)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let rollback = index.search(store, MODEL, &axis(0), 5).await.unwrap();
+    assert_eq!(rollback.len(), 1);
+    assert_eq!(rollback[0].product_id, product);
+    let wide: i64 = sqlx::query_scalar("SELECT count(*) FROM product_embeddings WHERE store_id=$1 AND model=$2 AND embedding IS NULL AND vector_dims(embedding_768)=768")
+        .bind(store).bind(model).fetch_one(&pool).await.unwrap();
+    assert_eq!(wide, 3);
 }

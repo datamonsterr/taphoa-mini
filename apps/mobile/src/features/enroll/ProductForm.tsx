@@ -40,6 +40,7 @@ const TITLE_OVERHEAD = 40;
 const KEY_GAPS = 36;
 const MIN_KEY = 48;
 const BOARD_KEY = 76;
+const UNIT_HEIGHT = 48;
 const SHEET_TOP_GAP = 8;
 
 /**
@@ -58,7 +59,12 @@ export function enrollKeyDiameter(
 }
 /** Height of the 4-row keypad: four keys and three 12 dp gaps (the Keypad's `rowGap`). */
 const keypadHeight = (diameter: number) => diameter * 4 + space[3] * 3;
-export type ProductValues = { name: string; price: number; barcode?: string };
+export type ProductValues = {
+  name: string;
+  price: number;
+  barcode?: string;
+  base_unit?: string;
+};
 export type ProductPhoto = { id: string; uri: string };
 type Props = {
   photos: ProductPhoto[];
@@ -75,6 +81,8 @@ type Props = {
   initialName?: string;
   initialPrice?: string;
   initialBarcode?: string;
+  initialUnit?: string;
+  autoFocusName?: boolean;
   barcodeError?: string;
   onBarcodeChange?: () => void;
   saveLabel?: string;
@@ -120,6 +128,8 @@ export function ProductForm({
   initialName = '',
   initialPrice = '',
   initialBarcode = '',
+  initialUnit,
+  autoFocusName = false,
   barcodeError,
   onBarcodeChange,
   saveLabel = 'Lưu vào kho và thêm vào giỏ',
@@ -130,6 +140,7 @@ export function ProductForm({
 }: Props) {
   const [barcode, setBarcode] = useState(initialBarcode);
   const [name, setName] = useState(initialName);
+  const [unit, setUnit] = useState(initialUnit ?? '');
   const [digits, setDigits] = useState(() =>
     String(Math.min(Number(initialPrice) || 0, 10 ** MAX_DIGITS - 1) || ''),
   );
@@ -140,7 +151,11 @@ export function ProductForm({
     title ? QUICK_ENROLL_SHEET_HEIGHT : ENROLL_SHEET_HEIGHT,
     Math.max(0, windowHeight - insets.top - SHEET_TOP_GAP),
   );
-  const keyDiameter = enrollKeyDiameter(sheetHeight, insets.bottom, !!title);
+  const keyDiameter = enrollKeyDiameter(
+    sheetHeight - (initialUnit === undefined ? 0 : UNIT_HEIGHT + space[3]),
+    insets.bottom,
+    !!title,
+  );
   const price = Number(digits || '0');
   const canSave =
     price > 0 &&
@@ -164,6 +179,7 @@ export function ProductForm({
                 name: name.trim(),
                 price,
                 ...(barcode ? { barcode } : {}),
+                ...(unit.trim() ? { base_unit: unit.trim() } : {}),
               })
             }
             disabled={!canSave}
@@ -219,6 +235,7 @@ export function ProductForm({
         <Icon icon={Pencil} color={colors.inkMuted} />
         <TextInput
           value={name}
+          autoFocus={autoFocusName}
           onChangeText={(next) => {
             setName(next);
             onValuesChange?.({
@@ -234,6 +251,16 @@ export function ProductForm({
           style={styles.nameInput}
         />
       </View>
+      {initialUnit !== undefined ? (
+        <TextInput
+          accessibilityLabel="Đơn vị"
+          value={unit}
+          onChangeText={setUnit}
+          placeholder="Đơn vị"
+          maxLength={20}
+          style={styles.unitInput}
+        />
+      ) : null}
       <BarcodeField
         value={barcode}
         disabled={saving}
@@ -328,6 +355,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   nameInput: { flex: 1, minWidth: 0, ...typography.body, color: colors.ink },
+  unitInput: {
+    height: UNIT_HEIGHT,
+    paddingHorizontal: 20,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
+    ...typography.body,
+    color: colors.ink,
+  },
   price: {
     ...typography.total,
     textAlign: 'center',

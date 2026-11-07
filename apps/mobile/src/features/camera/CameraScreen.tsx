@@ -1,10 +1,24 @@
-import { PostHogMaskView } from '@/components/ui/ReplayMask';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import {
+  CameraPreview,
+  useCameraPermissions,
+  supportsOneTripEnrollment,
+} from './CameraPreview';
+import { useOneTripEnrollment } from './useOneTripEnrollment';
+import type { PictureTaker } from './capture';
+import { useSettingsStore } from '@/stores/settings';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowDown, Plus } from '@/components/icons';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -73,10 +87,8 @@ import {
   measuredFlyVector,
   type Layout,
 } from './AddFeedback';
-import { BARCODE_SETTINGS } from './barcode';
 import { BarcodeIndicator } from './BarcodeIndicator';
 import { useBarcodeScanner } from './useBarcodeScanner';
-import type { BarcodeScanningResult } from 'expo-camera';
 
 import { takePhoto } from './capture';
 import {
@@ -113,52 +125,6 @@ const STRIP_SLOT = 80;
 const FINDER_GAP = 60;
 const FIXED_HEIGHT =
   20 + 56 + FINDER_GAP + 8 + STRIP_SLOT + 8 + 64 + 16 + 56 + 32;
-
-/**
- * The live preview. It reports readiness once `expo-camera` has started, and not-ready when it
- * unmounts (behind a frozen photo, off screen), so the shutter never fires into a cold camera.
- *
- * The native barcode handler never changes. On Android, expo-camera rebinds CameraX whenever
- * `onBarcodeScanned` appears or disappears, and that rebind aborts a picture in flight with
- * "Failed to capture image". A paused scanner passes no handler and the reads are dropped here.
- * Web has no rebind, and its scanner decodes a full video frame on the main thread every 300 ms
- * while a handler is set, so a paused scanner there drops the handler to stop the decoding.
- */
-function LivePreview({
-  cameraRef,
-  onReadyChange,
-  onBarcodeScanned,
-}: {
-  cameraRef: React.RefObject<CameraView | null>;
-  onReadyChange: (ready: boolean) => void;
-  onBarcodeScanned?: (result: BarcodeScanningResult) => void;
-}) {
-  useEffect(() => () => onReadyChange(false), [onReadyChange]);
-  const onCameraReady = useCallback(() => onReadyChange(true), [onReadyChange]);
-  const barcodeHandler = useRef(onBarcodeScanned);
-  useEffect(() => {
-    barcodeHandler.current = onBarcodeScanned;
-  }, [onBarcodeScanned]);
-  const onBarcode = useCallback(
-    (result: BarcodeScanningResult) => barcodeHandler.current?.(result),
-    [],
-  );
-  return (
-    <PostHogMaskView style={StyleSheet.absoluteFill}>
-      <CameraView
-        ref={cameraRef}
-        facing="back"
-        animateShutter={false}
-        barcodeScannerSettings={BARCODE_SETTINGS}
-        onBarcodeScanned={
-          Platform.OS === 'web' && !onBarcodeScanned ? undefined : onBarcode
-        }
-        onCameraReady={onCameraReady}
-        style={StyleSheet.absoluteFill}
-      />
-    </PostHogMaskView>
-  );
-}
 
 /**
  * Owns the cart subscription so an add or a quantity change re-renders only the pill, never the
@@ -247,13 +213,14 @@ export function CameraScreen() {
   const { width, height } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
 
+  const autoIdentify = useSettingsStore((s) => s.autoIdentify);
   const mode = useCaptureModeStore(selectMode);
   const setMode = useCaptureModeStore((s) => s.setMode);
   const addLine = useCartStore((s) => s.add);
 
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<PictureTaker>(null);
   const { state, capture, retry, reset, added, toggle, toggleOpen, choose } =
-    useScanSession(cameraRef, mode);
+    useScanSession(cameraRef);
   const { phase, photo, scan, selected, chosen, openId } = state;
   const [addCount, setAddCount] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
@@ -274,6 +241,21 @@ export function CameraScreen() {
   const [readingReceipt, setReadingReceipt] = useState(false);
   const { mutateAsync: uploadImage } = useUploadImage();
   const canEnroll = useCanEnroll();
+  const oneTrip = useOneTripEnrollment({
+    enabled:
+      supportsOneTripEnrollment &&
+      quickActive &&
+      mode === 'object' &&
+      focused &&
+      canEnroll &&
+      !!permission?.granted,
+    upload: uploadImage,
+    onCreated: (product) => {
+      setCreated((products) => [...products, product]);
+      setNotice(`Đã thêm ${product.name || 'Hàng mới'}`);
+    },
+  });
+  const cancelOneTrip = oneTrip.cancel;
   const joinedAt = useMembership()?.member.created_at;
   // Keep the same variables object for an explicit retry of the same uploaded image.
   const receiptInput = useRef<{ image_id: string } | null>(null);
@@ -400,6 +382,7 @@ export function CameraScreen() {
   } | null>(null);
   const lookupBarcode = useLookupBarcode();
   const barcodeEnabled =
+    mode === 'code' &&
     focused &&
     !!permission?.granted &&
     cameraReady &&
@@ -430,6 +413,7 @@ export function CameraScreen() {
     }
   }, [focused]);
   const hasResult = phase === 'result' && !!scan;
+  const singleResult = hasResult && scan.detections.length === 1;
   const busy = phase === 'capturing' || phase === 'scanning';
   const probe = useDocumentProbe(
     cameraRef,
@@ -437,6 +421,7 @@ export function CameraScreen() {
       !!permission?.granted &&
       cameraReady &&
       phase === 'idle' &&
+      mode === 'object' &&
       !quickActive &&
       !sheetOpen &&
       !readingReceipt &&
@@ -445,7 +430,51 @@ export function CameraScreen() {
   );
   const document = hasResult ? scan.document : probe?.document;
   const documentDetected =
-    !!document?.detected && !quickActive && !barcodeResult;
+    mode === 'object' && !!document?.detected && !quickActive && !barcodeResult;
+
+  const enrollmentOpen =
+    quickActive ||
+    oneTrip.busy ||
+    oneTrip.previewProps.enrollment?.armed ||
+    oneTrip.previewProps.enrollment?.capturing ||
+    !!oneTrip.sheet ||
+    !!currentShot;
+  const canAutoIdentify =
+    autoIdentify &&
+    focused &&
+    !!permission?.granted &&
+    cameraReady &&
+    phase === 'idle' &&
+    mode === 'object' &&
+    !documentDetected &&
+    !readingReceipt &&
+    !enrollmentOpen &&
+    !sheetOpen &&
+    !quickCapturing &&
+    !barcodeScanner.busy &&
+    !barcodeResult;
+  const autoCaptureState = useRef({ allowed: false, capture });
+  // Native callbacks can already be queued when a receipt, sheet or mode change commits.
+  // Keep their stable entry point pointed at the latest committed screen state.
+  useLayoutEffect(() => {
+    autoCaptureState.current = { allowed: canAutoIdentify, capture };
+    return () => {
+      autoCaptureState.current.allowed = false;
+    };
+  }, [canAutoIdentify, capture]);
+  const onAutoCapture = useCallback(() => {
+    const latest = autoCaptureState.current;
+    if (
+      !latest.allowed ||
+      receiptPending.current ||
+      quickCapturePending.current ||
+      !useSettingsStore.getState().autoIdentify ||
+      useCaptureModeStore.getState().mode !== 'object' ||
+      useQuickEnrollStore.getState().active
+    )
+      return;
+    void latest.capture(undefined, 'auto');
+  }, []);
 
   /** Enroll the pressed detection: its id and box (cropped to the photo) go with the photo. */
   const goEnroll = useCallback(
@@ -475,6 +504,7 @@ export function CameraScreen() {
   const onEnrollPress = useCallback(() => {
     if (!canEnroll) return;
     const toggleMode = () => {
+      cancelOneTrip();
       quickCaptureToken.current += 1;
       quickCapturePending.current = false;
       setQuickCapturing(false);
@@ -494,7 +524,7 @@ export function CameraScreen() {
         ]);
       }
     } else toggleMode();
-  }, [canEnroll, quickActive, shots.length, dispatch, reset]);
+  }, [canEnroll, quickActive, shots.length, dispatch, reset, cancelOneTrip]);
 
   const segmentCurrent = useCallback(async () => {
     const shot = selectCurrent(useQuickEnrollStore.getState());
@@ -711,7 +741,16 @@ export function CameraScreen() {
     >
       {focused ? <StatusBar style="light" /> : null}
       <View style={styles.modeRow}>
-        <ModeToggle mode={mode} onChange={setMode} />
+        <ModeToggle
+          mode={mode}
+          disabled={busy || quickCapturing || readingReceipt || oneTrip.busy}
+          onChange={(next) => {
+            if (next === mode) return;
+            setMode(next);
+            setBarcodeResult(null);
+            reset();
+          }}
+        />
       </View>
 
       <View testID="camera-finder-row" style={styles.finderRow}>
@@ -719,9 +758,23 @@ export function CameraScreen() {
           size={finder}
           photoUri={photo?.uri}
           behind={
-            focused && permission?.granted ? (
-              <LivePreview
+            permission?.granted ? (
+              <CameraPreview
                 cameraRef={cameraRef}
+                active={focused}
+                detectionEnabled={
+                  focused &&
+                  phase === 'idle' &&
+                  (!quickActive || oneTrip.detect) &&
+                  !sheetOpen &&
+                  !readingReceipt &&
+                  !barcodeResult &&
+                  !quickCapturing
+                }
+                autoIdentify={canAutoIdentify}
+                {...oneTrip.previewProps}
+                onAutoCapture={onAutoCapture}
+                codeMode={mode === 'code'}
                 onReadyChange={setCameraReady}
                 onBarcodeScanned={
                   barcodeEnabled ? barcodeScanner.scan : undefined
@@ -755,14 +808,14 @@ export function CameraScreen() {
                     viewSize={viewSize}
                     detections={detections}
                     selected={selected}
-                    mode={mode}
+                    mode={singleResult ? 'one' : 'many'}
                     openId={openId}
                     canEnroll={canEnroll}
                     onToggle={toggle}
                     onPricePress={onPricePress}
                     onChoose={choose}
                   />
-                  {mode === 'one'
+                  {singleResult
                     ? detections.map((d) => (
                         <ConfidenceBadge
                           key={d.id}
@@ -799,6 +852,7 @@ export function CameraScreen() {
             />
           ) : null}
           {barcodeResult ? <BarcodeIndicator {...barcodeResult} /> : null}
+          {oneTrip.overlay}
           {phase === 'error' ? (
             <ScanError
               message={state.error ?? t('scanError')}
@@ -810,7 +864,11 @@ export function CameraScreen() {
       </View>
 
       <View style={styles.stripSlot}>
-        {quickActive && !currentShot && acceptedCount < MIN_SHOTS ? (
+        {oneTrip.hint}
+        {!supportsOneTripEnrollment &&
+        quickActive &&
+        !currentShot &&
+        acceptedCount < MIN_SHOTS ? (
           <Text style={styles.quickHint}>Xoay sản phẩm</Text>
         ) : null}
         {notice ? (
@@ -828,14 +886,14 @@ export function CameraScreen() {
         !(
           hasResult &&
           !documentDetected &&
-          mode === 'one' &&
+          singleResult &&
           openDetection?.alternatives
         ) ? (
           <NextStepStrip chips={chips} onPress={onChipPress} />
         ) : null}
         {hasResult &&
         !documentDetected &&
-        mode === 'one' &&
+        singleResult &&
         openDetection?.alternatives ? (
           <AlternativesStrip
             items={openDetection.alternatives}
@@ -873,7 +931,11 @@ export function CameraScreen() {
             </View>
           ) : null}
         </View>
-        {quickActive && canQuickAdd && !currentShot && !addingAngle ? (
+        {mode === 'code' ? (
+          <View style={{ width: 72 }} />
+        ) : supportsOneTripEnrollment && quickActive ? (
+          oneTrip.controls
+        ) : quickActive && canQuickAdd && !currentShot && !addingAngle ? (
           <QuickAdd onPress={() => setSheetOpen(true)} disabled={!canEnroll} />
         ) : (
           <Shutter
@@ -908,7 +970,7 @@ export function CameraScreen() {
                 ? !barcodeResult.product
                 : documentDetected || !hasResult || batch === 0)
             }
-            count={mode === 'many' && hasResult ? batch : 0}
+            count={!singleResult && hasResult ? batch : 0}
             onPress={onAdd}
           />
           <AddFeedback trigger={addCount} dx={fly.dx} dy={fly.dy} />
@@ -947,7 +1009,7 @@ export function CameraScreen() {
           <Text style={styles.quickHint}>{t('readingReceipt')}</Text>
         </View>
       </Modal>
-      {quickActive && currentShot ? (
+      {!supportsOneTripEnrollment && quickActive && currentShot ? (
         <PointOverlay
           key={currentShot.id}
           shot={currentShot}
@@ -978,7 +1040,7 @@ export function CameraScreen() {
           }}
         />
       ) : null}
-      {quickActive && sheetOpen ? (
+      {!supportsOneTripEnrollment && quickActive && sheetOpen ? (
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
           <View
             style={addingAngle ? styles.hidden : StyleSheet.absoluteFill}
@@ -1001,6 +1063,7 @@ export function CameraScreen() {
           </View>
         </View>
       ) : null}
+      {oneTrip.sheet}
     </View>
   );
 }

@@ -74,14 +74,13 @@ test.describe('board screenshots', () => {
     await seedScannableProduct(store.api);
     await openCamera(page);
     await shoot(page);
-    await expect(pricePill(page)).toBeVisible();
+    await expect(pricePill(page).first()).toBeVisible();
     await capture(page, testInfo, 'Match');
   });
 
   test('Multi: every detection boxed', async ({ page, store }, testInfo) => {
     await seedScannableProduct(store.api);
     await openCamera(page);
-    await button(page, 'Nhiều món').click();
     await shoot(page, 'multi');
     await capture(page, testInfo, 'Multi');
   });
@@ -91,14 +90,14 @@ test.describe('board screenshots', () => {
   }, testInfo) => {
     await openCamera(page);
     await shoot(page);
-    await expect(unknownPill(page)).toBeVisible();
+    await expect(unknownPill(page).first()).toBeVisible();
     await capture(page, testInfo, 'Unknown');
   });
 
   test('Enroll: price a new product', async ({ page }, testInfo) => {
     await openCamera(page);
     await shoot(page);
-    await unknownPill(page).click();
+    await unknownPill(page).first().click();
     await fillEnroll(page, { name: 'Kẹo dừa', price: 15_000 });
     await capture(page, testInfo, 'Enroll');
   });

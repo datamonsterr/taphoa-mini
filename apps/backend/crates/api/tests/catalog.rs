@@ -72,6 +72,10 @@ async fn setup_with(
     common::clerk::install(&mut state);
     state.rate_limiter = Arc::new(taphoa_api::ratelimit::MemoryRateLimiter::default());
     state.storage = Some(Arc::new(MemStore::default()));
+    state.recognition = taphoa_api::recognition::classify::RecognitionConfig::from_lookup(|name| {
+        (name == "EMBEDDER").then(|| "mock".into())
+    })
+    .unwrap();
     state.embedder = embedder.then(|| Arc::new(MockEmbedder) as _);
     state.vector_index = vector_index;
     (router(state.clone()), state)
@@ -454,9 +458,61 @@ async fn quick_enroll_reference_validation() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
+async fn keyframe_enrollment_boundaries_and_mixed_payload() {
+    let w = world().await;
+    let tags: Vec<_> = (0..25).map(|i| format!("frame-{i}")).collect();
+    let ids = futures_util::future::join_all(tags.iter().map(|tag| upload(&w, &w.lead, tag))).await;
+    let frames: Vec<_> = ids
+        .into_iter()
+        .map(|id| json!({"image_id": id, "bbox":[0,0,2,2], "source":"keyframe"}))
+        .collect();
+    for n in [7, 25] {
+        expect_code(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            json!({"id":Uuid::now_v7(),"price":1,"references":&frames[..n]}),
+            StatusCode::BAD_REQUEST,
+            "validation_failed",
+        )
+        .await;
+    }
+    let mut mixed = frames[..8].to_vec();
+    mixed.push(references(&w, 1, "mixed").await.remove(0));
+    expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        json!({"id":Uuid::now_v7(),"price":1,"references":mixed}),
+        StatusCode::BAD_REQUEST,
+        "validation_failed",
+    )
+    .await;
+    for n in [8, 24] {
+        let (status, _) = call(
+            &w.app,
+            "POST",
+            "/v1/products",
+            Some(&w.lead),
+            json!({"id":Uuid::now_v7(),"price":1,"references":&frames[..n],"force_new":true}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
 async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
     let w = world().await;
-    let refs = references(&w, 3, "reference-happy").await;
+    let mut refs = references(&w, 3, "reference-happy").await;
+    // Hash embeddings need three identical views to model supporting cosine votes.
+    for reference in &mut refs {
+        reference["cutout_image_id"] =
+            json!(upload(&w, &w.lead, "reference-happy-shared-cutout").await);
+    }
     let id = Uuid::now_v7();
     let body = json!({"id": id,"price":5000,"references":refs});
     let p = ok(
@@ -554,7 +610,7 @@ async fn quick_enroll_pending_persistence_worker_and_duplicate_semantics() {
             id
         )
         .await,
-        6
+        42
     );
     let mut duplicate = body;
     duplicate["id"] = json!(Uuid::now_v7());
@@ -641,7 +697,7 @@ async fn quick_enroll_add_cutout_and_remove_enqueue() {
             id
         )
         .await,
-        1
+        7
     );
     index_product(&w, id).await;
     assert_eq!(
@@ -651,7 +707,7 @@ async fn quick_enroll_add_cutout_and_remove_enqueue() {
             id
         )
         .await,
-        3
+        21
     );
     ok(
         &w.app,
@@ -680,7 +736,7 @@ async fn quick_enroll_add_cutout_and_remove_enqueue() {
             id
         )
         .await,
-        1
+        7
     );
 }
 
@@ -904,7 +960,7 @@ async fn quick_enroll_add_validates_cutout_pair_and_detection_crop() {
             id.parse().unwrap()
         )
         .await,
-        2
+        14
     );
 }
 
@@ -1203,13 +1259,17 @@ async fn create_product_happy_authz_validation_idempotency_events() {
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn duplicate_check_at_088_with_candidates_and_force_new() {
     let w = world().await;
+    let mut image_ids = Vec::new();
+    for _ in 0..3 {
+        image_ids.push(upload(&w, &w.lead, "same-bottle").await);
+    }
     let existing = create_product(
         &w,
         &w.lead,
         "Aquafina 500ml",
         5000,
         "same-bottle",
-        json!({}),
+        json!({"image_ids": image_ids}),
     )
     .await;
     index_product(&w, existing["id"].as_str().unwrap().parse().unwrap()).await;
@@ -1283,21 +1343,24 @@ async fn duplicate_check_at_088_with_candidates_and_force_new() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
-async fn duplicate_check_uses_the_vector_index_port_when_configured() {
+async fn duplicate_check_uses_configured_threshold_and_the_vector_index_port() {
     let index = Arc::new(InMemoryVectorIndex::default());
-    let (app, state) = setup_with(Some(index.clone()), true).await;
+    let (_, mut state) = setup_with(Some(index.clone()), true).await;
+    state.recognition.duplicate_threshold = 0.30;
+    let app = router(state.clone());
     let w = world_from(app, state).await;
     // The fake knows a product the SQL table does not; its hit must be resolved against products.
     let product = create_product(&w, &w.lead, "Coca 330ml", 9000, "coca", json!({})).await;
     let emb =
         taphoa_recognition::Embedder::embed(&MockEmbedder, &png_bytes("coca-lookalike")).unwrap();
+    // One perfect reference vote scores 1/3 and exceeds this configured threshold.
     index
         .upsert(
             w.store_id,
             product["id"].as_str().unwrap().parse().unwrap(),
             Uuid::now_v7(),
             "mock-sha256-384",
-            emb,
+            emb.clone(),
         )
         .await
         .unwrap();
@@ -1798,7 +1861,7 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        8
+        56
     );
     let ninth = upload(&w, &w.lead, "pepsi8").await;
     expect_code(
@@ -1848,7 +1911,7 @@ async fn product_images_add_remove_limits() {
             pid.parse().unwrap()
         )
         .await,
-        7
+        49
     );
     for img in &added[1..] {
         ok(
@@ -2475,4 +2538,65 @@ async fn clearing_cost_price_writes_a_price_history_row() {
         after["items"].as_array().unwrap().len(),
         before["items"].as_array().unwrap().len()
     );
+}
+
+struct WideCatalogEmbedder;
+impl taphoa_recognition::Embedder for WideCatalogEmbedder {
+    fn model(&self) -> &str {
+        "siglip2-b16-224-onnx@1/lb224"
+    }
+    fn dim(&self) -> usize {
+        768
+    }
+    fn embed(&self, _: &[u8]) -> Result<Vec<f32>, taphoa_recognition::EmbedError> {
+        let mut v = vec![0.; 768];
+        v[767] = 1.;
+        Ok(v)
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn siglip_duplicate_sql_fallback_uses_768_column_and_active_model() {
+    let (_, mut state) = setup_with(None, true).await;
+    state.embedder = Some(Arc::new(WideCatalogEmbedder));
+    let app = router(state.clone());
+    let w = world_from(app, state).await;
+    let product = create_product(&w, &w.lead, "SigLIP bottle", 9000, "siglip", json!({})).await;
+    let id: Uuid = product["id"].as_str().unwrap().parse().unwrap();
+    index_product(&w, id).await;
+    // An earlier model's retained rows must not participate in duplicate checks.
+    sqlx::query("UPDATE product_embeddings SET model='older-wide-model' WHERE product_id=$1")
+        .bind(id)
+        .execute(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE product_prototypes SET model='older-wide-model' WHERE product_id=$1")
+        .bind(id)
+        .execute(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    let image = upload(&w, &w.lead, "different-siglip-image").await;
+    let payload = json!({"id":Uuid::now_v7(),"price":1,"image_ids":[image]});
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        payload.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    index_product(&w, payload["id"].as_str().unwrap().parse().unwrap()).await;
+    let err = expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        json!({"id":Uuid::now_v7(),"price":1,"image_ids":[image]}),
+        StatusCode::CONFLICT,
+        "duplicate_suspected",
+    )
+    .await;
+    assert_eq!(err["details"]["candidates"][0]["product_id"], payload["id"]);
 }

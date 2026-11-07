@@ -192,8 +192,9 @@ export function createProduct(req: CreateProductRequest): {
           'unknown_image',
         );
       }
-      const cutout = state.images.get(ref.cutout_image_id);
-      if (!cutout) {
+      const cutout =
+        ref.cutout_image_id && state.images.get(ref.cutout_image_id);
+      if (ref.cutout_image_id && !cutout) {
         throw badRequest(
           `cutout image ${ref.cutout_image_id} does not exist`,
           { cutout_image_id: ref.cutout_image_id },

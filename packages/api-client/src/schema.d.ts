@@ -442,16 +442,19 @@ export interface paths {
         get: operations["listProducts"];
         put?: never;
         /**
-         * Enroll a product from 1–8 photos and a price (C1, C4, C5)
+         * Enroll a product from photos or keyframes and a price (C1, C4, C5)
          * @description Requires Lead or `can_enroll`. Accepts either quick-enroll multi-angle `references`
-         *     (3..8 photos with cutouts and bounding boxes) or legacy `image_ids` (1..5 photos).
+         *     (3..8 photos with cutouts and bounding boxes, or 8..24 keyframes with bounding boxes)
+         *     or legacy `image_ids` (1..5 photos). Mixing keyframes and photos returns 400.
          *     Exactly one of `references` or `image_ids` is required (422 `validation_failed`
          *     for both or neither). Minimum 3 applies only to `references` (422 below 3).
          *     Reference image IDs must be distinct; bounding boxes must be finite with positive
-         *     width and height (422 `validation_failed`). Returns 409 `image_limit` above 8.
-         *     The synchronous duplicate check embeds only the first cutout (first image for legacy).
+         *     width and height (422 `validation_failed`). Photo counts above 8 return 409
+         *     `image_limit`; keyframe counts outside 8..24 return 400.
+         *     The synchronous duplicate check embeds the first photo cutout, the first legacy
+         *     image, or the middle keyframe bbox crop.
          *     Cutout storage reads retry for up to 1 second, then fall back to a padded bbox crop.
-         *     An async index job embeds reference cutouts into the database;
+         *     An async index job embeds reference views into the database;
          *     the product is returned immediately with `index_status: "pending"`.
          *     Call `POST /v1/recognition/scans` with `purpose=enrollment` first to show
          *     "Same as X?" (C2). Set `force_new=true` to create anyway when the duplicate check
@@ -1488,11 +1491,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Turn one spoken utterance into a transcript and an optional sale draft
+         * Turn one spoken utterance into a transcript and an optional draft
          * @description Multipart upload. `audio` is `audio/mp4` (m4a), `audio/wav` or `audio/ogg`, at most
          *     1 MB and 30 seconds. With `mode=sale` the response may carry a `sale_draft`; with
-         *     `mode=transcribe` it carries the transcript only. Error codes: `audio_too_long` and
-         *     `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
+         *     `mode=product` it carries a `product_draft` for enrollment, and with
+         *     `mode=transcribe` it carries the transcript only. Omitted mode defaults to sale.
+         *     Error codes: `audio_too_long` and `unsupported_format` (400), `no_speech` (422, nothing heard), `voice_quota` (429,
          *     per-store daily cap), `voice_unavailable` (503, every model failed; the app falls
          *     back to on-device recognition). Credit drafts need `RecordDebt` at sale time as for sales.
          */
@@ -1808,8 +1812,11 @@ export interface components {
             /** @enum {string} */
             purpose: "checkout" | "enrollment";
             pipeline: {
-                /** @example mobilesam-onnx@1 */
-                segmenter: string;
+                /**
+                 * @example mobilesam-onnx@1
+                 * @enum {string}
+                 */
+                segmenter: "mobilesam-onnx@1" | "client";
                 /** @example dinov2-vits14-onnx@1/112 */
                 embedder: string;
                 /** Format: int64 */
@@ -1819,6 +1826,7 @@ export interface components {
                 segment?: number;
                 embed?: number;
                 search?: number;
+                tta?: number;
                 total?: number;
             };
             document: components["schemas"]["ScanDocument"];
@@ -1846,6 +1854,8 @@ export interface components {
             id: string;
             bbox: number[];
             score: number;
+            /** Format: int64 */
+            track_id?: number;
             /**
              * Format: uri
              * @description Presigned URL of the crop thumbnail, null when none was stored. Thumbnails upload in the background after the response, so the object can answer 404 for about a second; retry.
@@ -1913,9 +1923,14 @@ export interface components {
             image_id: string;
             /**
              * Format: uuid
-             * @description Masked cutout image ID on neutral grey background.
+             * @description Masked cutout image ID; required for photo references.
              */
-            cutout_image_id: string;
+            cutout_image_id?: string;
+            /**
+             * @description Defaults to photo. Keyframes use the original bbox crop and need no cutout.
+             * @enum {string}
+             */
+            source?: "photo" | "keyframe";
             /** @description [x, y, width, height] in original photo pixels. */
             bbox: number[];
         };
@@ -2018,18 +2033,25 @@ export interface components {
             customer?: components["schemas"]["CustomerMatch"];
             total: components["schemas"]["Money"];
         };
+        VoiceProductDraft: {
+            name: string;
+            /** @description Price in đồng. */
+            price: number | null;
+            unit: string | null;
+        };
         VoiceUtterance: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            mode: "sale" | "transcribe";
+            mode: "sale" | "transcribe" | "product";
             transcript: string;
             /** @enum {string} */
             language: "vi" | "en";
             /** @enum {string} */
-            intent: "sale" | "chat" | "none";
+            intent: "sale" | "chat" | "none" | "product";
             confidence?: number;
             sale_draft?: components["schemas"]["VoiceSaleDraft"];
+            product_draft?: components["schemas"]["VoiceProductDraft"];
             /** @description Slug that answered. */
             model: string;
             /** @description True when the STT path was used. */
@@ -2070,8 +2092,9 @@ export interface components {
             /** @description Legacy enrollment path (1..5 photos from checkout unknown pill). */
             image_ids?: string[];
             /**
-             * @description Quick enroll multi-angle references (3..8 photos).
-             *     Minimum 3 applies only to `references` (422 below 3, 409 when total images exceed 8).
+             * @description Quick enroll multi-angle references (3..8 photos) or 8..24 keyframes.
+             *     Mixing photo and keyframe references is rejected with 400.
+             *     Photos below 3 return 422 and above 8 return 409; keyframes outside 8..24 return 400.
              */
             references?: components["schemas"]["ProductReference"][];
             name?: string;
@@ -3786,6 +3809,8 @@ export interface operations {
                     purpose?: "checkout" | "enrollment";
                     /** @default 4 */
                     top_k?: number;
+                    /** @description JSON array of at most 10 normalized boxes in the EXIF-oriented image; each has x, y, width, height and optional integer track_id. */
+                    boxes?: string;
                 };
             };
         };
@@ -5983,8 +6008,11 @@ export interface operations {
                 "multipart/form-data": {
                     /** Format: binary */
                     audio: string;
-                    /** @enum {string} */
-                    mode: "sale" | "transcribe";
+                    /**
+                     * @default sale
+                     * @enum {string}
+                     */
+                    mode?: "sale" | "transcribe" | "product";
                     /**
                      * @default vi
                      * @enum {string}

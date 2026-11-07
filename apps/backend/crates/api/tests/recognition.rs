@@ -161,6 +161,11 @@ async fn build_state_limited(
         .await
         .unwrap();
     common::clerk::install(&mut state);
+    // Synthetic scores exercise the historical mock decision boundaries.
+    state.recognition = taphoa_api::recognition::classify::RecognitionConfig::from_lookup(|name| {
+        (name == "EMBEDDER").then(|| "mock".into())
+    })
+    .unwrap();
     state.rate_limits = limits;
     let index = Arc::new(InMemoryVectorIndex::default());
     state.client_ip = taphoa_api::ratelimit::ClientIpSource::ForwardedFor { hops: 1 };
@@ -235,20 +240,23 @@ async fn seed_products(
         .execute(pool)
         .await
         .unwrap();
-        index
-            .upsert(
-                store_id,
-                id,
-                Uuid::new_v4(),
-                embedder.model(),
-                embedder.colour_vector(
-                    f32::from(colour[0]),
-                    f32::from(colour[1]),
-                    f32::from(colour[2]),
-                ),
-            )
-            .await
-            .unwrap();
+        // Three reference votes represent an indexed product.
+        for _ in 0..3 {
+            index
+                .upsert(
+                    store_id,
+                    id,
+                    Uuid::new_v4(),
+                    embedder.model(),
+                    embedder.colour_vector(
+                        f32::from(colour[0]),
+                        f32::from(colour[1]),
+                        f32::from(colour[2]),
+                    ),
+                )
+                .await
+                .unwrap();
+        }
         products.push(id);
     }
     sqlx::query(
@@ -500,14 +508,14 @@ async fn scan_orders_classes_candidates_and_persists() {
     let _ = blue;
 }
 
-/// Exercise empty/singleton arrays as well as a full 24-detection multi scan.
+/// Exercise the whole-frame fallback and a full 24-detection multi scan.
 /// Distinct boxes and mixed colours catch array alignment, ordering and JSONB
 /// snapshot regressions; embeddings are read directly because the API hides them.
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
 async fn multi_scan_many_detections_round_trips_unchanged() {
     for count in [0, 1, 24] {
-        let mut photo = image::RgbImage::new(384, 256);
+        let mut photo = image::RgbImage::from_pixel(384, 256, image::Rgb(GREY));
         let mut segments = Vec::new();
         let colours = [RED, PURPLE, GREY, BLUE];
         for i in 0..count {
@@ -536,7 +544,11 @@ async fn multi_scan_many_detections_round_trips_unchanged() {
         assert_eq!(status, StatusCode::CREATED, "{body}");
         let scan_id = body["id"].as_str().unwrap();
         let posted = body["detections"].as_array().unwrap();
-        assert_eq!(posted.len(), count as usize);
+        assert_eq!(posted.len(), (count as usize).max(1));
+        if count == 0 {
+            assert_eq!(posted[0]["bbox"], json!([0.0, 0.0, 384.0, 256.0]));
+            continue;
+        }
         let (status, fetched) = get_scan(&app, &token, scan_id).await;
         assert_eq!(status, StatusCode::OK, "{fetched}");
         for key in ["id", "mode", "purpose", "pipeline", "created_at"] {
@@ -774,6 +786,51 @@ async fn image_id_path_reuses_the_row() {
     let (status, body, _) = post_scan(&app, &token, None, &[("image_id", "zz")]).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     let _ = (red, blue);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL and REDIS_URL"]
+async fn scan_waits_for_inflight_inference_instead_of_returning_busy() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        panic!("recognition integration services must be configured");
+    };
+    let (_, _, token) = create_store(&app).await;
+    let permit = state.inference_slots.clone().acquire_owned().await.unwrap();
+    let mut request =
+        tokio::spawn(async move { post_scan(&app, &token, Some(&draw_photo()), &[]).await });
+    let premature = tokio::time::timeout(std::time::Duration::from_millis(100), &mut request).await;
+    drop(permit);
+    assert!(
+        premature.is_err(),
+        "short contention must queue, not return 503"
+    );
+    let (status, body, _) = request.await.unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(state.inference_slots.available_permits(), 1);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL and REDIS_URL"]
+async fn scan_admission_is_bounded_before_reading_multipart_bodies() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        panic!("recognition integration services must be configured");
+    };
+    let (_, _, token) = create_store(&app).await;
+    assert_eq!(state.scan_requests.available_permits(), 4);
+    let requests = state
+        .scan_requests
+        .clone()
+        .acquire_many_owned(4)
+        .await
+        .unwrap();
+    let (status, body, headers) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(headers.get("retry-after"), Some(&"1".parse().unwrap()));
+    assert_eq!(state.inference_slots.available_permits(), 1);
+    drop(requests);
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(state.scan_requests.available_permits(), 4);
 }
 
 #[tokio::test]
@@ -1280,4 +1337,211 @@ async fn scan_is_rate_limited_per_member() {
     let (_, _, other) = create_store(&app).await;
     let (status, body, _) = post_scan(&app, &other, Some(&draw_photo()), &[]).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn phone_boxes_skip_segmentation_and_round_trip_tracking_ids() {
+    let Some((_app, mut state, _)) = build_state(vec![]).await else {
+        return;
+    };
+    struct PanicSegmenter;
+    impl taphoa_recognition::Segmenter for PanicSegmenter {
+        fn segment(&self, _: &[u8]) -> Result<Vec<Segment>, taphoa_recognition::SegmentError> {
+            panic!("phone boxes must skip segmentation")
+        }
+    }
+    state.segmenter = Some(Arc::new(PanicSegmenter));
+    let app = router(state);
+    let (_, _, token) = create_store(&app).await;
+    let boxes = r#"[{"x":0.1,"y":0.1,"width":0.3,"height":0.3,"track_id":42},{"x":0.6,"y":0.1,"width":0.2,"height":0.2,"track_id":7}]"#;
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["pipeline"]["segmenter"], "client");
+    assert_eq!(body["detections"][0]["track_id"], 42);
+    assert_eq!(body["detections"][1]["track_id"], 7);
+    let (_, fetched) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
+    assert_eq!(fetched["detections"][0]["track_id"], 42);
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn invalid_phone_boxes_return_problem_json() {
+    let Some((app, _, _)) = build_state(vec![]).await else {
+        return;
+    };
+    let (_, _, token) = create_store(&app).await;
+    let too_many = serde_json::to_string(&vec![
+        json!({"x": 0, "y": 0, "width": 0.1, "height": 0.1});
+        11
+    ])
+    .unwrap();
+    let (status, _, headers) =
+        post_scan(&app, &token, Some(&draw_photo()), &[("boxes", &too_many)]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("application/problem+json")
+    );
+    for boxes in [
+        "not-json",
+        r#"[{"x":0,"y":0,"width":0.001,"height":0.2}]"#,
+        r#"[{"x":2,"y":0,"width":0.2,"height":0.2}]"#,
+        r#"[{"x":0,"y":0,"width":-1,"height":0.2}]"#,
+    ] {
+        let (status, body, headers) =
+            post_scan(&app, &token, Some(&draw_photo()), &[("boxes", boxes)]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{boxes}: {body}");
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("application/problem+json")
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn single_phone_box_uses_whole_frame_if_it_scores_higher() {
+    let Some((app, state, index)) = build_state(vec![]).await else {
+        return;
+    };
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (red, _) = seed_products(
+        state.postgres.as_ref().unwrap(),
+        store_id,
+        member_id,
+        &index,
+    )
+    .await;
+    let mut photo = image::RgbImage::from_pixel(160, 128, image::Rgb(RED));
+    for y in 0..32 {
+        for x in 0..32 {
+            photo.put_pixel(x, y, image::Rgb(PURPLE));
+        }
+    }
+    let boxes = r#"[{"x":0,"y":0,"width":0.2,"height":0.25}]"#;
+    let (status, body, _) =
+        post_scan(&app, &token, Some(&encode_png(photo)), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        body["detections"][0]["candidates"][0]["product_id"],
+        red.to_string()
+    );
+    assert!(
+        body["detections"][0]["candidates"][0]["similarity"]
+            .as_f64()
+            .unwrap()
+            > 0.95,
+        "{body}"
+    );
+}
+
+#[derive(Default)]
+struct RecordingScanEmbedder(std::sync::Mutex<Vec<usize>>);
+impl Embedder for RecordingScanEmbedder {
+    fn model(&self) -> &str {
+        "colour@1"
+    }
+    fn dim(&self) -> usize {
+        384
+    }
+    fn embed(&self, bytes: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        TestEmbedder.embed(bytes)
+    }
+    fn embed_crops(&self, crops: &[image::RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        self.0.lock().unwrap().push(crops.len());
+        crops
+            .iter()
+            .map(|crop| TestEmbedder.embed(&encode_png(crop.clone())))
+            .collect()
+    }
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables; run with --test-threads=1"]
+async fn tta_only_embeds_ambiguous_crops_and_respects_cap_and_disable() {
+    let Some((_, mut state, index)) = build_state(vec![]).await else {
+        return;
+    };
+    let recorder = Arc::new(RecordingScanEmbedder::default());
+    state.embedder = Some(recorder.clone());
+    let app = router(state.clone());
+    let (store_id, member_id, token) = create_store(&app).await;
+    seed_products(
+        state.postgres.as_ref().unwrap(),
+        store_id,
+        member_id,
+        &index,
+    )
+    .await;
+    let boxes = r#"[{"x":0,"y":0,"width":0.1,"height":0.2},{"x":0.2,"y":0,"width":0.1,"height":0.2},{"x":0.4,"y":0,"width":0.1,"height":0.2},{"x":0.6,"y":0,"width":0.1,"height":0.2},{"x":0.8,"y":0,"width":0.1,"height":0.2}]"#;
+    let purple = encode_png(image::RgbImage::from_pixel(160, 128, image::Rgb(PURPLE)));
+    let (status, body, _) = post_scan(&app, &token, Some(&purple), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(*recorder.0.lock().unwrap(), vec![5, 12]);
+    recorder.0.lock().unwrap().clear();
+    let red = encode_png(image::RgbImage::from_pixel(160, 128, image::Rgb(RED)));
+    let (status, body, _) = post_scan(&app, &token, Some(&red), &[("boxes", boxes)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(*recorder.0.lock().unwrap(), vec![5]);
+    recorder.0.lock().unwrap().clear();
+    // This integration suite is run serially, so no other test reads the variable concurrently.
+    unsafe {
+        std::env::set_var("SCAN_TTA", "0");
+    }
+    let (status, body, _) = post_scan(&app, &token, Some(&purple), &[("boxes", boxes)]).await;
+    unsafe {
+        std::env::remove_var("SCAN_TTA");
+    }
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(*recorder.0.lock().unwrap(), vec![5]);
+}
+
+struct WideScanEmbedder;
+impl Embedder for WideScanEmbedder {
+    fn model(&self) -> &str {
+        "siglip2-b16-224-onnx@1/lb224"
+    }
+    fn dim(&self) -> usize {
+        768
+    }
+    fn embed(&self, _: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        let mut v = vec![0.; 768];
+        v[767] = 1.;
+        Ok(v)
+    }
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn siglip_scan_persists_768_detection_and_model_identity() {
+    let Some((_, mut state, _)) = build_state(vec![]).await else {
+        return;
+    };
+    state.embedder = Some(Arc::new(WideScanEmbedder));
+    let pool = state.postgres.clone().unwrap();
+    let app = router(state);
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, _) =
+        post_scan(&app, &token, Some(&draw_photo()), &[("mode", "single")]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let scan: Uuid = body["id"].as_str().unwrap().parse().unwrap();
+    let model: String = sqlx::query_scalar("SELECT embedder FROM scans WHERE id=$1")
+        .bind(scan)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(model, WideScanEmbedder.model());
+    let (legacy, wide): (Option<pgvector::Vector>, Option<pgvector::Vector>) =
+        sqlx::query_as("SELECT embedding, embedding_768 FROM detections WHERE scan_id=$1")
+            .bind(scan)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(legacy.is_none());
+    assert_eq!(wide.unwrap().as_slice().len(), 768);
 }

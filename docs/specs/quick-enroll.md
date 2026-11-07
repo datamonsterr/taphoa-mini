@@ -2,6 +2,14 @@
 
 Status: Done · Merge: [#25](https://github.com/datamonsterr/taphoa-mini/pull/25), [#137](https://github.com/datamonsterr/taphoa-mini/pull/137) (sheet header, Maestro checkout match) · Date: 2026-10-24 · Scope: camera screen, catalog, recognition (E2/E3 follow-up)
 
+Retrieval and preprocessing are superseded by [Retrieval v2](retrieval-v2.md): 224 px
+letterbox input, deterministic index augmentation, and top-three kNN voting. Historical
+measurements and the task table below describe the original quick-enroll implementation.
+
+Android capture is superseded by [one-trip enrollment (M3)](object-capture.md#m3-implementation-notes):
+tap one live box, keep 8..24 sharp changed keyframes, speak name and price, then save.
+Web retains the multi-photo point-prompt flow below.
+
 ## Goal
 
 Enroll a product fast from the camera screen: toggle the tag button, take at least three

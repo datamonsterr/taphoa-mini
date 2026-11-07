@@ -4198,6 +4198,7 @@ dependencies = [
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "ort",
  "pgvector",
  "printpdf",
  "rand 0.10.3",

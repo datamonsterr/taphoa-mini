@@ -277,3 +277,21 @@ jest.mock('expo-auth-session', () => ({
       `${scheme}://${path}`,
   ),
 }));
+
+jest.mock('react-native-vision-camera', () =>
+  require('./visionCamera').createVisionCameraMock(),
+);
+jest.mock('react-native-vision-camera-barcode-scanner', () =>
+  require('./visionCamera').createBarcodeMock(),
+);
+jest.mock('react-native-worklets', () =>
+  require('./visionCamera').createWorkletsMock(),
+);
+jest.mock('@taphoa/mlkit-object-detection', () => ({
+  createObjectDetector: () => require('./visionCamera').visionMock.detector,
+}));
+jest.mock('react-native-vision-camera-resizer', () => ({
+  createResizer: jest.fn(
+    async () => require('./visionCamera').visionMock.resizer,
+  ),
+}));

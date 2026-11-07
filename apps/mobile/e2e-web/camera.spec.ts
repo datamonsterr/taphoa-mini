@@ -18,8 +18,8 @@ import {
   test,
 } from './fixtures';
 
-const modeSingle = (page: Page) => button(page, 'Một món');
-const modeMulti = (page: Page) => button(page, 'Nhiều món');
+const modeObject = (page: Page) => button(page, 'Vật phẩm');
+const modeCode = (page: Page) => button(page, 'Mã vạch/QR');
 
 test.describe('camera', () => {
   test('live preview shows the fake webcam, the mode toggle and an empty cart', async ({
@@ -27,8 +27,8 @@ test.describe('camera', () => {
   }) => {
     await openCamera(page);
     await expectLiveVideo(page);
-    await expect(modeSingle(page)).toBeVisible();
-    await expect(modeMulti(page)).toBeVisible();
+    await expect(modeObject(page)).toBeVisible();
+    await expect(modeCode(page)).toBeVisible();
     await expect(button(page, 'Giỏ hàng trống')).toBeVisible();
     await expect(addButton(page)).toBeDisabled();
     await expect(button(page, 'Thêm vào kho với giá')).toBeVisible();
@@ -50,14 +50,16 @@ test.describe('camera', () => {
       price: coca.price,
     });
     await expect(page.getByTestId('viewfinder-photo')).toBeVisible();
-    await expect(detectionBoxes(page)).toHaveCount(1);
-    await expect(pricePill(page)).toHaveAccessibleName(
+    await expect(detectionBoxes(page)).toHaveCount(scan.body.detections.length);
+    await expect(pricePill(page).first()).toHaveAccessibleName(
       `${coca.name} ${formatVnd(coca.price)}, xem món khác`,
     );
     await expect(addButton(page)).toBeEnabled();
 
     const strip = page.getByRole('radiogroup', { name: 'Chọn đúng món' });
-    // board 02: the candidates are under the viewfinder at once
+    // A single result opens at once; Object's multi results open the chosen crop's strip.
+    if (scan.body.detections.length > 1)
+      await pricePill(page).first().press('Enter');
     await expect(strip).toBeVisible();
     await expect(strip.getByRole('radio')).toHaveCount(
       detection.candidates.length,
@@ -82,7 +84,7 @@ test.describe('camera', () => {
     await expect(page.getByTestId('viewfinder-photo')).toBeVisible();
   });
 
-  test('+ adds the matched item: the cart pill count and total follow, the camera is live again', async ({
+  test('+ adds one selected matched item: the cart pill count and total follow', async ({
     page,
     store,
   }) => {
@@ -96,6 +98,28 @@ test.describe('camera', () => {
     await expect(shutter(page)).toBeEnabled();
     await cartPill(page).click();
     await expect(page).toHaveURL(/\/cart/);
+  });
+
+  test('+ adds every selected Object detection with the server prices', async ({
+    page,
+    store,
+  }) => {
+    const product = await seedScannableProduct(store.api);
+    await openCamera(page);
+    const scan = await shoot(page);
+    const matched = scan.body.detections.filter(
+      (d: any) => d.match === 'matched',
+    );
+    expect(matched.length).toBeGreaterThan(0);
+    for (const detection of matched)
+      expect(detection.candidates[0].product_id).toBe(product.id);
+    await addButton(page).click();
+    await expect(cartPill(page)).toHaveAccessibleName(
+      `Giỏ hàng: ${matched.length} món, ${formatVnd(matched.length * product.price)}`,
+    );
+    await expect(page.getByTestId('cart-count')).toHaveText(
+      String(matched.length),
+    );
   });
 
   test('tag toggles purple quick mode and returns to checkout without navigating', async ({

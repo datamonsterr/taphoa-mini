@@ -111,10 +111,6 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
         state.image_url_ttl = config.url_ttl;
         state.storage = Some(Arc::new(storage));
     }
-    // Real adapters arrive with the recognition epic; EMBEDDER=mock is for local/e2e only.
-    if std::env::var("EMBEDDER").as_deref() == Ok("mock") {
-        state.embedder = Some(Arc::new(taphoa_recognition::MockEmbedder));
-    }
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address).await?;
     let pool = state.postgres.clone();
@@ -141,7 +137,7 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
                 storage,
                 state.inference_slots.clone(),
                 shutdown_rx,
-                WorkerConfig::default(),
+                WorkerConfig::from_env(),
             ));
         }
     }

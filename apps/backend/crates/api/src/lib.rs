@@ -94,8 +94,11 @@ pub struct AppState {
     pub image_url_ttl: Duration,
     pub assistant: assistant::AssistantState,
     pub voice: voice::VoiceState,
-    // Serialize inference and reject excess work before copying/decompressing images.
+    // Serialize model execution; foreground work waits briefly for an active batch.
     pub inference_slots: Arc<Semaphore>,
+    /// Bound scan bodies waiting for inference to four multipart requests.
+    pub scan_requests: Arc<Semaphore>,
+    pub inference_queue_wait: Duration,
     /// Best-effort preview detection must never consume scan/enrollment admission.
     pub probe_slots: Arc<Semaphore>,
 }
@@ -134,11 +137,25 @@ impl Default for AppState {
             assistant: assistant::AssistantState::default(),
             voice: voice::VoiceState::default(),
             inference_slots: Arc::new(Semaphore::new(1)),
+            scan_requests: Arc::new(Semaphore::new(4)),
+            inference_queue_wait: Duration::from_secs(5),
             probe_slots: Arc::new(Semaphore::new(1)),
         }
     }
 }
 impl AppState {
+    pub(crate) async fn acquire_inference_slot(
+        &self,
+    ) -> ApiResult<tokio::sync::OwnedSemaphorePermit> {
+        tokio::time::timeout(
+            self.inference_queue_wait,
+            self.inference_slots.clone().acquire_owned(),
+        )
+        .await
+        .map_err(|_| busy())?
+        .map_err(|_| busy())
+    }
+
     pub async fn connect(
         database_url: Option<&str>,
         redis_url: Option<&str>,
@@ -167,6 +184,7 @@ impl AppState {
         state.rate_limits = config.rate_limits;
         state.client_ip = config.client_ip;
         state.probe_slots = Arc::new(Semaphore::new(config.document_probe_concurrency));
+        state.inference_queue_wait = config.inference_queue_wait;
         state.clock = config.clock;
         state.sale_window = config.sale_window;
         state.config = Some(Arc::new(config.clone()));
@@ -358,7 +376,7 @@ pub(crate) fn bad_request() -> ApiError {
     )
 }
 
-/// The one inference slot is held; the phone retries once after a second.
+/// The inference queue is full or its wait budget expired.
 pub(crate) fn busy() -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -410,11 +428,8 @@ async fn segment(
         "segmentation requests",
     )
     .await?;
-    let segmenter = state.segmenter.ok_or_else(no_model)?;
-    let permit = state
-        .inference_slots
-        .try_acquire_owned()
-        .map_err(|_| busy())?;
+    let segmenter = state.segmenter.clone().ok_or_else(no_model)?;
+    let permit = state.acquire_inference_slot().await?;
     let mut image = None;
     while let Some(field) = multipart.next_field().await.map_err(multipart_error)? {
         if field.name() != Some("image") || image.is_some() {

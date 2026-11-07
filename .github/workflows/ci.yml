@@ -88,6 +88,7 @@ jobs:
             workflows:
               - '.github/**'
               - 'scripts/ci/**'
+              - 'scripts/e2e/**'
             eval:
               - 'packages/eval/**'
               - 'apps/backend/crates/api/src/assistant/**'
@@ -1094,6 +1095,8 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - name: Unit tests for scripts/ci
         run: python3 -I -m unittest discover -s scripts/ci -v
+      - name: E2E stack launcher contracts
+        run: python3 -I -m unittest discover -s scripts/e2e -v
       - name: Summary
         if: always()
         env:

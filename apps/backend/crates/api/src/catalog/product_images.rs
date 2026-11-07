@@ -147,6 +147,17 @@ pub(crate) async fn add(
     }
 
     let positions = load_positions(&mut tx, product_id).await?;
+    let has_keyframes: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM product_images WHERE product_id=$1 AND source='keyframe')",
+    )
+    .bind(product_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if has_keyframes {
+        return Err(ApiError::validation_failed(
+            "cannot mix photo and keyframe references",
+        ));
+    }
     if positions.len() >= model::MAX_IMAGES {
         return Err(ApiError::conflict(
             "image_limit",

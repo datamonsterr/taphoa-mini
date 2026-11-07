@@ -1,5 +1,6 @@
 import {
   acceptQuickAngle,
+  backToLive,
   addButton,
   button,
   callInference,
@@ -10,6 +11,7 @@ import {
   openCamera,
   pricePill,
   shoot,
+  selectOnlyDetection,
   shutter,
   test,
   typeAmount,
@@ -72,7 +74,7 @@ test.describe('quick enroll (real SAM and DINO models)', () => {
     await expect(enrollTag(page)).toHaveAttribute('aria-selected', 'false');
     const scan = await shoot(page);
     expect(scan.body.pipeline.segmenter).toContain('sam');
-    expect(scan.body.pipeline.embedder).toContain('dino');
+    expect(scan.body.pipeline.embedder).toContain('siglip2');
     expect(scan.body.detections[0]).toMatchObject({
       match: 'matched',
       candidates: [
@@ -80,13 +82,15 @@ test.describe('quick enroll (real SAM and DINO models)', () => {
       ],
     });
     await expect(unknownPill(page)).toHaveCount(0);
-    await expect(pricePill(page)).toHaveAccessibleName(
+    await expect(pricePill(page).first()).toHaveAccessibleName(
       `${product.name} ${formatVnd(product.price)}, xem món khác`,
     );
-    await expect(pricePill(page)).toContainText(
+    await expect(pricePill(page).first()).toContainText(
       formatVnd(product.price).replace('đ', ''),
     );
+    await selectOnlyDetection(page, scan.body);
     await addButton(page).click();
+    await backToLive(page);
     await expect(cartPill(page)).toHaveAccessibleName(
       `Giỏ hàng: 1 món, ${formatVnd(product.price)}`,
     );

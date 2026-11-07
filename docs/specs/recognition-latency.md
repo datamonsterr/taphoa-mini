@@ -2,8 +2,10 @@
 
 Status: Accepted · Date: 2026-10-23 · Scope: [architecture §5.3](../architecture.md), epic E2
 
-Goal: `POST /v1/recognition/scans` and `POST /v1/segment` answer in under 3 s for a 1600 px
-photo on Railway CPU (multi mode, point-grid prompts).
+The original E2 goal was a scan and segmentation response under 3 s for a 1600 px
+photo on Railway CPU. Object capture's C3 identify budget is now **8 s p95 tap to
+result, including WAN**. The separate upload-plus-point-segmentation hard gate stays
+at 3 s; the historical measurements below retain their original timing boundaries.
 
 ## Measurements
 
@@ -25,6 +27,42 @@ Embedding (DINOv2 ViT-S/14, 20 crops, batch 8):
 | 224        | 1.5 s   | n/a     |
 | 154        | 1.5 s   | 1.6 s   |
 | 112        | 0.40 s  | 0.75 s  |
+
+### Retrieval v2: 224 versus 112 on this machine
+
+Measured 2026-11-02 on this shared AMD Ryzen 5 2600 host (6 cores / 12 logical CPUs),
+release build, ONNX Runtime 1.23.2, four intra-op threads, spinning disabled, batch eight.
+The fetch script verified the pinned DINOv2-small weights (SHA-256
+`f22797eabf810a75e41de68d378541ebea372122b25c4ce3ef25ff618250c20a`). Both sizes use
+Retrieval v2 letterbox preprocessing and the unchanged 384-dimensional CLS vector.
+
+The existing `embed_bench` embeds twenty deterministic 150×260 RGB crops per run.
+Load-time warm-up is excluded; all five subsequent runs are included. The host was
+busy with other builds and backend tests (observed load average approximately 12), so
+these are measurements under shared load, not isolated capacity estimates.
+
+| Side | Twenty-crop run times (ms)             | Median batch (ms) | Amortized ms/crop |
+| ---- | -------------------------------------- | ----------------- | ----------------- |
+| 112  | 1471.4, 1679.7, 1713.4, 1712.9, 1819.6 | 1712.9            | 85.6              |
+| 224  | 4506.1, 5438.4, 4442.0, 3426.2, 3568.9 | 4442.0            | 222.1             |
+
+224 px cost 2.59 times the median batch time in this run. Retrieval v2 intentionally
+makes 224 the default to retain detail; this measured twenty-crop embedding stage
+alone exceeds the original three-second full-scan budget under this host load.
+`EMBED_SIDE=112` remains an operational latency option with its own model identity and
+requires reindexing. Query inference stays one vector per crop; augmentation runs only
+in background index jobs. Accuracy and deployment latency still require labeled-photo
+and target-environment evaluation before claiming improved recognition or the scan budget.
+
+Reproduce from `apps/backend` after fetching models and configuring `ORT_DYLIB_PATH`:
+
+```sh
+MODEL_DIR=/media/storage/cache/taphoa-models ./scripts/fetch-models.sh
+cargo run --release -p taphoa-recognition --example embed_bench -- \
+  /media/storage/cache/taphoa-models/dinov2_small.onnx 20 5 112 4
+cargo run --release -p taphoa-recognition --example embed_bench -- \
+  /media/storage/cache/taphoa-models/dinov2_small.onnx 20 5 224 4
+```
 
 ### Railway `test` environment (sfo, deployed from this branch, client in Vietnam)
 
@@ -55,7 +93,7 @@ vary by +-30 % in segmentation time.
   covers yet. Decoders run single-threaded, one session per worker
   (`SAM_DECODERS`, default `min(threads, 8)` so 8-vCPU hosts use all cores).
 - Masks are decoded at 256 px (`SAM_MASK_SIDE`) and boxes are scaled back to the photo.
-- **Embedder input is 112 px** (`EMBED_SIDE`, multiple of 14, max 224) to fit the budget:
+- **Original embedder input was 112 px** (`EMBED_SIDE`, multiple of 14, max 224) to fit the budget:
   segmentation 1.6 s + embedding 0.4 s + upload and persistence on 4 cores. Top-1 accuracy at
   112 px has not been measured: the A1 set (50 products, 200 labeled checkout scans) is not
   available in the repository or elsewhere available to this work. The evaluator is ready at
@@ -299,3 +337,55 @@ Store reads add the threshold column to their existing query, with no extra
 join or database round trip. No speculative handler change or gate relaxation
 was made. The complete API suite therefore remains reported as failed, despite
 all receipt/stock/recognition acceptance checks passing.
+
+## B5 SigLIP2 production embedding stage (2026-11-02 UTC)
+
+Release build, ONNX Runtime 1.23.2, four intra-op threads, spinning off, affinity
+CPU 0–3 (four physical cores) on the shared Ryzen 5 2600 host. B5 evaluation and
+builds had finished before these measurements; other host services remained active.
+`embed_bench` uses deterministic, already decoded 150×260 RGB crops through the
+production model-spec path, including letterbox, normalization, ONNX inference and
+L2 normalization. Each model/count is loaded and warmed once; twenty subsequent
+batches are included. p95 is nearest rank (the nineteenth sorted observation).
+All raw runs are committed in
+[the B5 result](../../apps/backend/eval/results/2026-11-02-siglip2-production.json).
+
+| Model/artifact                  | Crops | Median batch ms | p95 batch ms | Median ms/crop |
+| ------------------------------- | ----: | --------------: | -----------: | -------------: |
+| SigLIP2 FP32 (selected)         |     1 |           222.4 |        258.0 |          222.4 |
+| SigLIP2 FP32 (selected)         |     3 |           659.1 |        723.2 |          219.7 |
+| SigLIP2 FP32 (selected)         |     5 |          1134.2 |       1192.6 |          226.8 |
+| SigLIP2 dynamic INT8 (rejected) |     1 |           200.2 |        214.6 |          200.2 |
+| SigLIP2 dynamic INT8 (rejected) |     3 |           616.4 |        654.1 |          205.5 |
+| SigLIP2 dynamic INT8 (rejected) |     5 |          1062.7 |       1105.1 |          212.5 |
+| DINOv2 224 (rollback)           |     1 |           118.0 |        138.4 |          118.0 |
+| DINOv2 224 (rollback)           |     3 |           261.1 |        297.5 |           87.0 |
+| DINOv2 224 (rollback)           |     5 |           411.4 |        460.3 |           82.3 |
+
+FP32's five-crop embedding p95 is **1.193 s** in this local stage measurement. INT8
+saves some inference time and weight bytes, but K=8 top-1 falls 19.0 points
+(76.2% to 57.1%), so FP32 remains the image artifact. See the
+[fit/held threshold and quantization report](retrieval-v2.md#b5-threshold-calibration).
+The original 97% match-precision goal is not met on held classes; the revised
+default policy fits at 95% and preserves at least 95% known-query floor recall.
+
+These are embedding-stage samples, not scan or identify end-to-end p95. They omit
+JPEG decode, phone work, segmentation, vector search, persistence, image storage and
+WAN; scan TTA can add up to twelve embeddings beyond the base crops. **C3 remains
+8 s p95 tap to result including WAN**, and is not validated by these measurements.
+No Railway deployment or device test was performed for B5.
+
+Reproduce from `apps/backend` with the pinned model/runtime downloads:
+
+```sh
+for crops in 1 3 5; do
+  CARGO_TARGET_DIR="$PWD/target-local/b5" cargo run --release \
+    -p taphoa-recognition --example embed_bench -- \
+    models/siglip2_base_patch16_224.onnx "$crops" 20 224 4 siglip2
+done
+```
+
+Use `taskset -c 0-3` around each run on this host to reproduce CPU affinity. The
+INT8 comparison substitutes the locally quantized file; DINOv2 substitutes
+`models/dinov2_small.onnx` and the final `dinov2` argument. Remove only this
+worktree's isolated `target-local/b5` after use; never clean a shared Cargo target.

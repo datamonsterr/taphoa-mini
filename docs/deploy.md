@@ -119,10 +119,38 @@ from an upload exit code. Failed readiness usually means missing references,
 unreachable dependencies, or unsuccessful migrations.
 
 The Docker image fetches checksum-verified ONNX Runtime using
-`apps/backend/scripts/fetch-onnxruntime.sh`. SAM weights download by default.
+`apps/backend/scripts/fetch-onnxruntime.sh` and pinned SAM, OCR, DINOv2 and SigLIP2
+weights using `fetch-models.sh` **during the image build**. Startup needs no model
+download. `EMBEDDER=siglip2` and `EMBED_THREADS=4` are image defaults;
+`SIGLIP2_MODEL_PATH=/app/models/siglip2_base_patch16_224.onnx`. Both embedder files
+remain readable by the non-root runtime user. `EMBEDDER=dinov2` with the earlier
+`EMBED_SIDE` restores the old encoder and retained vectors. Follow the additive
+[migration and bounded backfill rollout](specs/retrieval-v2.md#additive-schema-and-rollout)
+before switching traffic; this change does not deploy Railway.
+
+The SigLIP2 FP32 artifact is hosted in the versioned
+[`models-siglip2-b16-224-v1` prerelease](https://github.com/datamonsterr/taphoa-mini/releases/tag/models-siglip2-b16-224-v1).
+Its 371,803,508 bytes add **354.6 MiB of uncompressed weights** to the image while
+retaining DINOv2 for rollback. SHA256 is
+`1a9a53cfdf5409f64cd02b9b8b4cea9aad2366576d63acf30cff412cbfcea6db`;
+export/quantization versions and revisions are pinned in `apps/backend/scripts/`.
+The local real-weight verification runtime image (`Dockerfile.ci`, `SKIP_MODELS=0`)
+was 1,440,798,696 bytes by `docker image inspect`; both model checksums were
+verified inside it as the runtime user. That is a local image-size check, not a
+production cargo-chef build or a compressed-registry transfer measurement.
+
+A local release API startup with SAM, OCR and the active embedder, four threads
+each and four-CPU affinity, measured RSS/high-water **1,045,680 KiB for DINOv2**
+and **1,408,144 KiB for SigLIP2** after warm-up (about 354 MiB extra). No database,
+Redis, storage clients or requests were active. These are startup measurements on
+the shared Ryzen host, not peak concurrent request RAM on Railway. Retain at least
+4 vCPU and allow memory headroom for request tensors, segmentation cache, clients
+and HNSW; check target-service RSS and the C3 8 s p95 device/WAN identify gate
+before claiming production capacity.
+
 For a deliberate model-free deployment, set `SKIP_MODELS=1` as a backend variable
-before building; `/v1/segment` will return 503. Local/CI Docker builds use
-`--build-arg SKIP_MODELS=1`. Models are never committed.
+before building; segmentation and recognition return 503. Local/CI Docker builds
+can use `--build-arg SKIP_MODELS=1`. Models are never committed.
 
 The Dockerfile retains cargo-chef dependency **layer** caching and omits BuildKit
 cache mounts. Railway requires mount IDs prefixed `s/<service-id>-` and does not

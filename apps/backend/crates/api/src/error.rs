@@ -17,6 +17,7 @@ pub struct ApiError {
     pub message: String,
     pub details: Option<Value>,
     retry_after_secs: Option<u64>,
+    problem_json: bool,
 }
 pub type ApiResult<T> = Result<T, ApiError>;
 
@@ -28,6 +29,7 @@ impl ApiError {
             message: message.into(),
             details: None,
             retry_after_secs: None,
+            problem_json: false,
         }
     }
     pub fn bad_request(code: &'static str, msg: impl Into<String>) -> Self {
@@ -35,6 +37,10 @@ impl ApiError {
     }
     pub fn validation_failed(msg: impl Into<String>) -> Self {
         Self::bad_request("validation_failed", msg)
+    }
+    pub(crate) fn problem_json(mut self) -> Self {
+        self.problem_json = true;
+        self
     }
     pub fn unauthorized() -> Self {
         Self::new(
@@ -111,6 +117,12 @@ impl IntoResponse for ApiError {
         response
             .extensions_mut()
             .insert(crate::telemetry::ErrorCode(self.code));
+        if self.problem_json {
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/problem+json"),
+            );
+        }
         if let Some(seconds) = self.retry_after_secs {
             response.headers_mut().insert(RETRY_AFTER, seconds.into());
         }

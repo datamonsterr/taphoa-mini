@@ -12,7 +12,6 @@ pub const CATEGORY_MAX: usize = 40;
 pub const MAX_IMAGES: usize = 8;
 pub const MAX_LEGACY_IMAGE_IDS: usize = 5;
 pub const MIN_REFERENCES: usize = 3;
-pub const DUPLICATE_THRESHOLD: f64 = 0.88;
 
 pub fn path_id(id: &str) -> ApiResult<Uuid> {
     Uuid::parse_str(id).map_err(|_| ApiError::not_found())
@@ -71,8 +70,18 @@ impl ProductUnitInput {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProductReference {
     pub image_id: Uuid,
-    pub cutout_image_id: Uuid,
+    pub cutout_image_id: Option<Uuid>,
     pub bbox: [f32; 4],
+    #[serde(default)]
+    pub source: ReferenceSource,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceSource {
+    #[default]
+    Photo,
+    Keyframe,
 }
 
 pub(crate) fn reference_validation(message: impl Into<String>) -> ApiError {
@@ -163,17 +172,39 @@ impl CreateProductRequest {
                 }
             }
             (None, Some(refs)) => {
-                if refs.len() > MAX_IMAGES {
-                    return Err(ApiError::conflict(
-                        "image_limit",
-                        "product supports at most 8 images",
-                    ));
-                }
-                if refs.len() < MIN_REFERENCES {
-                    return Err(reference_validation("expected at least 3 references"));
+                let keyframes = refs
+                    .iter()
+                    .filter(|r| r.source == ReferenceSource::Keyframe)
+                    .count();
+                if keyframes > 0 {
+                    if keyframes != refs.len() {
+                        return Err(ApiError::validation_failed(
+                            "cannot mix photo and keyframe references",
+                        ));
+                    }
+                    if !(8..=24).contains(&keyframes) {
+                        return Err(ApiError::validation_failed("expected 8 to 24 keyframes"));
+                    }
+                } else {
+                    if refs.len() > MAX_IMAGES {
+                        return Err(ApiError::conflict(
+                            "image_limit",
+                            "product supports at most 8 images",
+                        ));
+                    }
+                    if refs.len() < MIN_REFERENCES {
+                        return Err(reference_validation("expected at least 3 references"));
+                    }
                 }
                 let mut seen = std::collections::HashSet::new();
                 for reference in refs {
+                    if reference.source == ReferenceSource::Photo
+                        && reference.cutout_image_id.is_none()
+                    {
+                        return Err(reference_validation(
+                            "photo references require cutout_image_id",
+                        ));
+                    }
                     if !seen.insert(reference.image_id) {
                         return Err(reference_validation("expected distinct image ids"));
                     }
@@ -435,6 +466,37 @@ pub fn plan_patch(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn keyframe_reference_counts_and_mixing() {
+        let frame =
+            || json!({"image_id": Uuid::now_v7(), "bbox": [0, 0, 10, 10], "source": "keyframe"});
+        let photo = || json!({"image_id": Uuid::now_v7(), "cutout_image_id": Uuid::now_v7(), "bbox": [0, 0, 10, 10]});
+        let validate = |refs: Vec<Value>| {
+            CreateProductRequest::parse(
+                json!({"id": Uuid::now_v7(), "price": 1, "references": refs}),
+            )
+            .and_then(|r| r.validate())
+        };
+        for count in [7, 25] {
+            assert_eq!(
+                validate((0..count).map(|_| frame()).collect())
+                    .unwrap_err()
+                    .status,
+                axum::http::StatusCode::BAD_REQUEST
+            );
+        }
+        for count in [8, 24] {
+            assert!(validate((0..count).map(|_| frame()).collect()).is_ok());
+        }
+        let mut mixed: Vec<_> = (0..8).map(|_| frame()).collect();
+        mixed.push(photo());
+        assert_eq!(
+            validate(mixed).unwrap_err().status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        assert!(validate((0..3).map(|_| photo()).collect()).is_ok());
+    }
 
     fn create(price: i64, images: usize) -> CreateProductRequest {
         CreateProductRequest {

@@ -480,3 +480,11 @@ test('has the opt-in voice switch below the language row, and no system rows wit
   expect(screen.queryByTestId('voice-bubble-row')).toBeNull();
   expect(screen.queryByTestId('voice-tile-row')).toBeNull();
 });
+
+test('auto identify can be switched off in account settings', async () => {
+  await open();
+  const toggle = screen.getByRole('switch', { name: 'Tự nhận diện' });
+  expect(toggle).toBeChecked();
+  await fireEvent.press(toggle);
+  expect(useSettingsStore.getState().autoIdentify).toBe(false);
+});

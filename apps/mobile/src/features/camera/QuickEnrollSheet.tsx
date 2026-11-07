@@ -10,6 +10,12 @@ import {
 } from '@/lib/api';
 import { barcodeConflict } from '@/features/enroll/barcodeConflict';
 import { newUuid } from '@/lib/uuid';
+import {
+  keyframeReferences,
+  MIN_KEYFRAMES,
+  type Keyframe,
+  type voiceDraftToForm,
+} from './vision/enrollment';
 
 import {
   MAX_SHOTS,
@@ -22,9 +28,19 @@ type Props = {
   onClose: () => void;
   onAddPhoto: () => void;
   onCreated: (product: Product) => void;
+  oneTrip?: {
+    frames: Keyframe[];
+    draft: ReturnType<typeof voiceDraftToForm>;
+    voiceSuccess: boolean;
+  };
 };
 
-export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
+export function QuickEnrollSheet({
+  onClose,
+  onAddPhoto,
+  onCreated,
+  oneTrip,
+}: Props) {
   const shots = useQuickEnrollStore((s) => s.shots);
   const dispatch = useQuickEnrollStore((s) => s.dispatch);
   const create = useCreateProduct();
@@ -36,8 +52,10 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
 
   async function save(values: ProductValues, forceNew = false) {
     if (pending.current) return;
-    const references = selectReferences(useQuickEnrollStore.getState());
-    if (references.length < MIN_SHOTS) return;
+    const references = oneTrip
+      ? keyframeReferences(oneTrip.frames)
+      : selectReferences(useQuickEnrollStore.getState());
+    if (references.length < (oneTrip ? MIN_KEYFRAMES : MIN_SHOTS)) return;
     productId.current ??= newUuid();
     pending.current = true;
     setSaving(true);
@@ -80,13 +98,33 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
 
   return (
     <ProductForm
-      testID="quick-enroll-sheet"
-      title={`Thêm hàng nhanh · ${accepted.length}/${MIN_SHOTS}`}
-      photos={accepted.map((shot) => ({ id: shot.id, uri: shot.uri }))}
-      maxPhotos={MAX_SHOTS}
-      minPhotos={MIN_SHOTS}
+      testID={oneTrip ? 'one-trip-enroll-sheet' : 'quick-enroll-sheet'}
+      title={
+        oneTrip
+          ? `Thêm hàng · ${oneTrip.frames.length} khung hình`
+          : `Thêm hàng nhanh · ${accepted.length}/${MIN_SHOTS}`
+      }
+      photos={
+        oneTrip
+          ? oneTrip.frames.map((frame, i) => ({
+              id: String(i),
+              uri: frame.uri,
+            }))
+          : accepted.map((shot) => ({ id: shot.id, uri: shot.uri }))
+      }
+      maxPhotos={oneTrip ? oneTrip.frames.length : MAX_SHOTS}
+      minPhotos={oneTrip ? MIN_KEYFRAMES : MIN_SHOTS}
+      initialName={oneTrip?.draft.name}
+      initialPrice={oneTrip?.draft.price}
+      initialUnit={oneTrip?.draft.unit}
+      autoFocusName={oneTrip ? !oneTrip.voiceSuccess : false}
+      disabled={
+        oneTrip ? oneTrip.frames.some((frame) => !frame.imageId) : false
+      }
       onAddPhoto={onAddPhoto}
-      onRemovePhoto={(id) => dispatch({ type: 'remove', id })}
+      onRemovePhoto={
+        oneTrip ? undefined : (id) => dispatch({ type: 'remove', id })
+      }
       onSave={(values) => void save(values)}
       saving={saving}
       barcodeError={barcodeError}

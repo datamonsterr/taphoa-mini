@@ -1,0 +1,36 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+def targetArchitectures = (project.findProperty('reactNativeArchitectures') ?: 'armeabi-v7a,arm64-v8a,x86,x86_64').split(',')
+
+android {
+  namespace 'com.taphoa.objectdetection'
+  compileSdk rootProject.ext.compileSdkVersion
+  ndkVersion rootProject.ext.ndkVersion
+
+  defaultConfig {
+    minSdk rootProject.ext.minSdkVersion
+    externalNativeBuild {
+      cmake {
+        arguments '-DANDROID_STL=c++_shared', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+        cppFlags '-frtti -fexceptions -Wall -Wextra'
+        abiFilters(*targetArchitectures)
+      }
+    }
+  }
+  externalNativeBuild { cmake { path 'CMakeLists.txt' } }
+  buildFeatures { prefab true }
+  sourceSets.main.java.srcDirs += ['../nitrogen/generated/android/kotlin']
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+  implementation project(':react-native-nitro-modules')
+  implementation project(':react-native-vision-camera')
+  implementation 'androidx.camera:camera-core:1.5.2'
+  implementation 'com.google.mlkit:object-detection:17.0.2'
+}
