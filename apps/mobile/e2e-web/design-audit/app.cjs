@@ -145,7 +145,18 @@ async function main() {
       const route = rawRoute.replace(/^\//, '') || 'index';
       if (
         !/^[a-z0-9/-]+$/.test(route) ||
-        (state && !['low', 'cash', 'credit'].includes(state))
+        (state &&
+          ![
+            'low',
+            'cash',
+            'credit',
+            'sell',
+            'elder',
+            'product',
+            'units',
+            'export',
+            'populated',
+          ].includes(state))
       )
         throw new Error(`Unsupported route/state: ${target}`);
       const page = await browser.newPage({
@@ -154,7 +165,26 @@ async function main() {
       });
       try {
         await setup(page, route === 'sign-in');
-        await page.goto(`${base}/${route === 'index' ? '' : route}`, {
+        if (route === 'inventory' && state === 'elder')
+          await page.addInitScript(() =>
+            localStorage.setItem(
+              'taphoa-settings',
+              JSON.stringify({
+                state: {
+                  elderMode: true,
+                  speakTotal: true,
+                  fontScale: 1,
+                  language: 'vi',
+                },
+                version: 2,
+              }),
+            ),
+          );
+        const query =
+          route === 'enroll' && state === 'populated'
+            ? `?${new URLSearchParams({ photoUri: `${process.env.DESIGN_AUDIT_BOARD_URL || 'http://127.0.0.1:4175'}/docs/design/canvas/img/oreo.jpg`, price: '15000' })}`
+            : '';
+        await page.goto(`${base}/${route === 'index' ? '' : route}${query}`, {
           waitUntil: 'domcontentloaded',
         });
         await page.waitForTimeout(5000); // Allow auth, fixture queries, and route animations to settle.
@@ -173,8 +203,34 @@ async function main() {
           await page.getByRole('radio', { name: /Tiền mặt/ }).click();
         else if (state === 'credit' && route === 'pay')
           await page.getByRole('radio', { name: /Ghi nợ/ }).click();
-        else if (state)
+        else if (route === 'inventory' && ['sell', 'elder'].includes(state)) {
+          const add = page
+            .getByRole('button', { name: /^Thêm .+ vào giỏ$/ })
+            .first();
+          await add.click();
+          await add.click();
+        } else if (
+          route === 'inventory' &&
+          ['product', 'units'].includes(state)
+        ) {
+          await page
+            .getByRole('button', { name: /^Coca-Cola lon 330ml, / })
+            .click();
+          await page.getByRole('button', { name: 'Sửa đơn vị bán' }).waitFor();
+          if (state === 'units') {
+            await page.getByRole('button', { name: 'Sửa đơn vị bán' }).click();
+            await page
+              .getByTestId('units-page')
+              .getByRole('button', { name: 'Sửa đơn vị thùng' })
+              .click();
+          }
+        } else if (route === 'dashboard' && state === 'export')
+          await page.getByRole('button', { name: 'Xuất giao dịch' }).click();
+        else if (route === 'enroll' && state === 'populated') {
+          await page.getByLabel('1 trên 5 ảnh').waitFor();
+        } else if (state)
           throw new Error(`State ${state} is not supported for ${route}`);
+        await page.waitForTimeout(1000); // Let route and modal transitions finish.
         const name = `${route.replaceAll('/', '-')}${state ? `-${state}` : ''}`;
         await page.screenshot({ path: path.join(output, `seed-${name}.png`) });
         await page.setViewportSize({ width: 390, height: 1240 });
