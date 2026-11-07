@@ -40,6 +40,7 @@ export function listStock(status = 'all'): StockItem[] {
       name: p.name ?? null,
       image_url: p.images[0]?.url ?? null,
       stock_quantity: p.stock_quantity,
+      sales_rate: 0,
       low_stock_threshold:
         p.low_stock_threshold ?? getMockDb().store.low_stock_threshold,
       status: stockStatus(p),
