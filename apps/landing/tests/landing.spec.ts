@@ -226,6 +226,16 @@ test('1040px and 720px breakpoints preserve the board layout changes', async ({
   }
 });
 
+test("reduced motion preserves the board's tick-five demo states", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await expect(page.locator('[data-frames]')).toHaveText('15');
+  await expect(page.locator('.ringstage')).not.toHaveClass(/isSaved/);
+  await expect(page.locator('.vtotal')).not.toHaveClass(/on/);
+});
+
 test('scan tracks three products, flags ambiguous Pringles, confirms 60.000đ, and loops', async ({
   page,
 }) => {
@@ -286,17 +296,18 @@ test('voice transcription, cart, revenue, bars, and top items update', async ({
   await expect(page.locator('.bento')).toContainText('Chốt sổ cuối ngày');
 });
 
-test('reduced motion shows completed static demos and removes all animation and transitions', async ({
+test('reduced motion keeps tick-five demos static and removes all animation and transitions', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.clock.pauseAt(new Date('2026-11-03T01:00:00Z'));
   await page.reload();
   await expect(page.locator('.scr')).toHaveClass(/s5/);
-  await expect(page.locator('.ring .seg.on')).toHaveCount(8);
-  await expect(page.locator('.ringstage')).toHaveClass(/isSaved/);
-  await expect(page.locator('.ask')).toHaveCSS('opacity', '1');
-  await expect(page.locator('.vtotal')).toHaveClass(/on/);
+  await expect(page.locator('[data-frames]')).toHaveText('15');
+  await expect(page.locator('.ring .seg.on')).toHaveCount(5);
+  await expect(page.locator('.ringstage')).not.toHaveClass(/isSaved/);
+  await expect(page.locator('.ask')).toHaveCSS('opacity', '0');
+  await expect(page.locator('.vtotal')).not.toHaveClass(/on/);
   const before = await page.locator('.lp').innerHTML();
   await page.clock.runFor(30_000);
   expect(await page.locator('.lp').innerHTML()).toBe(before);
