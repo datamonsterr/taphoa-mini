@@ -15,14 +15,16 @@ import { assistantHref } from '@/features/assistant/route';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
 import { fill, useT } from '@/lib/i18n';
 import { colors, radius, space, typography } from '@/theme';
+import { useSettingsStore } from '@/stores/settings';
 
 import { StockSegment } from './StockSegment';
-import { strings } from './strings';
+import { formatDailyRate, strings } from './strings';
 
 const FILTERS = ['all', 'low', 'out', 'ok'] as const;
 
 export function StockScreen() {
   const t = useT(strings);
+  const language = useSettingsStore((state) => state.language);
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<StockStatus>('all');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -165,7 +167,16 @@ export function StockScreen() {
                   {item.name ?? t('unnamed')}
                 </Text>
                 <Text style={styles.caption}>
-                  {fill(t('threshold'), { n: item.low_stock_threshold })}
+                  {[
+                    fill(t('threshold'), { n: item.low_stock_threshold }),
+                    ...(item.sales_rate
+                      ? [
+                          fill(t('dailyRate'), {
+                            rate: formatDailyRate(item.sales_rate, language),
+                          }),
+                        ]
+                      : []),
+                  ].join(' · ')}
                 </Text>
               </View>
               <StockBadge quantity={item.stock_quantity} status={item.status} />

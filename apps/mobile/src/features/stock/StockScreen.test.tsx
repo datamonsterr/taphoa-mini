@@ -55,8 +55,24 @@ test('rows follow board 18: name, threshold under it, count badge at the right, 
     '0',
   );
   expect(within(row).queryByText('Hết hàng')).toBeNull();
-  // the board has no "bán n/ngày": the API has no sales rate
+  // A zero daily rate is omitted.
   expect(screen.queryByText(/bán \d+\/ngày/)).toBeNull();
+});
+
+test('stock daily rate', async () => {
+  const page = await stockApi.listStock();
+  jest.spyOn(stockApi, 'listStock').mockResolvedValue({
+    ...page,
+    items: page.items.map((item, index) => ({
+      ...item,
+      low_stock_threshold: 5,
+      sales_rate: [6, 0.26, 0][index],
+    })),
+  });
+  await renderWithProviders(<StockScreen />);
+  expect(await screen.findByText('Ngưỡng 5 · bán 6/ngày')).toBeOnTheScreen();
+  expect(screen.getByText('Ngưỡng 5 · bán 0,3/ngày')).toBeOnTheScreen();
+  expect(screen.getByText('Ngưỡng 5')).toBeOnTheScreen();
 });
 
 test('four filters, the last one asks the API for in-stock products', async () => {

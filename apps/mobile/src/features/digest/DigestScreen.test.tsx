@@ -10,8 +10,9 @@ import * as digestApi from '@/lib/api/digest';
 import * as analytics from '@/lib/analytics';
 import type { Digest } from '@/lib/api';
 import { resetApiClient } from '@/lib/api';
-import { resetMockDb } from '@/test/mock';
-import { renderWithProviders } from '@/test/render';
+import { getMockDb, resetMockDb } from '@/test/mock';
+import { keys } from '@/lib/api/keys';
+import { createTestQueryClient, renderWithProviders } from '@/test/render';
 import { formatVnd } from '@/lib/format';
 
 import { DigestScreen } from './DigestScreen';
@@ -81,6 +82,93 @@ const fullDigest: Digest = {
   read_at: '2026-10-26T07:30:00Z',
 };
 
+test('restock_row_shows_photo_stock_rate_and_unit', async () => {
+  const product = getMockDb().products[0].product;
+  const client = createTestQueryClient();
+  client.setQueryData(keys.catalog(), {
+    cursor: null,
+    products: {
+      [product.id]: {
+        ...product,
+        base_unit: 'lon',
+        units: [
+          {
+            id: 'a',
+            name: 'lốc',
+            quantity_in_base: 6,
+            price: 1,
+            barcode: null,
+          },
+          {
+            id: 'b',
+            name: 'thùng',
+            quantity_in_base: 24,
+            price: 1,
+            barcode: null,
+          },
+        ],
+      },
+    },
+  });
+  jest.spyOn(digestApi, 'getDigest').mockResolvedValue({
+    ...fullDigest,
+    restock: [
+      {
+        ...fullDigest.restock[0],
+        product_id: product.id,
+        quantity: 48,
+        image_url: 'https://example.com/photo.jpg',
+        stock_quantity: 3,
+        sales_rate: 6,
+      },
+    ],
+  });
+  await renderWithProviders(<DigestScreen />, client);
+  expect(await screen.findByText('Còn 3 · bán 6/ngày')).toBeOnTheScreen();
+  expect(screen.getByTestId('restock-photo')).toBeOnTheScreen();
+  expect(screen.getByText('2 thùng')).toBeOnTheScreen();
+});
+
+test('restock quantity uses the base unit when no larger unit divides it', async () => {
+  const product = getMockDb().products[0].product;
+  const client = createTestQueryClient();
+  client.setQueryData(keys.catalog(), {
+    cursor: null,
+    products: {
+      [product.id]: {
+        ...product,
+        base_unit: 'lon',
+        units: [
+          {
+            id: 'b',
+            name: 'thùng',
+            quantity_in_base: 24,
+            price: 1,
+            barcode: null,
+          },
+        ],
+      },
+    },
+  });
+  jest.spyOn(digestApi, 'getDigest').mockResolvedValue({
+    ...fullDigest,
+    restock: [
+      { ...fullDigest.restock[0], product_id: product.id, quantity: 25 },
+    ],
+  });
+  await renderWithProviders(<DigestScreen />, client);
+  expect(await screen.findByText('25 lon')).toBeOnTheScreen();
+});
+
+test('restock quantity falls back when catalog metadata is missing', async () => {
+  jest.spyOn(digestApi, 'getDigest').mockResolvedValue({
+    ...fullDigest,
+    restock: [{ ...fullDigest.restock[0], quantity: 48 }],
+  });
+  await renderWithProviders(<DigestScreen />);
+  expect(await screen.findByText('× 48')).toBeOnTheScreen();
+});
+
 test('renders all sections and captures digest_opened with card entry by default', async () => {
   jest.spyOn(digestApi, 'getDigest').mockResolvedValue(fullDigest);
 
@@ -115,10 +203,10 @@ test('renders all sections and captures digest_opened with card entry by default
   // Restock list
   expect(screen.getByText('Coca lon')).toBeOnTheScreen();
   expect(screen.getByText('× 24')).toBeOnTheScreen();
-  expect(screen.getByText(formatVnd(192000))).toBeOnTheScreen();
+  expect(screen.queryByText(formatVnd(192000))).toBeNull();
   expect(screen.getByText('Mì Hảo Hảo')).toBeOnTheScreen();
   expect(screen.getByText('× 10')).toBeOnTheScreen();
-  expect(screen.getByText(formatVnd(40000))).toBeOnTheScreen();
+  expect(screen.queryByText(formatVnd(40000))).toBeNull();
 
   // Footer chips
   expect(screen.getByText('3 khách quá hạn')).toBeOnTheScreen();
