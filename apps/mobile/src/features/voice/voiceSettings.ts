@@ -24,7 +24,11 @@ export const useVoiceSettings = create<VoiceSettings>()(
     }),
     {
       name: VOICE_SETTINGS_KEY,
-      version: 1,
+      version: 2,
+      migrate: (state) => ({
+        ...(state as { voiceSales?: number }),
+        donate: false,
+      }),
       storage: preferenceStorage(),
       partialize: ({ donate, voiceSales }) => ({ donate, voiceSales }),
     },
