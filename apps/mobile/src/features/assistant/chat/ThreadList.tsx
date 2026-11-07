@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react-native';
+import { Plus, Trash2 } from '@/components/icons';
 import { memo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 

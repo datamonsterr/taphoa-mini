@@ -1,4 +1,4 @@
-import { Banknote, BookText, QrCode } from 'lucide-react-native';
+import { Banknote, BookText, QrCode } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';

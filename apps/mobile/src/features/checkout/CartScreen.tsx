@@ -1,4 +1,4 @@
-import { Camera, ChevronDown, ShoppingCart } from 'lucide-react-native';
+import { Camera, ChevronDown, ShoppingCart } from '@/components/icons';
 import { memo, useCallback } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';

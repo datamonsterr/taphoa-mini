@@ -1,4 +1,4 @@
-import { ShoppingCart } from 'lucide-react-native';
+import { ShoppingCart } from '@/components/icons';
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 

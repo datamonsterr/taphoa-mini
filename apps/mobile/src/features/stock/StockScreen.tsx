@@ -2,7 +2,7 @@ import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { ChevronLeft, TriangleAlert } from 'lucide-react-native';
+import { ChevronLeft, TriangleAlert } from '@/components/icons';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

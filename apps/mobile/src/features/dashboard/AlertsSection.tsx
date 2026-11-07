@@ -1,5 +1,5 @@
 import { router, type Href } from 'expo-router';
-import { Tag, TriangleAlert } from 'lucide-react-native';
+import { Tag, TriangleAlert } from '@/components/icons';
 import { memo, useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 

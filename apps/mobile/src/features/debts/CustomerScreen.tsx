@@ -7,7 +7,7 @@ import {
   Pencil,
   Plus,
   Share as ShareIcon,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

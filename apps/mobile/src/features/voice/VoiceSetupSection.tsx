@@ -1,4 +1,4 @@
-import { Hand, LayoutGrid, Mic } from 'lucide-react-native';
+import { Hand, LayoutGrid, Mic } from '@/components/icons';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, StyleSheet, View } from 'react-native';
 

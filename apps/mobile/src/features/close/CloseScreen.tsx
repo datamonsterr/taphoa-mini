@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { Banknote, Calculator, X } from 'lucide-react-native';
+import { Banknote, Calculator, X } from '@/components/icons';
 import { onlineManager } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
