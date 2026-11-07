@@ -1,9 +1,21 @@
 import { Hand, LayoutGrid, Mic } from 'lucide-react-native';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { AppState, Platform, StyleSheet, View } from 'react-native';
 
 import { Icon, PressableScale, ScaledText, Switch } from '@/components/ui';
 import { capture } from '@/lib/analytics';
+import {
+  bridgeUserId,
+  serverBridgeUserId,
+  subscribeAuthBridge,
+} from '@/lib/api/clerkBridge';
 import { useT } from '@/lib/i18n';
 import { colors, radius, space } from '@/theme';
 
@@ -219,7 +231,12 @@ const TileRow = memo(function TileRow() {
 
 const DonateRow = memo(function DonateRow() {
   const t = useT(voiceStrings);
-  const donate = useVoiceSettings((s) => s.donate);
+  const userId = useSyncExternalStore(
+    subscribeAuthBridge,
+    bridgeUserId,
+    serverBridgeUserId,
+  );
+  const donate = useVoiceSettings((s) => !!userId && !!s.donations[userId]);
   const setDonate = useVoiceSettings((s) => s.setDonate);
   return (
     <View testID="voice-donate-row" style={[styles.row, styles.rowRight12]}>

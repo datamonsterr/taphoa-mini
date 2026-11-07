@@ -8,6 +8,6 @@ test('legacy placeholder opt-in never becomes donation consent', async () => {
     JSON.stringify({ state: { donate: true, voiceSales: 7 }, version: 1 }),
   );
   await useVoiceSettings.persist.rehydrate();
-  expect(useVoiceSettings.getState().donate).toBe(false);
+  expect(useVoiceSettings.getState().donations).toEqual({});
   expect(useVoiceSettings.getState().voiceSales).toBe(7);
 });

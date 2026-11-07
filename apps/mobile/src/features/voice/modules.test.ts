@@ -1,3 +1,4 @@
+import { registerAuthBridge } from '@/lib/api/clerkBridge';
 import { ApiError } from '@/lib/api';
 
 import { classifyFailure } from './api';
@@ -109,12 +110,18 @@ describe('voice settings', () => {
   beforeEach(() => useVoiceSettings.setState(initialVoiceSettings));
 
   test('count voice sales and remember the opt-in', () => {
+    registerAuthBridge({
+      userId: 'user_test',
+      getToken: async () => null,
+      getStoreId: () => null,
+      membershipRequired: () => {},
+    });
     useVoiceSettings.getState().countVoiceSale();
     useVoiceSettings.getState().countVoiceSale();
     useVoiceSettings.getState().setDonate(true);
     expect(useVoiceSettings.getState()).toMatchObject({
       voiceSales: 2,
-      donate: true,
+      donations: { user_test: true },
     });
   });
 });

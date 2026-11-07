@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import type { VoiceOutcomeRequest, VoiceUtterance } from '@taphoa/api-client';
 
 import { getApiClient } from '@/lib/api/client';
+import { bridgeUserId } from '@/lib/api/clerkBridge';
 import { isApiError, unwrap } from '@/lib/api/errors';
 import type { VoiceEntry } from '@/lib/analytics';
 
@@ -26,6 +27,7 @@ export type UtteranceInput = {
 export async function uploadUtterance(
   input: UtteranceInput,
 ): Promise<VoiceUtterance> {
+  const userId = bridgeUserId();
   const { audio, filename } = await clipToUpload(input.clip);
   return unwrap(
     getApiClient().createVoiceUtterance({
@@ -35,7 +37,10 @@ export async function uploadUtterance(
       language: input.language,
       donate:
         input.mode === 'sale' &&
-        (input.donate ?? useVoiceSettings.getState().donate),
+        !!userId &&
+        bridgeUserId() === userId &&
+        input.donate !== false &&
+        !!useVoiceSettings.getState().donations[userId],
       context: {
         entry: input.entry,
         screen: input.screen,

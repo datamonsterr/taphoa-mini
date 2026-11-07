@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { AppState, Platform } from 'react-native';
 
 import { setAnalyticsSink } from '@/lib/analytics';
+import { registerAuthBridge } from '@/lib/api/clerkBridge';
 import { useSettingsStore } from '@/stores/settings';
 import { renderWithProviders } from '@/test/render';
 
@@ -12,6 +13,12 @@ import { initialVoiceSettings, useVoiceSettings } from './voiceSettings';
 const events: { event: string; props: unknown }[] = [];
 
 beforeEach(() => {
+  registerAuthBridge({
+    userId: 'user_test',
+    getToken: async () => null,
+    getStoreId: () => null,
+    membershipRequired: () => {},
+  });
   events.length = 0;
   setAnalyticsSink({
     capture: (event, props) => events.push({ event, props }),
@@ -51,6 +58,32 @@ describe('without a native module', () => {
 });
 
 describe('opt-in to share voice', () => {
+  test('consent follows the authenticated person when switching accounts', async () => {
+    const select = (userId: string) =>
+      registerAuthBridge({
+        userId,
+        getToken: async () => null,
+        getStoreId: () => null,
+        membershipRequired: () => {},
+      });
+    await act(async () => {
+      select('person-a');
+    });
+    await renderWithProviders(<VoiceSetupSection />);
+    const toggle = () =>
+      screen.getByRole('switch', { name: 'Góp giọng nói để cải thiện' });
+    await fireEvent.press(toggle());
+    expect(toggle()).toBeChecked();
+    await act(async () => {
+      select('person-b');
+    });
+    expect(toggle()).not.toBeChecked();
+    await act(async () => {
+      select('person-a');
+    });
+    expect(toggle()).toBeChecked();
+  });
+
   test('is off at first, stored locally, and says the upload is not part of this version', async () => {
     await renderWithProviders(<VoiceSetupSection />);
     const toggle = screen.getByRole('switch', {
@@ -61,7 +94,7 @@ describe('opt-in to share voice', () => {
       screen.getByText(/Giữ bản ghi để cải thiện nhận dạng/),
     ).toBeOnTheScreen();
     await fireEvent.press(toggle);
-    expect(useVoiceSettings.getState().donate).toBe(true);
+    expect(useVoiceSettings.getState().donations.user_test).toBe(true);
     expect(toggle).toBeChecked();
   });
 

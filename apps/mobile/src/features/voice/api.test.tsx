@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 
 import { getApiClient, setApiTransport } from '@/lib/api/client';
+import { registerAuthBridge } from '@/lib/api/clerkBridge';
 import { createTestQueryClient } from '@/test/render';
 
 import { uploadUtterance, useVoiceUtterance } from './api';
@@ -51,7 +52,13 @@ describe('donate flag', () => {
         error: undefined,
         response: new Response(),
       } as never);
-    useVoiceSettings.setState({ donate });
+    registerAuthBridge({
+      userId: 'user_test',
+      getToken: async () => null,
+      getStoreId: () => null,
+      membershipRequired: () => {},
+    });
+    useVoiceSettings.getState().setDonate(donate);
     await uploadUtterance({
       clip: fixtureClip('two-line-sale.m4a'),
       mode,
@@ -68,6 +75,44 @@ describe('donate flag', () => {
   test('a sale clip carries donate=true only when the switch is on', async () => {
     expect(await sentDonate('sale', true)).toBe(true);
     expect(await sentDonate('sale', false)).toBe(false);
+  });
+
+  test('only the person who opted in donates after account switches', async () => {
+    const select = (userId: string) =>
+      registerAuthBridge({
+        userId,
+        getToken: async () => null,
+        getStoreId: () => null,
+        membershipRequired: () => {},
+      });
+    const spy = jest
+      .spyOn(getApiClient(), 'createVoiceUtterance')
+      .mockResolvedValue({
+        data: undefined,
+        error: undefined,
+        response: new Response(),
+      } as never);
+    const send = () =>
+      uploadUtterance({
+        clip: fixtureClip('two-line-sale.m4a'),
+        mode: 'sale',
+        language: 'vi',
+        entry: 'longpress',
+        screen: 'voice',
+      }).catch(() => undefined);
+    select('person-a');
+    useVoiceSettings.getState().setDonate(true);
+    await send();
+    select('person-b');
+    await send();
+    select('person-a');
+    await send();
+    expect(spy.mock.calls.map(([request]) => request.donate)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    spy.mockRestore();
   });
 
   test('a transcribe clip is never donated', async () => {
