@@ -22,7 +22,7 @@ test('shows recent customers, searches name/phone and selects a customer', async
   expect(
     screen.getByRole('header', { name: 'Chọn khách hàng' }),
   ).toBeOnTheScreen();
-  expect(screen.getByText('0901234567')).toBeOnTheScreen();
+  expect(screen.getByText('0901 234 567')).toBeOnTheScreen();
   expect(screen.getByText('2 khách')).toBeOnTheScreen();
   // settled customers show no activity age: the API has no last-activity date
   expect(screen.queryByText(/hôm nay|hôm qua|ngày|tuần/)).toBeNull();
@@ -248,4 +248,13 @@ test('a duplicate check failure blocks creation and can be retried', async () =>
   expect(create).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByLabelText('Tạo khách hàng'));
   await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+});
+
+test('honorific_customer_avatar_uses_given_name', async () => {
+  await createCustomer({ id: newUuid(), name: 'Chị Lan' });
+  await renderWithProviders(
+    <CustomerPicker onSelect={jest.fn()} onClose={jest.fn()} />,
+  );
+  expect(await screen.findByText('Chị Lan')).toBeOnTheScreen();
+  expect(screen.getByText('L')).toBeOnTheScreen();
 });

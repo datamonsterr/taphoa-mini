@@ -18,5 +18,17 @@ export const avatarTone = (id: string) => {
   return AVATAR_TONES[sum % AVATAR_TONES.length]!;
 };
 
-export const initialOf = (name: string) =>
-  (Array.from(name.trim())[0] ?? '?').toUpperCase();
+export const initialOf = (name: string) => {
+  const trimmed = name.trim();
+  const withoutHonorific = trimmed.replace(
+    /^(?:anh|chị|cô|chú|bác|ông|bà|em)\s+/iu,
+    '',
+  );
+  return (Array.from(withoutHonorific)[0] ?? '?').toUpperCase();
+};
+
+/** Group local ten-digit phone numbers for display, preserving other formats. */
+export const formatCustomerPhone = (phone: string) =>
+  /^0\d{9}$/.test(phone)
+    ? `${phone.slice(0, 4)} ${phone.slice(4, 7)} ${phone.slice(7)}`
+    : phone;

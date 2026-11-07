@@ -20,7 +20,7 @@ import {
   useFontScale,
 } from '@/theme';
 
-import { avatarTone, initialOf } from './customerRow';
+import { avatarTone, formatCustomerPhone, initialOf } from './customerRow';
 import { DebtSheet } from './DebtSheet';
 import { debtStrings } from './strings';
 
@@ -172,7 +172,9 @@ export function CustomerPicker({
             {customer.name}
           </Text>
           <Text style={styles.caption} numberOfLines={1}>
-            {customer.phone ?? t('book.noPhone')}
+            {customer.phone
+              ? formatCustomerPhone(customer.phone)
+              : t('book.noPhone')}
           </Text>
         </View>
         <View style={styles.rowEnd}>
