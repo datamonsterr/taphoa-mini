@@ -115,9 +115,20 @@ async fn generate_inner(
         .run(&ctx, "get_restock_plan", json!({"horizon_days":7}))
         .await?
         .data;
-    let items:Vec<Value> = restock["items"].as_array().into_iter().flatten().take(10).map(|i|json!({
-        "product_id":i["product_id"],"name":i["name"],"quantity":i["suggested_quantity"],"unit_cost":i["unit_cost_dong"],"total_cost":i["line_total_dong"]
-    })).collect();
+    let items: Vec<Value> = restock["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(10)
+        .map(|i| {
+            json!({
+                "product_id":i["product_id"],"name":i["name"],"quantity":i["suggested_quantity"],
+                "sales_rate":i["avg_daily_units"],"stock_quantity":i["stock_quantity"],
+                "image_key":i["image_key"],
+                "unit_cost":i["unit_cost_dong"],"total_cost":i["line_total_dong"]
+            })
+        })
+        .collect();
     let (count,total):(i64,i64) = sqlx::query_as("SELECT count(*),coalesce(sum(balance),0)::bigint FROM customers WHERE store_id=$1 AND balance>0 AND oldest_debt_date < $2::date - 7")
         .bind(store_id).bind(business_date).fetch_one(db).await?;
     let drafts:i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM receipts WHERE store_id=$1 AND status='draft') + (SELECT count(*) FROM assistant_actions WHERE store_id=$1 AND status='proposed' AND expires_at > now())")

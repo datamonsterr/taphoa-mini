@@ -106,6 +106,10 @@ async fn yesterday_comparison_and_costs_are_masked_for_seller() {
     assert_eq!(lead["sales"]["change_pct"], 15.3);
     assert_eq!(lead["restock"].as_array().unwrap().len(), 1);
     assert_eq!(lead["restock"][0]["unit_cost"], 6291);
+    assert_eq!(lead["restock"][0]["stock_quantity"], 1);
+    assert_eq!(lead["restock"][0]["sales_rate"].as_f64(), Some(6.0 / 14.0));
+    assert!(lead["restock"][0].get("image_url").is_some());
+    assert!(lead["restock"][0]["image_url"].is_null());
     assert!(lead["restock"][0]["total_cost"].is_number());
     let seller = w
         .checked("GET", PATH, PATH, &w.seller, Value::Null, StatusCode::OK)

@@ -2127,6 +2127,8 @@ export interface components {
             status: "ok" | "low" | "out" | "untracked";
             /** Format: date-time */
             updated_at: string;
+            /** @description Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales. */
+            sales_rate?: number;
         };
         StockList: components["schemas"]["Page"] & {
             items?: components["schemas"]["StockItem"][];
@@ -2219,6 +2221,10 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             confirmed_at: string | null;
+            /** @description Supplier display name as recorded on the receipt; null when unknown. */
+            supplier?: string | null;
+            /** @description Number of text lines returned by OCR; null for receipts scanned before migration 1701. */
+            ocr_line_count?: number | null;
         };
         ReceiptSummary: {
             /** Format: uuid */
@@ -2239,6 +2245,10 @@ export interface components {
             confirmed_at: string | null;
             /** Format: uuid */
             expense_id: string | null;
+            /** @description Supplier display name as recorded on the receipt; null when unknown. */
+            supplier?: string | null;
+            /** @description Number of text lines returned by OCR; null for receipts scanned before migration 1701. */
+            ocr_line_count?: number | null;
         };
         ReceiptList: components["schemas"]["Page"] & {
             items?: components["schemas"]["ReceiptSummary"][];
@@ -2312,6 +2322,11 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /**
+             * Format: date-time
+             * @description Returned on customer list rows. Timestamp of the latest completed sale or debt repayment for this store; null when neither exists.
+             */
+            last_activity_at?: string | null;
         };
         CreateCustomerRequest: {
             /**
@@ -2825,6 +2840,15 @@ export interface components {
             quantity: number;
             unit_cost: components["schemas"]["Money"] | null;
             total_cost: components["schemas"]["Money"] | null;
+            /** @description Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales. */
+            sales_rate?: number;
+            /** @description Current stock in base units. */
+            stock_quantity?: number;
+            /**
+             * Format: uri
+             * @description Short-lived presigned thumbnail URL, or null when no image.
+             */
+            image_url?: string | null;
         };
         AssistantCard: {
             /** @constant */

@@ -168,7 +168,7 @@ fn assistant_action_decision_responses_match_contract() {
 fn assistant_next_steps_digest_and_device_responses_match_contract() {
     let c = Contract::load();
     c.assert_conforms("/v1/assistant/next-steps","get",StatusCode::OK,&json!({"items":[next_step(),{"id":"drafts","kind":"draft_receipts","title_vi":"Hóa đơn nháp","subtitle_vi":"2 hóa đơn","priority":20,"action":{"type":"navigate","route":"/receipts"}}]}));
-    c.assert_conforms("/v1/assistant/digest","get",StatusCode::OK,&json!({"business_date":"2026-10-24","generated_at":AT,"source":"template","summary_vi":"Hôm qua bán được 1.200.000 ₫.","sales":{"revenue":1200000,"sale_count":25,"gross_profit":null,"change_pct":null},"restock":[{"product_id":ID,"name":"Coca lon","quantity":24,"unit_cost":8500,"total_cost":204000}],"overdue_debts":{"count":1,"total":120000},"open_drafts":{"count":2},"read_at":null}));
+    c.assert_conforms("/v1/assistant/digest","get",StatusCode::OK,&json!({"business_date":"2026-10-24","generated_at":AT,"source":"template","summary_vi":"Hôm qua bán được 1.200.000 ₫.","sales":{"revenue":1200000,"sale_count":25,"gross_profit":null,"change_pct":null},"restock":[{"product_id":ID,"name":"Coca lon","quantity":24,"unit_cost":8500,"total_cost":204000,"sales_rate":1.0,"stock_quantity":3,"image_url":null}],"overdue_debts":{"count":1,"total":120000},"open_drafts":{"count":2},"read_at":null}));
     c.assert_conforms("/v1/devices","post",StatusCode::OK,&json!({"token":"ExponentPushToken[example]","platform":"android","app_version":"1.0.0","language":"vi","created_at":AT,"updated_at":AT}));
 }
 #[test]

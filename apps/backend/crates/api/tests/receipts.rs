@@ -198,6 +198,19 @@ async fn create_shape_timings_prefilter_and_concurrent_replay() {
     assert_eq!(a["id"], b["id"]);
     assert_eq!(decisions.requests().len(), 1);
     assert_eq!(a["status"], "draft");
+    assert_eq!(a["ocr_line_count"], 10);
+    assert_eq!(b["ocr_line_count"], 10);
+    let detail = request(
+        &w,
+        "GET",
+        &format!("/v1/receipts/{}", a["id"].as_str().unwrap()),
+        &w.lead,
+        "detail",
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(detail["ocr_line_count"], 10);
     assert_eq!(a["total"], 456000);
     assert_eq!(a["parser"], "decisions");
     assert_eq!(a["lines"].as_array().unwrap().len(), 4);
@@ -826,4 +839,68 @@ async fn create_is_rate_limited_per_store_per_day() {
     )
     .await;
     assert_eq!(denied["code"], "too_many_requests");
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
+async fn supplier_display_name_is_in_summary_and_review() {
+    let (w, photo, _, _) = setup(false).await;
+    let draft = create(&w, photo, "supplier").await;
+    assert!(
+        draft.get("supplier").is_some(),
+        "unknown supplier must be explicit null"
+    );
+    assert!(draft["supplier"].is_null());
+    let id: Uuid = draft["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query("UPDATE receipts SET supplier='Minh Phát' WHERE store_id=$1 AND id=$2")
+        .bind(w.store_id)
+        .bind(id)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    let review = request(
+        &w,
+        "GET",
+        &format!("/v1/receipts/{id}"),
+        &w.lead,
+        "review",
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(review["supplier"], "Minh Phát");
+    let list = request(
+        &w,
+        "GET",
+        "/v1/receipts",
+        &w.lead,
+        "list",
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(list["items"][0]["supplier"], "Minh Phát");
+    assert_eq!(list["items"][0]["ocr_line_count"], 10);
+    let other = World::new().await;
+    request(
+        &other,
+        "GET",
+        &format!("/v1/receipts/{id}"),
+        &other.lead,
+        "foreign",
+        Value::Null,
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+    let list = request(
+        &other,
+        "GET",
+        "/v1/receipts",
+        &other.lead,
+        "foreign-list",
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert!(list["items"].as_array().unwrap().is_empty());
 }

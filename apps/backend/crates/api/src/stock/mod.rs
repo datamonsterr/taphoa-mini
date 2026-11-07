@@ -240,6 +240,7 @@ struct StockRow {
     updated_at: DateTime<Utc>,
     rank: i32,
     sort_name: String,
+    sales_rate: f64,
 }
 async fn list(
     State(state): State<AppState>,
@@ -254,7 +255,34 @@ async fn list(
     }
     let cursor: Option<(i32, String, Uuid)> =
         page.cursor.as_deref().map(decode_cursor).transpose()?;
-    let mut rows:Vec<StockRow>=sqlx::query_as("WITH stock AS (SELECT p.id product_id,p.name,p.stock_quantity,coalesce(p.low_stock_threshold,s.low_stock_threshold) low_stock_threshold,p.updated_at,coalesce(p.name,'') sort_name,CASE WHEN p.stock_quantity<=0 THEN 0 WHEN p.stock_quantity<=coalesce(p.low_stock_threshold,s.low_stock_threshold) THEN 1 ELSE 2 END rank,(SELECT i.object_key FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=p.store_id WHERE pi.product_id=p.id ORDER BY pi.position,pi.image_id LIMIT 1) image_key FROM products p JOIN stores s ON s.id=p.store_id WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL) SELECT * FROM stock WHERE ($2='all' OR ($2='low' AND stock_quantity<=low_stock_threshold) OR ($2='out' AND stock_quantity<=0) OR ($2='ok' AND stock_quantity>low_stock_threshold)) AND ($3::int IS NULL OR (rank,sort_name,product_id)>($3,$4,$5)) ORDER BY rank,sort_name,product_id LIMIT $6").bind(actor.store_id).bind(status).bind(cursor.as_ref().map(|c|c.0)).bind(cursor.as_ref().map(|c|c.1.as_str())).bind(cursor.as_ref().map(|c|c.2)).bind(i64::from(page.limit)+1).fetch_all(pool(&state)?).await?;
+    // sales_rate: base-unit sales per day over last 14 days, store-scoped, voided excluded.
+    // One aggregate CTE over all products avoids N+1 queries; the LEFT JOIN returns 0 for idle products.
+    let mut rows:Vec<StockRow>=sqlx::query_as("WITH speed AS (
+            SELECT l.product_id, coalesce(sum(l.quantity::bigint * l.quantity_in_base),0)::float8/14 AS sales_rate
+            FROM sales s JOIN sale_lines l ON l.sale_id=s.id AND l.store_id=s.store_id
+            WHERE s.store_id=$1 AND s.status='completed'
+              AND s.business_date BETWEEN $7::date-13 AND $7::date
+            GROUP BY l.product_id
+        ), stock AS (
+            SELECT p.id product_id,p.name,p.stock_quantity,
+                coalesce(p.low_stock_threshold,s.low_stock_threshold) low_stock_threshold,
+                p.updated_at,coalesce(p.name,'') sort_name,
+                CASE WHEN p.stock_quantity<=0 THEN 0
+                     WHEN p.stock_quantity<=coalesce(p.low_stock_threshold,s.low_stock_threshold) THEN 1
+                     ELSE 2 END rank,
+                (SELECT i.object_key FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=p.store_id
+                 WHERE pi.product_id=p.id ORDER BY pi.position,pi.image_id LIMIT 1) image_key,
+                coalesce(sp.sales_rate,0.0) sales_rate
+            FROM products p JOIN stores s ON s.id=p.store_id
+            LEFT JOIN speed sp ON sp.product_id=p.id
+            WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL
+        ) SELECT * FROM stock
+        WHERE ($2='all' OR ($2='low' AND stock_quantity<=low_stock_threshold) OR ($2='out' AND stock_quantity<=0) OR ($2='ok' AND stock_quantity>low_stock_threshold))
+          AND ($3::int IS NULL OR (rank,sort_name,product_id)>($3,$4,$5))
+        ORDER BY rank,sort_name,product_id LIMIT $6")
+        .bind(actor.store_id).bind(status)
+        .bind(cursor.as_ref().map(|c|c.0)).bind(cursor.as_ref().map(|c|c.1.as_str())).bind(cursor.as_ref().map(|c|c.2))
+        .bind(i64::from(page.limit)+1).bind(state.clock.today()).fetch_all(pool(&state)?).await?;
     let next_cursor = if rows.len() > page.limit as usize {
         rows.pop();
         rows.last()
@@ -270,7 +298,7 @@ async fn list(
             Some(key) => Some(crate::catalog::products::signed_url(&state, &key).await?.0),
             None => None,
         };
-        items.push(json!({"product_id":row.product_id,"name":row.name,"image_url":url,"stock_quantity":row.stock_quantity,"low_stock_threshold":row.low_stock_threshold,"status":self::status(Some(row.stock_quantity),row.low_stock_threshold),"updated_at":row.updated_at}));
+        items.push(json!({"product_id":row.product_id,"name":row.name,"image_url":url,"stock_quantity":row.stock_quantity,"low_stock_threshold":row.low_stock_threshold,"status":self::status(Some(row.stock_quantity),row.low_stock_threshold),"updated_at":row.updated_at,"sales_rate":row.sales_rate}));
     }
     Ok(Json(Page { items, next_cursor }))
 }
