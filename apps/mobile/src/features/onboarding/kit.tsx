@@ -72,7 +72,9 @@ export function Frame({
           styles.content,
           fill && styles.contentFill,
           {
-            paddingTop: space[4] + insets.top,
+            paddingTop: brand
+              ? Math.max(insets.top, 47) + 33
+              : space[4] + insets.top,
             paddingBottom: space[6] + insets.bottom,
           },
         ]}
