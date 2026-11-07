@@ -18,15 +18,14 @@ test.each(['CSV', 'XLSX'])(
       .mockResolvedValue(bytes);
     const close = jest.fn();
     await renderWithProviders(<ExportSheet onClose={close} />);
-    await fireEvent.changeText(
-      screen.getByLabelText('Từ ngày (YYYY-MM-DD)'),
-      '2026-10-01',
+    await fireEvent.changeText(screen.getByLabelText('Từ ngày'), '2026-10-01');
+    await fireEvent.changeText(screen.getByLabelText('Đến ngày'), '2026-10-27');
+    await fireEvent.press(screen.getByRole('button', { name: 'Định dạng' }));
+    await fireEvent.press(
+      screen.getByRole('radio', {
+        name: format === 'XLSX' ? 'Excel (XLSX)' : format,
+      }),
     );
-    await fireEvent.changeText(
-      screen.getByLabelText('Đến ngày (YYYY-MM-DD)'),
-      '2026-10-27',
-    );
-    await fireEvent.press(screen.getByRole('radio', { name: format }));
     await fireEvent.press(
       screen.getByRole('button', { name: 'Tải và chia sẻ' }),
     );
@@ -48,22 +47,11 @@ test.each(['CSV', 'XLSX'])(
 test('rejects reversed and impossible dates before downloading', async () => {
   const request = jest.spyOn(api, 'exportTransactions');
   await renderWithProviders(<ExportSheet onClose={jest.fn()} />);
-  expect(screen.getByLabelText('Đến ngày (YYYY-MM-DD)').props.value).toBe(
-    businessDate(),
-  );
-  await fireEvent.changeText(
-    screen.getByLabelText('Từ ngày (YYYY-MM-DD)'),
-    '2026-02-30',
-  );
+  expect(screen.getByLabelText('Đến ngày').props.value).toBe(businessDate());
+  await fireEvent.changeText(screen.getByLabelText('Từ ngày'), '2026-02-30');
   expect(screen.getByRole('button', { name: 'Tải và chia sẻ' })).toBeDisabled();
-  await fireEvent.changeText(
-    screen.getByLabelText('Từ ngày (YYYY-MM-DD)'),
-    '2026-10-28',
-  );
-  await fireEvent.changeText(
-    screen.getByLabelText('Đến ngày (YYYY-MM-DD)'),
-    '2026-10-27',
-  );
+  await fireEvent.changeText(screen.getByLabelText('Từ ngày'), '2026-10-28');
+  await fireEvent.changeText(screen.getByLabelText('Đến ngày'), '2026-10-27');
   expect(screen.getByRole('button', { name: 'Tải và chia sẻ' })).toBeDisabled();
   expect(request).not.toHaveBeenCalled();
 });
@@ -80,4 +68,13 @@ test('failed download keeps dates and allows retry', async () => {
   await fireEvent.press(screen.getByRole('button', { name: 'Tải và chia sẻ' }));
   await waitFor(() => expect(close).toHaveBeenCalled());
   expect(request).toHaveBeenCalledTimes(2);
+});
+
+test('export board labels', async () => {
+  await renderWithProviders(<ExportSheet onClose={jest.fn()} />);
+  expect(screen.getByLabelText('Từ ngày')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Đến ngày')).toBeOnTheScreen();
+  expect(screen.getByText('Định dạng')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Định dạng' }));
+  expect(screen.getByText('Excel (XLSX)')).toBeOnTheScreen();
 });

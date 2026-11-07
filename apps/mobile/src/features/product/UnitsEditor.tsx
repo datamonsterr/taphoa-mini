@@ -156,9 +156,11 @@ export function UnitsEditor({
             ) : null}
           </View>
         ))}
-        <Pill label={t('add')} onPress={() => setEditing('new')}>
-          {t('add')}
-        </Pill>
+        {!editing ? (
+          <Pill label={t('add')} onPress={() => setEditing('new')}>
+            {t('add')}
+          </Pill>
+        ) : null}
         {editing === 'new' ? (
           <UnitForm
             key="new"

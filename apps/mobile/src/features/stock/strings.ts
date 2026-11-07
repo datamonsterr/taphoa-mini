@@ -3,6 +3,7 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     stock: 'Tồn kho',
+    filter: 'Lọc tồn kho',
     products: 'Sản phẩm',
     all: 'Tất cả',
     low: 'Sắp hết',
@@ -23,6 +24,7 @@ export const strings: Dict = {
   },
   en: {
     stock: 'Stock',
+    filter: 'Filter stock',
     products: 'Products',
     all: 'All',
     low: 'Low stock',
