@@ -103,6 +103,7 @@
   "private": true,
   "jest": {
     "maxWorkers": "50%",
+    "workerGracefulExitTimeout": 5000,
     "preset": "jest-expo",
     "transformIgnorePatterns": [
       "node_modules/(?!(.pnpm|(jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|standard-navigation|@react-navigation/.*|@shopify/flash-list))"
