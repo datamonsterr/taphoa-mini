@@ -401,6 +401,18 @@ describe('PayScreen credit', () => {
     await fireEvent.press(await screen.findByLabelText('Chị Lan, 0đ'));
     return c;
   }
+  it('formats the customer phone in picker and selected credit row', async () => {
+    await createCustomer({
+      id: newUuid(),
+      name: 'Chị Lan',
+      phone: '0912345678',
+    });
+    await renderWithProviders(<PayScreen />);
+    await fireEvent.press(screen.getByLabelText('Ghi nợ'));
+    expect(await screen.findByText('0912 345 678')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByLabelText('Chị Lan, 0đ'));
+    expect(screen.getByText('0912 345 678')).toBeOnTheScreen();
+  });
   it('sends full credit and preserves success behaviour', async () => {
     const c = await chooseCustomer();
     expect(screen.getByText('Ghi nợ 24.500đ')).toBeOnTheScreen();
@@ -408,7 +420,7 @@ describe('PayScreen credit', () => {
     expect(screen.getByRole('button', { name: 'Ghi nợ 24.500đ' })).toHaveStyle({
       backgroundColor: '#111114',
     });
-    expect(screen.getByText('0901234567')).toBeOnTheScreen();
+    expect(screen.getByText('0901 234 567')).toBeOnTheScreen();
     expect(screen.getByText('Đang nợ 0đ')).toBeOnTheScreen();
     expect(screen.getByText('Đổi')).toBeOnTheScreen();
     expect(screen.getByText('Nợ mới của khách 24.500đ')).toBeOnTheScreen();

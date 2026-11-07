@@ -52,7 +52,7 @@ import { applyKey } from '@/components/ui/keypad';
 import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
 import { bankLabel } from '@/lib/banks';
-import { initialOf } from '../debts/customerRow';
+import { formatCustomerPhone, initialOf } from '../debts/customerRow';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
 import { useSpokenTotal } from './speak';
@@ -353,7 +353,9 @@ export function PayScreen() {
                     })}
                   </Text>
                   {customer.phone ? (
-                    <Text style={styles.caption}>{customer.phone}</Text>
+                    <Text style={styles.caption}>
+                      {formatCustomerPhone(customer.phone)}
+                    </Text>
                   ) : null}
                 </>
               ) : null}

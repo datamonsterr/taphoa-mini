@@ -26,3 +26,9 @@ export const initialOf = (name: string) => {
   );
   return (Array.from(withoutHonorific)[0] ?? '?').toUpperCase();
 };
+
+/** Group local ten-digit phone numbers for display, preserving other formats. */
+export const formatCustomerPhone = (phone: string) =>
+  /^0\d{9}$/.test(phone)
+    ? `${phone.slice(0, 4)} ${phone.slice(4, 7)} ${phone.slice(7)}`
+    : phone;
