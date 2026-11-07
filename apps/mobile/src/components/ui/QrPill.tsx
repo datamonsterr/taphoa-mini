@@ -1,4 +1,4 @@
-import { QrCode } from 'lucide-react-native';
+import { QrCode } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet } from 'react-native';
 

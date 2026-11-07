@@ -5,7 +5,7 @@ import {
   QrCode,
   ReceiptText,
   TrendingUp,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 

@@ -1,4 +1,4 @@
-import { Minus, Plus, Trash2 } from 'lucide-react-native';
+import { Minus, Plus, Trash2 } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 

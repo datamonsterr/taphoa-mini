@@ -1,4 +1,4 @@
-import { ChevronDown, Mic } from 'lucide-react-native';
+import { ChevronDown, Mic } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';

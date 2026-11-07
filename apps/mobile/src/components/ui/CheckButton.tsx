@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react-native';
+import { Check } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet } from 'react-native';
 

@@ -1,7 +1,7 @@
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
 import { imageCacheKey } from '@/lib/imageCache';
-import { Package } from 'lucide-react-native';
+import { Package } from '@/components/icons';
 import { memo, useState } from 'react';
 import { StyleSheet } from 'react-native';
 

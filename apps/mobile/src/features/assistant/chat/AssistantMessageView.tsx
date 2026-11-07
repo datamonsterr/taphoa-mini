@@ -1,5 +1,5 @@
 import type { AssistantAction } from '@taphoa/api-client';
-import { Check, X } from 'lucide-react-native';
+import { Check, X } from '@/components/icons';
 import { memo } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 

@@ -1,4 +1,4 @@
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft } from '@/components/icons';
 import { memo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 

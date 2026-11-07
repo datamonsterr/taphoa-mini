@@ -1,4 +1,4 @@
-import { Check, CircleAlert } from 'lucide-react-native';
+import { Check, CircleAlert } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 

@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react-native';
+import { Plus } from '@/components/icons';
 import { memo, useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import Animated, {

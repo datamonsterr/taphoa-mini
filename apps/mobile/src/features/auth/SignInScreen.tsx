@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import { Lock, Mail } from 'lucide-react-native';
+import { Lock, Mail } from '@/components/icons';
 import { Platform, StyleSheet, View } from 'react-native';
 import { Icon, ScaledText } from '@/components/ui';
 import { DeviceSessions } from '@/features/account/DeviceSessions';
