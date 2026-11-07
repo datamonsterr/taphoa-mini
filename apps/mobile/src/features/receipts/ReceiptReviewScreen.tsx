@@ -302,7 +302,12 @@ function Review({ receipt }: { receipt: Receipt }) {
                 ]
                   .filter(Boolean)
                   .join(' · ')
-              : fill(t('fixCount'), { count: lines.length, fixes })}
+              : [
+                  receipt.supplier,
+                  fill(t('fixCount'), { count: lines.length, fixes }),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </Text>
         </View>
         {assistant ? (

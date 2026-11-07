@@ -64,6 +64,14 @@ test('summary_includes_supplier_in_subtitle', async () => {
   expect(screen.getByText('Minh Phát · 27/10 · bản nháp')).toBeOnTheScreen();
 });
 
+test('review_subtitle_includes_supplier', async () => {
+  Object.assign(getMockDb().receipts[0], { supplier: 'Minh Phát' });
+  await open();
+  expect(
+    screen.getByText('Minh Phát · 4 dòng đọc được · 1 cần xem'),
+  ).toBeOnTheScreen();
+});
+
 test('renders OCR source, status, fix count and photo; summary blocks unmatched confirm and names the line', async () => {
   await open();
   expect(screen.getAllByText('Coca-Cola lon 330ml').length).toBeGreaterThan(0);
