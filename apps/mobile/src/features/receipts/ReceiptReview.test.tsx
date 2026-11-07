@@ -54,6 +54,16 @@ const setPrice = async (name: string, digits: string) => {
   await fireEvent.press(button('Xong'));
 };
 
+test('summary_includes_supplier_in_subtitle', async () => {
+  Object.assign(getMockDb().receipts[0], {
+    supplier: 'Minh Phát',
+    created_at: '2026-10-27T05:00:00Z',
+  });
+  await open();
+  await reviewSummary();
+  expect(screen.getByText('Minh Phát · 27/10 · bản nháp')).toBeOnTheScreen();
+});
+
 test('renders OCR source, status, fix count and photo; summary blocks unmatched confirm and names the line', async () => {
   await open();
   expect(screen.getAllByText('Coca-Cola lon 330ml').length).toBeGreaterThan(0);

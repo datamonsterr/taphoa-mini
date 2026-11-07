@@ -295,7 +295,13 @@ function Review({ receipt }: { receipt: Receipt }) {
           </Text>
           <Text accessibilityLiveRegion="polite" style={styles.meta}>
             {summary
-              ? `${formatDayMonth(businessDate(receipt.created_at))} · ${t(receipt.status).toLocaleLowerCase()}`
+              ? [
+                  receipt.supplier,
+                  formatDayMonth(businessDate(receipt.created_at)),
+                  t(receipt.status).toLocaleLowerCase(),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
               : fill(t('fixCount'), { count: lines.length, fixes })}
           </Text>
         </View>
