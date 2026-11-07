@@ -318,7 +318,12 @@ export function PayScreen() {
         labels={toggle}
       />
 
-      <MoneyText amount={total} variant="total" style={styles.total} />
+      <MoneyText
+        testID="pay-total"
+        amount={total}
+        variant="total"
+        style={styles.total}
+      />
 
       {method === 'credit' ? (
         <View style={styles.cashCard}>

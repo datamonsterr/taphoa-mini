@@ -79,7 +79,7 @@ test('pay total remains fully visible with a populated cart', async ({
   await scanAndAdd(page, coca);
   await cartPill(page).click();
   await button(page, 'Hiện mã QR thanh toán').click();
-  const total = page.getByText('10.000đ', { exact: true }).last();
+  const total = page.getByTestId('pay-total');
   const qr = page.getByRole('img', { name: 'Mã VietQR 10.000đ' }).locator('..');
   const metrics = await total.evaluate((el) => {
     const rect = el.getBoundingClientRect();

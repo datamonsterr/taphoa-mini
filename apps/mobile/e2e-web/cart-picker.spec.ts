@@ -49,9 +49,10 @@ test('cart row and customer picker match boards 06 and 07c', async ({
 }) => {
   test.setTimeout(120_000);
   const coca = await seedScannableProduct(store.api, COCA);
+  const customerName = 'Chị Lan';
   await store.api.post('/v1/customers', {
     id: uuid7(),
-    name: 'Chị Lan',
+    name: customerName,
     phone: '0912345678',
   });
   await openCamera(page);
@@ -77,7 +78,12 @@ test('cart row and customer picker match boards 06 and 07c', async ({
   await expect(page.getByText('Khách gần đây')).toBeVisible();
   await expect(page.getByText('1 khách')).toBeVisible();
   await expect(page.getByText('Hết nợ', { exact: true })).toBeVisible();
-  await expect(page.getByText('C', { exact: true })).toBeVisible();
+  const givenName = customerName
+    .trim()
+    .replace(/^(?:anh|chị|cô|chú|bác|ông|bà|em)\s+/iu, '');
+  const initial = (Array.from(givenName)[0] ?? '?').toUpperCase();
+  await expect(page.getByText(initial, { exact: true })).toBeVisible();
+  await expect(page.getByText('0912 345 678', { exact: true })).toBeVisible();
   await expect(page.getByText('Khách mới')).toBeVisible();
   await expect(
     page.getByRole('textbox', { name: 'Tên khách hàng' }),

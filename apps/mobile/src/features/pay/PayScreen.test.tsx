@@ -75,7 +75,8 @@ async function findNewSale() {
 describe('PayScreen transfer', () => {
   it('reserves the full line height for the payment total', async () => {
     await renderWithProviders(<PayScreen />);
-    expect(screen.getByText('24.500đ')).toHaveStyle({ flexShrink: 0 });
+    expect(screen.getByTestId('pay-total')).toHaveTextContent('24.500đ');
+    expect(screen.getByTestId('pay-total')).toHaveStyle({ flexShrink: 0 });
   });
 
   it('reserves room for unit choices under each product', async () => {
