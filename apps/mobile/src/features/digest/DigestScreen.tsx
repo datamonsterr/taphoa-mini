@@ -1,4 +1,6 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { Image } from 'expo-image';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BookUser,
   ChevronLeft,
@@ -22,15 +24,40 @@ import {
 } from '@/components/ui';
 import { capture } from '@/lib/analytics';
 import { formatVnd } from '@/lib/format';
-import { useOpenDigest } from '@/lib/api';
+import { useOpenDigest, type Product } from '@/lib/api';
+import { keys } from '@/lib/api/keys';
+import { getCatalog } from '@/lib/offline/catalog';
+import { formatDailyRate } from '@/features/stock/strings';
+import { useSettingsStore } from '@/stores/settings';
 import { fill, useT } from '@/lib/i18n';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 
 import { digestStrings } from './strings';
 import { formatDigestStamp, summarySegments } from './utils';
 
+function quantityLabel(quantity: number, product?: Product): string {
+  if (!product?.base_unit) return `× ${quantity}`;
+  const unit = product.units
+    .filter(
+      (candidate) =>
+        candidate.quantity_in_base > 1 &&
+        quantity % candidate.quantity_in_base === 0,
+    )
+    .sort((a, b) => b.quantity_in_base - a.quantity_in_base)[0];
+  return unit
+    ? `${quantity / unit.quantity_in_base} ${unit.name}`
+    : `${quantity} ${product.base_unit}`;
+}
+
 export function DigestScreen() {
   const t = useT(digestStrings);
+  const language = useSettingsStore((state) => state.language);
+  const client = useQueryClient();
+  const catalog = useQuery({
+    queryKey: keys.catalog(),
+    queryFn: () => getCatalog(client),
+    enabled: false,
+  });
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     entry?: string;
@@ -209,15 +236,46 @@ export function DigestScreen() {
             <View style={styles.restockList}>
               {digest.restock.map((item) => (
                 <View key={item.product_id} style={styles.restockItem}>
+                  {item.image_url ? (
+                    <Image
+                      testID="restock-photo"
+                      source={{ uri: item.image_url }}
+                      style={styles.restockPhoto}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.restockPhoto} />
+                  )}
                   <View style={styles.restockInfo}>
                     <Text style={styles.restockName}>{item.name}</Text>
                     <Text style={styles.restockQuantity}>
-                      × {item.quantity}
+                      {[
+                        ...(item.stock_quantity != null
+                          ? [
+                              fill(t('stockRemaining'), {
+                                count: item.stock_quantity,
+                              }),
+                            ]
+                          : []),
+                        ...(item.sales_rate
+                          ? [
+                              fill(t('dailyRate'), {
+                                rate: formatDailyRate(
+                                  item.sales_rate,
+                                  language,
+                                ),
+                              }),
+                            ]
+                          : []),
+                      ].join(' · ')}
                     </Text>
                   </View>
-                  {item.total_cost !== null ? (
-                    <MoneyText amount={item.total_cost} variant="label" />
-                  ) : null}
+                  <Text style={styles.restockChip}>
+                    {quantityLabel(
+                      item.quantity,
+                      catalog.data?.products[item.product_id],
+                    )}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -399,10 +457,21 @@ const styles = StyleSheet.create({
     paddingVertical: space[1],
   },
   restockInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
     flex: 1,
+  },
+  restockPhoto: {
+    width: size.tapLg,
+    height: size.tapLg,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceSoft,
+    marginRight: space[2],
+  },
+  restockChip: {
+    ...typography.label,
+    color: colors.ink,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.full,
+    padding: space[2],
   },
   restockName: { ...typography.body, color: colors.ink },
   restockQuantity: {
