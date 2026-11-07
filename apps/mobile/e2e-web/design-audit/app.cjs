@@ -138,6 +138,18 @@ async function setup(page, signedOut) {
 }
 
 async function main() {
+  await mockFetch('http://localhost:8080/v1/customers', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer mock-token',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: '00000000-0000-4000-8000-000000001234',
+      name: 'Chị Lan',
+      phone: '0912345678',
+    }),
+  });
   const browser = await chromium.launch(launchOptions());
   try {
     for (const target of targets) {
@@ -145,7 +157,20 @@ async function main() {
       const route = rawRoute.replace(/^\//, '') || 'index';
       if (
         !/^[a-z0-9/-]+$/.test(route) ||
-        (state && !['low', 'cash', 'credit'].includes(state))
+        (state &&
+          ![
+            'low',
+            'cash',
+            'credit',
+            'matched',
+            'unknown',
+            'ambiguous',
+            'detail',
+            'cart',
+            'pay',
+            'picker',
+            'selected',
+          ].includes(state))
       )
         throw new Error(`Unsupported route/state: ${target}`);
       const page = await browser.newPage({
@@ -154,6 +179,66 @@ async function main() {
       });
       try {
         await setup(page, route === 'sign-in');
+        if (
+          route === 'index' &&
+          [
+            'matched',
+            'unknown',
+            'ambiguous',
+            'cart',
+            'pay',
+            'picker',
+            'selected',
+          ].includes(state)
+        ) {
+          await page.route('**/v1/recognition/scans', (r) =>
+            r.fulfill({
+              status: 201,
+              json: {
+                id: '018c0000-0000-7000-8000-000000000001',
+                image: {
+                  id: '018c0000-0000-7000-8000-000000000002',
+                  url: 'https://example.test/x.jpg',
+                  width: 1280,
+                  height: 1280,
+                },
+                mode: 'single',
+                purpose: 'checkout',
+                pipeline: { segmenter: 'sam', embedder: 'dino' },
+                detections: [
+                  {
+                    id: '018c0000-0000-7000-8000-000000000003',
+                    bbox: [300, 400, 680, 520],
+                    score: 0.95,
+                    match: ['unknown', 'ambiguous'].includes(state)
+                      ? state
+                      : 'matched',
+                    candidates:
+                      state === 'unknown'
+                        ? []
+                        : [
+                            {
+                              product_id:
+                                '00000000-0000-4000-8000-0000000003e8',
+                              name: 'Coca-Cola lon 330ml',
+                              thumbnail_url: 'https://mock.local/coca.png',
+                              price: 10000,
+                              similarity: state === 'ambiguous' ? 0.74 : 0.96,
+                            },
+                            {
+                              product_id: 'p2',
+                              name: 'Coca-Cola',
+                              price: 12000,
+                              similarity: 0.7,
+                            },
+                          ],
+                  },
+                ],
+                created_at: new Date().toISOString(),
+              },
+            }),
+          );
+        }
         await page.goto(`${base}/${route === 'index' ? '' : route}`, {
           waitUntil: 'domcontentloaded',
         });
@@ -165,7 +250,47 @@ async function main() {
           await page.getByText('Màn hình gặp lỗi', { exact: true }).isVisible()
         )
           throw new Error(`Route ${expectedPath} displayed the error boundary`);
-        if (state === 'low' && route === 'stock')
+        if (
+          [
+            'matched',
+            'unknown',
+            'ambiguous',
+            'cart',
+            'pay',
+            'picker',
+            'selected',
+          ].includes(state) &&
+          route === 'index'
+        ) {
+          await page.getByRole('button', { name: 'Chụp', exact: true }).click();
+          await page.getByTestId('box-frame').waitFor({ timeout: 15000 });
+          if (['cart', 'pay', 'picker', 'selected'].includes(state)) {
+            await page
+              .getByRole('button', { name: 'Thêm vào giỏ', exact: true })
+              .click();
+            await page.getByRole('button', { name: /^Giỏ hàng:/ }).click();
+            await page.getByTestId('cart-sheet').waitFor();
+            if (state !== 'cart') {
+              await page
+                .getByRole('button', { name: 'Hiện mã QR thanh toán' })
+                .click();
+              await page.getByRole('radio', { name: /Chuyển khoản/ }).waitFor();
+              if (['picker', 'selected'].includes(state)) {
+                await page.getByRole('radio', { name: /Ghi nợ/ }).click();
+                if (state === 'selected')
+                  await page.getByRole('button', { name: /Chị Lan/ }).click();
+              }
+            }
+            await page.waitForTimeout(1000);
+          }
+        } else if (state === 'detail' && route === 'sales') {
+          await page
+            .getByRole('button')
+            .filter({ hasText: /đ/ })
+            .first()
+            .click();
+          await page.waitForTimeout(2000);
+        } else if (state === 'low' && route === 'stock')
           await page
             .getByRole('button', { name: 'Sắp hết', exact: true })
             .click();
