@@ -484,7 +484,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
       - name: Jest with coverage thresholds, timezone and script tests
-        run: pnpm --filter @taphoa/mobile test:coverage
+        run: |
+          set +e
+          timeout 600 pnpm --filter @taphoa/mobile test:coverage 2>&1 | tee "$RUNNER_TEMP/mobile-test.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if grep -E 'A worker process has failed to exit gracefully|Jest did not exit one second after the test run' "$RUNNER_TEMP/mobile-test.log"; then
+            echo 'Jest reported a leaked handle' >&2
+            exit 1
+          fi
+          exit "$status"
       - name: Summary
         if: always()
         env:
