@@ -137,3 +137,16 @@ test('deletion requires confirmation and leaves the base price', async () => {
   expect(updated.units).toEqual(product.units.filter((u) => u.id !== unit.id));
   expect(updated.price).toBe(product.price);
 });
+
+test('editing unit actions', async () => {
+  const product = await getProduct(PRODUCT_IDS.coca);
+  await renderWithProviders(
+    <UnitsEditor product={product} onClose={jest.fn()} />,
+  );
+  await fireEvent.press(
+    screen.getByRole('button', {
+      name: `Sửa đơn vị ${product.units[0]!.name}`,
+    }),
+  );
+  expect(screen.queryByRole('button', { name: 'Thêm đơn vị' })).toBeNull();
+});
