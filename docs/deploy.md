@@ -423,9 +423,19 @@ cancels older pending runs, which kept cancelling branch validations. Instead it
 `.github/workflows/railway-integration.yml`
 runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
 (manual, nightly 20:17 UTC and on backend changes to `main`) via
-`scripts/ci/with-railway-test-services.sh`: a throwaway database `it_<run>` is created and
-dropped per run, Redis logical database 15 is flushed afterwards, and the bucket is shared
-and append-only.
+`scripts/ci/with-railway-test-services.sh`: a throwaway database
+`it_<epoch>_<run>_<attempt>_<pid>` is created and dropped per run, Redis logical database
+15 is flushed afterwards, and the bucket is shared and append-only. Before creating a database,
+the script force-drops `it_` databases older than six hours (configurable with
+`IT_DB_MAX_AGE_HOURS`) and all legacy `it_` names without a timestamp. It logs each drop
+and warns when the total `pg_database_size` exceeds 3.5 GB (3,500,000,000 bytes;
+`IT_DB_SIZE_LIMIT_BYTES`), listing the largest databases. This sum does not include all
+volume usage, such as WAL. Set the age limit longer than any expected integration run.
+
+If the volume is full and Postgres cannot start, grow the test Postgres volume first; once
+Postgres is running, the next integration run will clean up stale databases. Alternatively,
+when Postgres is available, manually drop abandoned `it_` databases with
+`DROP DATABASE "<name>" WITH (FORCE)`; leave other databases and active runs alone.
 
 ### GitHub configuration for the test environment
 
