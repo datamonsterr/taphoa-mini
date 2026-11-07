@@ -33,7 +33,8 @@ export default defineRailway((ctx) => {
     // Live volumes are in San Francisco (sfo) in both environments. Declaring another region
     // would plan a volume move; keep this equal to `railway config pull`.
     region: 'sfo',
-    sizeMB: 5000,
+    // test filled 5 GB with leaked integration databases on 2026-11-05 (see #329); give it room.
+    sizeMB: ctx.isEnvironment('production') ? 5000 : 10000,
   });
   const Postgres = service('Postgres', {
     source: image('pgvector/pgvector:0.8.7-pg18-trixie'),
