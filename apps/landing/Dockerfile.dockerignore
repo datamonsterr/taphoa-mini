@@ -1,0 +1,10 @@
+# Dockerfile-specific ignore file applies when using the repository root context.
+**
+!apps/
+!apps/landing/
+!apps/landing/**
+apps/landing/node_modules/
+apps/landing/dist/
+apps/landing/tests/
+apps/landing/screenshots/
+apps/landing/test-results/

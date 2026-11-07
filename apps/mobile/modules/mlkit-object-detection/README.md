@@ -3,7 +3,7 @@
 Android-only local Nitro module for VisionCamera **5.2.4**, Nitro **0.37.1**,
 Worklets **0.13.0**, RN **0.88.0**, Expo SDK **58**. Android API **26+**
 is required by VisionCamera Resizer; `expo-build-properties` sets the app minimum
-during CNG (ADR 0010). It is linked through the
+during CNG (ADR 0011). It is linked through the
 app's local package dependency and React Native autolinking; the Expo config
 plugin supplies the camera permission during CNG. Do not edit the generated
 `apps/mobile/android` project. iOS/web return `null` from the factory; there is

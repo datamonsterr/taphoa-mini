@@ -37,6 +37,16 @@ it('renders the Expo webcam preview and retains the capture and barcode contract
     data: '12345678',
     type: 'ean8',
   });
+  await rerender(
+    <CameraPreview {...props} codeMode onBarcodeScanned={undefined} />,
+  );
+  expect(
+    screen.getByTestId('camera-view').props.onBarcodeScanned,
+  ).toBeUndefined();
+  await rerender(<CameraPreview {...props} codeMode />);
+  expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toEqual(
+    expect.any(Function),
+  );
   expect(props.onAutoCapture).not.toHaveBeenCalled();
   await rerender(<CameraPreview {...props} active={false} />);
   expect(screen.queryByTestId('camera-view')).toBeNull();

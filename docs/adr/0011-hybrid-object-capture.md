@@ -1,4 +1,4 @@
-# ADR 0010: Hybrid object capture: ML Kit on the phone, SigLIP2 kNN on the server
+# ADR 0011: Hybrid object capture: ML Kit on the phone, SigLIP2 kNN on the server
 
 Status: Proposed · Date: 2026-11-02 · Spec: `docs/specs/object-capture.md`
 

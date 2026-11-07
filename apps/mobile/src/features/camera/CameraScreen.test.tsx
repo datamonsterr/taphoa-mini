@@ -7,7 +7,7 @@ import {
 } from '@testing-library/react-native';
 import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { Alert, Linking } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import {
   fireGestureHandler,
   getByGestureTestId,
@@ -1051,6 +1051,33 @@ describe('quick enroll capture', () => {
       );
     },
   );
+
+  // Web has no CameraX rebind, but expo-camera's web scanner decodes a full frame on the main
+  // thread every 300 ms while a handler is set, so a scan in flight must stop it.
+  it('drops the web barcode handler while a scan photo is in flight', async () => {
+    const platform = jest.replaceProperty(Platform, 'OS', 'web');
+    try {
+      let release!: (photo: typeof IMAGE & { uri: string }) => void;
+      mockTakePicture.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      await renderWithProviders(<CameraScreen />);
+      expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toEqual(
+        expect.any(Function),
+      );
+      await fireEvent.press(shutter());
+      expect(mockTakePicture).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByTestId('camera-view').props.onBarcodeScanned,
+      ).toBeUndefined();
+      await act(async () => release({ uri: 'file:///shot.jpg', ...IMAGE }));
+    } finally {
+      platform.restore();
+    }
+  });
 
   it('says the camera failed, in Vietnamese, when the native capture rejects', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});

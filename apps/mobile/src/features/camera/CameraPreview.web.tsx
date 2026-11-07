@@ -11,7 +11,7 @@ export const supportsOneTripEnrollment = false;
  * The live preview. It reports readiness once `expo-camera` has started, and not-ready when it
  * unmounts (behind a frozen photo, off screen), so the shutter never fires into a cold camera.
  *
- * In Code mode the Expo handler stays stable while reads are paused.
+ * Web stops decoding while reads are paused; this avoids unnecessary main-thread work.
  */
 export function CameraPreview({
   cameraRef,
@@ -41,7 +41,7 @@ export function CameraPreview({
         facing="back"
         animateShutter={false}
         barcodeScannerSettings={CODE_SETTINGS}
-        onBarcodeScanned={codeMode ? onBarcode : undefined}
+        onBarcodeScanned={codeMode && onBarcodeScanned ? onBarcode : undefined}
         onCameraReady={onCameraReady}
         style={StyleSheet.absoluteFill}
       />

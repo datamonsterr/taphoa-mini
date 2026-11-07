@@ -20,3 +20,7 @@ apps/mobile/playwright-report/
 apps/mobile/e2e-web/test-results/
 apps/mobile/e2e-web/screenshots/
 apps/backend/eval/results/*.json
+
+# Landing visual artifacts and Playwright output
+apps/landing/screenshots/
+apps/landing/test-results/

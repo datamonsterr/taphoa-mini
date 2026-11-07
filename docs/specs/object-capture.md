@@ -1,6 +1,6 @@
 # Object capture: one-trip enrollment and robust identify
 
-Status: Proposed · Date: 2026-11-02 · Supersedes the capture parts of `quick-enroll.md` · ADR 0010
+Status: Proposed · Date: 2026-11-02 · Supersedes the capture parts of `quick-enroll.md` · ADR 0011
 
 ## Problem
 
