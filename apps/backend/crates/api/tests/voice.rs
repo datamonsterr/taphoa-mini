@@ -610,6 +610,172 @@ async fn retention_deletes_old_rows_except_donated() {
 
 #[tokio::test]
 #[ignore = "requires Postgres"]
+async fn donated_retention_is_store_scoped_and_idempotent() {
+    let (w, _) = setup(vec![], |_| {}).await;
+    let (other, _) = setup(vec![], |_| {}).await;
+    let storage = Keep::default();
+    let mut ids = Vec::new();
+    for (world, age, donated) in [
+        (&w, 31, true),
+        (&w, 5, true),
+        (&w, 31, false),
+        (&other, 31, true),
+        (&w, 31, true),
+    ] {
+        let id = Uuid::now_v7();
+        sqlx::query("INSERT INTO voice_utterances(id,store_id,member,mode,intent,transcript,model,latency_ms,donated,created_at) VALUES($1,$2,$3,'sale','sale','x','m',1,$4,now()-make_interval(days=>$5))")
+            .bind(id).bind(world.store_id).bind(world.seller_id).bind(donated).bind(age)
+            .execute(world.pool()).await.unwrap();
+        if donated {
+            sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) SELECT id, store_id, created_at FROM voice_utterances WHERE id=$1")
+                .bind(id).execute(world.pool()).await.unwrap();
+            storage
+                .0
+                .lock()
+                .unwrap()
+                .push(format!("voice/{}/{id}.m4a", world.store_id));
+        }
+        ids.push(id);
+    }
+    // Deleting an utterance (including by store cascade) must not orphan its audio.
+    sqlx::query("DELETE FROM voice_utterances WHERE id=$1")
+        .bind(ids[0])
+        .execute(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap(),
+        0
+    );
+    for (i, id) in ids.iter().enumerate() {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM voice_utterances WHERE id=$1)")
+                .bind(id)
+                .fetch_one(w.pool())
+                .await
+                .unwrap();
+        assert_eq!(exists, i != 0 && i != 4);
+    }
+    let keys = storage.0.lock().unwrap();
+    assert!(!keys.iter().any(|key| key.contains(&ids[0].to_string())));
+    assert!(keys.iter().any(|key| key.contains(&ids[1].to_string())));
+    assert!(keys.iter().any(|key| key.contains(&ids[3].to_string())));
+    assert!(!keys.iter().any(|key| key.contains(&ids[4].to_string())));
+}
+
+struct FailOne {
+    key: String,
+    fail: std::sync::atomic::AtomicBool,
+    kept: Keep,
+}
+#[async_trait::async_trait]
+impl taphoa_api::storage::ObjectStore for FailOne {
+    async fn put(&self, key: &str, content_type: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
+        self.kept.put(key, content_type, bytes).await
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        if key == self.key && self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("injected storage failure");
+        }
+        self.kept.delete(key).await
+    }
+    async fn head_bucket(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn presign_get(
+        &self,
+        _: &str,
+        _: std::time::Duration,
+    ) -> anyhow::Result<taphoa_api::storage::SignedUrl> {
+        anyhow::bail!("unused")
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn donated_retention_continues_after_failure_and_retries() {
+    let (w, _) = setup(vec![], |_| {}).await;
+    let oldest = Uuid::now_v7();
+    let later = Uuid::now_v7();
+    for (id, age) in [(oldest, 32), (later, 31)] {
+        sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) VALUES ($1,$2,now()-make_interval(days=>$3))")
+            .bind(id).bind(w.store_id).bind(age).execute(w.pool()).await.unwrap();
+    }
+    let storage = FailOne {
+        key: format!("voice/{}/{oldest}.m4a", w.store_id),
+        fail: true.into(),
+        kept: Keep::default(),
+    };
+    let deleted =
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap();
+    assert_eq!(deleted, 1);
+    let ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT utterance_id FROM voice_donations WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_all(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(ids, vec![oldest]);
+    let retry: (i32, Option<String>, bool) = sqlx::query_as("SELECT attempts,last_error,next_attempt_at > now() FROM voice_donations WHERE utterance_id=$1").bind(oldest).fetch_one(w.pool()).await.unwrap();
+    assert_eq!(retry, (1, Some("injected storage failure".into()), true));
+    sqlx::query("UPDATE voice_donations SET next_attempt_at=now() WHERE utterance_id=$1")
+        .bind(oldest)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    storage
+        .fail
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn donated_retention_respects_the_thirty_day_boundary() {
+    let (w, _) = setup(vec![], |_| {}).await;
+    let young = Uuid::now_v7();
+    let expired = Uuid::now_v7();
+    for (id, offset) in [(young, "29 days 23 hours"), (expired, "30 days 1 second")] {
+        sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) VALUES ($1,$2,now()-$3::interval)")
+            .bind(id).bind(w.store_id).bind(offset).execute(w.pool()).await.unwrap();
+    }
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(
+            w.pool(),
+            &Keep::default(),
+            w.store_id,
+            30
+        )
+        .await
+        .unwrap(),
+        1
+    );
+    let ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT utterance_id FROM voice_donations WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_all(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(ids, vec![young]);
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
 async fn eval_model_header_needs_the_flag_and_a_configured_slug() {
     let parse = || {
         sale(
@@ -1343,4 +1509,89 @@ async fn header_that_understates_the_duration_is_still_bounded() {
         model.calls().is_empty(),
         "no model call for an overlong clip"
     );
+}
+
+#[derive(Default)]
+struct Keep(std::sync::Mutex<Vec<String>>);
+#[async_trait::async_trait]
+impl taphoa_api::storage::ObjectStore for Keep {
+    async fn put(&self, key: &str, _: &str, _: Vec<u8>) -> anyhow::Result<()> {
+        self.0.lock().unwrap().push(key.into());
+        Ok(())
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.0.lock().unwrap().retain(|item| item != key);
+        Ok(())
+    }
+    async fn head_bucket(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn presign_get(
+        &self,
+        _: &str,
+        _: std::time::Duration,
+    ) -> anyhow::Result<taphoa_api::storage::SignedUrl> {
+        anyhow::bail!("not used")
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn donated_clip_is_kept_only_with_the_opt_in() {
+    let parse = sale(
+        "hai chai nuoc mam",
+        vec![line(
+            "hai chai nuoc mam",
+            "nuoc mam",
+            Some(2.0),
+            None,
+            None,
+            None,
+        )],
+        "cash",
+        None,
+    );
+    let (mut w, _model) = setup(vec![Step::parse(parse.clone()), Step::parse(parse)], |_| {}).await;
+    w.product("Nuoc mam", 30000, None).await;
+    let store = std::sync::Arc::new(Keep::default());
+    w.state.storage = Some(store.clone());
+    w.app = taphoa_api::router(w.state.clone());
+    let fields = [("mode", "sale"), ("language", "vi")];
+    let mut with_donate = fields.to_vec();
+    with_donate.push(("donate", "true"));
+    // Without the flag the clip is not kept.
+    let r = upload_with(&w, &w.seller, Some(&clip()), &fields, &[]).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert!(store.0.lock().unwrap().is_empty());
+    let donated: bool = sqlx::query_scalar("SELECT donated FROM voice_utterances WHERE id=$1")
+        .bind(r.body["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert!(!donated);
+    // With donate=true it is stored under voice/<store>/<uuid>.m4a and the row is marked.
+    let r = upload_with(&w, &w.seller, Some(&clip()), &with_donate, &[]).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let id = r.body["id"].as_str().unwrap().to_owned();
+    let keys = store.0.lock().unwrap().clone();
+    assert_eq!(keys, vec![format!("voice/{}/{}.m4a", w.store_id, id)]);
+    let donated: bool = sqlx::query_scalar("SELECT donated FROM voice_utterances WHERE id=$1")
+        .bind(id.parse::<Uuid>().unwrap())
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    assert!(donated);
+    let registered: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM voice_donations WHERE utterance_id=$1 AND store_id=$2)",
+    )
+    .bind(id.parse::<Uuid>().unwrap())
+    .bind(w.store_id)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert!(registered);
+    // A malformed flag is a 400.
+    let bad = [("mode", "sale"), ("donate", "maybe")];
+    let r = upload_with(&w, &w.seller, Some(&clip()), &bad, &[]).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
 }

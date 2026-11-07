@@ -3,6 +3,7 @@
 Product terms follow [PRD §13](docs/PRD.md#13-glossary). Planned product behavior is
 separate from the current infrastructure skeleton.
 
+<!-- prettier-ignore -->
 | Term                                 | Meaning                                                                                                                                                                                                                |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tạp hóa                              | Small neighborhood convenience/grocery store.                                                                                                                                                                          |
@@ -79,7 +80,7 @@ separate from the current infrastructure skeleton.
 | OTel Collector                       | Proposed: Railway service that receives OTLP from backends and routes all traces and logs to PostHog.                                                                                                                  |
 | PostHog                              | Proposed: PostHog Cloud US project for product analytics, LLM analytics, logs, error tracking and session replay (ADR 0007).                                                                                           |
 | Voice sale (bán hàng bằng giọng nói) | Proposed: sale logged by speaking one utterance; parsed on the server, confirmed on the voice sale sheet, recorded through `POST /v1/sales` with `source=voice` lines. See `docs/specs/voice/`.                        |
-| Utterance                            | Proposed: one recorded clip of at most 30 s sent to `POST /v1/voice/utterances`; stored as transcript, parsed JSON and outcome (never the audio) in `voice_utterances`.                                                |
+| Utterance                            | Proposed: one recorded clip of at most 30 s sent to `POST /v1/voice/utterances`; stored as transcript, parsed JSON and outcome in `voice_utterances`; opted-in sale audio is stored privately and removed by the 30-day retention job.                                                |
 | Audio-native model                   | Proposed: chat model that takes `input_audio` and returns JSON in one call (`google/gemini-2.5-flash-lite` first in `VOICE_MODELS`); replaces a separate speech-to-text step (ADR 0008).                               |
 | Speech fallback chain                | Proposed: next `VOICE_MODELS` slug, then OpenRouter STT (`VOICE_STT_MODEL`, Whisper large v3 turbo) plus a text parse, then on-device `expo-speech-recognition` when offline or on 503.                                |
 | Catalog hint                         | Proposed: names, units and prices of up to 300 recently sold products sent with the audio as data, so the model hears the store's own product names. Never instructions.                                               |

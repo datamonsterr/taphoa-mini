@@ -183,3 +183,49 @@ test('a 403 pin_required sends the app back to the PIN picker', async () => {
   expect(pinRequired).toHaveBeenCalledTimes(1);
   expect(send).toHaveBeenCalledTimes(1);
 });
+
+test('a voice upload is not sent under a different person after account switch', async () => {
+  registerAuthBridge({
+    userId: 'person-b',
+    getToken: async () => 'token-b',
+    getStoreId: () => 'store-b',
+    membershipRequired: jest.fn(),
+  });
+  const send = jest.fn(async () => json(200));
+  const fetcher = createAuthFetch({ baseUrl: 'http://api.test', fetch: send });
+  await expect(
+    fetcher('http://api.test/v1/voice/utterances', {
+      method: 'POST',
+      headers: { 'X-Taphoa-Expected-Voice-User': 'person-a' },
+      body: 'audio',
+    }),
+  ).rejects.toThrow();
+  expect(send).not.toHaveBeenCalled();
+});
+
+test('voice identity guard is removed before transport and blocks a retry after switching', async () => {
+  const select = (userId: string) =>
+    registerAuthBridge({
+      userId,
+      getToken: async () => 'token',
+      getStoreId: () => 'store',
+      membershipRequired: jest.fn(),
+    });
+  select('person-a');
+  const send = jest.fn(async (request: Request) => {
+    expect(request.headers.has('X-Taphoa-Expected-Voice-User')).toBe(false);
+    select('person-b');
+    return json(401);
+  });
+  await expect(
+    createAuthFetch({
+      baseUrl: 'http://api.test',
+      fetch: send as typeof fetch,
+    })('http://api.test/v1/voice/utterances', {
+      method: 'POST',
+      headers: { 'X-Taphoa-Expected-Voice-User': 'person-a' },
+      body: 'audio',
+    }),
+  ).rejects.toThrow('Voice upload identity changed');
+  expect(send).toHaveBeenCalledTimes(1);
+});

@@ -3,10 +3,12 @@ import { useMutation } from '@tanstack/react-query';
 import type { VoiceOutcomeRequest, VoiceUtterance } from '@taphoa/api-client';
 
 import { getApiClient } from '@/lib/api/client';
+import { bridgeUserId } from '@/lib/api/clerkBridge';
 import { isApiError, unwrap } from '@/lib/api/errors';
 import type { VoiceEntry } from '@/lib/analytics';
 
 import { clipToUpload, type VoiceClip } from './fixture';
+import { useVoiceSettings } from './voiceSettings';
 
 export type VoiceContextEntry = VoiceEntry | 'chat';
 
@@ -17,19 +19,29 @@ export type UtteranceInput = {
   entry: VoiceContextEntry;
   screen: string;
   threadId?: string;
+  /** Defaults to the "Góp giọng nói" switch; only a sale clip is ever kept. */
+  donate?: boolean;
 };
 
 /** POST /v1/voice/utterances: the clip goes up, the transcript (and the draft in sale mode) comes back. */
 export async function uploadUtterance(
   input: UtteranceInput,
 ): Promise<VoiceUtterance> {
+  const userId = bridgeUserId();
   const { audio, filename } = await clipToUpload(input.clip);
   return unwrap(
     getApiClient().createVoiceUtterance({
       audio,
       filename,
+      expectedVoiceUser: userId ?? '',
       mode: input.mode,
       language: input.language,
+      donate:
+        input.mode === 'sale' &&
+        !!userId &&
+        bridgeUserId() === userId &&
+        input.donate !== false &&
+        !!useVoiceSettings.getState().donations[userId],
       context: {
         entry: input.entry,
         screen: input.screen,

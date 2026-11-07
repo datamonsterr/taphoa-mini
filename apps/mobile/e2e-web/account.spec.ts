@@ -170,7 +170,7 @@ const tapKeys = async (scope: Page | Locator, digits: string) => {
 test.describe('the PIN of this member (U3)', () => {
   // The multi-session switcher and its PIN lock sheet are covered by their own spec; this one
   // covers setting a PIN and the endpoint the lock verifies it with.
-  test('the voice opt-in is a local preference, off by default, and says nothing is uploaded', async ({
+  test('the voice opt-in is off by default and explains donation', async ({
     page,
   }) => {
     await openShop(page, '/account');
@@ -178,7 +178,7 @@ test.describe('the PIN of this member (U3)', () => {
     await row.scrollIntoViewIfNeeded();
     await expect(row.getByText('Góp giọng nói để cải thiện')).toBeVisible();
     await expect(
-      row.getByText(/Chưa gửi giọng nói đi trong bản này/),
+      row.getByText(/Giữ bản ghi để cải thiện nhận dạng/),
     ).toBeVisible();
     await expect(
       page.getByRole('switch', { name: 'Góp giọng nói để cải thiện' }),

@@ -40,6 +40,8 @@ pub struct Request {
     pub entry: String,
     pub clip: AudioClip,
     pub audio_seconds: Option<f64>,
+    /// The member opted in to keep this clip for the golden set (donate=true).
+    pub donate: bool,
     /// Eval runs pin the chain to one slug (`X-Taphoa-Eval-Model`, only when eval headers are on).
     pub model_override: Option<String>,
     /// Handler start, so `latency_ms` includes reading the upload.
@@ -322,6 +324,45 @@ async fn run_chain(
     None
 }
 
+/// With the member's opt-in, keep the clip for the golden set under `voice/<store>/<uuid>.<ext>`
+/// and record a durable deletion entry before attempting the upload.
+async fn donate_clip(state: &AppState, actor: &Actor, req: &Request, pool: &sqlx::PgPool) {
+    let Some(storage) = state.storage.as_deref().filter(|_| req.donate) else {
+        return;
+    };
+    let format = req.clip.format;
+    let key = format!("voice/{}/{}.{}", actor.store_id, req.id, format);
+    let content_type = match format {
+        "m4a" => "audio/mp4",
+        "wav" => "audio/wav",
+        _ => "audio/ogg",
+    };
+    // Record the key's owner before writing: even an interrupted or ambiguous put is
+    // discoverable by retention. Missing objects are safe to delete on a later pass.
+    let recorded = sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) SELECT id, store_id, created_at FROM voice_utterances WHERE id=$1 AND store_id=$2 ON CONFLICT DO NOTHING")
+        .bind(req.id).bind(actor.store_id).execute(pool).await;
+    if !matches!(recorded, Ok(ref result) if result.rows_affected() == 1) {
+        tracing::warn!("donated voice clip could not be registered for deletion");
+        return;
+    }
+    let marked =
+        sqlx::query("UPDATE voice_utterances SET donated=true WHERE id=$1 AND store_id=$2")
+            .bind(req.id)
+            .bind(actor.store_id)
+            .execute(pool)
+            .await;
+    if !matches!(marked, Ok(ref result) if result.rows_affected() == 1) {
+        tracing::warn!("donated voice clip could not be marked");
+        return;
+    }
+    if let Err(error) = storage
+        .put(&key, content_type, req.clip.bytes.clone())
+        .await
+    {
+        tracing::warn!(error = %error, "donated voice clip was not stored; retention will retry deletion");
+    }
+}
+
 pub async fn create(
     state: &AppState,
     actor: &Actor,
@@ -474,6 +515,7 @@ async fn process(
     .fetch_one(pool)
     .await
     .map_err(db)?;
+    donate_clip(state, actor, req, pool).await;
     finish(parse.intent.as_str(), counts, Some(&answered));
     if draft_out.is_some() {
         telemetry::drafted(state, actor, &trace, counts, latency_ms, stt_fallback);
