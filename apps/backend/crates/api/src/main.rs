@@ -126,6 +126,14 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
             pool.clone(),
             shutdown_rx.clone(),
         ));
+        if let Some(storage) = state.storage.clone() {
+            background.push(taphoa_api::voice::retention::spawn_donated(
+                pool.clone(),
+                storage,
+                state.voice.config.donated_retention_days,
+                shutdown_rx.clone(),
+            ));
+        }
         if digest_config.enabled {
             background.push(digest_job::spawn(
                 state.clone(),

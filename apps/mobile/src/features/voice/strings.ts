@@ -106,7 +106,8 @@ export const voiceStrings: Dict = {
     'quick.explainContinue': 'Mở cài đặt',
     'quick.explainLater': 'Để sau',
     donate: 'Góp giọng nói để cải thiện',
-    'donate.hint': 'Giữ lại đoạn ghi âm cho bộ mẫu',
+    'donate.hint':
+      'Giữ bản ghi để cải thiện nhận dạng, xóa sau 30 ngày. Tắt để dừng góp mới.',
   },
   en: {
     title: 'Sell by voice',
@@ -206,6 +207,7 @@ export const voiceStrings: Dict = {
     'quick.explainContinue': 'Open settings',
     'quick.explainLater': 'Not now',
     donate: 'Share my voice to improve it',
-    'donate.hint': 'Keeps the recording for the sample set',
+    'donate.hint':
+      'Keeps recordings to improve recognition, deleted after 30 days. Turn off to stop new donations.',
   },
 };

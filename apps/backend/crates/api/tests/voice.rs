@@ -610,6 +610,69 @@ async fn retention_deletes_old_rows_except_donated() {
 
 #[tokio::test]
 #[ignore = "requires Postgres"]
+async fn donated_retention_is_store_scoped_and_idempotent() {
+    let (w, _) = setup(vec![], |_| {}).await;
+    let (other, _) = setup(vec![], |_| {}).await;
+    let storage = Keep::default();
+    let mut ids = Vec::new();
+    for (world, age, donated) in [
+        (&w, 31, true),
+        (&w, 5, true),
+        (&w, 31, false),
+        (&other, 31, true),
+        (&w, 31, true),
+    ] {
+        let id = Uuid::now_v7();
+        sqlx::query("INSERT INTO voice_utterances(id,store_id,member,mode,intent,transcript,model,latency_ms,donated,created_at) VALUES($1,$2,$3,'sale','sale','x','m',1,$4,now()-make_interval(days=>$5))")
+            .bind(id).bind(world.store_id).bind(world.seller_id).bind(donated).bind(age)
+            .execute(world.pool()).await.unwrap();
+        if donated {
+            sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) SELECT id, store_id, created_at FROM voice_utterances WHERE id=$1")
+                .bind(id).execute(world.pool()).await.unwrap();
+            storage
+                .0
+                .lock()
+                .unwrap()
+                .push(format!("voice/{}/{id}.m4a", world.store_id));
+        }
+        ids.push(id);
+    }
+    // Deleting an utterance (including by store cascade) must not orphan its audio.
+    sqlx::query("DELETE FROM voice_utterances WHERE id=$1")
+        .bind(ids[0])
+        .execute(w.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap(),
+        0
+    );
+    for (i, id) in ids.iter().enumerate() {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM voice_utterances WHERE id=$1)")
+                .bind(id)
+                .fetch_one(w.pool())
+                .await
+                .unwrap();
+        assert_eq!(exists, i != 0 && i != 4);
+    }
+    let keys = storage.0.lock().unwrap();
+    assert!(!keys.iter().any(|key| key.contains(&ids[0].to_string())));
+    assert!(keys.iter().any(|key| key.contains(&ids[1].to_string())));
+    assert!(keys.iter().any(|key| key.contains(&ids[3].to_string())));
+    assert!(!keys.iter().any(|key| key.contains(&ids[4].to_string())));
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
 async fn eval_model_header_needs_the_flag_and_a_configured_slug() {
     let parse = || {
         sale(
@@ -1353,7 +1416,8 @@ impl taphoa_api::storage::ObjectStore for Keep {
         self.0.lock().unwrap().push(key.into());
         Ok(())
     }
-    async fn delete(&self, _: &str) -> anyhow::Result<()> {
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.0.lock().unwrap().retain(|item| item != key);
         Ok(())
     }
     async fn head_bucket(&self) -> anyhow::Result<()> {

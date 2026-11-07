@@ -325,7 +325,7 @@ async fn run_chain(
 }
 
 /// With the member's opt-in, keep the clip for the golden set under `voice/<store>/<uuid>.<ext>`
-/// and mark the row. Best effort: a storage failure leaves the clip unkept and the row not donated.
+/// and record a durable deletion entry before attempting the upload.
 async fn donate_clip(state: &AppState, actor: &Actor, req: &Request, pool: &sqlx::PgPool) {
     let Some(storage) = state.storage.as_deref().filter(|_| req.donate) else {
         return;
@@ -337,20 +337,29 @@ async fn donate_clip(state: &AppState, actor: &Actor, req: &Request, pool: &sqlx
         "wav" => "audio/wav",
         _ => "audio/ogg",
     };
+    // Record the key's owner before writing: even an interrupted or ambiguous put is
+    // discoverable by retention. Missing objects are safe to delete on a later pass.
+    let recorded = sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) SELECT id, store_id, created_at FROM voice_utterances WHERE id=$1 AND store_id=$2 ON CONFLICT DO NOTHING")
+        .bind(req.id).bind(actor.store_id).execute(pool).await;
+    if !matches!(recorded, Ok(ref result) if result.rows_affected() == 1) {
+        tracing::warn!("donated voice clip could not be registered for deletion");
+        return;
+    }
+    let marked =
+        sqlx::query("UPDATE voice_utterances SET donated=true WHERE id=$1 AND store_id=$2")
+            .bind(req.id)
+            .bind(actor.store_id)
+            .execute(pool)
+            .await;
+    if !matches!(marked, Ok(ref result) if result.rows_affected() == 1) {
+        tracing::warn!("donated voice clip could not be marked");
+        return;
+    }
     if let Err(error) = storage
         .put(&key, content_type, req.clip.bytes.clone())
         .await
     {
-        tracing::warn!(error = %error, "donated voice clip was not stored");
-        return;
-    }
-    let marked = sqlx::query("UPDATE voice_utterances SET donated=true WHERE id=$1")
-        .bind(req.id)
-        .execute(pool)
-        .await;
-    if let Err(error) = marked {
-        tracing::warn!(error = %error, "donated voice clip was not marked");
-        let _ = storage.delete(&key).await;
+        tracing::warn!(error = %error, "donated voice clip was not stored; retention will retry deletion");
     }
 }
 

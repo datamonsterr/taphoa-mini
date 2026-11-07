@@ -39,6 +39,7 @@ pub struct VoiceConfig {
     /// Route only to zero-data-retention endpoints (some models have none).
     pub require_zdr: bool,
     pub provider: VoiceProvider,
+    pub donated_retention_days: i32,
 }
 impl Default for VoiceConfig {
     fn default() -> Self {
@@ -55,6 +56,7 @@ impl Default for VoiceConfig {
             hint_ttl: Duration::from_secs(300),
             require_zdr: false,
             provider: VoiceProvider::OpenRouter,
+            donated_retention_days: 30,
         }
     }
 }
@@ -110,6 +112,10 @@ impl VoiceConfig {
         if let Some(n) = positive("VOICE_DAILY_UTTERANCES_PER_STORE")? {
             config.daily_utterances_per_store =
                 u32::try_from(n).context("VOICE_DAILY_UTTERANCES_PER_STORE is too large")?;
+        }
+        if let Some(n) = positive("VOICE_DONATED_RETENTION_DAYS")? {
+            config.donated_retention_days =
+                i32::try_from(n).context("VOICE_DONATED_RETENTION_DAYS is too large")?;
         }
         if let Some(n) = positive("VOICE_MAX_SECONDS")? {
             ensure!(n <= 300, "VOICE_MAX_SECONDS must be at most 300");
@@ -181,6 +187,7 @@ mod tests {
         assert_eq!(c.models[0], "google/gemini-3.1-flash-lite");
         assert_eq!(c.parse_models[0], "google/gemini-2.5-flash-lite");
         assert_eq!(c.daily_utterances_per_store, 300);
+        assert_eq!(c.donated_retention_days, 30);
         assert_eq!((c.max_seconds, c.max_bytes), (30, 1_048_576));
         assert_eq!(c.model_timeout, Duration::from_secs(6));
         assert_eq!(c.total_timeout, Duration::from_secs(8));
@@ -194,6 +201,7 @@ mod tests {
             ("VOICE_STT_MODEL", "x/y"),
             ("VOICE_DAILY_UTTERANCES_PER_STORE", "5"),
             ("VOICE_MAX_SECONDS", "10"),
+            ("VOICE_DONATED_RETENTION_DAYS", "7"),
             ("VOICE_MAX_BYTES", "2048"),
             ("VOICE_REQUIRE_ZDR", "true"),
             ("VOICE_ALLOW_EVAL_HEADERS", "1"),
@@ -212,6 +220,7 @@ mod tests {
             ),
             (5, 10, 2048, true)
         );
+        assert_eq!(c.donated_retention_days, 7);
         assert!(c.allow_eval_headers);
         assert_eq!(c.total_timeout, Duration::from_millis(2500));
     }
@@ -222,6 +231,7 @@ mod tests {
             &[("VOICE_PARSE_MODELS", "noslash")],
             &[("VOICE_DAILY_UTTERANCES_PER_STORE", "0")],
             &[("VOICE_MAX_BYTES", "abc")],
+            &[("VOICE_DONATED_RETENTION_DAYS", "0")],
             &[("VOICE_MODEL_PROVIDER", "other")],
         ] {
             let pairs: &'static [(&str, &str)] = Box::leak(pairs.to_vec().into_boxed_slice());
