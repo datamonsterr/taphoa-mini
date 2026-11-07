@@ -73,6 +73,17 @@ async function findNewSale() {
 }
 
 describe('PayScreen transfer', () => {
+  it('reserves the full line height for the payment total', async () => {
+    await renderWithProviders(<PayScreen />);
+    expect(screen.getByText('24.500đ')).toHaveStyle({ flexShrink: 0 });
+  });
+
+  it('reserves room for unit choices under each product', async () => {
+    await renderWithProviders(<PayScreen />);
+    const choices = await screen.findByLabelText('Chọn đơn vị Sting đỏ');
+    expect(choices.parent).toHaveStyle({ width: '50%' });
+  });
+
   it('shows the total and the VietQR for the store bank account', async () => {
     await renderWithProviders(<PayScreen />);
     expect(

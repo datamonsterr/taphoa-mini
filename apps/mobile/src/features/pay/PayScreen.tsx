@@ -677,7 +677,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[3],
   },
-  total: { textAlign: 'center' },
+  total: { textAlign: 'center', flexShrink: 0 },
   qrCard: {
     alignItems: 'center',
     gap: space[3],
@@ -762,9 +762,8 @@ const styles = StyleSheet.create({
     paddingTop: space[2],
     paddingRight: space[2],
   },
-  // The cell (not the item) is the 25% column: a percentage inside a shrink-wrapped parent
-  // collapsed to the content width and cut the photo and price.
-  cell: { width: '25%' },
+  // Give unit choices enough width to keep their labels on one line.
+  cell: { width: '50%' },
   item: { width: '100%', alignItems: 'center', gap: space[1] },
   qtyBadge: {
     position: 'absolute',
