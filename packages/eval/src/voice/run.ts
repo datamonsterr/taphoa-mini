@@ -20,6 +20,7 @@ import { hcmDate } from '../results.ts';
 import {
   GOLDEN_VOICE_DIR,
   loadVoiceCases,
+  reviewedSubset,
   smokeSubset,
   type LoadedVoiceCase,
 } from './cases.ts';
@@ -102,7 +103,8 @@ export async function runVoiceCases(
 ): Promise<VoiceRunResult> {
   const today = opts.today ?? DEFAULT_TODAY;
   assertEvalHeaders(opts.runId, today);
-  const allowed = allowedRequests({ ...opts, total: opts.cases.length });
+  const reviewed = reviewedSubset(opts.cases);
+  const allowed = allowedRequests({ ...opts, total: reviewed.length });
   const read = opts.readClip ?? ((p: string) => readFileSync(p));
   const api = createApiClient({
     baseUrl: opts.baseUrl,
@@ -118,7 +120,7 @@ export async function runVoiceCases(
   });
   const outcomes: VoiceOutcome[] = [];
   let aborted: VoiceRunResult['aborted'] = null;
-  const toRun = opts.cases.slice(0, allowed);
+  const toRun = reviewed.slice(0, allowed);
   for (const [i, c] of toRun.entries()) {
     const started = Date.now();
     let outcome: VoiceOutcome;
@@ -169,7 +171,7 @@ export async function runVoiceCases(
   const ran = new Set(outcomes.map((o) => o.case_id));
   return {
     outcomes,
-    notRun: opts.cases.filter((c) => !ran.has(c.id)).map((c) => c.id),
+    notRun: reviewed.filter((c) => !ran.has(c.id)).map((c) => c.id),
     aborted,
   };
 }
@@ -428,7 +430,11 @@ export async function main(
     const outDir = values.get('--out')
       ? resolve(values.get('--out')!)
       : join(import.meta.dirname, '..', '..', 'results');
-    let cases = loadVoiceCases(dir);
+    let skippedUnreviewed = 0;
+    let cases = reviewedSubset(
+      loadVoiceCases(dir, true, () => skippedUnreviewed++),
+    );
+    log(`Skipped ${skippedUnreviewed} unreviewed voice cases`);
     const ids = values
       .get('--ids')
       ?.split(',')

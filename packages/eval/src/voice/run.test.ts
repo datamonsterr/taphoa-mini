@@ -1,11 +1,17 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { VoiceUtterance } from '@taphoa/api-client';
 import { describe, expect, it, vi } from 'vitest';
 import { MemorySink } from '../posthog.ts';
 import type { AuthProvider } from '../runner/auth.ts';
-import { loadVoiceCases } from './cases.ts';
+import { GOLDEN_VOICE_DIR, loadVoiceCases } from './cases.ts';
 import {
   allowedRequests,
   buildReport,
@@ -17,7 +23,21 @@ import {
 } from './run.ts';
 import type { VoiceCase } from './types.ts';
 
-const cases = loadVoiceCases();
+const cases = loadVoiceCases().map((c) => ({
+  ...c,
+  review_status: 'reviewed' as const,
+}));
+
+function reviewedFixtures(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'voice-reviewed-'));
+  cpSync(GOLDEN_VOICE_DIR, dir, { recursive: true });
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const path = join(dir, file);
+    const data = JSON.parse(readFileSync(path, 'utf8'));
+    writeFileSync(path, JSON.stringify({ ...data, review_status: 'reviewed' }));
+  }
+  return dir;
+}
 const byId = new Map(cases.map((c) => [c.id, c]));
 const auth: AuthProvider = {
   headersFor: async () => ({
@@ -108,6 +128,18 @@ const base = {
 };
 
 describe('runVoiceCases', () => {
+  it('sends legacy clips and never sends an unreviewed clip', async () => {
+    const { seen, fetch } = fakeBackend();
+    await runVoiceCases({
+      ...base,
+      cases: [
+        { ...cases[0]!, review_status: undefined },
+        { ...cases[1]!, review_status: 'unreviewed' },
+      ],
+      fetch,
+    });
+    expect(seen.map((s) => s.id)).toEqual([cases[0]!.id]);
+  });
   it('posts every clip as mode=sale with the eval headers and scores a perfect backend 100 %', async () => {
     const { seen, fetch } = fakeBackend();
     const run = await runVoiceCases({
@@ -283,12 +315,44 @@ describe('results and PostHog', () => {
 });
 
 describe('main (dry run against a fake backend)', () => {
+  it('scores a legacy clip and reports how many unreviewed clips it skipped', async () => {
+    const dir = reviewedFixtures();
+    const legacy = join(dir, `${cases[0]!.id}.json`);
+    const pending = join(dir, `${cases[1]!.id}.json`);
+    const old = JSON.parse(readFileSync(legacy, 'utf8'));
+    delete old.review_status;
+    writeFileSync(legacy, JSON.stringify(old));
+    const unreviewed = JSON.parse(readFileSync(pending, 'utf8'));
+    unreviewed.review_status = 'unreviewed';
+    writeFileSync(pending, JSON.stringify(unreviewed));
+    const { seen, fetch } = fakeBackend();
+    const lines: string[] = [];
+    await main(
+      [
+        '--dir',
+        dir,
+        '--ids',
+        `${cases[0]!.id},${cases[1]!.id}`,
+        '--backend',
+        'https://backend.test',
+        '--out',
+        mkdtempSync(join(tmpdir(), 'voice-main-')),
+        '--no-posthog',
+      ],
+      {},
+      { fetch, auth, log: (line) => lines.push(line) },
+    );
+    expect(seen.map((s) => s.id)).toEqual([cases[0]!.id]);
+    expect(lines.join('\n')).toContain('Skipped 1 unreviewed');
+  });
   it('runs the smoke subset, writes results and exits 0', async () => {
     const { seen, fetch } = fakeBackend();
     const out = mkdtempSync(join(tmpdir(), 'voice-main-'));
     const lines: string[] = [];
     const code = await main(
       [
+        '--dir',
+        reviewedFixtures(),
         '--subset',
         'smoke',
         '--backend',
@@ -328,6 +392,8 @@ describe('main (dry run against a fake backend)', () => {
     const out = mkdtempSync(join(tmpdir(), 'voice-main-'));
     const code = await main(
       [
+        '--dir',
+        reviewedFixtures(),
         '--subset',
         'smoke',
         '--backend',
