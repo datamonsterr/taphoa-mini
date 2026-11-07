@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { Mic, Square } from 'lucide-react-native';
+import { Mic, Square } from '@/components/icons';
 import { memo, useEffect, useState } from 'react';
 import { AccessibilityInfo, StyleSheet } from 'react-native';
 

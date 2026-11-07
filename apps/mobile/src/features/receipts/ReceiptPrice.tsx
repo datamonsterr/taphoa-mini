@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react-native';
+import { Check } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 import { applyKey, Icon, Keypad, PressableScale, Text } from '@/components/ui';
 import { formatVnd } from '@/lib/format';

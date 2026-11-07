@@ -489,9 +489,9 @@ the CI gate. Infrastructure changes go through `railway config plan/apply`, not 
 the workflow emits a `::notice::` and skips the Railway CLI install, `railway up` and
 the smoke test, so `main` stays green before the secret exists.
 
-**Post-deploy smoke.** After `railway up`, if the repository **variable** `BACKEND_URL`
-(for example `https://backend-production.up.railway.app`, no trailing path) is set, the
-workflow runs `curl` against `$BACKEND_URL/healthz` and `$BACKEND_URL/readyz`, expecting
+**Post-deploy smoke.** The repository **variable** `BACKEND_URL` is set to
+`https://backend-production-5f5c.up.railway.app` (no trailing path). After `railway up`,
+the workflow runs `curl` against `$BACKEND_URL/healthz` and `$BACKEND_URL/readyz`, expecting
 HTTP 200, retrying every 10 seconds for up to 30 attempts per endpoint. The job fails if
 either never answers 200. Without `BACKEND_URL` this step is skipped with a notice.
 Set it under Settings > Secrets and variables > Actions > Variables.

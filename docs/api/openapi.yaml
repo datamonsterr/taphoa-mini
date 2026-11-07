@@ -42,7 +42,7 @@ servers:
     description: Railway production backend
     variables:
       railwayDomain:
-        default: backend-production.up.railway.app
+        default: backend-production-5f5c.up.railway.app
 
 security:
   - bearerAuth: []

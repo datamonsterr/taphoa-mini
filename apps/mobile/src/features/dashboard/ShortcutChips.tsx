@@ -1,5 +1,5 @@
 import { router, type Href } from 'expo-router';
-import { BookOpen, ReceiptText } from 'lucide-react-native';
+import { BookOpen, ReceiptText } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 
 import { Icon, PressableScale, Text } from '@/components/ui';

@@ -9,7 +9,7 @@ import { useSettingsStore } from '@/stores/settings';
 import * as Haptics from 'expo-haptics';
 import { useIsFocused, useRouter, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowDown, Plus } from 'lucide-react-native';
+import { ArrowDown, Plus } from '@/components/icons';
 import {
   memo,
   useCallback,

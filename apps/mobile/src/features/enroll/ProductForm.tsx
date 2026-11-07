@@ -1,6 +1,6 @@
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
-import { Camera, Pencil, X } from 'lucide-react-native';
+import { Camera, Pencil, X } from '@/components/icons';
 import { memo, useState, type ReactNode } from 'react';
 import {
   ScrollView,

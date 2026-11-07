@@ -1,4 +1,4 @@
-import { ChevronUp } from 'lucide-react-native';
+import { ChevronUp } from '@/components/icons';
 import { memo, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';

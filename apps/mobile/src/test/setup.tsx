@@ -47,7 +47,7 @@ jest.mock('react-native-qrcode-svg', () => {
 
 // lucide-react-native ships ESM that jest does not transform. Every icon
 // renders as an empty View named after the icon (testID "icon-<Name>").
-jest.mock('lucide-react-native', () => {
+jest.mock('@/components/icons', () => {
   const React = require('react');
   const { View } = require('react-native');
   const cache: Record<string, unknown> = {};
