@@ -4,6 +4,7 @@ export const voiceStrings: Dict = {
   vi: {
     hold: 'Giữ để nói',
     listening: 'Đang nghe, thả tay để dừng',
+    listeningField: 'Ô nhập, đang nghe',
     tapToTalk: 'Chạm để nói',
     tapToStop: 'Đang nghe, chạm để dừng',
     startAction: 'Bắt đầu nói',
@@ -20,6 +21,7 @@ export const voiceStrings: Dict = {
   en: {
     hold: 'Hold to talk',
     listening: 'Listening, release to stop',
+    listeningField: 'Input, listening',
     tapToTalk: 'Tap to talk',
     tapToStop: 'Listening, tap to stop',
     startAction: 'Start talking',

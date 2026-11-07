@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui';
 import type { Product } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, space, typography } from '@/theme';
 
 export function BarcodeIndicator({
   code,
@@ -18,7 +18,6 @@ export function BarcodeIndicator({
       testID="barcode-indicator"
       accessibilityLiveRegion="polite"
     >
-      <View style={styles.line} />
       <View style={styles.pill}>
         <Text style={styles.name}>
           {product
@@ -35,29 +34,27 @@ export function BarcodeIndicator({
 const styles = StyleSheet.create({
   root: {
     position: 'absolute',
-    left: space[6],
-    right: space[6],
-    bottom: space[6],
+    // Board 01: the label hangs under an accent line two thirds down the viewfinder.
+    left: '12%',
+    right: '12%',
+    top: '63%',
     alignItems: 'center',
-    gap: space[2],
-  },
-  line: {
-    width: '80%',
-    height: 12,
     borderTopWidth: 3,
-    borderLeftWidth: 3,
-    borderRightWidth: 3,
     borderColor: colors.accent,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    paddingTop: space[3],
   },
   pill: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: 22,
     paddingHorizontal: space[4],
     paddingVertical: space[2],
     alignItems: 'center',
   },
-  name: { ...typography.caption, color: colors.ink },
-  price: { ...typography.price, color: colors.ink },
+  name: { ...typography.label, color: colors.ink },
+  price: {
+    ...typography.price,
+    fontSize: 32,
+    lineHeight: 38,
+    color: colors.ink,
+  },
 });

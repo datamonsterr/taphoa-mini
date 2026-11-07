@@ -109,7 +109,7 @@ test.describe('sign-in screens', () => {
       page.getByRole('heading', { name: 'Tạp Hóa Mini' }),
     ).toBeVisible();
     await expect(byId(page, 'onboarding-create')).toBeVisible();
-    await expect(button(page, 'Tham gia bằng mã')).toBeVisible();
+    await expect(button(page, 'Tham gia cửa hàng')).toBeVisible();
     await expect(button(page, 'Đăng xuất')).toBeVisible();
     await expect(page.getByText('Khôi phục cửa hàng')).toHaveCount(0);
 
@@ -186,7 +186,7 @@ test.describe('sign-in screens', () => {
       await hydrate(page, signInScreen(page));
       await signInWithEmailCode(page, email, welcomeScreen(page));
       await expect(byId(page, 'onboarding-create')).toBeVisible();
-      await expect(button(page, 'Tham gia bằng mã')).toBeVisible();
+      await expect(button(page, 'Tham gia cửa hàng')).toBeVisible();
     } finally {
       // this user was made by the sign-up screens: no fixture tracked it
       await deleteClerkUsersByEmail(email);

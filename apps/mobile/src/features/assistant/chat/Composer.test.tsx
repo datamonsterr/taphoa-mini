@@ -115,3 +115,41 @@ test('English placeholder and send label', async () => {
   expect(input().props.placeholder).toBe('Ask the assistant about your shop…');
   expect(send().props.accessibilityLabel).toBe('Send');
 });
+
+describe('board 17b: the microphone held', () => {
+  test('idle: no hint, no meter, no halo', async () => {
+    await render(<Composer streaming={false} onSend={jest.fn()} />);
+    expect(screen.queryByTestId('assistant-listening')).toBeNull();
+    expect(screen.queryByTestId('assistant-listening-hint')).toBeNull();
+    expect(screen.queryByTestId('voice-halo')).toBeNull();
+  });
+
+  test('held: hint above the composer, level bars with a timer, halo on the mic', async () => {
+    jest.useFakeTimers();
+    try {
+      await render(<Composer streaming={false} onSend={jest.fn()} />);
+      await fireEvent(screen.getByTestId('voice-button'), 'pressIn');
+      await act(async () => speechMock.emitStart());
+      expect(screen.getByTestId('assistant-listening-hint')).toHaveTextContent(
+        'Đang nghe, thả tay để dừng',
+      );
+      expect(screen.getByLabelText('Ô nhập, đang nghe')).toBeTruthy();
+      expect(screen.getByTestId('assistant-listening-time')).toHaveTextContent(
+        '0:00',
+      );
+      expect(screen.getByTestId('voice-halo')).toBeTruthy();
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      expect(screen.getByTestId('assistant-listening-time')).toHaveTextContent(
+        '0:04',
+      );
+      await fireEvent(screen.getByTestId('voice-button'), 'pressOut');
+      await act(async () => speechMock.emitEnd());
+      expect(screen.queryByTestId('assistant-listening')).toBeNull();
+      expect(screen.queryByTestId('assistant-listening-hint')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

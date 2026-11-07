@@ -29,6 +29,7 @@ pub mod telemetry;
 pub mod time;
 pub mod vector;
 pub mod voice;
+pub mod waitlist;
 
 use axum::{
     Json, Router,
@@ -245,6 +246,7 @@ pub fn router(state: AppState) -> Router {
                 .layer(RequestBodyLimitLayer::new(images::MAX_IMAGE_REQUEST_BYTES)),
         )
         .route("/v1/images/{id}", get(images::get_image))
+        .merge(waitlist::router())
         .merge(auth::router())
         .merge(devices::router())
         .merge(store::router())
@@ -260,9 +262,25 @@ pub fn router(state: AppState) -> Router {
         .merge(sync::router())
         .merge(assistant::router())
         .merge(voice::router(&state.voice.config))
+        .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(cors())
         .layer(axum::middleware::from_fn(telemetry::http_span))
         .with_state(state)
+}
+
+/// `RequestBodyLimitLayer` answers before any handler, with a plain-text 413. Give it the same
+/// `{"code","error"}` envelope as every other error so the app can show a clear message.
+async fn json_payload_too_large(response: axum::response::Response) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let is_json = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"));
+    if response.status() == StatusCode::PAYLOAD_TOO_LARGE && !is_json {
+        return ApiError::payload_too_large().into_response();
+    }
+    response
 }
 
 async fn healthz() -> Json<Value> {

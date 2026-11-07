@@ -39,9 +39,12 @@ export type VoiceButtonProps = {
   disabled?: boolean;
   /** True while a recorded clip is being transcribed on the server (the composer shows dots). */
   onPendingChange?: (pending: boolean) => void;
+  /** True while the button is held and the engine is recording (the composer shows the meter). */
+  onListeningChange?: (listening: boolean, tapToStop: boolean) => void;
 };
 
 const HINT_MS = 4000;
+const HALO = 10;
 /** After the server could not transcribe, the on-device recognizer takes over for this long. */
 const FALLBACK_MS = 60_000;
 
@@ -122,6 +125,7 @@ type ViewProps = {
   /** A message above the button for a few seconds (for example the server fallback). */
   notice?: string;
   onPendingChange?: (pending: boolean) => void;
+  onListeningChange?: (listening: boolean, tapToStop: boolean) => void;
 };
 
 function VoiceButtonView({
@@ -130,6 +134,7 @@ function VoiceButtonView({
   disabled = false,
   notice,
   onPendingChange,
+  onListeningChange,
 }: ViewProps) {
   const { available, listening, start, stop, cancel } = engine;
   const transcribing = engine.transcribing ?? false;
@@ -172,6 +177,10 @@ function VoiceButtonView({
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    onListeningChange?.(listening, screenReader);
+  }, [listening, screenReader, onListeningChange]);
 
   const [noticeOpen, setNoticeOpen] = useState(Boolean(notice));
   useEffect(() => {
@@ -228,7 +237,7 @@ function VoiceButtonView({
             setHint(true);
             AccessibilityInfo.announceForAccessibility(unavailable);
           }}
-          style={[styles.base, styles.idle, styles.disabled]}
+          style={[styles.base, styles.unavailable, styles.disabled]}
         >
           <Icon icon={Mic} color={colors.inkMuted} />
         </PressableScale>
@@ -270,6 +279,9 @@ function VoiceButtonView({
 
   return (
     <View style={styles.anchor}>
+      {listening ? (
+        <View testID="voice-halo" pointerEvents="none" style={styles.halo} />
+      ) : null}
       {errorOpen ? (
         <View
           testID={errorKind === 'permission' ? 'voice-denied' : 'voice-failed'}
@@ -335,7 +347,7 @@ function VoiceButtonView({
             style={[styles.ring, ringStyle]}
           />
         ) : null}
-        <Icon icon={Mic} color={listening ? colors.onAccent : colors.ink} />
+        <Icon icon={Mic} color={colors.onAccent} />
       </PressableScale>
     </View>
   );
@@ -370,8 +382,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.full,
   },
-  idle: { backgroundColor: colors.surfaceSoft },
+  idle: { backgroundColor: colors.accent },
   listening: { backgroundColor: colors.accent },
+  unavailable: { backgroundColor: colors.surfaceSoft },
+  /** Board 17b: a soft accent halo 10 px outside the 56 dp button while it is held. */
+  halo: {
+    position: 'absolute',
+    top: -HALO,
+    right: -HALO,
+    bottom: -HALO,
+    left: -HALO,
+    borderRadius: radius.full,
+    backgroundColor: colors.accent,
+    opacity: 0.18,
+  },
   disabled: { opacity: 0.4 },
   ring: {
     ...StyleSheet.absoluteFill,

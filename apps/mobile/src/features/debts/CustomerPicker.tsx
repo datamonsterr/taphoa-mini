@@ -1,17 +1,26 @@
 import { Contact } from 'expo-contacts';
-import { ContactRound } from 'lucide-react-native';
+import { ContactRound, Phone, Plus, Search, User } from 'lucide-react-native';
 import { useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 
-import { CircleButton, MoneyText, PressableScale, Text } from '@/components/ui';
+import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import { useCreateCustomer, useCustomers, type Customer } from '@/lib/api';
 import { listCustomers } from '@/lib/api/debts';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { newUuid } from '@/lib/uuid';
-import { colors, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  radius,
+  scaleText,
+  size,
+  space,
+  typography,
+  useFontScale,
+} from '@/theme';
 
-import { useInputStyle } from './DebtInput';
+import { avatarTone, initialOf } from './customerRow';
 import { DebtSheet } from './DebtSheet';
 import { debtStrings } from './strings';
 
@@ -45,7 +54,7 @@ export function CustomerPicker({
   createLabel,
 }: CustomerPickerProps) {
   const t = useT(debtStrings);
-  const inputStyle = useInputStyle();
+  const bodyStyle = scaleText(typography.body, useFontScale());
   const [query, setQuery] = useState('');
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState('');
@@ -134,36 +143,75 @@ export function CustomerPicker({
     }
   };
 
-  const customerRow = (customer: Customer, duplicate = false) => (
-    <PressableScale
-      key={customer.id}
-      accessibilityRole="button"
-      accessibilityLabel={`${duplicate ? `${t('picker.useExisting')}: ` : ''}${customer.name}, ${formatVnd(customer.balance)}`}
-      onPress={() => onSelect(customer)}
-      style={styles.row}
-      disabled={busy}
-    >
-      <View style={styles.customerText}>
-        <Text style={styles.label}>{customer.name}</Text>
-        {customer.phone ? (
-          <Text style={styles.caption}>{customer.phone}</Text>
-        ) : null}
-        <Text style={styles.caption}>
-          {fill(t('picker.updated'), {
-            date: new Date(customer.updated_at).toLocaleDateString('vi-VN', {
-              timeZone: 'Asia/Ho_Chi_Minh',
-            }),
-          })}
-        </Text>
-      </View>
-      <MoneyText amount={customer.balance} variant="label" />
-    </PressableScale>
-  );
+  const ageText = (days: number) =>
+    days === 0
+      ? t('book.ageToday')
+      : days === 1
+        ? t('book.ageYesterday')
+        : fill(t('book.ageDays'), { days });
+
+  const customerRow = (customer: Customer, duplicate = false) => {
+    const tone = avatarTone(customer.id);
+    const credit = customer.balance < 0;
+    return (
+      <PressableScale
+        key={customer.id}
+        accessibilityRole="button"
+        accessibilityLabel={`${duplicate ? `${t('picker.useExisting')}: ` : ''}${customer.name}, ${formatVnd(customer.balance)}`}
+        onPress={() => onSelect(customer)}
+        style={styles.row}
+        disabled={busy}
+      >
+        <View style={[styles.avatar, { backgroundColor: tone.background }]}>
+          <Text style={[styles.avatarText, { color: tone.color }]}>
+            {initialOf(customer.name)}
+          </Text>
+        </View>
+        <View style={styles.customerText}>
+          <Text style={styles.label} numberOfLines={1}>
+            {customer.name}
+          </Text>
+          <Text style={styles.caption} numberOfLines={1}>
+            {customer.phone ?? t('book.noPhone')}
+          </Text>
+        </View>
+        <View style={styles.rowEnd}>
+          {customer.balance === 0 ? (
+            <View style={styles.settled}>
+              <Text style={styles.settledText}>{t('customer.settled')}</Text>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.amount,
+                {
+                  color: credit ? colors.success : colors.danger,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {credit
+                ? fill(t('book.credit'), {
+                    amount: formatVnd(Math.abs(customer.balance)),
+                  })
+                : formatVnd(customer.balance)}
+            </Text>
+          )}
+          {customer.balance > 0 && customer.debt_age_days !== null ? (
+            <Text style={styles.caption} numberOfLines={1}>
+              {ageText(customer.debt_age_days)}
+            </Text>
+          ) : null}
+        </View>
+      </PressableScale>
+    );
+  };
 
   return (
     <DebtSheet
       title={t(mode === 'create' ? 'book.add' : 'picker.title')}
       onClose={onClose}
+      back={mode === 'select'}
       footer={
         <PressableScale
           accessibilityRole="button"
@@ -178,21 +226,35 @@ export function CustomerPicker({
           {busy ? (
             <ActivityIndicator color={colors.onInk} />
           ) : (
-            <Text style={styles.primaryText}>{label}</Text>
+            <>
+              <Icon icon={Plus} color={colors.onInk} />
+              <Text style={styles.primaryText}>{label}</Text>
+            </>
           )}
         </PressableScale>
       }
     >
       {mode === 'select' ? (
         <>
-          <TextInput
-            accessibilityLabel={t('search')}
-            placeholder={t('search')}
-            value={query}
-            onChangeText={setQuery}
-            style={inputStyle}
-          />
-          <Text style={styles.label}>{t('recent')}</Text>
+          <View style={styles.field}>
+            <Icon icon={Search} color={colors.inkMuted} />
+            <TextInput
+              accessibilityLabel={t('search')}
+              placeholder={t('picker.searchPlaceholder')}
+              placeholderTextColor={colors.inkMuted}
+              value={query}
+              onChangeText={setQuery}
+              style={[styles.input, bodyStyle]}
+            />
+          </View>
+          <View style={styles.recentHeader}>
+            <Text style={styles.caption}>{t('recent')}</Text>
+            {customers.data?.length ? (
+              <Text style={styles.caption}>
+                {fill(t('picker.count'), { n: customers.data.length })}
+              </Text>
+            ) : null}
+          </View>
           {customers.isPending ? (
             <ActivityIndicator accessibilityLabel={t('loading')} />
           ) : null}
@@ -226,22 +288,30 @@ export function CustomerPicker({
           ) : null}
         </>
       ) : null}
-      <Text accessibilityRole="header" style={styles.label}>
-        {t('picker.new')}
-      </Text>
+      <View style={styles.divider}>
+        <View style={styles.rule} />
+        <Text accessibilityRole="header" style={styles.caption}>
+          {t('picker.new')}
+        </Text>
+        <View style={styles.rule} />
+      </View>
       <View style={styles.nameRow}>
-        <TextInput
-          accessibilityLabel={t('name')}
-          placeholder={t('name')}
-          maxLength={80}
-          value={name}
-          editable={!busy}
-          onChangeText={(value) => {
-            edit();
-            setName(value);
-          }}
-          style={[inputStyle, styles.nameInput]}
-        />
+        <View style={[styles.field, styles.nameInput]}>
+          <Icon icon={User} color={colors.inkMuted} />
+          <TextInput
+            accessibilityLabel={t('name')}
+            placeholder={t('name')}
+            placeholderTextColor={colors.inkMuted}
+            maxLength={80}
+            value={name}
+            editable={!busy}
+            onChangeText={(value) => {
+              edit();
+              setName(value);
+            }}
+            style={[styles.input, bodyStyle]}
+          />
+        </View>
         <CircleButton
           icon={ContactRound}
           accessibilityLabel={t('picker.contact')}
@@ -249,19 +319,23 @@ export function CustomerPicker({
           disabled={busy}
         />
       </View>
-      <TextInput
-        accessibilityLabel={t('phone')}
-        placeholder={t('phone')}
-        maxLength={20}
-        keyboardType="phone-pad"
-        value={phone}
-        editable={!busy}
-        onChangeText={(value) => {
-          edit();
-          setPhone(value);
-        }}
-        style={inputStyle}
-      />
+      <View style={styles.field}>
+        <Icon icon={Phone} color={colors.inkMuted} />
+        <TextInput
+          accessibilityLabel={t('phone')}
+          placeholder={t('phone')}
+          placeholderTextColor={colors.inkMuted}
+          maxLength={20}
+          keyboardType="phone-pad"
+          value={phone}
+          editable={!busy}
+          onChangeText={(value) => {
+            edit();
+            setPhone(value);
+          }}
+          style={[styles.input, bodyStyle]}
+        />
+      </View>
       {contactError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {t('picker.contactError')}
@@ -309,10 +383,72 @@ const styles = StyleSheet.create({
   },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   nameInput: { flex: 1 },
-  customerText: { flex: 1, gap: space[1] },
+  customerText: { flex: 1, minWidth: 0, gap: 2 },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontFamily: fontFamily.extrabold,
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  rowEnd: { alignItems: 'flex-end', gap: space[1], flexShrink: 0 },
+  amount: {
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 24,
+    fontVariant: ['tabular-nums'],
+  },
+  settled: {
+    height: 26,
+    paddingHorizontal: space[3],
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.successSoft,
+  },
+  settledText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: 13,
+    lineHeight: 16,
+    color: colors.success,
+  },
+  field: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: size.tapMin,
+    paddingHorizontal: 20,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
+  },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.ink,
+    backgroundColor: 'transparent',
+  },
+  recentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: space[1],
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    marginTop: space[2],
+  },
+  rule: { flex: 1, height: 1, backgroundColor: colors.surfacePressed },
   label: { ...typography.label, color: colors.ink },
   caption: { ...typography.caption, color: colors.inkMuted },
   primary: {
+    flexDirection: 'row',
+    gap: space[2],
     minHeight: size.tapLg,
     borderRadius: radius.full,
     backgroundColor: colors.ink,

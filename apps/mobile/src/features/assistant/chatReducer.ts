@@ -10,8 +10,18 @@ export type AssistantAttachment = Schemas['AssistantAttachment'];
 export type AssistantStreamErrorCode = Schemas['AssistantStreamError']['code'];
 /** `busy`: the server answered 502, 503 or 504 (a deploy or an overloaded edge). */
 export type ChatErrorCode =
-  AssistantStreamErrorCode | 'network' | 'interrupted' | 'busy';
-export type ChatError = { code: ChatErrorCode; message?: string };
+  AssistantStreamErrorCode | 'network' | 'interrupted' | 'busy' | 'http';
+/**
+ * `http`: the server refused the request (a 4xx other than 429); `status` and `retryAfterMs` pick
+ * the Vietnamese sentence. `message` is the server's own text for a stream error and is shown only
+ * for `quota` and the stream codes, never for `http`.
+ */
+export type ChatError = {
+  code: ChatErrorCode;
+  message?: string;
+  status?: number;
+  retryAfterMs?: number;
+};
 export type FeedbackRating = 'up' | 'down';
 
 export type ToolLine = {

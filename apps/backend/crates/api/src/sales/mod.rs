@@ -157,9 +157,7 @@ fn parse_id(id: &str) -> ApiResult<Uuid> {
         .map_err(|_| ApiError::validation_failed("invalid id"))
 }
 fn query<T>(input: Result<Query<T>, QueryRejection>) -> ApiResult<T> {
-    input
-        .map(|Query(v)| v)
-        .map_err(|e| ApiError::validation_failed(e.body_text()))
+    input.map(|Query(v)| v).map_err(ApiError::from)
 }
 fn write_error(error: sqlx::Error) -> ApiError {
     if error
@@ -210,7 +208,7 @@ async fn product_exists(conn: &mut PgConnection, store: Uuid, id: Uuid) -> ApiRe
 /// pick the day. A seller's sale for a business day the Lead already closed lands on today's
 /// books instead of changing the closed figures. A sale after an early close on today's own date
 /// is a normal sale and stays. Replays are not affected: the stored time is returned.
-async fn bounded_sold_at(
+pub(crate) async fn bounded_sold_at(
     tx: &mut sqlx::PgConnection,
     state: &AppState,
     actor: &Actor,
@@ -263,8 +261,10 @@ async fn create(
         check(&stored, &hash)?;
         return Ok(Idempotent::Replay(sale(&mut tx, actor.store_id, id).await?));
     }
-    let mut input: SaleInput =
-        serde_json::from_value(raw).map_err(|e| ApiError::validation_failed(e.to_string()))?;
+    let mut input: SaleInput = serde_json::from_value(raw).map_err(|e| {
+        tracing::debug!(detail = %e, "sale body rejected");
+        ApiError::validation_failed("invalid sale")
+    })?;
     input.validate()?;
     input.sold_at = bounded_sold_at(&mut tx, &state, &actor, input.sold_at).await?;
     let date = business_date(input.sold_at);

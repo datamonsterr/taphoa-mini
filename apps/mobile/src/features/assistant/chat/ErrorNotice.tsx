@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/ScaledText';
+import { statusErrorText } from '@/lib/api/errorText';
 import { useT } from '@/lib/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { colors, radius, size, space, typography } from '@/theme';
@@ -29,6 +30,9 @@ export const ErrorNotice = memo(function ErrorNotice({
       break;
     case 'network':
       text = t('networkError');
+      break;
+    case 'http':
+      text = statusErrorText(error.status ?? 0, error.retryAfterMs, language);
       break;
     case 'busy':
       text = t('busyError');

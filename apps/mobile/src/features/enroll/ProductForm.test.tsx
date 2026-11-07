@@ -1,10 +1,11 @@
 import { fireEvent, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 
 import { renderWithProviders } from '@/test/render';
 
 import {
   ENROLL_SHEET_HEIGHT,
+  enrollKeyDiameter,
   ProductForm,
   QUICK_ENROLL_SHEET_HEIGHT,
 } from './ProductForm';
@@ -136,4 +137,49 @@ it('raises Sheet height when title is set to fit quick enroll without scrolling'
   expect(
     StyleSheet.flatten(screen.getByTestId('sheet-panel').props.style).height,
   ).toBe(QUICK_ENROLL_SHEET_HEIGHT);
+});
+
+describe('short windows', () => {
+  const short = {
+    frame: { x: 0, y: 0, width: 411, height: 740 },
+    insets: { top: 24, left: 0, right: 0, bottom: 0 },
+  };
+  afterEach(() => jest.restoreAllMocks());
+
+  it('shrinks the sheet and the keys so the last keypad row stays inside it', async () => {
+    jest.spyOn(Dimensions, 'get').mockReturnValue({
+      width: 411,
+      height: 740,
+      scale: 2,
+      fontScale: 1,
+    });
+    await renderWithProviders(
+      <ProductForm
+        photos={[{ id: 'one', uri: 'file:///one.jpg' }]}
+        maxPhotos={5}
+        onAddPhoto={jest.fn()}
+        onSave={jest.fn()}
+        saving={false}
+        onClose={jest.fn()}
+      />,
+      undefined,
+      short,
+    );
+    const sheet = StyleSheet.flatten(
+      screen.getByTestId('sheet-panel').props.style,
+    ).height;
+    expect(sheet).toBe(740 - 24 - 8);
+    const key = StyleSheet.flatten(
+      screen.getByRole('button', { name: '000' }).props.style,
+    );
+    // Four key rows, three gaps and the form above them must fit the sheet.
+    expect(key.height * 4 + 36 + 450).toBeLessThanOrEqual(sheet);
+    expect(key.height).toBeLessThan(76);
+    expect(screen.getByRole('button', { name: '0' })).toBeOnTheScreen();
+  });
+
+  it('keeps board-size keys when the window is tall', () => {
+    expect(enrollKeyDiameter(ENROLL_SHEET_HEIGHT, 0, false)).toBe(76);
+    expect(enrollKeyDiameter(300, 0, false)).toBe(48);
+  });
 });

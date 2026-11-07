@@ -73,7 +73,7 @@ export const ProductTile = memo(function ProductTile({
             />
           ) : null}
           <View style={styles.badge}>
-            <StockBadge quantity={stockQuantity} status={stockStatus} />
+            <StockBadge quantity={stockQuantity} status={stockStatus} onPhoto />
           </View>
         </PostHogMaskView>
         <Text
@@ -105,11 +105,14 @@ export const ProductTile = memo(function ProductTile({
   );
 });
 
+/** Board: the badge sits 10px from the photo's top left corner. */
+const BADGE_INSET = 10;
+
 const styles = StyleSheet.create({
   badge: {
     position: 'absolute',
-    top: space[2],
-    right: space[2],
+    top: BADGE_INSET,
+    left: BADGE_INSET,
     maxWidth: '95%',
   },
   root: { flex: 1 },

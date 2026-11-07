@@ -85,7 +85,7 @@ run out, using a configurable threshold.
     not `none`; otherwise the line stays unmatched and shows its candidates.
 - **Decision model is configurable; Mercury now, Jev later.** OpenRouter Decisions API
   (`POST https://openrouter.ai/api/alpha/decisions`). Env: `DECISIONS_MODEL` (default
-  `inception/mercury-decide:free`; switch to `~typesafe/jev-latest` by env only),
+  `inception/mercury-decide`; switch to `~typesafe/jev-latest` by env only),
   `OPENROUTER_API_KEY`, `DECISIONS_URL`, `DECISIONS_TIMEOUT_MS` (default 2500). On timeout,
   HTTP error or missing key the parser falls back to rules: keyword roles (`tổng`, `cộng`,
   `thanh toán`, `chiết khấu` are not items) and the top trigram candidate when similarity
@@ -161,7 +161,7 @@ cash_box|other, spent_at? }` → 200 `Receipt` (`status='confirmed'`, `expense_i
   "image_url": "https://...",
   "total": 456000,
   "parser": "decisions",
-  "model": "inception/mercury-decide:free",
+  "model": "inception/mercury-decide",
   "lines": [
     {
       "id": "uuid",

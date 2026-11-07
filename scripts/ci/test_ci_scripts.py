@@ -1,5 +1,6 @@
 """Tests for the CI helper scripts. Run: python3 -m unittest discover -s scripts/ci -v"""
 
+import datetime
 import http.server
 import json
 import os
@@ -8,6 +9,7 @@ import subprocess
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -292,6 +294,84 @@ FAKE_RAILWAY = textwrap.dedent(
         print("fake build log")
     """
 )
+
+
+FAKE_RAILWAY_PLAN = textwrap.dedent(
+    """\
+    #!/usr/bin/env python3
+    import os, sys
+    sys.stdout.write(open(os.environ["FAKE_PLAN"]).read())
+    sys.stderr.write(os.environ.get("FAKE_STDERR", ""))
+    sys.exit(int(os.environ["FAKE_EXIT"]))
+    """
+)
+
+PLAN_DRIFT = (
+    "Plan: 1 to add, 2 to change, 1 to destroy\n"
+    "  + Set variable backend.SAM_DECODERS\n"
+    "    └ backend.SAM_DECODERS (unset → «hidden»)\n"
+    "  ~ Update variable backend.DECISIONS_MODEL\n"
+    "    └ backend.DECISIONS_MODEL («hidden» → «hidden»)\n"
+    "  - Delete variable backend.RATE_LIMIT_RECOVER_PER_10MIN\n"
+    "  ~ Update backend deploy.restartPolicyType\n"
+    "  + Set variable otel-collector.POSTHOG_HOST\n"
+    "  - Delete bucket images\n"
+)
+
+
+class RailwayDrift(unittest.TestCase):
+    def check(self, plan, code, stderr=""):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "railway")
+            fake.write_text(FAKE_RAILWAY_PLAN)
+            fake.chmod(0o755)
+            pathlib.Path(tmp, "plan.txt").write_text(plan)
+            return run(
+                ["python3", "-I", str(HERE / "railway_drift.py"), "test"],
+                env={
+                    "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "FAKE_PLAN": str(pathlib.Path(tmp, "plan.txt")),
+                    "FAKE_EXIT": str(code),
+                    "FAKE_STDERR": stderr,
+                },
+            )
+
+    def test_parse_keeps_only_backend_variables(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("railway_drift", HERE / "railway_drift.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(
+            module.parse_plan(PLAN_DRIFT),
+            [
+                ("DECISIONS_MODEL", "change"),
+                ("RATE_LIMIT_RECOVER_PER_10MIN", "delete"),
+                ("SAM_DECODERS", "set"),
+            ],
+        )
+
+    def test_drift_fails_listing_names_only(self):
+        out = self.check(PLAN_DRIFT, 2)
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        for name in ("SAM_DECODERS", "DECISIONS_MODEL", "RATE_LIMIT_RECOVER_PER_10MIN"):
+            self.assertIn(name, out.stdout)
+        self.assertNotIn("images", out.stdout)
+        self.assertNotIn("hidden", out.stdout)
+
+    def test_other_resource_drift_passes(self):
+        out = self.check("Plan: 1 to change\n  - Delete bucket images\n  ~ Update redis-volume config.region\n", 2)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("match", out.stdout)
+
+    def test_clean_plan_passes(self):
+        out = self.check("No changes.\n", 0)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+    def test_plan_failure_is_not_a_pass(self):
+        out = self.check("", 1, stderr="Unauthorized")
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("Unauthorized", out.stdout)
 
 
 class RailwayDeploy(unittest.TestCase):
@@ -739,6 +819,39 @@ class E2eStack(unittest.TestCase):
         self.assertNotIn("RATE_LIMIT_RECOVER_PER_10MIN", seen)
         self.assertEqual(seen["RATE_LIMIT_STORE_CREATE_PER_HOUR"], "100000")
         self.assertEqual(seen["RATE_LIMIT_JOIN_PER_HOUR"], "100000")
+
+
+class PinClock(unittest.TestCase):
+    script = HERE.parent / "e2e" / "pin-clock.sh"
+
+    def pin(self, *args):
+        out = run(["bash", str(self.script), *args])
+        return out, dict(line.split("=", 1) for line in out.stdout.splitlines())
+
+    def test_pins_store_time_and_offsets_the_emulator_by_the_same_amount(self):
+        for pin in ("10:00", "23:58"):
+            before = time.time()
+            out, seen = self.pin(pin)
+            after = time.time()
+            self.assertEqual(out.returncode, 0, out.stderr)
+            pinned = datetime.datetime.fromisoformat(seen["TAPHOA_TEST_NOW"])
+            self.assertEqual(pinned.utcoffset(), datetime.timedelta(hours=7))
+            self.assertEqual(pinned.strftime("%H:%M"), pin)
+            offset = int(seen["E2E_CLOCK_OFFSET_SECS"])
+            # Real time plus the offset is the pin: the emulator and backend start together.
+            self.assertLessEqual(abs(before + offset - pinned.timestamp()), after - before + 2)
+            # Same store date as now, never another day.
+            today = datetime.datetime.fromtimestamp(before, pinned.tzinfo).date()
+            self.assertEqual(pinned.date(), today)
+
+    def test_defaults_to_ten_in_the_morning(self):
+        out, seen = self.pin()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("T10:00:00+07:00", seen["TAPHOA_TEST_NOW"])
+
+    def test_rejects_a_malformed_pin(self):
+        for bad in ("25:00", "10", "10:60", "10:00:00"):
+            self.assertNotEqual(self.pin(bad)[0].returncode, 0, bad)
 
 
 if __name__ == "__main__":

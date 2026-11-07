@@ -1,4 +1,10 @@
-import { ApiError, isApiError, isRateLimited, unwrap } from './errors';
+import {
+  ApiError,
+  apiErrorText,
+  isApiError,
+  isRateLimited,
+  unwrap,
+} from './errors';
 
 const res = (status: number, statusText = '') =>
   ({ status, statusText, ok: status >= 200 && status < 300 }) as Response;
@@ -25,7 +31,9 @@ test('unwrap throws ApiError with status and Error body', async () => {
   expect(apiError.status).toBe(404);
   expect(apiError.body).toEqual(body);
   expect(apiError.code).toBe('not_found');
-  expect(apiError.message).toBe('Product not found');
+  expect(apiError.message).toBe(
+    'Không tìm thấy dữ liệu này. Có thể nó đã bị xóa.',
+  );
 });
 
 test('unwrap builds an Error body when the server sent none', async () => {
@@ -67,4 +75,28 @@ test('isRateLimited is true only for HTTP 429', () => {
   expect(isRateLimited(new ApiError(429, { error: 'x' }))).toBe(true);
   expect(isRateLimited(new ApiError(503, { error: 'x' }))).toBe(false);
   expect(isRateLimited(new Error('429'))).toBe(false);
+});
+
+test('ApiError.message is a Vietnamese sentence, never the server text', () => {
+  const forbidden = new ApiError(403, { error: 'permission denied' });
+  expect(forbidden.message).toBe('Bạn không có quyền làm việc này.');
+  expect(forbidden.body.error).toBe('permission denied');
+  expect(new ApiError(413, { error: 'Payload Too Large' }).message).toMatch(
+    /Ảnh quá lớn/,
+  );
+  expect(new ApiError(415, { error: 'expected JPEG' }).message).toMatch(
+    /Định dạng ảnh/,
+  );
+  expect(new ApiError(409, { error: 'conflict' }).message).toMatch(/tải lại/);
+  expect(new ApiError(503, { error: 'down' }).message).toMatch(/Máy chủ/);
+  expect(new ApiError(429, { error: 'slow' }, 30_000).message).toBe(
+    'Bạn thao tác quá nhanh. Thử lại sau 30 giây.',
+  );
+});
+
+test('apiErrorText maps a non-API error to the network sentence', () => {
+  expect(apiErrorText(new TypeError('Network request failed'))).toMatch(
+    /Không kết nối được/,
+  );
+  expect(apiErrorText(new ApiError(500, { error: 'x' }))).toMatch(/Máy chủ/);
 });

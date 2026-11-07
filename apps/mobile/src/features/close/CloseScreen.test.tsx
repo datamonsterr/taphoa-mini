@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 
 import { resetApiClient } from '@/lib/api';
 import * as debtsApi from '@/lib/api/debts';
+import { ApiError } from '@/lib/api/errors';
 import * as ledger from '@/lib/api/ledger';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
@@ -189,7 +190,7 @@ test('English: the difference pill and keypad delete follow the language', async
   useSettingsStore.setState({ language: 'en' });
   await renderWithProviders(<CloseScreen />);
   await screen.findByLabelText(/^Expected cash/);
-  expect(screen.getByText(/^Short /)).toBeOnTheScreen();
+  expect(screen.getByLabelText(/^Short /)).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Delete' })).toBeOnTheScreen();
 });
 
@@ -339,4 +340,102 @@ test('a Seller gets a Vietnamese message and no cash figures or requests', async
   expect(screen.queryByRole('button', { name: 'Chốt sổ hôm nay' })).toBeNull();
   expect(report).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
+});
+
+describe('sales after the close (#202)', () => {
+  const cashSale = (amount: number) =>
+    ledger.createSale({
+      id: newUuid(),
+      sold_at: new Date().toISOString(),
+      payment_method: 'cash',
+      total: amount,
+      cash_received: amount,
+      lines: [
+        {
+          id: newUuid(),
+          product_id: null,
+          source: 'manual',
+          manual_label: 'Bán muộn',
+          quantity: 1,
+          unit_price: amount,
+        },
+      ],
+    });
+  const wait = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  test('says how many sales arrived, shows the new expected cash and closes again', async () => {
+    const create = jest.spyOn(ledger, 'createDayClose');
+    const before = await expectedCash();
+    await ledger.createDayClose(date(), { counted_cash: before });
+    await wait();
+    await cashSale(15000);
+    await cashSale(1000);
+    await renderWithProviders(<CloseScreen />);
+    expect(await screen.findByTestId('close-late-notice')).toHaveTextContent(
+      /^Có 2 giao dịch phát sinh sau khi chốt sổ/,
+    );
+    expect(
+      screen.getByLabelText(`Tiền mặt dự kiến ${formatVnd(before + 16000)}`),
+    ).toBeOnTheScreen();
+    // the old count is shown until a new one is typed, against the new expected cash
+    expect(screen.getByLabelText('Tiền đếm được')).toHaveTextContent(
+      formatVnd(before),
+    );
+    expect(screen.getByLabelText('Thiếu 16.000đ')).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: 'Chốt sổ hôm nay' }),
+    ).toBeNull();
+    expect(screen.getByRole('button', { name: 'Chốt sổ lại' })).toBeDisabled();
+    await typeAmount(before + 16000);
+    expect(screen.getByLabelText('Khớp')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Chốt sổ lại' }));
+    await waitFor(() => expect(router.back).toHaveBeenCalled());
+    expect(create).toHaveBeenLastCalledWith(date(), {
+      counted_cash: before + 16000,
+      opening_float: undefined,
+      note: undefined,
+    });
+    expect(await ledger.getDayClose(date())).toMatchObject({
+      expected_cash: before + 16000,
+      late_sales_count: 0,
+    });
+  });
+
+  test('a close with nothing after it stays read-only without a notice', async () => {
+    await ledger.createDayClose(date(), { counted_cash: await expectedCash() });
+    await renderWithProviders(<CloseScreen />);
+    expect(await screen.findByText('Đã chốt sổ')).toBeOnTheScreen();
+    expect(screen.queryByTestId('close-late-notice')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Chốt sổ lại' })).toBeNull();
+  });
+
+  test('English notice', async () => {
+    useSettingsStore.setState({ language: 'en' });
+    await ledger.createDayClose(date(), { counted_cash: await expectedCash() });
+    await wait();
+    await cashSale(5000);
+    await renderWithProviders(<CloseScreen />);
+    expect(await screen.findByTestId('close-late-notice')).toHaveTextContent(
+      /^1 transactions arrived after the close/,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Close the day again' }),
+    ).toBeOnTheScreen();
+  });
+});
+
+test('a date the server refuses says to check the phone date, not a generic failure', async () => {
+  jest
+    .spyOn(ledger, 'createDayClose')
+    .mockRejectedValueOnce(
+      new ApiError(400, { error: 'x', code: 'validation_failed' }),
+    );
+  await renderWithProviders(<CloseScreen />);
+  await screen.findByLabelText(/^Tiền mặt dự kiến/);
+  await press('5');
+  await fireEvent.press(save());
+  expect(
+    await screen.findByText(/Ngày trên điện thoại không khớp/),
+  ).toBeOnTheScreen();
+  expect(router.back).not.toHaveBeenCalled();
 });

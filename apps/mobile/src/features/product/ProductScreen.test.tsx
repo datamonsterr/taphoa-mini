@@ -1,5 +1,11 @@
 import { QueryClient } from '@tanstack/react-query';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Dimensions } from 'react-native';
 
@@ -74,6 +80,68 @@ test('shows name, price, cost and a derived description', async () => {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.lg,
   });
+});
+
+test('board 09: name and price share a row; stock and cost are two equal chips', async () => {
+  await renderProduct();
+  const heading = await screen.findByRole('header', {
+    name: 'Coca-Cola lon 330ml',
+  });
+  const row = flat(heading.parent!);
+  expect(row).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
+  expect(within(heading.parent!).getByText('10.000đ')).toBeOnTheScreen();
+  const stock = screen.getByLabelText('Tồn kho 20, Còn hàng');
+  const cost = screen.getByLabelText('Giá nhập 7.500đ');
+  expect(flat(stock)).toMatchObject({
+    flex: 1,
+    backgroundColor: colors.surfaceSoft,
+  });
+  expect(flat(cost)).toMatchObject({
+    flex: 1,
+    backgroundColor: colors.surfaceSoft,
+  });
+  expect(stock.parent).toBe(cost.parent);
+});
+
+test('board 09: units sit in one compact row under the stats, before the movements', async () => {
+  await renderProduct();
+  const units = await screen.findByRole('button', {
+    name: /^Sửa đơn vị bán: lon \/ thùng/,
+  });
+  expect(
+    within(units).getByText('Đơn vị bán · lon / thùng · Sửa'),
+  ).toBeOnTheScreen();
+  // Board order: the units row comes before the stock block and the movements.
+  const all = screen.toJSON();
+  const text = JSON.stringify(all);
+  expect(text.indexOf('Đơn vị bán · ')).toBeLessThan(
+    text.indexOf('Biến động gần đây'),
+  );
+});
+
+test('stock threshold: labelled field with the store default as placeholder, in the design type', async () => {
+  await renderProduct();
+  const field = await screen.findByLabelText(
+    'Ngưỡng riêng (để trống dùng mặc định)',
+  );
+  expect(field.props.placeholder).toBe('5');
+  expect(flat(field)).toMatchObject({ fontFamily: 'BeVietnamPro_400Regular' });
+  expect(screen.getByText('Ngưỡng sắp hết: 5')).toHaveStyle({
+    fontFamily: 'BeVietnamPro_400Regular',
+  });
+});
+
+test('a Seller reads the units but cannot open the editor (PR #252)', async () => {
+  const session = testSession();
+  setTestMembership({
+    ...session!,
+    member: { ...session!.member, role: 'seller' },
+  });
+  await renderProduct();
+  await screen.findByRole('header', { name: 'Coca-Cola lon 330ml' });
+  expect(screen.getByTestId('units-readonly')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: /Sửa đơn vị bán/ })).toBeNull();
+  expect(screen.queryByText(/· Sửa$/)).toBeNull();
 });
 
 test('hides missing cost and description', async () => {

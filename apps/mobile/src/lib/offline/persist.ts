@@ -3,6 +3,7 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import { QueryClient, type Query } from '@tanstack/react-query';
 import type { PersistQueryClientProviderProps } from '@tanstack/react-query-persist-client';
 
+import { shouldRetryQuery } from '@/lib/api/errors';
 import { keys } from '@/lib/api/keys';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -50,7 +51,9 @@ export const queryPersister = createAsyncStoragePersister({
 /** gcTime must reach maxAge or garbage collection drops entries before they are saved. */
 export const createAppQueryClient = () =>
   new QueryClient({
-    defaultOptions: { queries: { gcTime: CACHE_MAX_AGE_MS } },
+    defaultOptions: {
+      queries: { gcTime: CACHE_MAX_AGE_MS, retry: shouldRetryQuery },
+    },
   });
 
 export const persistOptions: PersistQueryClientProviderProps['persistOptions'] =

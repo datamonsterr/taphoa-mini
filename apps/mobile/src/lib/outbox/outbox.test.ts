@@ -252,7 +252,10 @@ describe('sale outbox', () => {
     expect(calls).toEqual(['POST']);
     expect(useOutboxStore.getState().items[0]).toMatchObject({
       status: 'failed',
-      error: { status: 400, message: 'bad total' },
+      error: {
+        status: 400,
+        message: 'Thông tin chưa hợp lệ. Kiểm tra lại rồi thử lại.',
+      },
     });
   });
 });

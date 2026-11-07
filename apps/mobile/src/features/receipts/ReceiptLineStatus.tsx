@@ -1,8 +1,8 @@
-import { Check, TriangleAlert } from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 import { Icon, Text } from '@/components/ui';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, fontFamily, radius, space } from '@/theme';
 import { strings } from './strings';
 
 export function receiptLineStatus(productId: string | null, price?: number) {
@@ -28,8 +28,8 @@ export function ReceiptLineStatus({
         { backgroundColor: matched ? colors.successSoft : colors.warningSoft },
       ]}
     >
-      <Icon icon={matched ? Check : TriangleAlert} size={18} color={color} />
-      <Text style={[typography.caption, { color }]}>
+      {matched ? <Icon icon={Check} size={14} color={color} /> : null}
+      <Text style={[styles.text, { color }]}>
         {t(
           status === 'pick'
             ? 'picker'
@@ -46,10 +46,12 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
+    flexShrink: 0,
     gap: space[1],
+    height: 26,
     paddingHorizontal: space[3],
-    paddingVertical: space[1],
     borderRadius: radius.full,
   },
+  // Board 19b: a 26px badge with 13px text, on the same row as the product name.
+  text: { fontFamily: fontFamily.semibold, fontSize: 13, lineHeight: 18 },
 });

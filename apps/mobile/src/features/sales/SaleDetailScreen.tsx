@@ -2,11 +2,23 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Text, MoneyText } from '@/components/ui';
-import { useIsLead } from '@/features/auth/useMembership';
+import { useMembership } from '@/features/auth/useMembership';
+import { isApiError } from '@/lib/api/errors';
 import { useSale, useVoidSale } from '@/lib/api/salesActions';
-import { useT } from '@/lib/i18n';
+import { businessDate } from '@/lib/date';
+import { colors, space } from '@/theme';
+import { fill, useT } from '@/lib/i18n';
 import { transactionStrings } from '@/features/dashboard/transactionStrings';
-import { Action, ConfirmDialog, Field, Header, Page, styles } from './kit';
+import {
+  Action,
+  BackPill,
+  ConfirmDialog,
+  Field,
+  Page,
+  StatusPill,
+  saleStamp,
+  styles,
+} from './kit';
 
 export function SaleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -14,35 +26,66 @@ export function SaleDetailScreen() {
   const query = useSale(id);
   const sale = query.data;
   const mutation = useVoidSale(id);
-  const lead = useIsLead();
+  const membership = useMembership();
+  // Spec e4 M2: the Lead voids any sale; a seller only their own sale of the same business day.
+  const canVoid =
+    membership?.member.role === 'lead' ||
+    (sale !== undefined &&
+      membership?.member.id === sale.member_id &&
+      sale.business_date === businessDate());
+  const notFound = isApiError(query.error) && query.error.status === 404;
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState(false);
   const valid = reason.trim().length > 0 && reason.trim().length <= 200;
   return (
     <Page>
-      <Header
-        title={`${t('detail')}${sale ? ` · ${sale.code}` : ''}`}
-        backLabel={t('recent')}
-        onBack={() => router.replace('/sales')}
-      />
+      <BackPill label={t('recent')} onPress={() => router.replace('/sales')} />
+      <Text accessibilityRole="header" style={styles.heading}>
+        {sale ? fill(t('saleTitle'), { code: sale.code }) : t('detail')}
+      </Text>
       {query.isPending ? (
         <Text accessibilityRole="progressbar">{t('loading')}</Text>
       ) : null}
-      {query.isError ? (
+      {query.isError && notFound ? (
         <>
-          <Text accessibilityRole="alert">{t('error')}</Text>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {t('notFound')}
+          </Text>
+          <Action
+            label={t('toRecent')}
+            onPress={() => router.replace('/sales')}
+          />
+        </>
+      ) : null}
+      {query.isError && !notFound ? (
+        <>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {t('error')}
+          </Text>
           <Action label={t('retry')} onPress={() => void query.refetch()} />
         </>
       ) : null}
       {sale ? (
         <>
-          <Text>
-            {sale.business_date} · {t(sale.payment_method)}
+          <Text style={styles.body}>
+            {saleStamp(sale.sold_at)} · {t(sale.payment_method)}
           </Text>
-          <Text testID="sale-status">{t(sale.status)}</Text>
+          <StatusPill
+            testID="sale-status"
+            label={t(sale.status)}
+            voided={sale.status === 'voided'}
+          />
           {sale.lines.map((line) => (
-            <View key={line.id} style={styles.card}>
-              <Text style={styles.label}>
+            <View
+              key={line.id}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: space[3],
+              }}
+            >
+              <Text style={[styles.label, { flex: 1 }]}>
                 {line.product_name ?? line.manual_label ?? line.product_id} ×{' '}
                 {line.quantity}
               </Text>
@@ -50,8 +93,12 @@ export function SaleDetailScreen() {
             </View>
           ))}
           <MoneyText amount={sale.total} />
-          {sale.void?.reason ? <Text>{sale.void.reason}</Text> : null}
-          {lead && sale.status === 'completed' ? (
+          {sale.void?.reason ? (
+            <Text style={{ color: colors.danger }}>
+              {fill(t('voidedReason'), { reason: sale.void.reason })}
+            </Text>
+          ) : null}
+          {canVoid && sale.status === 'completed' ? (
             <>
               <Text style={styles.body}>{t('explanation')}</Text>
               <Field

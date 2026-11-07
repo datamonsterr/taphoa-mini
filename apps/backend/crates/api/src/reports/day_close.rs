@@ -39,7 +39,10 @@ struct Close {
 const SELECT: &str = r#"
     SELECT c.*, (SELECT count(*) FROM sales s WHERE s.store_id=c.store_id
         AND s.business_date=c.business_date AND s.status='completed'
-        AND s.received_at>c.closed_at) late_sales_count
+        AND s.received_at>c.closed_at)
+        + (SELECT count(*) FROM debt_entries d WHERE d.store_id=c.store_id
+        AND d.business_date=c.business_date AND d.kind='repayment'
+        AND d.created_at>c.closed_at) late_sales_count
     FROM day_closes c
     WHERE c.store_id=$1 AND ($2::date IS NULL OR c.business_date >= $2)
         AND ($3::date IS NULL OR c.business_date <= $3)
@@ -124,6 +127,18 @@ pub(super) async fn put(
 ) -> ApiResult<Json<Value>> {
     actor.require(Action::DayClose)?;
     let day = date(&raw)?;
+    // A day that has not happened yet has nothing to count, and a close for a day before the
+    // app existed only hides later sales as "late". Compare with the store's business date.
+    if day > state.clock.today() {
+        return Err(ApiError::validation_failed(
+            "cannot close a business day in the future",
+        ));
+    }
+    if day < crate::time::EARLIEST_BUSINESS_DATE {
+        return Err(ApiError::validation_failed(
+            "business date is too far in the past to close",
+        ));
+    }
     if input.counted_cash < 0
         || input.opening_float < 0
         || input.note.as_ref().is_some_and(|n| n.chars().count() > 500)

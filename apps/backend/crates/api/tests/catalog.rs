@@ -2413,3 +2413,66 @@ async fn sellers_cannot_add_change_or_delete_product_units() {
     .await;
     assert!(removed["units"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn clearing_cost_price_writes_a_price_history_row() {
+    let w = world().await;
+    let product = create_product(
+        &w,
+        &w.lead,
+        "Sting đỏ 330ml",
+        10000,
+        "sting",
+        json!({"cost_price": 8500}),
+    )
+    .await;
+    let path = format!("/v1/products/{}", product["id"].as_str().unwrap());
+    let history = || async {
+        ok(
+            &w.app,
+            "GET",
+            &format!("{path}/price-history"),
+            "/v1/products/{productId}/price-history",
+            &w.lead,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await
+    };
+    let cleared = ok(
+        &w.app,
+        "PATCH",
+        &path,
+        "/v1/products/{productId}",
+        &w.lead,
+        json!({"cost_price": null}),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(cleared["cost_price"], Value::Null);
+    let before = history().await;
+    let row = &before["items"][0];
+    assert_eq!(row["field"], "cost_price");
+    assert_eq!(
+        (row["old_value"].clone(), row["new_value"].clone()),
+        (json!(8500), Value::Null)
+    );
+    assert_eq!(row["source"], "manual");
+    // Clearing an already empty cost is a no-op and adds no row.
+    ok(
+        &w.app,
+        "PATCH",
+        &path,
+        "/v1/products/{productId}",
+        &w.lead,
+        json!({"cost_price": null}),
+        StatusCode::OK,
+    )
+    .await;
+    let after = history().await;
+    assert_eq!(
+        after["items"].as_array().unwrap().len(),
+        before["items"].as_array().unwrap().len()
+    );
+}

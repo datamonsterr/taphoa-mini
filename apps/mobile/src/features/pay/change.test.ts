@@ -15,16 +15,8 @@ describe('computeChange', () => {
 });
 
 describe('quickCashOptions', () => {
-  it('lists the exact amount first, then the board notes', () => {
-    expect(quickCashOptions(49500)).toEqual([49500, ...CASH_NOTES]);
+  it('lists the four board notes only', () => {
+    expect(quickCashOptions()).toEqual([50000, 100000, 200000, 500000]);
     expect(CASH_NOTES).toEqual([50000, 100000, 200000, 500000]);
-  });
-
-  it('drops a note equal to the total', () => {
-    expect(quickCashOptions(100000)).toEqual([100000, 50000, 200000, 500000]);
-  });
-
-  it('returns only the notes when the total is 0', () => {
-    expect(quickCashOptions(0)).toEqual([...CASH_NOTES]);
   });
 });

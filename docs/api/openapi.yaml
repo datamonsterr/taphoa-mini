@@ -48,6 +48,8 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Waitlist
+    description: Marketing waitlist signup.
   - name: Health
     description: Process liveness and dependency readiness. Implemented.
   - name: Auth
@@ -91,6 +93,31 @@ tags:
     description: Expo push token registrations.
 
 paths:
+  /v1/waitlist:
+    post:
+      tags: [Waitlist]
+      operationId: signupWaitlist
+      summary: Join the marketing waitlist
+      description: Trims and lowercases the email. Repeated signups receive the same response. Limited to 10 requests per client IP per minute.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WaitlistRequest' }
+      responses:
+        '200':
+          description: Signup accepted, including repeat signups.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WaitlistResponse' }
+        '422':
+          description: Invalid email or JSON body (code `invalid_email`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   # ---------------------------------------------------------------- Health
   /healthz:
     get:
@@ -1199,6 +1226,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/customers/{customerId}:
@@ -1564,13 +1592,14 @@ paths:
       operationId: listStock
       summary: Tracked stock quantities and status
       description: |
-        Sorted by status (out, low, ok), then name. `all` excludes untracked products.
+        Sorted by status (out, low, ok), then name. `all` excludes untracked products. `low`
+        includes out of stock; `ok` is the products above their threshold.
         Threshold is the effective product override or store default. Quantities are in base units.
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: status
           in: query
-          schema: { type: string, enum: [all, low, out], default: all }
+          schema: { type: string, enum: [all, low, out, ok], default: all }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -2018,7 +2047,7 @@ paths:
         `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
         for that business date, computed on the server from synced records. Re-closing the
         same date overwrites the count and recomputes; sales synced after a close are
-        reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+        reported in `late_sales_count` (with repayments recorded after the close). A date after today (store time zone) or before 2024-01-01 is a 400 `validation_failed`. Cash sales/refunds and transfer revenue count only
         the paid part (`total − credit_amount`). Repayments are summed by method and business
         date; `credit_sales` sums credit_amount of completed sales of that date.
       requestBody:
@@ -2670,7 +2699,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     PayloadTooLarge:
-      description: Upload exceeds the endpoint limit (512 KB for document probes; 10 MiB for image uploads).
+      description: Request body exceeds the endpoint limit (2 MiB for JSON bodies; 512 KB for document probes; 10 MiB for image uploads). Always the standard error envelope with code payload_too_large.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2714,6 +2743,20 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    WaitlistRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          {
+            type: string,
+            description: Email address up to 254 characters after normalization.,
+          }
+    WaitlistResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
     Error:
       type: object
       required: [error]
@@ -3592,7 +3635,7 @@ components:
           {
             type: [string, 'null'],
             description: 'Decision model ID, or null when unused.',
-            example: 'inception/mercury-decide:free',
+            example: 'inception/mercury-decide',
           }
         lines:
           type: array
@@ -3695,7 +3738,11 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
-        new_value: { $ref: '#/components/schemas/Money' }
+        new_value:
+          description: Null only when a cost price was cleared.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
         changed_by: { type: string, format: uuid }
         changed_at: { type: string, format: date-time }
         source: { type: string, enum: [manual, margin_alert, purchase] }
@@ -4208,7 +4255,7 @@ components:
         late_sales_count:
           {
             type: integer,
-            description: Sales synced after the close for this date.,
+            description: Sales and repayments recorded after the close for this date.,
           }
         note: { type: [string, 'null'] }
         closed_by: { type: string, format: uuid }

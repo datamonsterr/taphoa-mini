@@ -337,7 +337,8 @@ pub struct PatchPlan {
     pub low_stock_threshold: Option<Option<i32>>,
     pub price: Option<(i64, i64)>,
     pub cost_price: Option<(Option<i64>, i64)>,
-    pub cost_clear: bool,
+    /// Previous cost when the patch clears it; the history row keeps it.
+    pub cost_clear: Option<i64>,
     pub unit_ops: Vec<UnitOp>,
 }
 
@@ -377,7 +378,7 @@ pub fn plan_patch(
     {
         match (cost, current.cost_price) {
             (Some(new), old) => plan.cost_price = Some((old, new)),
-            (None, Some(_)) => plan.cost_clear = true,
+            (None, Some(old)) => plan.cost_clear = Some(old),
             (None, None) => {}
         }
     }

@@ -46,7 +46,7 @@ export const FeedbackButtons = memo(function FeedbackButtons({
     >
       <Icon
         icon={value === 'up' ? ThumbsUp : ThumbsDown}
-        color={rating === value ? colors.onAccent : colors.inkMuted}
+        color={rating === value ? colors.onAccent : colors.ink}
       />
     </PressableScale>
   );
@@ -66,6 +66,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
   },
   selected: { backgroundColor: colors.accent },
 });

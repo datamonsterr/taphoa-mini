@@ -331,9 +331,17 @@ function dayTotals(date: string) {
 }
 
 export function getDayClose(date: string): DayClose {
-  const close = getMockDb().dayCloses.get(date);
+  const db = getMockDb();
+  const close = db.dayCloses.get(date);
   if (!close) throw notFound('Day close');
-  return close;
+  // Like the server: sales received after the close are "late" and the close is stale.
+  const late = db.sales.filter(
+    (s) =>
+      s.business_date === date &&
+      s.status === 'completed' &&
+      s.received_at > close.closed_at,
+  ).length;
+  return late === 0 ? close : { ...close, late_sales_count: late };
 }
 
 export function getDailyReport(date: string = businessDate()): DailyReport {
@@ -373,6 +381,8 @@ export function putDayClose(
   date: string,
   input: { counted_cash: number; opening_float: number; note: string | null },
 ): DayClose {
+  if (date > businessDate())
+    throw badRequest('cannot close a business day in the future');
   const t = dayTotals(date);
   const expected = Math.max(
     0,

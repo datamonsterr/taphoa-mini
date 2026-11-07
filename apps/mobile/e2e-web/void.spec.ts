@@ -25,7 +25,7 @@ test.describe('void a sale', () => {
       .first()
       .click();
     await expect(
-      page.getByRole('heading', { name: /Chi tiết đơn/ }),
+      page.getByRole('heading', { name: /^Đơn [A-Z0-9]{6}$/ }),
     ).toBeVisible();
 
     await page.getByLabel('Lý do hủy').fill('Khách trả hàng');

@@ -57,8 +57,7 @@ test.describe('camera', () => {
     await expect(addButton(page)).toBeEnabled();
 
     const strip = page.getByRole('radiogroup', { name: 'Chọn đúng món' });
-    await expect(strip).toHaveCount(0);
-    await pricePill(page).click();
+    // board 02: the candidates are under the viewfinder at once
     await expect(strip).toBeVisible();
     await expect(strip.getByRole('radio')).toHaveCount(
       detection.candidates.length,

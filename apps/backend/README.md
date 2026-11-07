@@ -303,7 +303,7 @@ a Lead or `can_enroll`. Creation and confirmation require `Idempotency-Key`.
 | `OCR_DET_PATH`, `OCR_ENCODER_PATH`, `OCR_DECODER_PATH`, `OCR_VOCAB_PATH` | unset                                       | Set all four to enable receipt OCR and the shared scan text detector. |
 | `OCR_THREADS`                                                            | `4`                                         | OCR inference workers.                                                |
 | `OPENROUTER_API_KEY`                                                     | empty                                       | Decisions API key; absence uses rule fallback.                        |
-| `DECISIONS_MODEL`                                                        | `inception/mercury-decide:free`             | Product mapping model.                                                |
+| `DECISIONS_MODEL`                                                        | `inception/mercury-decide`                  | Product mapping model.                                                |
 | `DECISIONS_URL`                                                          | `https://openrouter.ai/api/alpha/decisions` | Decisions endpoint.                                                   |
 | `DECISIONS_TIMEOUT_MS`                                                   | `2500`                                      | Decision request timeout before rule fallback.                        |
 

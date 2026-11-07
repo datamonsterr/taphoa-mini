@@ -66,7 +66,7 @@ appId: com.datamonsterr.taphoamini
 - extendedWaitUntil:
     visible: 'Chị Lan, 0đ'
     timeout: 20000
-- assertVisible: 'Chọn khách ghi nợ'
+- assertVisible: 'Chọn khách hàng'
 - assertVisible: '0912345678'
 - tapOn: 'Chị Lan, 0đ'
 # the picker closes and the pay screen shows who owes

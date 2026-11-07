@@ -7,7 +7,8 @@ import { colors, radius, shadows, size } from '@/theme';
 import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
 
-export type CircleButtonVariant = 'soft' | 'ink' | 'accent';
+/** `surface` is the white button for use on a soft row. */
+export type CircleButtonVariant = 'soft' | 'ink' | 'accent' | 'surface';
 
 export type CircleButtonProps = {
   icon: LucideIcon;
@@ -29,6 +30,7 @@ export type CircleButtonProps = {
 
 const iconOn: Record<CircleButtonVariant, string> = {
   soft: colors.ink,
+  surface: colors.ink,
   ink: colors.onInk,
   accent: colors.onAccent,
 };
@@ -85,6 +87,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   soft: { backgroundColor: colors.surfaceSoft },
+  surface: { backgroundColor: colors.surface },
   ink: { backgroundColor: colors.ink },
   accent: { backgroundColor: colors.accent },
   disabled: { opacity: 0.4 },

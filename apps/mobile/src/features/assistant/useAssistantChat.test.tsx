@@ -158,7 +158,7 @@ test('a non-OK response fails the turn; retry sends the message as a new turn', 
   expect(hook.result.current.messages[0]).toMatchObject({ status: 'failed' });
   expect(lastAssistant(hook.result.current.messages)).toMatchObject({
     status: 'error',
-    error: { code: 'network' },
+    error: { code: 'http', status: 404 },
   });
   expect(sink.capture).toHaveBeenCalledWith(
     'assistant_reply_received',
@@ -470,6 +470,12 @@ describe('an HTTP error on the messages request (#158)', () => {
 
   test.each([502, 503, 504])('%i is a busy server', async (status) => {
     expect((await sendWithStatus(status)).error).toEqual({ code: 'busy' });
+  });
+
+  test('a 4xx keeps its status and drops the server text', async () => {
+    const error = (await sendWithStatus(403)).error;
+    expect(error).toEqual({ code: 'http', status: 403 });
+    expect(JSON.stringify(error)).not.toContain('edge');
   });
 
   test('500 is a generic fault', async () => {

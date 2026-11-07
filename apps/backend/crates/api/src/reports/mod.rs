@@ -30,9 +30,7 @@ pub fn router() -> Router<AppState> {
         )
 }
 fn query<T>(input: Result<Query<T>, QueryRejection>) -> ApiResult<T> {
-    input
-        .map(|Query(v)| v)
-        .map_err(|e| ApiError::validation_failed(e.body_text()))
+    input.map(|Query(v)| v).map_err(ApiError::from)
 }
 #[derive(Deserialize)]
 struct Range {

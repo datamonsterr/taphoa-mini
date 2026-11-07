@@ -1,5 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowDownToLine, ChevronLeft, Pencil } from 'lucide-react-native';
+import {
+  ArrowDownToLine,
+  Boxes,
+  ChevronLeft,
+  Pencil,
+} from 'lucide-react-native';
 import { memo, useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
@@ -10,6 +15,7 @@ import { CircleButton } from '@/components/ui/CircleButton';
 import { Icon } from '@/components/ui/Icon';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { MoneyText } from '@/components/ui/MoneyText';
+import { strings as stockStrings } from '@/features/stock/strings';
 import { useCategories, usePatchProduct, useProduct } from '@/lib/api/hooks';
 import { isApiError } from '@/lib/api/errors';
 import type { Category, Product } from '@/lib/api/types';
@@ -25,7 +31,7 @@ import { EditPriceSheet } from './EditPriceSheet';
 import { StockMovements } from './StockMovements';
 import { ProductStock } from './ProductStock';
 import { PhotoCarousel } from './PhotoCarousel';
-import { UnitsEditor } from './UnitsEditor';
+import { UnitsRow } from './UnitsEditor';
 import { fill, strings } from './strings';
 
 /** Description from the fields the API has: category and extra selling units. */
@@ -55,19 +61,23 @@ const Stat = memo(function Stat({
   icon,
   label,
   value,
+  accessibleValue = value,
+  color = colors.ink,
 }: {
   icon: typeof ArrowDownToLine;
   label: string;
   value: string;
+  accessibleValue?: string;
+  color?: string;
 }) {
   return (
     <View
       accessible
-      accessibilityLabel={`${label} ${value}`}
+      accessibilityLabel={`${label} ${accessibleValue}`}
       style={styles.stat}
     >
       <Icon icon={icon} color={colors.inkMuted} />
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
     </View>
   );
 });
@@ -84,6 +94,7 @@ function Skeleton() {
 
 export function ProductScreen() {
   const t = useT(strings);
+  const ts = useT(stockStrings);
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: product, error, isError, refetch } = useProduct(id);
@@ -146,7 +157,7 @@ export function ProductScreen() {
     body = (
       <>
         <PhotoCarousel images={product.images} />
-        <View>
+        <View style={styles.titleRow}>
           <Text accessibilityRole="header" style={styles.name}>
             {product.name ?? t('unnamed')}
           </Text>
@@ -158,6 +169,27 @@ export function ProductScreen() {
           </Text>
         ) : null}
         <View style={styles.stats}>
+          <Stat
+            icon={Boxes}
+            label={t('stock')}
+            value={
+              product.stock_quantity === null
+                ? '–'
+                : String(product.stock_quantity)
+            }
+            accessibleValue={
+              product.stock_quantity === null
+                ? t('untracked')
+                : `${product.stock_quantity}, ${ts(product.stock_status)}`
+            }
+            color={
+              product.stock_status === 'out'
+                ? colors.danger
+                : product.stock_status === 'low'
+                  ? colors.warning
+                  : colors.ink
+            }
+          />
           {product.cost_price != null ? (
             <Stat
               icon={ArrowDownToLine}
@@ -166,6 +198,12 @@ export function ProductScreen() {
             />
           ) : null}
         </View>
+        <UnitsRow product={product} isLead={isLead} />
+        {description ? (
+          <Text testID="product-description" style={styles.description}>
+            {description}
+          </Text>
+        ) : null}
         {product.barcode ? (
           <Text style={styles.description}>Mã vạch · {product.barcode}</Text>
         ) : null}
@@ -175,12 +213,6 @@ export function ProductScreen() {
           onAdjust={() => setAdjusting(true)}
         />
         <StockMovements productId={product.id} />
-        {isLead ? <UnitsEditor product={product} /> : null}
-        {description ? (
-          <Text testID="product-description" style={styles.description}>
-            {description}
-          </Text>
-        ) : null}
       </>
     );
   } else if (isError) {
@@ -263,18 +295,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  name: { ...typography.heading, color: colors.ink },
-  price: { marginTop: space[1] },
+  /** Board 09: name and price share one line and wrap only when the name is long. */
+  titleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: space[3],
+  },
+  name: { ...typography.heading, flexShrink: 1, color: colors.ink },
+  price: { flexShrink: 0 },
   saveError: { ...typography.caption, color: colors.danger },
   stats: { flexDirection: 'row', gap: space[3] },
+  /** Board 09: two equal chips, icon and figure on one row. */
   stat: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
     padding: space[4],
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceSoft,
   },
   statValue: {
-    marginTop: space[1],
+    flexShrink: 1,
     fontFamily: fontFamily.extrabold,
     fontSize: 28,
     lineHeight: 34,

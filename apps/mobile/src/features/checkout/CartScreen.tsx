@@ -82,7 +82,7 @@ const CartRow = memo(function CartRow({
     >
       <LineThumb uri={line.imageUrl} />
       <View style={styles.lineBody}>
-        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.lineName}>
+        <Text numberOfLines={2} ellipsizeMode="tail" style={styles.lineName}>
           {line.name}
         </Text>
         <UnitChooser line={line} />

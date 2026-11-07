@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import { createStore, useMe } from '@/lib/api';
+import { type Bank } from '@/lib/banks';
+import { BankPicker } from '@/features/account/BankPicker';
 import { stripDiacritics } from '@/features/account/utils';
 import { useCompleteOnboarding } from './useCompleteOnboarding';
 import { useT } from '@/lib/i18n';
@@ -17,7 +19,7 @@ export function CreateStoreScreen() {
   const [storeName, setStoreName] = useState('');
   const [nameDraft, setDisplayName] = useState<string>();
   const displayName = nameDraft ?? me.data?.profile?.display_name ?? '';
-  const [bankBin, setBankBin] = useState('');
+  const [bank, setBank] = useState<Bank | null>(null);
   const [bankNumber, setBankNumber] = useState('');
   const [bankHolder, setBankHolder] = useState('');
   const [errors, setErrors] = useState<{
@@ -31,9 +33,9 @@ export function CreateStoreScreen() {
   const submit = async () => {
     const store = storeName.trim();
     const name = displayName.trim();
-    const hasBank = !!(bankBin || bankNumber || bankHolder);
+    const hasBank = !!(bank || bankNumber || bankHolder);
     const bankValid =
-      /^\d{6}$/.test(bankBin) &&
+      bank !== null &&
       /^[0-9A-Za-z]{4,19}$/.test(bankNumber) &&
       !!bankHolder.trim();
     const next = {
@@ -56,7 +58,8 @@ export function CreateStoreScreen() {
         ...(hasBank
           ? {
               bank_account: {
-                bank_bin: bankBin,
+                bank_bin: bank!.bin,
+                bank_short_name: bank!.short,
                 account_number: bankNumber,
                 account_name: stripDiacritics(bankHolder.trim()),
               },
@@ -91,13 +94,13 @@ export function CreateStoreScreen() {
         autoCapitalize="words"
         onSubmitEditing={() => void submit()}
       />
-      <Field
-        testID="create-bank-bin"
-        label={t('create.bankBin')}
-        value={bankBin}
-        onChangeText={setBankBin}
-        maxLength={6}
-        keyboardType="number-pad"
+      <BankPicker
+        testID="create-bank-name"
+        label={t('create.bank')}
+        placeholder={t('create.bankPick')}
+        emptyText={t('create.bankNone')}
+        value={bank}
+        onChange={setBank}
       />
       <Field
         testID="create-bank-number"

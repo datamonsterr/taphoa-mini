@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/v1/waitlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join the marketing waitlist
+         * @description Trims and lowercases the email. Repeated signups receive the same response. Limited to 10 requests per client IP per minute.
+         */
+        post: operations["signupWaitlist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -913,7 +933,8 @@ export interface paths {
         };
         /**
          * Tracked stock quantities and status
-         * @description Sorted by status (out, low, ok), then name. `all` excludes untracked products.
+         * @description Sorted by status (out, low, ok), then name. `all` excludes untracked products. `low`
+         *     includes out of stock; `ok` is the products above their threshold.
          *     Threshold is the effective product override or store default. Quantities are in base units.
          */
         get: operations["listStock"];
@@ -1230,7 +1251,7 @@ export interface paths {
          * @description `expected_cash = opening_float + cash_sales − cash_refunds + cash_repayments − cash_expenses`
          *     for that business date, computed on the server from synced records. Re-closing the
          *     same date overwrites the count and recomputes; sales synced after a close are
-         *     reported in `late_sales_count`. Cash sales/refunds and transfer revenue count only
+         *     reported in `late_sales_count` (with repayments recorded after the close). A date after today (store time zone) or before 2024-01-01 is a 400 `validation_failed`. Cash sales/refunds and transfer revenue count only
          *     the paid part (`total − credit_amount`). Repayments are summed by method and business
          *     date; `credit_sales` sums credit_amount of completed sales of that date.
          */
@@ -1546,6 +1567,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        WaitlistRequest: {
+            /** @description Email address up to 254 characters after normalization. */
+            email: string;
+        };
+        WaitlistResponse: {
+            /** @enum {string} */
+            status: "ok";
+        };
         Error: {
             /** @description Human-readable message (English; the app localizes by `code`). */
             error: string;
@@ -2173,7 +2202,7 @@ export interface components {
             parser: "decisions" | "fallback";
             /**
              * @description Decision model ID, or null when unused.
-             * @example inception/mercury-decide:free
+             * @example inception/mercury-decide
              */
             model: string | null;
             lines: components["schemas"]["ReceiptLine"][];
@@ -2248,7 +2277,8 @@ export interface components {
             /** Format: uuid */
             unit_id?: string | null;
             old_value?: components["schemas"]["Money"] | null;
-            new_value: components["schemas"]["Money"];
+            /** @description Null only when a cost price was cleared. */
+            new_value: components["schemas"]["Money"] | null;
             /** Format: uuid */
             changed_by: string;
             /** Format: date-time */
@@ -2634,7 +2664,7 @@ export interface components {
              */
             difference: number;
             transfer_revenue?: components["schemas"]["Money"];
-            /** @description Sales synced after the close for this date. */
+            /** @description Sales and repayments recorded after the close for this date. */
             late_sales_count?: number;
             note?: string | null;
             /** Format: uuid */
@@ -3044,7 +3074,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Upload exceeds the endpoint limit (512 KB for document probes; 10 MiB for image uploads). */
+        /** @description Request body exceeds the endpoint limit (2 MiB for JSON bodies; 512 KB for document probes; 10 MiB for image uploads). Always the standard error envelope with code payload_too_large. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -3142,6 +3172,41 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    signupWaitlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistRequest"];
+            };
+        };
+        responses: {
+            /** @description Signup accepted, including repeat signups. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WaitlistResponse"];
+                };
+            };
+            /** @description Invalid email or JSON body (code `invalid_email`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -4466,6 +4531,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
         };
     };
     getCustomer: {
@@ -4919,7 +4985,7 @@ export interface operations {
     listStock: {
         parameters: {
             query?: {
-                status?: "all" | "low" | "out";
+                status?: "all" | "low" | "out" | "ok";
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
