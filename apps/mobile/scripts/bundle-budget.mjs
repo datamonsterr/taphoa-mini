@@ -23,7 +23,7 @@ export const TARGETS = [
     name: 'web (js, gzip)',
     dir: 'dist-web/_expo/static/js/web',
     gzip: true,
-    budget: 1_330_000, // measured 1_290_573 with the Object/Code camera, tracked identify and one-trip enrollment (#301)
+    budget: 1_290_000, // measured ~1_081_754 + Clerk/assistant delta; posthog-react-native on web
   },
 ];
 

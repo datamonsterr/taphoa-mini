@@ -849,3 +849,43 @@ async fn additive_768_columns_and_cosine_indexes_preserve_384_schema() {
         );
     }
 }
+
+/// Run against an empty disposable database. BASELINE_MIGRATIONS_DIR must contain the
+/// released migrations through 1501, including the actual voice donations migration.
+#[tokio::test]
+#[ignore = "requires an empty UPGRADE_DATABASE_URL and BASELINE_MIGRATIONS_DIR"]
+async fn object_capture_migrations_upgrade_from_1501() {
+    let url = std::env::var("UPGRADE_DATABASE_URL").expect("empty upgrade database URL required");
+    let baseline_dir =
+        std::env::var("BASELINE_MIGRATIONS_DIR").expect("baseline migration directory required");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .unwrap();
+    let baseline = sqlx::migrate::Migrator::new(std::path::Path::new(&baseline_dir))
+        .await
+        .unwrap();
+    assert_eq!(baseline.iter().last().unwrap().version, 1501);
+    baseline.run(&pool).await.unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT max(version) FROM _sqlx_migrations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, 1501);
+    taphoa_api::MIGRATOR.run(&pool).await.unwrap();
+    let versions: Vec<i64> = sqlx::query_scalar(
+        "SELECT version FROM _sqlx_migrations WHERE version > 1501 ORDER BY version",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(versions, vec![1601, 1602, 1603, 1604, 1605, 1606, 1607]);
+    taphoa_api::MIGRATOR.run(&pool).await.unwrap();
+    let voice_table: bool =
+        sqlx::query_scalar("SELECT to_regclass('public.voice_donations') IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(voice_table);
+}

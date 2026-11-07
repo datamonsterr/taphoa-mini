@@ -54,10 +54,10 @@ retain `sqrt(0.7)` of each edge, rounded to pixels. Tiny inputs remain at least 
 `INDEX_AUGMENT=0` disables the six extra views for subsequent jobs. A configuration change
 requires explicitly re-enqueuing products already indexed with that model identity.
 
-Migration `1303_retrieval_v2.sql` adds `augmentation` (default `original`) beside the
+Migration `1602_retrieval_v2.sql` adds `augmentation` (default `original`) beside the
 existing `kind` (`crop`/`cutout`). The unique key includes both, while existing rows keep
 their meaning. `index_jobs.target_model` records attempts so an exhausted job is
-not repeatedly reset by background backfill. Migration 1303 only changed metadata;
+not repeatedly reset by background backfill. Migration 1602 only changed metadata;
 B5 adds the dimensions below.
 Index publication atomically replaces the active model's vector set and recomputes its normalized mean prototype. Each variant retains
 the source reference image ID; the indexed event still counts source photos, not variants.
@@ -103,14 +103,14 @@ identity and recorded candidate scores.
 
 ### Additive schema and rollout
 
-Migration `1306_siglip2_embeddings.sql` adds nullable `embedding_768 vector(768)`
+Migration `1605_siglip2_embeddings.sql` adds nullable `embedding_768 vector(768)`
 to `product_embeddings`, `product_prototypes` and `detections`, and drops `NOT NULL`
 from the two old `embedding vector(384)` reference columns. `scans` stores model
 identity and contains no vector column. Existing 384-d rows remain untouched. The
 schema changes request a brief metadata lock and fail after five seconds of lock
 contention rather than queue indefinitely behind requests.
 
-Migrations 1307 and 1308 create cosine HNSW indexes on the new reference/prototype
+Migrations 1606 and 1607 create cosine HNSW indexes on the new reference/prototype
 columns **concurrently**, one statement per non-transactional migration. They allow
 old application instances to keep reading and writing 384-d rows during rollout.
 A failed concurrent build may leave an invalid index; before retrying that migration,
