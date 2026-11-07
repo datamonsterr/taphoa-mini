@@ -249,6 +249,44 @@ test('revenue chart description agrees with its bars', async ({ page }) => {
   expect(descriptionClaimsTodayIsHighest).toBe(todayIsHighest);
 });
 
+test('waitlist placeholders meet normal-text contrast', async ({ page }) => {
+  for (const index of [0, 1]) {
+    const widget = await openWaitlist(page, index);
+    await expect
+      .poll(() => widget.evaluate((el) => getComputedStyle(el).backgroundColor))
+      .toBe('rgb(255, 255, 255)');
+    const ratio = await widget.evaluate((el) => {
+      const input = el.querySelector<HTMLInputElement>('.wl-in')!;
+      const parse = (color: string) =>
+        color
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number);
+      const luminance = ([r, g, b]: number[]) => {
+        const linear = [r, g, b].map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045
+            ? value / 12.92
+            : ((value + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+      };
+      const foreground = luminance(
+        parse(getComputedStyle(input, '::placeholder').color),
+      );
+      const background = luminance(parse(getComputedStyle(el).backgroundColor));
+      return (
+        (Math.max(foreground, background) + 0.05) /
+        (Math.min(foreground, background) + 0.05)
+      );
+    });
+    expect(
+      ratio,
+      `waitlist ${index + 1} placeholder contrast`,
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
 test('scan tracks three products, flags ambiguous Pringles, confirms 60.000đ, and loops', async ({
   page,
 }) => {
