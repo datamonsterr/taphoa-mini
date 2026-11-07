@@ -9,7 +9,7 @@ import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
 import { Text } from './ScaledText';
 
-export type CheckButtonVariant = 'success' | 'ink';
+export type CheckButtonVariant = 'success' | 'ink' | 'surface';
 
 export type CheckButtonProps = {
   /** success = received, ink = save. */
@@ -45,13 +45,17 @@ export const CheckButton = memo(function CheckButton({
       onPress={onPress}
       style={[
         styles.base,
-        variant === 'success' ? styles.success : styles.ink,
+        styles[variant],
         block && styles.block,
         (xl || elder) && styles.xl,
         disabled && styles.disabled,
       ]}
     >
-      <Icon icon={Check} size={xl ? 32 : undefined} color={colors.onInk} />
+      <Icon
+        icon={Check}
+        size={xl ? 32 : undefined}
+        color={variant === 'surface' ? colors.ink : colors.onInk}
+      />
       {label ? <Text style={styles.label}>{label}</Text> : null}
     </PressableScale>
   );
@@ -69,6 +73,7 @@ const styles = StyleSheet.create({
   },
   success: { backgroundColor: colors.success },
   ink: { backgroundColor: colors.ink },
+  surface: { backgroundColor: colors.surface },
   block: { alignSelf: 'stretch' },
   xl: { minHeight: size.tapXl },
   disabled: { opacity: 0.4 },

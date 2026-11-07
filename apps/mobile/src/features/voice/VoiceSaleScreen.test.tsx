@@ -6,7 +6,8 @@ import {
   within,
 } from '@testing-library/react-native';
 import { onlineManager } from '@tanstack/react-query';
-import { AppState, Linking } from 'react-native';
+import { AppState, Linking, StyleSheet } from 'react-native';
+import { colors } from '@/theme';
 
 import { setAnalyticsSink } from '@/lib/analytics';
 import { setApiTransport } from '@/lib/api/client';
@@ -82,6 +83,23 @@ async function speak(
 
 const lines = () =>
   screen.getAllByTestId(/^voice-line-[0-9a-f]{8}(-[0-9a-f]+){4}$/);
+
+test.each([
+  ['microphone', 'voice-mic-button', colors.accent],
+  ['confirmation', 'Xác nhận bán', colors.surface],
+])(
+  'voice draft %s follows board colour',
+  async (control, selector, expected) => {
+    await speak('two-line-sale.m4a');
+    const button =
+      control === 'microphone'
+        ? screen.getByTestId(selector)
+        : screen.getByLabelText(selector);
+    expect(StyleSheet.flatten(button.props.style).backgroundColor).toBe(
+      expected,
+    );
+  },
+);
 
 describe('listening', () => {
   test('opens recording with the 88 dp microphone, hint, stop and a started event', async () => {

@@ -202,6 +202,7 @@ export const DraftView = memo(function DraftView({
         ) : null}
         <View style={styles.actions}>
           <VoiceMicButton
+            accent
             mode={micMode}
             listening={adding === 'listening'}
             disabled={adding === 'understanding' || saving}
@@ -222,7 +223,7 @@ export const DraftView = memo(function DraftView({
                 />
               </View>
               <CheckButton
-                variant="success"
+                variant="surface"
                 accessibilityLabel={t('confirm')}
                 onPress={onConfirm}
                 disabled={disabled}
