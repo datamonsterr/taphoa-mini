@@ -1,4 +1,4 @@
-import { Minus, Plus, type LucideIcon } from 'lucide-react-native';
+import { Minus, Plus, type LucideIcon } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 import { Icon, PressableScale, Text } from '@/components/ui';
 import { useT } from '@/lib/i18n';

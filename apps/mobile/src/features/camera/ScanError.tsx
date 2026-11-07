@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react-native';
+import { RefreshCw } from '@/components/icons';
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';

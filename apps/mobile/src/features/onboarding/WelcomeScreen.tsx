@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Plus, QrCode } from 'lucide-react-native';
+import { Plus, QrCode } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 
 import { ScaledText } from '@/components/ui';

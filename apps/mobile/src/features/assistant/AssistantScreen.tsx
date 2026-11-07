@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { AlignLeft, ChevronDown, Plus } from 'lucide-react-native';
+import { AlignLeft, ChevronDown, Plus } from '@/components/icons';
 import {
   useCallback,
   useEffect,

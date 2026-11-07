@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { ScanBarcode, X } from 'lucide-react-native';
+import { ScanBarcode, X } from '@/components/icons';
 import { useRef, useState } from 'react';
 import { Modal, StyleSheet, TextInput, View } from 'react-native';
 
