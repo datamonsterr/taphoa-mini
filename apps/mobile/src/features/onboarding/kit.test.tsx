@@ -30,3 +30,23 @@ test.each([0, 47])(
     ).toBe(80);
   },
 );
+
+test.each([0, 47])(
+  'welcome starts 25 px below the 47 px status bar with inset %i',
+  async (top) => {
+    jest
+      .mocked(useSafeAreaInsets)
+      .mockReturnValue({ top, bottom: 0, left: 0, right: 0 });
+    await renderWithProviders(
+      <Frame title="Welcome" back={false} welcome fill>
+        {null}
+      </Frame>,
+    );
+    let node = screen.getByRole('header', { name: 'Welcome' }).parent;
+    while (node && !node.props.contentContainerStyle) node = node.parent;
+    expect(node).toBeTruthy();
+    expect(
+      StyleSheet.flatten(node!.props.contentContainerStyle).paddingTop,
+    ).toBe(72);
+  },
+);
