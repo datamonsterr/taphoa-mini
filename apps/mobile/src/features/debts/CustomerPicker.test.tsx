@@ -6,6 +6,29 @@ import { createCustomer, listCustomers } from '@/lib/api/debts';
 import { newUuid } from '@/lib/uuid';
 import { CustomerPicker } from './CustomerPicker';
 
+test('customer picker displays the board identity and last activity', async () => {
+  const lan = await createCustomer({
+    id: newUuid(),
+    name: 'Chị Lan',
+    phone: '0912345678',
+  });
+  jest.spyOn(debtsApi, 'listCustomers').mockResolvedValue({
+    items: [
+      {
+        ...lan,
+        last_activity_at: new Date(Date.now() - 8 * 86400000).toISOString(),
+      },
+    ],
+    next_cursor: null,
+  });
+  await renderWithProviders(
+    <CustomerPicker onSelect={jest.fn()} onClose={jest.fn()} />,
+  );
+  expect(await screen.findByText('tuần trước')).toBeOnTheScreen();
+  expect(screen.getByText('L')).toBeOnTheScreen();
+  expect(screen.getByText('0912 345 678')).toBeOnTheScreen();
+});
+
 test('shows recent customers, searches name/phone and selects a customer', async () => {
   const lan = await createCustomer({
     id: newUuid(),
@@ -24,7 +47,7 @@ test('shows recent customers, searches name/phone and selects a customer', async
   ).toBeOnTheScreen();
   expect(screen.getByText('0901 234 567')).toBeOnTheScreen();
   expect(screen.getByText('2 khách')).toBeOnTheScreen();
-  // settled customers show no activity age: the API has no last-activity date
+  // A customer without activity does not show an age.
   expect(screen.queryByText(/hôm nay|hôm qua|ngày|tuần/)).toBeNull();
   expect(screen.getAllByText('Hết nợ')).toHaveLength(2);
   expect(screen.getByText('Không có số')).toBeOnTheScreen();

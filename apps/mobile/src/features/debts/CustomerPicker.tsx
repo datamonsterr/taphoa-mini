@@ -1,6 +1,6 @@
 import { Contact } from 'expo-contacts';
 import { ContactRound, Phone, Plus, Search, User } from '@/components/icons';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 
 import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
@@ -54,6 +54,11 @@ export function CustomerPicker({
   createLabel,
 }: CustomerPickerProps) {
   const t = useT(debtStrings);
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setNow(Date.now()), 0);
+    return () => clearTimeout(timer);
+  }, []);
   const bodyStyle = scaleText(typography.body, useFontScale());
   const [query, setQuery] = useState('');
   const [name, setName] = useState(initialName);
@@ -150,9 +155,25 @@ export function CustomerPicker({
         ? t('book.ageYesterday')
         : fill(t('book.ageDays'), { days });
 
+  const activityText = (date: string | null | undefined) => {
+    if (!date || now === null) return null;
+    const time = Date.parse(date);
+    if (!Number.isFinite(time)) return null;
+    const days = Math.max(0, Math.floor((now - time) / 86400000));
+    if (days < 2) return ageText(days);
+    if (days < 7) return fill(t('picker.activityDays'), { days });
+    if (days < 14) return t('picker.activityWeek');
+    if (days < 30)
+      return fill(t('picker.activityWeeks'), { weeks: Math.floor(days / 7) });
+    if (days < 60) return t('picker.activityMonth');
+    return fill(t('picker.activityMonths'), { months: Math.floor(days / 30) });
+  };
+
   const customerRow = (customer: Customer, duplicate = false) => {
     const tone = avatarTone(customer.id);
     const credit = customer.balance < 0;
+    const activity =
+      customer.balance === 0 ? activityText(customer.last_activity_at) : null;
     return (
       <PressableScale
         key={customer.id}
@@ -202,6 +223,10 @@ export function CustomerPicker({
           {customer.balance > 0 && customer.debt_age_days !== null ? (
             <Text style={styles.caption} numberOfLines={1}>
               {ageText(customer.debt_age_days)}
+            </Text>
+          ) : activity ? (
+            <Text style={styles.caption} numberOfLines={1}>
+              {activity}
             </Text>
           ) : null}
         </View>
