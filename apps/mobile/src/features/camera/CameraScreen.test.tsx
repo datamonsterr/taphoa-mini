@@ -1054,7 +1054,7 @@ describe('quick enroll capture', () => {
 
   // Web has no CameraX rebind, but expo-camera's web scanner decodes a full frame on the main
   // thread every 300 ms while a handler is set, so a scan in flight must stop it.
-  it('drops the web barcode handler while a scan photo is in flight', async () => {
+  it('stops web barcode decoding when switching to Object mode for a scan', async () => {
     const platform = jest.replaceProperty(Platform, 'OS', 'web');
     try {
       let release!: (photo: typeof IMAGE & { uri: string }) => void;
@@ -1065,9 +1065,11 @@ describe('quick enroll capture', () => {
           }),
       );
       await renderWithProviders(<CameraScreen />);
+      await fireEvent.press(screen.getByRole('button', { name: 'Mã vạch/QR' }));
       expect(screen.getByTestId('camera-view').props.onBarcodeScanned).toEqual(
         expect.any(Function),
       );
+      await fireEvent.press(screen.getByRole('button', { name: 'Vật phẩm' }));
       await fireEvent.press(shutter());
       expect(mockTakePicture).toHaveBeenCalledTimes(1);
       expect(
