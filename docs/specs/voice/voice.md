@@ -33,7 +33,7 @@ Entry point ──► app route /voice?entry=… (foreground, translucent modal)
      │     └─ on failure: next slug → STT (/audio/transcriptions, VOICE_STT_MODEL) + text parse
      ├─ catalog match per line (normalized name, aliases, trigram) → matched / ambiguous / unknown
      ├─ price and quantity rules; customer match for credit
-     ├─ store voice_utterances row (transcript, parsed, draft, model, latency); drop the audio
+     ├─ store voice_utterances row; keep audio only if donation is enabled
      └─ telemetry: span voice.utterance, $ai_generation with cost
                   │
                   ▼
@@ -286,12 +286,15 @@ same two-step shape the owner described (explain, enable in Settings), minus the
 
 - Microphone permission texts in `app.json` already say "để bạn nói chuyện với trợ lý"; V2
   updates them to cover sales. `RECORD_AUDIO` is requested on the first voice use.
-- Audio bytes live only in memory on the server during the model call. OpenRouter is told
+- Without donation, audio bytes live only in memory on the server during the model call. OpenRouter is told
   not to retain (`zdr` preference where the provider offers it, otherwise documented).
 - `voice_utterances` keeps transcript, parsed JSON, draft, outcome and corrections for 30 days
-  (retention job), longer for clips donated with the opt-in, which also stores the audio in
-  the private bucket under `voice/<store>/<uuid>.m4a`.
-- Play Console: data-safety entry "Audio: voice recordings, processed, not stored"; foreground
+  (retention job). With the optional donation switch, sale audio is stored in the private
+  bucket under `voice/<store>/<uuid>.<ext>` and removed along with its row after 30 days
+  by the hourly job, at most one hour after expiry during normal operation (`VOICE_DONATED_RETENTION_DAYS`, default and maximum 30). Failed deletes are retried and outages can delay deletion. If object storage is missing, startup warns when donations exist; restore storage so cleanup can resume.
+  Switching off stops future donations on that device; it does not delete existing clips,
+  which remain until the retention job removes them.
+- Play Console: data-safety entry "Audio: voice recordings, collected optionally"; foreground
   service `specialUse` declaration text; "Hiện trên ứng dụng khác" rationale in the in-app
   explainer (prominent, before the Settings jump).
 - The bubble never records by itself; only the foreground route does, and the system

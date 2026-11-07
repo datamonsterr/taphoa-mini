@@ -33,7 +33,8 @@ export default defineRailway((ctx) => {
     // Live volumes are in San Francisco (sfo) in both environments. Declaring another region
     // would plan a volume move; keep this equal to `railway config pull`.
     region: 'sfo',
-    sizeMB: 5000,
+    // test filled 5 GB with leaked integration databases on 2026-11-05 (see #329); give it room.
+    sizeMB: ctx.isEnvironment('production') ? 5000 : 10000,
   });
   const Postgres = service('Postgres', {
     source: image('pgvector/pgvector:0.8.7-pg18-trixie'),
@@ -202,6 +203,26 @@ export default defineRailway((ctx) => {
       },
     });
     resources.push(collector);
+
+    // Marketing page (ADR 0010, Hosting): a Caddy image serving apps/landing/dist. Production only,
+    // from GitHub. App Sleeping stays off: the first request after a sleep can return 502.
+    const landing = service('landing', {
+      build: {
+        builder: 'DOCKERFILE',
+        dockerfilePath: 'apps/landing/Dockerfile',
+        watchPatterns: ['apps/landing/**'],
+      },
+      source: github('datamonsterr/taphoa-mini', {
+        branch: 'main',
+        checkSuites: true,
+      }),
+      replicas: { sin: 1 },
+      healthcheck: '/healthz',
+      // Railway's default restart policy is on failure; only the retry cap is declared.
+      deploy: { restartPolicyMaxRetries: 5 },
+      cdn: { enabled: true },
+    });
+    resources.push(landing);
   }
 
   return project('taphoa-mini', {

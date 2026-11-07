@@ -5,7 +5,7 @@
   "dependencies": {
     "@clerk/expo": "^4.14.2",
     "@expo-google-fonts/be-vietnam-pro": "^0.4.1",
-    "@posthog/react-native-plugin": "^2.12.7",
+    "@posthog/react-native-plugin": "^2.13.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
     "@shopify/flash-list": "2.3.3",
@@ -41,9 +41,9 @@
     "expo-status-bar": "~58.0.4",
     "expo-system-ui": "~58.0.6",
     "expo-web-browser": "~58.0.6",
-    "lucide-react-native": "^1.61.0",
+    "lucide-react-native": "^1.68.0",
     "posthog-js": "^1.440.0",
-    "posthog-react-native": "^4.83.0",
+    "posthog-react-native": "^4.85.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
@@ -58,13 +58,13 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
-    "@clerk/testing": "2.2.52",
+    "@clerk/testing": "2.2.53",
     "@eslint/compat": "^2.1.1",
     "@playwright/test": "1.64.1",
     "@taphoa/e2e": "workspace:*",
     "@testing-library/react-native": "^14.1.0",
     "@types/jest": "30.0.0",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/react": "~19.3.0",
     "@typescript/native": "npm:typescript@~7.0.2",
     "ajv": "^8.20.0",
@@ -103,6 +103,7 @@
   "private": true,
   "jest": {
     "maxWorkers": "50%",
+    "workerGracefulExitTimeout": 5000,
     "preset": "jest-expo",
     "transformIgnorePatterns": [
       "node_modules/(?!(.pnpm|(jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|standard-navigation|@react-navigation/.*|@shopify/flash-list))"

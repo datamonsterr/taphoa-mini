@@ -110,6 +110,8 @@ struct ReceiptRow {
     expense_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     confirmed_at: Option<DateTime<Utc>>,
+    supplier: Option<String>,
+    ocr_line_count: Option<i32>,
     #[sqlx(default)]
     line_count: i64,
     #[sqlx(default)]
@@ -126,7 +128,7 @@ async fn response(conn: &mut PgConnection, state: &AppState, row: ReceiptRow) ->
     let lines:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'position',position,'raw_text',raw_text,'product_name',product_name,'quantity',quantity,'cost',cost,'product_id',product_id,'match_confidence',match_confidence,'candidates',candidates) FROM receipt_lines WHERE receipt_id=$1 ORDER BY position")
         .bind(row.id).fetch_all(conn).await?;
     Ok(
-        json!({"id":row.id,"status":row.status,"image_id":row.image_id,"image_url":image_url(state,&row.object_key).await?,"total":row.total,"parser":row.parser,"model":row.model,"lines":lines,"timings":row.timings,"expense_id":row.expense_id,"created_at":row.created_at,"confirmed_at":row.confirmed_at}),
+        json!({"id":row.id,"status":row.status,"image_id":row.image_id,"image_url":image_url(state,&row.object_key).await?,"total":row.total,"parser":row.parser,"model":row.model,"lines":lines,"timings":row.timings,"expense_id":row.expense_id,"created_at":row.created_at,"confirmed_at":row.confirmed_at,"supplier":row.supplier,"ocr_line_count":row.ocr_line_count}),
     )
 }
 #[derive(Deserialize)]
@@ -263,8 +265,9 @@ async fn create(
         .map(|l| l.text.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    sqlx::query("INSERT INTO receipts(id,store_id,member_id,image_id,ocr_text,parser,model,timings,total,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-        .bind(id).bind(actor.store_id).bind(actor.member_id).bind(input.image_id).bind(ocr_text).bind(mapped.parser).bind(mapped.model).bind(&timings).bind(total).bind(hash.as_slice()).execute(&mut *tx).await?;
+    let ocr_line_count = text.len() as i32;
+    sqlx::query("INSERT INTO receipts(id,store_id,member_id,image_id,ocr_text,ocr_line_count,parser,model,timings,total,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        .bind(id).bind(actor.store_id).bind(actor.member_id).bind(input.image_id).bind(ocr_text).bind(ocr_line_count).bind(mapped.parser).bind(mapped.model).bind(&timings).bind(total).bind(hash.as_slice()).execute(&mut *tx).await?;
     let line_count = mapped.lines.len();
     let matched_lines = mapped
         .lines
@@ -318,7 +321,7 @@ async fn list(
     };
     let mut items = Vec::new();
     for r in rows {
-        items.push(json!({"id":r.id,"status":r.status,"total":r.total,"line_count":r.line_count,"matched_count":r.matched_count,"image_url":image_url(&state,&r.object_key).await?,"created_at":r.created_at,"confirmed_at":r.confirmed_at,"expense_id":r.expense_id}));
+        items.push(json!({"id":r.id,"status":r.status,"total":r.total,"line_count":r.line_count,"matched_count":r.matched_count,"supplier":r.supplier,"ocr_line_count":r.ocr_line_count,"image_url":image_url(&state,&r.object_key).await?,"created_at":r.created_at,"confirmed_at":r.confirmed_at,"expense_id":r.expense_id}));
     }
     Ok(Json(Page { items, next_cursor }))
 }

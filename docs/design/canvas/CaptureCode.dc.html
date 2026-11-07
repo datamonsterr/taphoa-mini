@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Camera · Mã vạch</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/taphoa/tokens.css">
+<link rel="stylesheet" href="ds/taphoa/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0c0c0e}
+a{color:inherit;text-decoration:none}
+.laser{animation:laser 1.6s ease-in-out infinite alternate}
+.found{animation:found .5s cubic-bezier(.34,1.56,.64,1) .3s both}
+@keyframes laser{from{transform:translateY(0)}to{transform:translateY(112px)}}
+@keyframes found{from{opacity:0;transform:translateY(12px) scale(.95)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.laser,.found{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--camera-bg); color: var(--camera-ink); font-family: var(--font-sans)">
+
+  <nav aria-label="Chế độ camera" style="position: absolute; left: 0; top: 20px; width: 390px; display: flex; justify-content: center">
+    <div style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(255,255,255,.14)">
+      <a href="CaptureIdentify.dc.html" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px; border-radius: 9999px; color: var(--camera-ink); font: 600 16px/20px var(--font-sans)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>Món hàng</a>
+      <a href="CaptureCode.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px; border-radius: 9999px; background: var(--camera-ink); color: var(--ink); font: 600 16px/20px var(--font-sans)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14"/></svg>Mã vạch</a>
+    </div>
+  </nav>
+
+  <div style="position: absolute; left: 16px; top: 92px; width: 358px; height: 470px; border-radius: 28px; overflow: hidden; background: #1d1d22">
+    <div aria-hidden="true" style="position: absolute; left: 70px; top: 130px; width: 218px; height: 260px; border-radius: 18px; background: #f1b7c4; transform: rotate(-4deg)">
+      <div style="position: absolute; left: 30px; top: 70px; width: 158px; height: 110px; border-radius: 8px; background: #ffffff; padding: 12px 14px 8px; box-sizing: border-box">
+        <svg viewBox="0 0 130 64" preserveAspectRatio="none" style="display: block; width: 100%; height: 66px"><path d="M2 0v64M6 0v64M9 0v64M14 0v64M16 0v64M21 0v64M26 0v64M28 0v64M33 0v64M38 0v64M40 0v64M44 0v64M49 0v64M53 0v64M56 0v64M61 0v64M64 0v64M69 0v64M72 0v64M76 0v64M81 0v64M84 0v64M88 0v64M93 0v64M96 0v64M100 0v64M104 0v64M108 0v64M113 0v64M116 0v64M121 0v64M124 0v64M128 0v64" stroke="#111114" stroke-width="2.2"/></svg>
+        <div style="text-align: center; font: 600 11px/14px var(--font-sans); letter-spacing: .12em; color: #111114">8 934563 138165</div>
+      </div>
+    </div>
+    <div aria-hidden="true" style="position: absolute; left: 44px; top: 170px; width: 270px; height: 140px; border-radius: 22px; box-shadow: 0 0 0 999px rgba(12,12,14,.55)">
+      <svg viewBox="0 0 270 140" style="position: absolute; inset: 0; width: 270px; height: 140px; fill: none; stroke: #ffffff; stroke-width: 4; stroke-linecap: round"><path d="M4 34V22A18 18 0 0 1 22 4h12M236 4h12a18 18 0 0 1 18 18v12M266 106v12a18 18 0 0 1-18 18h-12M34 136H22A18 18 0 0 1 4 118v-12"/></svg>
+      <div class="laser" style="position: absolute; left: 16px; right: 16px; top: 14px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 14px 2px rgba(90,67,232,.8)"></div>
+    </div>
+    <p style="margin: 0; position: absolute; left: 0; right: 0; top: 330px; text-align: center; font: 600 15px/20px var(--font-sans); color: var(--camera-muted)">EAN · UPC · Code128 · QR</p>
+  </div>
+
+  <a href="Cart.dc.html" class="found" aria-label="Mì Hảo Hảo tôm chua cay, 5.000đ, thêm vào giỏ" style="position: absolute; left: 16px; right: 16px; top: 580px; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; border-radius: 28px; background: var(--surface); color: var(--ink)">
+    <img src="img/hao-hao.jpg" alt="" style="display: block; flex: none; width: 52px; height: 52px; border-radius: 14px; object-fit: contain; background: #ffffff">
+    <span style="flex: 1; min-width: 0"><span style="display: block; font: var(--text-label)">Mì Hảo Hảo</span><span class="th-num" style="display: block; font: 500 13px/18px var(--font-sans); color: var(--ink-muted)">EAN-13 · 8934563138165</span></span>
+    <b class="th-num" style="font: 800 24px/28px var(--font-sans)">5.000đ</b>
+    <span class="th-ib th-ib-accent" aria-hidden="true"><svg class="th-i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+  </a>
+
+  <p style="margin: 0; position: absolute; left: 16px; right: 16px; top: 686px; text-align: center; font: 600 15px/20px var(--font-sans); color: var(--camera-muted)">Mã lạ? <a href="CaptureLock.dc.html" style="color: var(--camera-ink); text-decoration: underline">Gán mã cho món mới</a></p>
+
+  <div style="position: absolute; left: 16px; top: 756px; width: 358px; display: flex; align-items: center; justify-content: space-between">
+    <a href="Cart.dc.html" aria-label="Giỏ hàng trống" style="display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 16px; border-radius: 9999px; background: rgba(255,255,255,.14); color: var(--camera-muted)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg><b class="th-num" style="font-size: 18px">0</b></a>
+    <a href="Assistant.dc.html" class="th-ib th-ib-accent th-ib-float" aria-label="Mở trợ lý, giữ để nói bán hàng"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

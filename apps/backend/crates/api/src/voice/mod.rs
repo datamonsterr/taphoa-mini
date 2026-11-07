@@ -107,6 +107,7 @@ async fn create_utterance(
     let mut multipart = multipart.map_err(|_| bad("expected a multipart form"))?;
     let (mut audio, mut mode, mut language, mut context) =
         (None::<Vec<u8>>, None, None, None::<ContextField>);
+    let mut donate = None::<String>;
     while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
         match field.name() {
             Some("audio") if audio.is_none() => {
@@ -123,7 +124,7 @@ async fn create_utterance(
                 }
                 audio = Some(bytes);
             }
-            Some(name @ ("mode" | "language" | "context")) => {
+            Some(name @ ("mode" | "language" | "context" | "donate")) => {
                 let name = name.to_owned();
                 let mut bytes = Vec::new();
                 while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
@@ -137,6 +138,7 @@ async fn create_utterance(
                 match name.as_str() {
                     "mode" if mode.is_none() => mode = Some(text),
                     "language" if language.is_none() => language = Some(text),
+                    "donate" if donate.is_none() => donate = Some(text),
                     "context" if context.is_none() => {
                         context = Some(serde_json::from_str(&text).map_err(|_| {
                             bad("context must be a JSON object with entry and screen")
@@ -157,6 +159,11 @@ async fn create_utterance(
         None | Some("vi") => crate::assistant::Language::Vi,
         Some("en") => crate::assistant::Language::En,
         _ => return Err(bad("language must be vi or en")),
+    };
+    let donate = match donate.as_deref() {
+        None | Some("false") => false,
+        Some("true") => true,
+        _ => return Err(bad("donate must be true or false")),
     };
     let entry = match context {
         Some(c) if ENTRIES.contains(&c.entry.as_str()) && c.screen.chars().count() <= 60 => c.entry,
@@ -192,6 +199,7 @@ async fn create_utterance(
             format: format.as_str(),
         },
         audio_seconds,
+        donate,
         model_override: eval_model(&state, &headers),
         started,
     };

@@ -117,6 +117,7 @@ export function createCustomer(value: unknown): {
     balance: 0,
     oldest_debt_date: null,
     debt_age_days: null,
+    last_activity_at: null,
     overdue: false,
     archived: false,
     created_at: nowIso(),

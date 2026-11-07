@@ -1,4 +1,4 @@
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft } from '@/components/icons';
 import { useState, type ReactNode } from 'react';
 import { Modal, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -156,9 +156,11 @@ export function UnitsEditor({
             ) : null}
           </View>
         ))}
-        <Pill label={t('add')} onPress={() => setEditing('new')}>
-          {t('add')}
-        </Pill>
+        {!editing ? (
+          <Pill label={t('add')} onPress={() => setEditing('new')}>
+            {t('add')}
+          </Pill>
+        ) : null}
         {editing === 'new' ? (
           <UnitForm
             key="new"

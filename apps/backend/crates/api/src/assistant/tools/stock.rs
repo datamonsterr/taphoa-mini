@@ -161,7 +161,9 @@ async fn restock(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
             SELECT p.id product_id,COALESCE(p.name,'Chưa đặt tên') name,p.stock_quantity,
                 COALESCE(p.low_stock_threshold,s.low_stock_threshold) threshold,COALESCE(v.avg,0) avg,
                 greatest(1,ceil(COALESCE(v.avg,0)*$3+COALESCE(p.low_stock_threshold,s.low_stock_threshold)-p.stock_quantity))::bigint suggested_quantity,
-                c.unit_cost_dong,COALESCE(c.supplier,'Không rõ nhà cung cấp') supplier,c.supplier IS NULL supplier_missing
+                c.unit_cost_dong,COALESCE(c.supplier,'Không rõ nhà cung cấp') supplier,c.supplier IS NULL supplier_missing,
+                (SELECT i.object_key FROM product_images pi JOIN images i ON i.id=pi.image_id AND i.store_id=p.store_id
+                 WHERE pi.product_id=p.id ORDER BY pi.position,pi.image_id LIMIT 1) image_key
             FROM products p JOIN stores s ON s.id=p.store_id LEFT JOIN speed v ON v.product_id=p.id
             LEFT JOIN latest c ON c.product_id=p.id
             WHERE p.store_id=$1 AND NOT p.archived AND p.stock_quantity IS NOT NULL AND
@@ -169,7 +171,7 @@ async fn restock(ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolErro
             ORDER BY p.stock_quantity,p.id LIMIT 51
         ) SELECT jsonb_build_object('product_id',product_id,'name',name,'stock_quantity',stock_quantity,'threshold',threshold,
             'avg_daily_units',avg::float8,'suggested_quantity',suggested_quantity,'supplier',supplier,'supplier_missing',supplier_missing,
-            'unit_cost_dong',unit_cost_dong,'line_total_dong',(unit_cost_dong::numeric*suggested_quantity)::bigint) FROM candidates"#
+            'unit_cost_dong',unit_cost_dong,'line_total_dong',(unit_cost_dong::numeric*suggested_quantity)::bigint,'image_key',image_key) FROM candidates"#
     );
     let items: Vec<Value> = sqlx::query_scalar(sql)
         .bind(ctx.actor.store_id)

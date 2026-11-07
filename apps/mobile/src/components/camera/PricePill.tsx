@@ -1,4 +1,4 @@
-import { ChevronRight, Tag } from 'lucide-react-native';
+import { ChevronRight, Tag } from '@/components/icons';
 import { memo, useCallback } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 

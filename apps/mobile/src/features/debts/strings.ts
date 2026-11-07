@@ -2,6 +2,11 @@ import type { Dict } from '@/lib/i18n';
 export const debtStrings: Dict = {
   vi: {
     'picker.title': 'Chọn khách hàng',
+    'picker.activityDays': '{days} ngày trước',
+    'picker.activityWeek': 'tuần trước',
+    'picker.activityWeeks': '{weeks} tuần trước',
+    'picker.activityMonth': 'tháng trước',
+    'picker.activityMonths': '{months} tháng trước',
     'picker.searchPlaceholder': 'Tên hoặc số điện thoại',
     'picker.count': '{n} khách',
     'picker.new': 'Khách mới',
@@ -104,6 +109,11 @@ export const debtStrings: Dict = {
   },
   en: {
     'picker.title': 'Choose customer',
+    'picker.activityDays': '{days} days ago',
+    'picker.activityWeek': 'last week',
+    'picker.activityWeeks': '{weeks} weeks ago',
+    'picker.activityMonth': 'last month',
+    'picker.activityMonths': '{months} months ago',
     'picker.searchPlaceholder': 'Name or phone number',
     'picker.count': '{n} customers',
     'picker.new': 'New customer',

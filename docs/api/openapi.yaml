@@ -42,12 +42,14 @@ servers:
     description: Railway production backend
     variables:
       railwayDomain:
-        default: backend-production.up.railway.app
+        default: backend-production-5f5c.up.railway.app
 
 security:
   - bearerAuth: []
 
 tags:
+  - name: Waitlist
+    description: Marketing waitlist signup.
   - name: Health
     description: Process liveness and dependency readiness. Implemented.
   - name: Auth
@@ -91,6 +93,31 @@ tags:
     description: Expo push token registrations.
 
 paths:
+  /v1/waitlist:
+    post:
+      tags: [Waitlist]
+      operationId: signupWaitlist
+      summary: Join the marketing waitlist
+      description: Trims and lowercases the email. Repeated signups receive the same response. Limited to 10 requests per client IP per minute.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WaitlistRequest' }
+      responses:
+        '200':
+          description: Signup accepted, including repeat signups.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WaitlistResponse' }
+        '422':
+          description: Invalid email or JSON body (code `invalid_email`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   # ---------------------------------------------------------------- Health
   /healthz:
     get:
@@ -2458,6 +2485,10 @@ paths:
                 audio: { type: string, format: binary }
                 mode: { type: string, enum: [sale, transcribe] }
                 language: { type: string, enum: [vi, en], default: vi }
+                donate:
+                  type: boolean
+                  default: false
+                  description: The member opted in (Tai khoan, voice donation) to keep this clip for the golden set under voice/<store>/<uuid>.m4a. Without it the audio is discarded after the call.
                 context:
                   type: string
                   description: 'JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}.'
@@ -2712,6 +2743,20 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    WaitlistRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          {
+            type: string,
+            description: Email address up to 254 characters after normalization.,
+          }
+    WaitlistResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
     Error:
       type: object
       required: [error]
@@ -3457,6 +3502,12 @@ components:
           }
         status: { type: string, enum: [ok, low, out, untracked] }
         updated_at: { type: string, format: date-time }
+        sales_rate:
+          {
+            type: number,
+            minimum: 0,
+            description: 'Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales.',
+          }
     StockList:
       allOf:
         - $ref: '#/components/schemas/Page'
@@ -3607,6 +3658,13 @@ components:
         expense_id: { type: [string, 'null'], format: uuid }
         created_at: { type: string, format: date-time }
         confirmed_at: { type: [string, 'null'], format: date-time }
+        supplier:
+          type: [string, 'null']
+          description: Supplier display name as recorded on the receipt; null when unknown.
+        ocr_line_count:
+          type: [integer, 'null']
+          minimum: 0
+          description: Number of text lines returned by OCR; null for receipts scanned before migration 1701.
     ReceiptSummary:
       type: object
       required:
@@ -3636,6 +3694,13 @@ components:
         created_at: { type: string, format: date-time }
         confirmed_at: { type: [string, 'null'], format: date-time }
         expense_id: { type: [string, 'null'], format: uuid }
+        supplier:
+          type: [string, 'null']
+          description: Supplier display name as recorded on the receipt; null when unknown.
+        ocr_line_count:
+          type: [integer, 'null']
+          minimum: 0
+          description: Number of text lines returned by OCR; null for receipts scanned before migration 1701.
     ReceiptList:
       allOf:
         - $ref: '#/components/schemas/Page'
@@ -3747,6 +3812,10 @@ components:
         archived: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          description: 'Returned on customer list rows. Timestamp of the latest completed sale or debt repayment for this store; null when neither exists.'
     CreateCustomerRequest:
       type: object
       required: [id, name]
@@ -4621,6 +4690,17 @@ components:
           anyOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
+        sales_rate:
+          type: number
+          minimum: 0
+          description: 'Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales.'
+        stock_quantity:
+          type: integer
+          description: Current stock in base units.
+        image_url:
+          type: [string, 'null']
+          format: uri
+          description: 'Short-lived presigned thumbnail URL, or null when no image.'
       description: Suggested base-unit quantity. Cost fields are null when the caller cannot view costs.
     AssistantCard:
       oneOf:

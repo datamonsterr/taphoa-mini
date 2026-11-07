@@ -59,7 +59,7 @@ test('rows show an initial, the debt age and a Quá hạn pill only when overdue
   await seed();
   await renderWithProviders(<DebtBookScreen />);
   const lan = await screen.findByRole('button', { name: /^Chị Lan,/ });
-  expect(within(lan).getByText('C')).toBeOnTheScreen();
+  expect(within(lan).getByText('L')).toBeOnTheScreen();
   expect(within(lan).getByText('0901234567')).toBeOnTheScreen();
   expect(within(lan).getByText('10 ngày')).toBeOnTheScreen();
   expect(within(lan).getByText('Quá hạn')).toBeOnTheScreen();

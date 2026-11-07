@@ -128,3 +128,28 @@ test('the two receipt entry points have distinct tones and targets of at least 5
     [assistant, 1],
   ]);
 });
+
+test('receipt_actions_show_leading_icons', async () => {
+  const review: NextStepChipData = {
+    ...device,
+    action: { type: 'receipt', destination: 'review' },
+  };
+  const assistant: NextStepChipData = {
+    ...device,
+    id: 'receipt_assistant',
+    action: { type: 'receipt', destination: 'assistant' },
+  };
+  await renderWithProviders(
+    <NextStepStrip chips={[review, assistant]} onPress={jest.fn()} />,
+  );
+  expect(
+    within(screen.getByTestId('next-step-chip-receipt_detected')).getByTestId(
+      'receipt-icon',
+    ),
+  ).toBeOnTheScreen();
+  expect(
+    within(screen.getByTestId('next-step-chip-receipt_assistant')).getByTestId(
+      'assistant-icon',
+    ),
+  ).toBeOnTheScreen();
+});

@@ -1,5 +1,5 @@
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
-import { Package } from 'lucide-react-native';
+import { Package } from '@/components/icons';
 import { Image } from 'expo-image';
 import { memo, useCallback, useState } from 'react';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';

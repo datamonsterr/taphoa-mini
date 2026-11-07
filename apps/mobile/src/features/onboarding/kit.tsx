@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ChevronLeft, Focus, type LucideIcon } from 'lucide-react-native';
+import { ChevronLeft, Focus, type LucideIcon } from '@/components/icons';
 import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -41,6 +41,8 @@ type FrameProps = {
   brand?: boolean;
   /** Fills the screen height so a `Spacer` can pin the rest to the bottom. */
   fill?: boolean;
+  /** Applies the welcome board’s top spacing. */
+  welcome?: boolean;
   children: ReactNode;
 };
 
@@ -55,6 +57,7 @@ export function Frame({
   back = true,
   brand = false,
   fill = false,
+  welcome = false,
   children,
 }: FrameProps) {
   const t = useT(strings);
@@ -72,7 +75,10 @@ export function Frame({
           styles.content,
           fill && styles.contentFill,
           {
-            paddingTop: space[4] + insets.top,
+            paddingTop:
+              brand || welcome
+                ? Math.max(insets.top, 47) + (brand ? 33 : 25)
+                : space[4] + insets.top,
             paddingBottom: space[6] + insets.bottom,
           },
         ]}

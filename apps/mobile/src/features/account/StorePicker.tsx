@@ -1,4 +1,4 @@
-import { Check, Store as StoreIcon } from 'lucide-react-native';
+import { Check, Store as StoreIcon } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 

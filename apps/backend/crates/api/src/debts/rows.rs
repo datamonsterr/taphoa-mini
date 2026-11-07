@@ -20,6 +20,8 @@ pub(crate) struct CustomerRow {
     pub request_hash: Vec<u8>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(default)]
+    pub last_activity_at: Option<DateTime<Utc>>,
 }
 impl CustomerRow {
     pub(crate) fn json(&self, today: NaiveDate) -> Value {

@@ -4,7 +4,7 @@ import {
   ChevronRight,
   Package,
   TriangleAlert,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 
 import { Icon, PressableScale, Text } from '@/components/ui';

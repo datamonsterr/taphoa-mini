@@ -854,5 +854,62 @@ class PinClock(unittest.TestCase):
             self.assertNotEqual(self.pin(bad)[0].returncode, 0, bad)
 
 
+class RailwayTestDatabaseMaintenance(unittest.TestCase):
+    def helper(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("it_database", HERE / "it_database.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_selects_only_old_or_legacy_it_databases(self):
+        helper = self.helper()
+        names = ["it_100000_123_1_2", "it_121600_123_1_2", "it_121601_123_1_2",
+                 "it_123_1_2", "it_local_0_42", "it_9999999999_1_1_1", "production", "other_it_1"]
+        self.assertEqual(helper.stale_databases(names, now=143201, max_age_hours=6),
+                         ["it_100000_123_1_2", "it_121600_123_1_2", "it_123_1_2", "it_local_0_42"])
+
+    def test_size_warning_lists_largest_only_above_limit(self):
+        helper = self.helper()
+        sizes = [("small", 10), ("it_large", 90), ("medium", 40)]
+        self.assertIsNone(helper.size_warning(sizes, 140))
+        warning = helper.size_warning(sizes, 139)
+        self.assertIn("::warning::", warning)
+        self.assertIn("140", warning)
+        self.assertLess(warning.index("it_large"), warning.index("medium"))
+        self.assertLess(warning.index("medium"), warning.index("small"))
+
+    def test_maintenance_drops_only_stale_then_checks_sizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "psql")
+            log = pathlib.Path(tmp, "queries")
+            fake.write_text(textwrap.dedent('''\
+                #!/usr/bin/env python3
+                import json, os, sys
+                sql = sys.argv[-1]
+                with open(os.environ["QUERY_LOG"], "a") as f:
+                    f.write(sql + "\\n")
+                if "pg_database_size" in sql:
+                    print(json.dumps([["railway", 200], ["it_recent", 100]]))
+                elif "json_agg" in sql:
+                    print(json.dumps(["railway", "it_legacy", "it_9999999999_1_1_1", 'it_bad"name']))
+            '''))
+            fake.chmod(0o755)
+            out = run(["python3", "-I", str(HERE / "it_database.py")], env={
+                "PATH": tmp + os.pathsep + os.environ["PATH"], "DATABASE_URL": "postgres://unused",
+                "QUERY_LOG": str(log), "IT_DB_SIZE_LIMIT_BYTES": "250", "IT_DB_MAX_AGE_HOURS": "6",
+            })
+            queries = log.read_text()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn('DROP DATABASE "it_legacy" WITH (FORCE)', queries)
+        self.assertIn('DROP DATABASE "it_bad""name" WITH (FORCE)', queries)
+        self.assertNotIn('DROP DATABASE "railway"', queries)
+        self.assertNotIn('DROP DATABASE "it_9999999999_1_1_1"', queries)
+        self.assertLess(queries.index("DROP DATABASE"), queries.index("pg_database_size"))
+        self.assertIn("Dropped stale integration database 'it_legacy'", out.stdout)
+        self.assertIn("::warning::Postgres databases total 300 bytes", out.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

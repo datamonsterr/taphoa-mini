@@ -126,6 +126,27 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
             pool.clone(),
             shutdown_rx.clone(),
         ));
+        if let Some(storage) = state.storage.clone() {
+            background.push(taphoa_api::voice::retention::spawn_donated(
+                pool.clone(),
+                storage,
+                state.voice.config.donated_retention_days,
+                shutdown_rx.clone(),
+            ));
+        } else {
+            match sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM voice_donations)")
+                .fetch_one(&pool)
+                .await
+            {
+                Ok(true) => tracing::warn!(
+                    "donated voice clips cannot be deleted: object storage is not configured"
+                ),
+                Ok(false) => {}
+                Err(_) => {
+                    tracing::warn!("could not check for donated clips while storage is missing")
+                }
+            }
+        }
         if digest_config.enabled {
             background.push(digest_job::spawn(
                 state.clone(),

@@ -8,11 +8,15 @@ import { createAppQueryClient, revalidateRestoredMe } from './persist';
 
 test('a restored `me` is stale again, other restored data keeps its freshness', async () => {
   const qc = new QueryClient();
-  qc.setQueryData(keys.me('user_1'), { memberships: [] });
-  qc.setQueryData(keys.store(), { name: 'Tạp hóa' });
-  await revalidateRestoredMe(qc);
-  expect(qc.getQueryState(keys.me('user_1'))?.isInvalidated).toBe(true);
-  expect(qc.getQueryState(keys.store())?.isInvalidated).toBe(false);
+  try {
+    qc.setQueryData(keys.me('user_1'), { memberships: [] });
+    qc.setQueryData(keys.store(), { name: 'Tạp hóa' });
+    await revalidateRestoredMe(qc);
+    expect(qc.getQueryState(keys.me('user_1'))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(keys.store())?.isInvalidated).toBe(false);
+  } finally {
+    qc.clear();
+  }
 });
 
 test('a 404 query fails at once; a 500 is retried', async () => {

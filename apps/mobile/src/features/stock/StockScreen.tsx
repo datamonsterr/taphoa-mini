@@ -2,7 +2,7 @@ import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { ChevronLeft, TriangleAlert } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, TriangleAlert } from '@/components/icons';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,16 +15,19 @@ import { assistantHref } from '@/features/assistant/route';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
 import { fill, useT } from '@/lib/i18n';
 import { colors, radius, space, typography } from '@/theme';
+import { useSettingsStore } from '@/stores/settings';
 
 import { StockSegment } from './StockSegment';
-import { strings } from './strings';
+import { formatDailyRate, strings } from './strings';
 
 const FILTERS = ['all', 'low', 'out', 'ok'] as const;
 
 export function StockScreen() {
   const t = useT(strings);
+  const language = useSettingsStore((state) => state.language);
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<StockStatus>('all');
+  const [filterOpen, setFilterOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const stock = useStock(status);
   // After the list's own query, so the list is the first request on screen.
@@ -48,26 +51,54 @@ export function StockScreen() {
         <Text accessibilityRole="header" style={styles.title}>
           {t('stock')}
         </Text>
+        <View style={styles.filterContainer}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('filter')}
+            accessibilityValue={{ text: t(status) }}
+            accessibilityState={{ expanded: filterOpen }}
+            onPress={() => setFilterOpen(!filterOpen)}
+            style={styles.select}
+          >
+            <Text style={styles.label}>{t(status)}</Text>
+            <Icon icon={ChevronDown} color={colors.ink} />
+          </PressableScale>
+          {filterOpen ? (
+            <View
+              accessibilityRole="radiogroup"
+              accessibilityLabel={t('filter')}
+              style={styles.options}
+            >
+              {FILTERS.map((filter) => (
+                <PressableScale
+                  key={filter}
+                  accessibilityRole="radio"
+                  accessibilityLabel={t(filter)}
+                  accessibilityState={{
+                    checked: status === filter,
+                    selected: status === filter,
+                  }}
+                  onPress={() => {
+                    setStatus(filter);
+                    setFilterOpen(false);
+                  }}
+                  style={[styles.option, status === filter && styles.chipOn]}
+                >
+                  <Text
+                    style={[
+                      styles.label,
+                      status === filter && styles.chipTextOn,
+                    ]}
+                  >
+                    {t(filter)}
+                  </Text>
+                </PressableScale>
+              ))}
+            </View>
+          ) : null}
+        </View>
       </View>
       <StockSegment selected="stock" />
-      <View style={styles.filters}>
-        {FILTERS.map((filter) => (
-          <PressableScale
-            key={filter}
-            accessibilityRole="button"
-            accessibilityLabel={t(filter)}
-            accessibilityState={{ selected: status === filter }}
-            onPress={() => setStatus(filter)}
-            style={[styles.chip, status === filter && styles.chipOn]}
-          >
-            <Text
-              style={[styles.label, status === filter && styles.chipTextOn]}
-            >
-              {t(filter)}
-            </Text>
-          </PressableScale>
-        ))}
-      </View>
       {stock.isError || (!stock.data && stock.fetchStatus === 'paused') ? (
         <View
           testID={stock.isError ? 'stock-error' : 'stock-offline'}
@@ -136,7 +167,16 @@ export function StockScreen() {
                   {item.name ?? t('unnamed')}
                 </Text>
                 <Text style={styles.caption}>
-                  {fill(t('threshold'), { n: item.low_stock_threshold })}
+                  {[
+                    fill(t('threshold'), { n: item.low_stock_threshold }),
+                    ...(item.sales_rate
+                      ? [
+                          fill(t('dailyRate'), {
+                            rate: formatDailyRate(item.sales_rate, language),
+                          }),
+                        ]
+                      : []),
+                  ].join(' · ')}
                 </Text>
               </View>
               <StockBadge quantity={item.stock_quantity} status={item.status} />
@@ -189,13 +229,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[3],
     paddingHorizontal: space[4],
+    zIndex: 2,
   },
   title: { ...typography.title, color: colors.ink, flex: 1 },
-  filters: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space[2],
+  filterContainer: { position: 'relative' },
+  select: {
+    minHeight: 48,
+    maxWidth: 150,
     paddingHorizontal: space[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
+  },
+  options: {
+    position: 'absolute',
+    right: 0,
+    top: 52,
+    minWidth: 150,
+    padding: space[2],
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSoft,
+    zIndex: 2,
+    elevation: 4,
+  },
+  option: {
+    minHeight: 48,
+    paddingHorizontal: space[3],
+    justifyContent: 'center',
+    borderRadius: radius.md,
   },
   chip: {
     minHeight: 56,

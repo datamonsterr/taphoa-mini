@@ -12,7 +12,7 @@ import {
   Trash2,
   X,
   ZoomIn,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { onlineManager } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import {
@@ -295,8 +295,19 @@ function Review({ receipt }: { receipt: Receipt }) {
           </Text>
           <Text accessibilityLiveRegion="polite" style={styles.meta}>
             {summary
-              ? `${formatDayMonth(businessDate(receipt.created_at))} · ${t(receipt.status).toLocaleLowerCase()}`
-              : fill(t('fixCount'), { count: lines.length, fixes })}
+              ? [
+                  receipt.supplier,
+                  formatDayMonth(businessDate(receipt.created_at)),
+                  t(receipt.status).toLocaleLowerCase(),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : [
+                  receipt.supplier,
+                  fill(t('fixCount'), { count: lines.length, fixes }),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </Text>
         </View>
         {assistant ? (
@@ -341,7 +352,9 @@ function Review({ receipt }: { receipt: Receipt }) {
             numberOfLines={1}
             style={[styles.photoLabel, summary && styles.photoLabelCentre]}
           >
-            {t('photo')}
+            {!summary && receipt.ocr_line_count != null
+              ? fill(t('photoLines'), { count: receipt.ocr_line_count })
+              : t('photo')}
           </Text>
           {summary ? null : <Icon icon={ZoomIn} color={colors.cameraMuted} />}
         </PressableScale>

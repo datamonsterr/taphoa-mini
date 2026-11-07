@@ -10,7 +10,7 @@ import {
   Landmark,
   Undo2,
   UserRound,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -52,7 +52,7 @@ import { applyKey } from '@/components/ui/keypad';
 import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
 import { bankLabel } from '@/lib/banks';
-import { initialOf } from '../account/utils';
+import { formatCustomerPhone, initialOf } from '../debts/customerRow';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
 import { useSpokenTotal } from './speak';
@@ -318,7 +318,12 @@ export function PayScreen() {
         labels={toggle}
       />
 
-      <MoneyText amount={total} variant="total" style={styles.total} />
+      <MoneyText
+        testID="pay-total"
+        amount={total}
+        variant="total"
+        style={styles.total}
+      />
 
       {method === 'credit' ? (
         <View style={styles.cashCard}>
@@ -353,7 +358,9 @@ export function PayScreen() {
                     })}
                   </Text>
                   {customer.phone ? (
-                    <Text style={styles.caption}>{customer.phone}</Text>
+                    <Text style={styles.caption}>
+                      {formatCustomerPhone(customer.phone)}
+                    </Text>
                   ) : null}
                 </>
               ) : null}
@@ -675,7 +682,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[3],
   },
-  total: { textAlign: 'center' },
+  total: { textAlign: 'center', flexShrink: 0 },
   qrCard: {
     alignItems: 'center',
     gap: space[3],
@@ -760,9 +767,8 @@ const styles = StyleSheet.create({
     paddingTop: space[2],
     paddingRight: space[2],
   },
-  // The cell (not the item) is the 25% column: a percentage inside a shrink-wrapped parent
-  // collapsed to the content width and cut the photo and price.
-  cell: { width: '25%' },
+  // Give unit choices enough width to keep their labels on one line.
+  cell: { width: '50%' },
   item: { width: '100%', alignItems: 'center', gap: space[1] },
   qtyBadge: {
     position: 'absolute',

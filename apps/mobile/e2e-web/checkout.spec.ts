@@ -69,6 +69,31 @@ test.describe('cart sheet', () => {
   });
 });
 
+test('pay total remains fully visible with a populated cart', async ({
+  page,
+  store,
+}) => {
+  await store.api.setBank();
+  const coca = await seedScannableProduct(store.api, COCA);
+  await openCamera(page);
+  await scanAndAdd(page, coca);
+  await cartPill(page).click();
+  await button(page, 'Hiện mã QR thanh toán').click();
+  const total = page.getByTestId('pay-total');
+  const qr = page.getByRole('img', { name: 'Mã VietQR 10.000đ' }).locator('..');
+  const metrics = await total.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      height: rect.height,
+      lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+      bottom: rect.bottom,
+    };
+  });
+  const qrBox = await qr.boundingBox();
+  expect(metrics.height).toBeGreaterThanOrEqual(metrics.lineHeight);
+  expect(metrics.bottom).toBeLessThanOrEqual(qrBox!.y);
+});
+
 test.describe('checkout and payment', () => {
   test('transfer: the QR shows the store bank; "Đã nhận tiền" posts the sale and the dashboard counts it', async ({
     page,

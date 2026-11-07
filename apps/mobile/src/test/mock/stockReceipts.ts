@@ -40,6 +40,7 @@ export function listStock(status = 'all'): StockItem[] {
       name: p.name ?? null,
       image_url: p.images[0]?.url ?? null,
       stock_quantity: p.stock_quantity,
+      sales_rate: 0,
       low_stock_threshold:
         p.low_stock_threshold ?? getMockDb().store.low_stock_threshold,
       status: stockStatus(p),
@@ -185,6 +186,8 @@ export function createReceipt(imageId: unknown): Receipt {
     image_url: image.url,
     status: 'draft',
     total: 456000,
+    supplier: null,
+    ocr_line_count: null,
     parser: 'decisions',
     model: 'inception/mercury-decide:free',
     lines,
@@ -212,6 +215,8 @@ export function listReceipts(status: string | null): ReceiptSummary[] {
       created_at: r.created_at,
       confirmed_at: r.confirmed_at,
       expense_id: r.expense_id,
+      supplier: r.supplier ?? null,
+      ocr_line_count: r.ocr_line_count ?? null,
     }));
 }
 

@@ -1,5 +1,5 @@
 import { router, type Href } from 'expo-router';
-import { TriangleAlert, X } from 'lucide-react-native';
+import { TriangleAlert, X } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 

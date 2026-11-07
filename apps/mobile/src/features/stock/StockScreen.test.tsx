@@ -55,17 +55,34 @@ test('rows follow board 18: name, threshold under it, count badge at the right, 
     '0',
   );
   expect(within(row).queryByText('Hết hàng')).toBeNull();
-  // the board has no "bán n/ngày": the API has no sales rate
+  // A zero daily rate is omitted.
   expect(screen.queryByText(/bán \d+\/ngày/)).toBeNull();
+});
+
+test('stock daily rate', async () => {
+  const page = await stockApi.listStock();
+  jest.spyOn(stockApi, 'listStock').mockResolvedValue({
+    ...page,
+    items: page.items.map((item, index) => ({
+      ...item,
+      low_stock_threshold: 5,
+      sales_rate: [6, 0.26, 0][index],
+    })),
+  });
+  await renderWithProviders(<StockScreen />);
+  expect(await screen.findByText('Ngưỡng 5 · bán 6/ngày')).toBeOnTheScreen();
+  expect(screen.getByText('Ngưỡng 5 · bán 0,3/ngày')).toBeOnTheScreen();
+  expect(screen.getByText('Ngưỡng 5')).toBeOnTheScreen();
 });
 
 test('four filters, the last one asks the API for in-stock products', async () => {
   const list = jest.spyOn(stockApi, 'listStock');
   await renderWithProviders(<StockScreen />);
   await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' });
+  await fireEvent.press(screen.getByRole('button', { name: 'Lọc tồn kho' }));
   for (const name of ['Tất cả', 'Sắp hết', 'Hết hàng', 'Còn hàng'])
-    expect(screen.getByRole('button', { name })).toBeOnTheScreen();
-  await fireEvent.press(screen.getByRole('button', { name: 'Còn hàng' }));
+    expect(screen.getByRole('radio', { name })).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('radio', { name: 'Còn hàng' }));
   await waitFor(() =>
     expect(list).toHaveBeenLastCalledWith({ status: 'ok', cursor: null }),
   );
@@ -105,7 +122,8 @@ test('filter chips request low, out and all statuses', async () => {
   const list = jest.spyOn(stockApi, 'listStock');
   await renderWithProviders(<StockScreen />);
   await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' });
-  await fireEvent.press(screen.getByRole('button', { name: 'Sắp hết' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Lọc tồn kho' }));
+  await fireEvent.press(screen.getByRole('radio', { name: 'Sắp hết' }));
   await waitFor(() =>
     expect(list).toHaveBeenLastCalledWith({ status: 'low', cursor: null }),
   );
@@ -115,12 +133,14 @@ test('filter chips request low, out and all statuses', async () => {
   expect(
     screen.queryByRole('button', { name: 'Coca-Cola lon 330ml' }),
   ).toBeNull();
-  await fireEvent.press(screen.getByRole('button', { name: 'Hết hàng' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Lọc tồn kho' }));
+  await fireEvent.press(screen.getByRole('radio', { name: 'Hết hàng' }));
   expect(
     await screen.findByRole('button', { name: 'Pepsi lon 330ml' }),
   ).toBeOnTheScreen();
   expect(list).toHaveBeenLastCalledWith({ status: 'out', cursor: null });
-  await fireEvent.press(screen.getByRole('button', { name: 'Tất cả' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Lọc tồn kho' }));
+  await fireEvent.press(screen.getByRole('radio', { name: 'Tất cả' }));
   expect(
     await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' }),
   ).toBeOnTheScreen();
@@ -199,4 +219,20 @@ test('offline with nothing cached says so with a retry instead of a spinner (#24
     await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' }),
   ).toBeOnTheScreen();
   expect(screen.queryByTestId('stock-offline')).toBeNull();
+});
+
+test('stock filter placement', async () => {
+  await renderWithProviders(<StockScreen />);
+  const header = screen.getByRole('header', { name: 'Tồn kho' }).parent!;
+  const select = within(header).getByRole('button', { name: 'Lọc tồn kho' });
+  expect(select).toBeOnTheScreen();
+  await fireEvent.press(select);
+  for (const name of ['Tất cả', 'Sắp hết', 'Hết hàng', 'Còn hàng']) {
+    expect(screen.getByRole('radio', { name })).toBeOnTheScreen();
+  }
+  expect(screen.getByRole('radio', { name: 'Tất cả' })).toBeChecked();
+  await fireEvent.press(screen.getByRole('radio', { name: 'Sắp hết' }));
+  expect(select).toHaveAccessibilityValue({ text: 'Sắp hết' });
+  await fireEvent.press(select);
+  expect(screen.getByRole('radio', { name: 'Sắp hết' })).toBeChecked();
 });

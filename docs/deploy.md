@@ -1,17 +1,19 @@
 # Deploying the backend
 
-Railway project `taphoa-mini` has two environments: `production` runs four services,
+Railway project `taphoa-mini` has two environments: `production` runs five services,
 and `test` runs the three application services with its own data. The telemetry
-collector runs only in production and receives signals from both environments.
+collector and the `landing` marketing page run only in production; the collector receives
+signals from both environments.
 Mobile native builds and the web deploy stay in `apps/mobile/.eas/workflows/`; mobile is
 not a Railway service.
 
-| Service          | Source and configuration                                                                                  |
-| ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `backend`        | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile`             |
-| `Postgres`       | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`                         |
-| `Redis`          | Railway Redis database with volume at `/data`                                                             |
-| `otel-collector` | Production only; root upload, Dockerfile `infra/otel-collector/Dockerfile`, public/private OTLP port 4318 |
+| Service          | Source and configuration                                                                                                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend`        | Uploaded with `railway up` from the repository **root**; Dockerfile `apps/backend/Dockerfile`                                                                                                                        |
+| `Postgres`       | Image `pgvector/pgvector:0.8.7-pg18-trixie`, volume at `/var/lib/postgresql/data`                                                                                                                                    |
+| `Redis`          | Railway Redis database with volume at `/data`                                                                                                                                                                        |
+| `otel-collector` | Production only; root upload, Dockerfile `infra/otel-collector/Dockerfile`, public/private OTLP port 4318                                                                                                            |
+| `landing`        | Production only; GitHub `main` (`apps/landing/**`), Dockerfile `apps/landing/Dockerfile` (Caddy serving `dist/`), CDN on, no sleep. Hosting decision: [ADR 0010](adr/0010-landing-static-site.md#hosting-2026-11-03) |
 
 ## Infrastructure as Code
 
@@ -421,9 +423,19 @@ cancels older pending runs, which kept cancelling branch validations. Instead it
 `.github/workflows/railway-integration.yml`
 runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
 (manual, nightly 20:17 UTC and on backend changes to `main`) via
-`scripts/ci/with-railway-test-services.sh`: a throwaway database `it_<run>` is created and
-dropped per run, Redis logical database 15 is flushed afterwards, and the bucket is shared
-and append-only.
+`scripts/ci/with-railway-test-services.sh`: a throwaway database
+`it_<epoch>_<run>_<attempt>_<pid>` is created and dropped per run, Redis logical database
+15 is flushed afterwards, and the bucket is shared and append-only. Before creating a database,
+the script force-drops `it_` databases older than six hours (configurable with
+`IT_DB_MAX_AGE_HOURS`) and all legacy `it_` names without a timestamp. It logs each drop
+and warns when the total `pg_database_size` exceeds 3.5 GB (3,500,000,000 bytes;
+`IT_DB_SIZE_LIMIT_BYTES`), listing the largest databases. This sum does not include all
+volume usage, such as WAL. Set the age limit longer than any expected integration run.
+
+If the volume is full and Postgres cannot start, grow the test Postgres volume first; once
+Postgres is running, the next integration run will clean up stale databases. Alternatively,
+when Postgres is available, manually drop abandoned `it_` databases with
+`DROP DATABASE "<name>" WITH (FORCE)`; leave other databases and active runs alone.
 
 ### GitHub configuration for the test environment
 
@@ -459,9 +471,9 @@ the CI gate. Infrastructure changes go through `railway config plan/apply`, not 
 the workflow emits a `::notice::` and skips the Railway CLI install, `railway up` and
 the smoke test, so `main` stays green before the secret exists.
 
-**Post-deploy smoke.** After `railway up`, if the repository **variable** `BACKEND_URL`
-(for example `https://backend-production.up.railway.app`, no trailing path) is set, the
-workflow runs `curl` against `$BACKEND_URL/healthz` and `$BACKEND_URL/readyz`, expecting
+**Post-deploy smoke.** The repository **variable** `BACKEND_URL` is set to
+`https://backend-production-5f5c.up.railway.app` (no trailing path). After `railway up`,
+the workflow runs `curl` against `$BACKEND_URL/healthz` and `$BACKEND_URL/readyz`, expecting
 HTTP 200, retrying every 10 seconds for up to 30 attempts per endpoint. The job fails if
 either never answers 200. Without `BACKEND_URL` this step is skipped with a notice.
 Set it under Settings > Secrets and variables > Actions > Variables.

@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/v1/waitlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join the marketing waitlist
+         * @description Trims and lowercases the email. Repeated signups receive the same response. Limited to 10 requests per client IP per minute.
+         */
+        post: operations["signupWaitlist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -1547,6 +1567,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        WaitlistRequest: {
+            /** @description Email address up to 254 characters after normalization. */
+            email: string;
+        };
+        WaitlistResponse: {
+            /** @enum {string} */
+            status: "ok";
+        };
         Error: {
             /** @description Human-readable message (English; the app localizes by `code`). */
             error: string;
@@ -2099,6 +2127,8 @@ export interface components {
             status: "ok" | "low" | "out" | "untracked";
             /** Format: date-time */
             updated_at: string;
+            /** @description Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales. */
+            sales_rate?: number;
         };
         StockList: components["schemas"]["Page"] & {
             items?: components["schemas"]["StockItem"][];
@@ -2191,6 +2221,10 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             confirmed_at: string | null;
+            /** @description Supplier display name as recorded on the receipt; null when unknown. */
+            supplier?: string | null;
+            /** @description Number of text lines returned by OCR; null for receipts scanned before migration 1701. */
+            ocr_line_count?: number | null;
         };
         ReceiptSummary: {
             /** Format: uuid */
@@ -2211,6 +2245,10 @@ export interface components {
             confirmed_at: string | null;
             /** Format: uuid */
             expense_id: string | null;
+            /** @description Supplier display name as recorded on the receipt; null when unknown. */
+            supplier?: string | null;
+            /** @description Number of text lines returned by OCR; null for receipts scanned before migration 1701. */
+            ocr_line_count?: number | null;
         };
         ReceiptList: components["schemas"]["Page"] & {
             items?: components["schemas"]["ReceiptSummary"][];
@@ -2284,6 +2322,11 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /**
+             * Format: date-time
+             * @description Returned on customer list rows. Timestamp of the latest completed sale or debt repayment for this store; null when neither exists.
+             */
+            last_activity_at?: string | null;
         };
         CreateCustomerRequest: {
             /**
@@ -2797,6 +2840,15 @@ export interface components {
             quantity: number;
             unit_cost: components["schemas"]["Money"] | null;
             total_cost: components["schemas"]["Money"] | null;
+            /** @description Base-unit sales per day over the last 14 days (store-scoped, voided excluded). Zero when no qualifying sales. */
+            sales_rate?: number;
+            /** @description Current stock in base units. */
+            stock_quantity?: number;
+            /**
+             * Format: uri
+             * @description Short-lived presigned thumbnail URL, or null when no image.
+             */
+            image_url?: string | null;
         };
         AssistantCard: {
             /** @constant */
@@ -3144,6 +3196,41 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    signupWaitlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistRequest"];
+            };
+        };
+        responses: {
+            /** @description Signup accepted, including repeat signups. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WaitlistResponse"];
+                };
+            };
+            /** @description Invalid email or JSON body (code `invalid_email`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -5927,6 +6014,11 @@ export interface operations {
                      * @enum {string}
                      */
                     language?: "vi" | "en";
+                    /**
+                     * @description The member opted in (Tai khoan, voice donation) to keep this clip for the golden set under voice/<store>/<uuid>.m4a. Without it the audio is discarded after the call.
+                     * @default false
+                     */
+                    donate?: boolean;
                     /** @description JSON string of VoiceUtteranceContext: {"entry","screen","thread_id?"}. */
                     context?: string;
                 };

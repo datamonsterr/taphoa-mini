@@ -4,7 +4,7 @@ import {
   Boxes,
   ChevronLeft,
   Pencil,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { memo, useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
@@ -295,22 +295,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  /** Board 09: name and price share one line and wrap only when the name is long. */
-  titleRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'baseline',
-    columnGap: space[3],
-  },
+  titleRow: { flexDirection: 'column', gap: space[1] },
   name: { ...typography.heading, flexShrink: 1, color: colors.ink },
   price: { flexShrink: 0 },
   saveError: { ...typography.caption, color: colors.danger },
   stats: { flexDirection: 'row', gap: space[3] },
-  /** Board 09: two equal chips, icon and figure on one row. */
+  /** Board 09: equal cards stack icon above figure. */
   stat: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    height: 102,
     gap: space[2],
     padding: space[4],
     borderRadius: radius.lg,

@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { Modal, View } from 'react-native';
+import { ChevronDown } from '@/components/icons';
+import { Icon } from '@/components/ui/Icon';
+import { colors, space } from '@/theme';
 import { Sheet, Text, PressableScale } from '@/components/ui';
 import { exportTransactions } from '@/lib/api/salesActions';
 import { businessDate, startOfMonth, isDateString } from '@/lib/date';
@@ -14,6 +17,7 @@ export function ExportSheet({ onClose }: { onClose: () => void }) {
   const [from, setFrom] = useState(startOfMonth(today));
   const [to, setTo] = useState(today);
   const [format, setFormat] = useState<'csv' | 'xlsx'>('csv');
+  const [formatOpen, setFormatOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const valid = isDateString(from) && isDateString(to) && from <= to;
@@ -76,27 +80,44 @@ export function ExportSheet({ onClose }: { onClose: () => void }) {
             {t('invalidRange')}
           </Text>
         ) : null}
-        <View
-          accessibilityRole="radiogroup"
-          accessibilityLabel={t('format')}
-          style={{ gap: 8 }}
-        >
-          {(['csv', 'xlsx'] as const).map((value) => (
-            <PressableScale
-              key={value}
-              accessibilityRole="radio"
-              accessibilityLabel={value.toUpperCase()}
-              accessibilityState={{ checked: format === value, disabled: busy }}
-              disabled={busy}
-              onPress={() => setFormat(value)}
-              style={styles.card}
-            >
-              <Text>
-                {format === value ? '● ' : '○ '}
-                {value.toUpperCase()}
-              </Text>
-            </PressableScale>
-          ))}
+        <View style={{ gap: space[2] }}>
+          <Text style={styles.label}>{t('format')}</Text>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('format')}
+            accessibilityState={{ expanded: formatOpen, disabled: busy }}
+            accessibilityValue={{ text: t(format) }}
+            disabled={busy}
+            onPress={() => setFormatOpen(!formatOpen)}
+            style={[
+              styles.input,
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              },
+            ]}
+          >
+            <Text>{t(format)}</Text>
+            <Icon icon={ChevronDown} color={colors.ink} />
+          </PressableScale>
+          {formatOpen
+            ? (['csv', 'xlsx'] as const).map((value) => (
+                <PressableScale
+                  key={value}
+                  accessibilityRole="radio"
+                  accessibilityLabel={t(value)}
+                  accessibilityState={{ checked: format === value }}
+                  onPress={() => {
+                    setFormat(value);
+                    setFormatOpen(false);
+                  }}
+                  style={styles.card}
+                >
+                  <Text>{t(value)}</Text>
+                </PressableScale>
+              ))
+            : null}
         </View>
         {failed ? (
           <Text accessibilityRole="alert" style={styles.error}>

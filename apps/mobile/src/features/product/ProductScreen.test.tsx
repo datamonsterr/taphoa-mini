@@ -82,13 +82,13 @@ test('shows name, price, cost and a derived description', async () => {
   });
 });
 
-test('board 09: name and price share a row; stock and cost are two equal chips', async () => {
+test('board 09: name and price stack; stock and cost are two equal cards', async () => {
   await renderProduct();
   const heading = await screen.findByRole('header', {
     name: 'Coca-Cola lon 330ml',
   });
   const row = flat(heading.parent!);
-  expect(row).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
+  expect(row).toMatchObject({ flexDirection: 'column' });
   expect(within(heading.parent!).getByText('10.000đ')).toBeOnTheScreen();
   const stock = screen.getByLabelText('Tồn kho 20, Còn hàng');
   const cost = screen.getByLabelText('Giá nhập 7.500đ');
@@ -640,4 +640,18 @@ test('product edit preserves a duplicate code and allows correction after 409', 
       barcode: '12345678',
     }),
   );
+});
+
+test('product board hierarchy', async () => {
+  await renderProduct();
+  const title = await screen.findByRole('header', {
+    name: 'Coca-Cola lon 330ml',
+  });
+  expect(flat(title.parent!)).toMatchObject({ flexDirection: 'column' });
+  for (const label of ['Tồn kho 20, Còn hàng', 'Giá nhập 7.500đ']) {
+    expect(flat(screen.getByLabelText(label))).toMatchObject({
+      flexDirection: 'column',
+      height: 102,
+    });
+  }
 });

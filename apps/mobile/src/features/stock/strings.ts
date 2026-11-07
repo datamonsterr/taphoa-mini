@@ -3,12 +3,14 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     stock: 'Tồn kho',
+    filter: 'Lọc tồn kho',
     products: 'Sản phẩm',
     all: 'Tất cả',
     low: 'Sắp hết',
     out: 'Hết hàng',
     ok: 'Còn hàng',
     threshold: 'Ngưỡng {n}',
+    dailyRate: 'bán {rate}/ngày',
     summary: '{count} món sắp hết hoặc hết',
     restock: 'Nhập hàng',
     restockPrompt: 'Tôi nên nhập thêm hàng gì?',
@@ -23,12 +25,14 @@ export const strings: Dict = {
   },
   en: {
     stock: 'Stock',
+    filter: 'Filter stock',
     products: 'Products',
     all: 'All',
     low: 'Low stock',
     out: 'Out of stock',
     ok: 'In stock',
     threshold: 'Threshold {n}',
+    dailyRate: 'sell {rate}/day',
     summary: '{count} items low or out',
     restock: 'Restock',
     restockPrompt: 'What should I restock?',
@@ -42,3 +46,11 @@ export const strings: Dict = {
     back: 'Back',
   },
 };
+
+// Rates at least one are rounded to an integer; smaller rates to one decimal.
+// A zero or missing rate is omitted.
+export function formatDailyRate(rate: number, language: 'vi' | 'en'): string {
+  return rate.toLocaleString(language, {
+    maximumFractionDigits: rate >= 1 ? 0 : 1,
+  });
+}

@@ -1,0 +1,34 @@
+# Serves the static build in /srv. Built by apps/landing/Dockerfile; run locally with
+# `docker run -e PORT=8080 -p 8080:8080 landing`. Railway injects PORT.
+{
+	auto_https off
+	admin off
+}
+
+:{$PORT:8080} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Everything not matched below: an hour, then revalidate. The `?` default applies only when
+	# the matchers below did not set Cache-Control. Plain `header` runs after them and overrides.
+	header ?Cache-Control "public, max-age=3600"
+
+	# Entry points revalidate on every visit. file_server sends ETag and Last-Modified.
+	@html path / *.html
+	header @html Cache-Control "no-cache"
+
+	# Content-hashed names (scripts/build.mjs) change whenever their bytes change.
+	@hashed path_regexp hashed "[.][0-9a-f]{8}[.][A-Za-z0-9]+$"
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	respond /healthz 200
+
+	root * /srv
+	# No SPA fallback: unknown paths return 404.
+	file_server
+}
