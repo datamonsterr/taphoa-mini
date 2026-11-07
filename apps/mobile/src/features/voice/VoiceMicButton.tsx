@@ -13,6 +13,7 @@ export type VoiceMicButtonProps = {
   /** `hold`: record while pressed (in the app). `toggle`: tap to start, tap to stop. */
   mode: 'hold' | 'toggle';
   listening: boolean;
+  accent?: boolean;
   disabled?: boolean;
   /** Overrides the default "say more items" label. */
   label?: string;
@@ -28,6 +29,7 @@ export type VoiceMicButtonProps = {
 export const VoiceMicButton = memo(function VoiceMicButton({
   mode,
   listening,
+  accent = false,
   disabled = false,
   label,
   onStart,
@@ -69,11 +71,15 @@ export const VoiceMicButton = memo(function VoiceMicButton({
       accessibilityState={{ disabled, busy: listening }}
       disabled={disabled}
       {...press}
-      style={[styles.button, listening && styles.on, disabled && styles.off]}
+      style={[
+        styles.button,
+        (listening || accent) && styles.on,
+        disabled && styles.off,
+      ]}
     >
       <Icon
         icon={listening && toggles ? Square : Mic}
-        color={listening ? colors.onAccent : colors.ink}
+        color={listening || accent ? colors.onAccent : colors.ink}
       />
     </PressableScale>
   );

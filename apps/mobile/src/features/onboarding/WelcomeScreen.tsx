@@ -42,6 +42,7 @@ export function WelcomeScreen() {
       title={t('welcome.title')}
       subtitle={t('welcome.subtitle')}
       back={false}
+      welcome
       fill
     >
       <Illustration />
