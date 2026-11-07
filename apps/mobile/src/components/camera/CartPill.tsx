@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
 import { formatVnd } from '@/lib/format';
+import { useSettingsStore } from '@/stores/settings';
 import { camera, colors, radius, size, space } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
@@ -23,6 +24,7 @@ export const CartPill = memo(function CartPill({
   onPress,
   light = false,
 }: Props) {
+  const elderMode = useSettingsStore((state) => state.elderMode);
   const money = formatVnd(total);
   const empty = count === 0;
   const label =
@@ -33,7 +35,11 @@ export const CartPill = memo(function CartPill({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={[styles.pill, light && styles.pillLight]}
+      style={[
+        styles.pill,
+        light && styles.pillLight,
+        elderMode && styles.elderPill,
+      ]}
     >
       {empty ? (
         <>
@@ -52,7 +58,9 @@ export const CartPill = memo(function CartPill({
               </Text>
             </View>
           </View>
-          <Text style={styles.total}>{money}</Text>
+          <Text style={[styles.total, elderMode && styles.elderTotal]}>
+            {money}
+          </Text>
         </>
       )}
     </Pressable>
@@ -71,6 +79,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: camera.glass,
   },
+  elderPill: { height: size.tapXl },
+  elderTotal: { fontSize: 24 },
   cart: {
     width: 32,
     height: 32,
