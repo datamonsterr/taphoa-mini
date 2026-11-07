@@ -1478,6 +1478,15 @@ async fn donated_clip_is_kept_only_with_the_opt_in() {
         .await
         .unwrap();
     assert!(donated);
+    let registered: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM voice_donations WHERE utterance_id=$1 AND store_id=$2)",
+    )
+    .bind(id.parse::<Uuid>().unwrap())
+    .bind(w.store_id)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert!(registered);
     // A malformed flag is a 400.
     let bad = [("mode", "sale"), ("donate", "maybe")];
     let r = upload_with(&w, &w.seller, Some(&clip()), &bad, &[]).await;
