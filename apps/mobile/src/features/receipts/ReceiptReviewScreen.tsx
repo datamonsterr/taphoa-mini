@@ -12,7 +12,7 @@ import {
   Trash2,
   X,
   ZoomIn,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { onlineManager } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import {

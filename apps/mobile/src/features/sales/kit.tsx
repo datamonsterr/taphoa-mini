@@ -8,7 +8,7 @@ import {
   type TextInputProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft } from '@/components/icons';
 import { CircleButton, PressableScale, Text } from '@/components/ui';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 

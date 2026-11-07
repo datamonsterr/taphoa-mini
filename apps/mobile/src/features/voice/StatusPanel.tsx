@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { CircleButton, PressableScale, Text } from '@/components/ui';
-import { ChevronDown } from 'lucide-react-native';
+import { ChevronDown } from '@/components/icons';
 import { colors, radius, size, space, typography } from '@/theme';
 
 export type StatusAction = {

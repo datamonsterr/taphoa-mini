@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Plus, Smartphone } from 'lucide-react-native';
+import { Check, ChevronRight, Plus, Smartphone } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 

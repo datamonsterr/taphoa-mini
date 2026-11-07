@@ -1,5 +1,5 @@
 import { FlashList } from '@shopify/flash-list';
-import { Search, X } from 'lucide-react-native';
+import { Search, X } from '@/components/icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';

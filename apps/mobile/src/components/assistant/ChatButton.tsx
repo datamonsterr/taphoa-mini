@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { MessageCircleText } from 'lucide-react-native';
+import { MessageCircleText } from '@/components/icons';
 import { memo, useCallback } from 'react';
 
 import { CircleButton } from '@/components/ui/CircleButton';

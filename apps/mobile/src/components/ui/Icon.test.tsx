@@ -1,11 +1,11 @@
-import { Camera } from 'lucide-react-native';
+import { Camera } from '@/components/icons';
 
 import { colors } from '@/theme';
 import { renderWithProviders } from '@/test/render';
 
 import { Icon } from './Icon';
 
-jest.mock('lucide-react-native', () => ({
+jest.mock('@/components/icons', () => ({
   Camera: jest.fn(() => null),
 }));
 

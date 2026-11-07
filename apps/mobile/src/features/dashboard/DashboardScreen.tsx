@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Plus, SquareCheck } from 'lucide-react-native';
+import { Plus, SquareCheck } from '@/components/icons';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

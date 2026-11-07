@@ -1,4 +1,4 @@
-import { Pencil } from 'lucide-react-native';
+import { Pencil } from '@/components/icons';
 import { fireEvent, screen } from '@testing-library/react-native';
 
 import { renderWithProviders } from '@/test/render';

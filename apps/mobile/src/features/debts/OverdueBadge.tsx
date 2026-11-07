@@ -1,4 +1,4 @@
-import { Clock } from 'lucide-react-native';
+import { Clock } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 
 import { Icon, Text } from '@/components/ui';
