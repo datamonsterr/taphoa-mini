@@ -3,7 +3,7 @@
 # through their public TCP proxies, isolated per run and cleaned up afterwards.
 #   with-railway-test-services.sh <command> [args...]
 # Needs RAILWAY_TOKEN (project token for `test`) or a linked CLI, plus psql on PATH.
-# Isolation: a throwaway database `it_<run>` on the shared Postgres (dropped on exit)
+# Isolation: a throwaway database `it_<epoch>_<run>_<attempt>_<pid>` on the shared Postgres (dropped on exit)
 # and Redis logical database IT_REDIS_DB (default 15, flushed on exit). The bucket is shared and append-only;
 # tests must use unique object keys.
 set -euo pipefail
@@ -22,7 +22,7 @@ done < <(python3 -I "$here/railway_env.py" "$environment")
 
 admin_url="$DATABASE_URL"
 run_id="${GITHUB_RUN_ID:-local}_${GITHUB_RUN_ATTEMPT:-0}_$$"
-db_name="it_${run_id}"
+db_name="it_$(date +%s)_${run_id}"
 redis_db="${IT_REDIS_DB:-15}"
 redis_base="$REDIS_URL"
 
@@ -35,6 +35,7 @@ cleanup() {
   fi
   exit "$status"
 }
+python3 -I "$here/it_database.py"
 trap cleanup EXIT
 
 psql "$admin_url" --quiet --command "CREATE DATABASE \"$db_name\""
