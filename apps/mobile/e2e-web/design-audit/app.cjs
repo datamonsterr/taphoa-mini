@@ -76,7 +76,7 @@ const session = {
   last_active_organization_id: null,
 };
 
-async function setup(page, signedOut) {
+async function setup(page, signedOut, welcome, understanding) {
   if (!signedOut) {
     // Fetch the public development instance's client envelope, then replace its identity.
     await page.route('**/v1/client?**', async (route) => {
@@ -104,6 +104,18 @@ async function setup(page, signedOut) {
       ...request.headers(),
       authorization: 'Bearer mock-token',
     };
+    if (
+      understanding &&
+      new URL(request.url()).pathname === '/v1/voice/utterances'
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 30000));
+      return route.abort();
+    }
+    if (welcome && new URL(request.url()).pathname === '/v1/me') {
+      return route.fulfill({
+        json: { clerk_user_id: 'user_test', profile: null, memberships: [] },
+      });
+    }
     const response = await mockFetch(request.url(), {
       method: request.method(),
       headers,
@@ -145,7 +157,16 @@ async function main() {
       const route = rawRoute.replace(/^\//, '') || 'index';
       if (
         !/^[a-z0-9/-]+$/.test(route) ||
-        (state && !['low', 'cash', 'credit'].includes(state))
+        (state &&
+          ![
+            'low',
+            'cash',
+            'credit',
+            'listening',
+            'draft',
+            'understanding',
+            'response',
+          ].includes(state))
       )
         throw new Error(`Unsupported route/state: ${target}`);
       const page = await browser.newPage({
@@ -153,11 +174,21 @@ async function main() {
         permissions: ['camera', 'microphone'],
       });
       try {
-        await setup(page, route === 'sign-in');
-        await page.goto(`${base}/${route === 'index' ? '' : route}`, {
-          waitUntil: 'domcontentloaded',
-        });
+        await setup(
+          page,
+          route === 'sign-in',
+          route === 'welcome',
+          route === 'voice' && state === 'understanding',
+        );
+        await page.goto(
+          `${base}/${route === 'index' ? '' : route}${route === 'voice' && state ? '?fixture=two-line-sale.m4a' : ''}`,
+          {
+            waitUntil: 'domcontentloaded',
+          },
+        );
         await page.waitForTimeout(5000); // Allow auth, fixture queries, and route animations to settle.
+        if (route === 'welcome')
+          await page.getByText('Tạo cửa hàng', { exact: true }).waitFor();
         const expectedPath = route === 'index' ? '/' : `/${route}`;
         if (new URL(page.url()).pathname !== expectedPath)
           throw new Error(`Expected ${expectedPath}, got ${page.url()}`);
@@ -173,7 +204,24 @@ async function main() {
           await page.getByRole('radio', { name: /Tiền mặt/ }).click();
         else if (state === 'credit' && route === 'pay')
           await page.getByRole('radio', { name: /Ghi nợ/ }).click();
-        else if (state)
+        else if (route === 'assistant' && state === 'response') {
+          await page
+            .getByTestId('assistant-input')
+            .fill('Hôm nay bán được bao nhiêu?');
+          await page.getByTestId('assistant-send').click();
+          await page
+            .getByText(/1.234.000/)
+            .first()
+            .waitFor();
+        } else if (route === 'voice' && state === 'draft') {
+          await page.getByLabel('Xong, hiểu lời vừa nói').click();
+          await page.getByTestId('voice-total').waitFor();
+        } else if (route === 'voice' && state === 'understanding') {
+          await page.getByLabel('Xong, hiểu lời vừa nói').click();
+          await page.getByTestId('voice-understanding').waitFor();
+        } else if (route === 'voice' && state === 'listening') {
+          await page.getByLabel('Xong, hiểu lời vừa nói').waitFor();
+        } else if (state)
           throw new Error(`State ${state} is not supported for ${route}`);
         const name = `${route.replaceAll('/', '-')}${state ? `-${state}` : ''}`;
         await page.screenshot({ path: path.join(output, `seed-${name}.png`) });
@@ -184,6 +232,7 @@ async function main() {
         });
         console.log(`${target}: ${page.url()}`);
       } finally {
+        await page.unrouteAll({ behavior: 'ignoreErrors' });
         await page.close();
       }
     }
