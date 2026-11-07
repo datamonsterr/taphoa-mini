@@ -1,4 +1,4 @@
-import { ThumbsDown, ThumbsUp } from 'lucide-react-native';
+import { ThumbsDown, ThumbsUp } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 

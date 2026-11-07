@@ -4,7 +4,7 @@ import {
   Boxes,
   ChevronLeft,
   Pencil,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { memo, useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 

@@ -8,7 +8,7 @@ import {
   X,
   Zap,
   type LucideIcon,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { memo, useCallback, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 

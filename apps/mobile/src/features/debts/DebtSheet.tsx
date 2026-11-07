@@ -1,4 +1,4 @@
-import { ChevronDown, X } from 'lucide-react-native';
+import { ChevronDown, X } from '@/components/icons';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
 

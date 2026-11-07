@@ -8,7 +8,7 @@ import {
   Landmark,
   User,
   Volume2,
-} from 'lucide-react-native';
+} from '@/components/icons';
 import { useAuth, useSessionList } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';

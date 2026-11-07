@@ -28,6 +28,24 @@ module.exports = defineConfig([
     ],
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/components/icons.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['lucide-react-native', 'lucide-react-native/*'],
+              message:
+                'Import icons from @/components/icons to keep the bundle small.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['scripts/**/*.mjs'],
     languageOptions: {
       globals: { Buffer: 'readonly', process: 'readonly', console: 'readonly' },
