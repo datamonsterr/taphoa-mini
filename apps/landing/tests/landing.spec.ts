@@ -236,6 +236,19 @@ test("reduced motion preserves the board's tick-five demo states", async ({
   await expect(page.locator('.vtotal')).not.toHaveClass(/on/);
 });
 
+test('revenue chart description agrees with its bars', async ({ page }) => {
+  const chart = page.locator('.bars');
+  const label = (await chart.getAttribute('aria-label'))!;
+  const heights = await chart
+    .locator('.bar > div')
+    .evaluateAll((bars) =>
+      bars.map((bar) => Number.parseFloat(getComputedStyle(bar).height)),
+    );
+  const todayIsHighest = heights.at(-1)! >= Math.max(...heights.slice(0, -1));
+  const descriptionClaimsTodayIsHighest = /hôm nay cao nhất tuần/i.test(label);
+  expect(descriptionClaimsTodayIsHighest).toBe(todayIsHighest);
+});
+
 test('scan tracks three products, flags ambiguous Pringles, confirms 60.000đ, and loops', async ({
   page,
 }) => {
