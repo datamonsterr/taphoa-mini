@@ -671,6 +671,79 @@ async fn donated_retention_is_store_scoped_and_idempotent() {
     assert!(!keys.iter().any(|key| key.contains(&ids[4].to_string())));
 }
 
+struct FailOne {
+    key: String,
+    fail: std::sync::atomic::AtomicBool,
+    kept: Keep,
+}
+#[async_trait::async_trait]
+impl taphoa_api::storage::ObjectStore for FailOne {
+    async fn put(&self, key: &str, content_type: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
+        self.kept.put(key, content_type, bytes).await
+    }
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        if key == self.key && self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("injected storage failure");
+        }
+        self.kept.delete(key).await
+    }
+    async fn head_bucket(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn presign_get(
+        &self,
+        _: &str,
+        _: std::time::Duration,
+    ) -> anyhow::Result<taphoa_api::storage::SignedUrl> {
+        anyhow::bail!("unused")
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn donated_retention_continues_after_failure_and_retries() {
+    let (w, _) = setup(vec![], |_| {}).await;
+    let oldest = Uuid::now_v7();
+    let later = Uuid::now_v7();
+    for (id, age) in [(oldest, 32), (later, 31)] {
+        sqlx::query("INSERT INTO voice_donations (utterance_id, store_id, created_at) VALUES ($1,$2,now()-make_interval(days=>$3))")
+            .bind(id).bind(w.store_id).bind(age).execute(w.pool()).await.unwrap();
+    }
+    let storage = FailOne {
+        key: format!("voice/{}/{oldest}.m4a", w.store_id),
+        fail: true.into(),
+        kept: Keep::default(),
+    };
+    let deleted =
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap();
+    assert_eq!(deleted, 1);
+    let ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT utterance_id FROM voice_donations WHERE store_id=$1")
+            .bind(w.store_id)
+            .fetch_all(w.pool())
+            .await
+            .unwrap();
+    assert_eq!(ids, vec![oldest]);
+    let retry: (i32, Option<String>, bool) = sqlx::query_as("SELECT attempts,last_error,next_attempt_at > now() FROM voice_donations WHERE utterance_id=$1").bind(oldest).fetch_one(w.pool()).await.unwrap();
+    assert_eq!(retry, (1, Some("injected storage failure".into()), true));
+    sqlx::query("UPDATE voice_donations SET next_attempt_at=now() WHERE utterance_id=$1")
+        .bind(oldest)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    storage
+        .fail
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        taphoa_api::voice::retention::delete_donated_for_store(w.pool(), &storage, w.store_id, 30)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires Postgres"]
 async fn eval_model_header_needs_the_flag_and_a_configured_slug() {

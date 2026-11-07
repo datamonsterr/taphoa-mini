@@ -84,17 +84,36 @@ async fn delete_donated(
     days: i32,
 ) -> anyhow::Result<u64> {
     let mut total = 0;
+    let mut failures = 0_u64;
     loop {
         let mut tx = pool.begin().await?;
         let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
-            "SELECT utterance_id, store_id FROM voice_donations WHERE created_at < now() - make_interval(days => $1) AND ($2::uuid IS NULL OR store_id=$2) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
+            "SELECT utterance_id, store_id FROM voice_donations WHERE created_at < now() - make_interval(days => $1) AND next_attempt_at <= now() AND ($2::uuid IS NULL OR store_id=$2) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
         ).bind(days).bind(store_id).fetch_optional(&mut *tx).await?;
         let Some((id, store)) = row else {
             tx.commit().await?;
+            tracing::info!(
+                deleted = total,
+                failures,
+                "donated voice retention pass complete"
+            );
             return Ok(total);
         };
+        let mut failure = None;
         for ext in ["m4a", "wav", "ogg"] {
-            storage.delete(&format!("voice/{store}/{id}.{ext}")).await?;
+            if let Err(error) = storage.delete(&format!("voice/{store}/{id}.{ext}")).await {
+                failure = Some(error);
+                break;
+            }
+        }
+        if let Some(error) = failure {
+            let message: String = error.to_string().chars().take(512).collect();
+            sqlx::query("UPDATE voice_donations SET attempts=attempts+1, last_error=$2, next_attempt_at=now()+make_interval(secs => LEAST(3600, 60 * power(2, LEAST(attempts, 6)))::double precision) WHERE utterance_id=$1")
+                .bind(id).bind(message).execute(&mut *tx).await?;
+            tx.commit().await?;
+            failures += 1;
+            crate::error::log_anyhow_error!(error, &error, %store, %id, "donated voice deletion failed; will retry");
+            continue;
         }
         sqlx::query("DELETE FROM voice_utterances WHERE id=$1 AND store_id=$2 AND donated")
             .bind(id)
