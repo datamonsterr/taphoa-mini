@@ -41,6 +41,12 @@ export function parseVoiceCase(raw: unknown, file: string): VoiceCase {
   if (typeof o?.id !== 'string' || o.id === '') throw bad('id must be text');
   if (o.source !== 'synthetic' && o.source !== 'recorded')
     throw bad('source must be synthetic or recorded');
+  if (
+    o.review_status !== undefined &&
+    o.review_status !== 'reviewed' &&
+    o.review_status !== 'unreviewed'
+  )
+    throw bad('invalid review_status');
   if (typeof o.transcript !== 'string') throw bad('transcript must be text');
   if (o.language !== 'vi' && o.language !== 'en')
     throw bad('language must be vi or en');
@@ -73,9 +79,16 @@ export type LoadedVoiceCase = VoiceCase & {
 /** Read `<dir>/*.json` with a `<id>.m4a` beside each; sorted by id. */
 export function loadVoiceCases(
   dir: string = GOLDEN_VOICE_DIR,
+  reviewedOnly = false,
 ): LoadedVoiceCase[] {
   const files = readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
+    .filter(
+      (f) =>
+        !reviewedOnly ||
+        JSON.parse(readFileSync(join(dir, f), 'utf8')).review_status ===
+          'reviewed',
+    )
     .sort();
   const seen = new Set<string>();
   return files.map((f) => {
@@ -97,4 +110,11 @@ export function loadVoiceCases(
 /** Ten smoke clips: the ones tagged `smoke`. */
 export function smokeSubset<T extends VoiceCase>(cases: T[]): T[] {
   return cases.filter((c) => c.tags.includes('smoke'));
+}
+
+/** Only human-reviewed labels may be used as evaluation ground truth. */
+export function reviewedSubset<T extends { review_status?: string }>(
+  cases: T[],
+): T[] {
+  return cases.filter((c) => c.review_status === 'reviewed');
 }
