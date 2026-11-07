@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Camera, X } from 'lucide-react-native';
+import { Camera, X } from '@/components/icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 

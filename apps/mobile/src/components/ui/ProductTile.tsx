@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react-native';
+import { Plus } from '@/components/icons';
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { Image } from 'expo-image';
 import { imageCacheKey } from '@/lib/imageCache';

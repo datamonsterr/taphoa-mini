@@ -1,4 +1,4 @@
-import { Camera } from 'lucide-react-native';
+import { Camera } from '@/components/icons';
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
