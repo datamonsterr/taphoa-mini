@@ -8,7 +8,7 @@ import {
 import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { Share } from 'react-native';
+import { Share, StyleSheet } from 'react-native';
 
 import * as debtsApi from '@/lib/api/debts';
 import { getStore } from '@/lib/api/store';
@@ -671,4 +671,12 @@ test('text size setting scales the amount input', async () => {
   await renderLan();
   await press('Thu nợ');
   expect(screen.getByLabelText('Số tiền thu')).toHaveStyle({ fontSize: 27 });
+});
+
+test('customer_overdue_badge_is_centered', async () => {
+  await renderLan();
+  const badge = screen.getByText('Quá hạn 10 ngày').parent!;
+  expect(StyleSheet.flatten(badge.props.style)).toMatchObject({
+    alignSelf: 'center',
+  });
 });

@@ -180,3 +180,14 @@ test('a seller cannot void their own sale from an earlier day', async () => {
 test('the sale stamp is dd/MM · HH:mm in Vietnam time', () => {
   expect(saleStamp('2026-10-27T03:35:00Z')).toBe('27/10 · 10:35');
 });
+
+test('sale detail uses board void copy', async () => {
+  saleId();
+  await renderWithProviders(<SaleDetailScreen />);
+  expect(
+    await screen.findByText(
+      'Hủy toàn bộ đơn. Hoàn lại khoản đã thu và điều chỉnh báo cáo, tồn kho, sổ nợ.',
+    ),
+  ).toBeOnTheScreen();
+  expect(screen.getByPlaceholderText('Khách trả hàng')).toBeOnTheScreen();
+});

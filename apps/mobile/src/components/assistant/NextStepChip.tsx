@@ -1,6 +1,8 @@
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { MessageCircleText, ReceiptText } from '@/components/icons';
+import { Icon } from '@/components/ui';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/ScaledText';
 import { camera, colors, radius, size, space } from '@/theme';
@@ -22,6 +24,9 @@ export const NextStepChip = memo(function NextStepChip({
   onPress,
 }: NextStepChipProps) {
   const device = chip.tone ? chip.tone === 'accent' : chip.source === 'device';
+  const receiptAction = chip.action.type === 'receipt';
+  const assistant =
+    chip.action.type === 'receipt' && chip.action.destination === 'assistant';
   return (
     <PressableScale
       testID={`next-step-chip-${chip.id}`}
@@ -33,6 +38,15 @@ export const NextStepChip = memo(function NextStepChip({
       pressedScale={0.96}
       style={[styles.chip, device ? styles.device : styles.server]}
     >
+      {receiptAction ? (
+        <View testID={assistant ? 'assistant-icon' : 'receipt-icon'}>
+          <Icon
+            icon={assistant ? MessageCircleText : ReceiptText}
+            size={22}
+            color={device ? colors.onAccent : camera.white}
+          />
+        </View>
+      ) : null}
       <View style={styles.text}>
         <Text numberOfLines={1} style={styles.title}>
           {chip.title}
@@ -54,14 +68,16 @@ const styles = StyleSheet.create({
   chip: {
     width: CHIP_WIDTH,
     minHeight: size.tapMin,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
     paddingVertical: space[2],
     paddingHorizontal: space[4],
     borderRadius: radius.full,
   },
   device: { backgroundColor: colors.accent },
   server: { backgroundColor: camera.glass },
-  text: { gap: 0 },
+  text: { gap: 0, flex: 1 },
   title: {
     fontFamily: fontFamily.bold,
     fontSize: 17,

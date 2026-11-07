@@ -30,7 +30,7 @@ export function OverdueBadge(props: Props) {
 
 const styles = StyleSheet.create({
   badge: {
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
@@ -39,7 +39,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: colors.dangerSoft,
   },
-  compact: { height: 26, paddingVertical: 0, justifyContent: 'center' },
+  compact: {
+    alignSelf: 'flex-start',
+    height: 26,
+    paddingVertical: 0,
+    justifyContent: 'center',
+  },
   text: {
     ...typography.caption,
     fontFamily: fontFamily.semibold,

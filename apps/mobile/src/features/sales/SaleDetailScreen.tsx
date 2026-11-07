@@ -103,6 +103,7 @@ export function SaleDetailScreen() {
               <Text style={styles.body}>{t('explanation')}</Text>
               <Field
                 label={t('reason')}
+                placeholder={t('reasonPlaceholder')}
                 value={reason}
                 onChangeText={(value) => {
                   setReason(value);
