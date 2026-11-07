@@ -52,7 +52,7 @@ import { applyKey } from '@/components/ui/keypad';
 import { DebtSheet } from '../debts/DebtSheet';
 import { LineThumb } from '../checkout/LineThumb';
 import { bankLabel } from '@/lib/banks';
-import { initialOf } from '../account/utils';
+import { initialOf } from '../debts/customerRow';
 import { computeChange, quickCashOptions } from './change';
 import { payStrings } from './strings';
 import { useSpokenTotal } from './speak';

@@ -249,3 +249,12 @@ test('a duplicate check failure blocks creation and can be retried', async () =>
   await fireEvent.press(screen.getByLabelText('Tạo khách hàng'));
   await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
 });
+
+test('honorific_customer_avatar_uses_given_name', async () => {
+  await createCustomer({ id: newUuid(), name: 'Chị Lan' });
+  await renderWithProviders(
+    <CustomerPicker onSelect={jest.fn()} onClose={jest.fn()} />,
+  );
+  expect(await screen.findByText('Chị Lan')).toBeOnTheScreen();
+  expect(screen.getByText('L')).toBeOnTheScreen();
+});
