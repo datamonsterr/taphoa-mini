@@ -228,3 +228,15 @@ async function expectPriceShown(
 ) {
   await expect(shown(formatVnd(price))).toHaveCount(1);
 }
+
+test('stock filter placement', async ({ page }) => {
+  await openShop(page, '/inventory');
+  await page.getByRole('radio', { name: 'Tồn kho' }).click();
+  const header = page.getByRole('heading', { name: 'Tồn kho' }).locator('..');
+  const filter = header.getByRole('button', { name: 'Lọc tồn kho' });
+  await expect(filter).toBeVisible();
+  await filter.click();
+  for (const name of ['Tất cả', 'Sắp hết', 'Hết hàng', 'Còn hàng']) {
+    await expect(page.getByRole('radio', { name, exact: true })).toBeVisible();
+  }
+});

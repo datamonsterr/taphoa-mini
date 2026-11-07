@@ -149,8 +149,12 @@ test.describe('board screenshots', () => {
     await expect(button(page, /^Coca-Cola lon 330ml, /)).toBeVisible();
     await page.getByRole('radio', { name: 'Tồn kho' }).click();
     await expect(page.getByTestId('stock-list')).toBeVisible();
+    await button(page, 'Lọc tồn kho').click();
     for (const name of ['Tất cả', 'Sắp hết', 'Hết hàng', 'Còn hàng'])
-      await expect(button(page, name)).toBeVisible();
+      await expect(
+        page.getByRole('radio', { name, exact: true }),
+      ).toBeVisible();
+    await page.getByRole('radio', { name: 'Tất cả', exact: true }).click();
     await expect(page.getByTestId('stock-summary')).toBeVisible();
     await capture(page, testInfo, 'Stock');
   });
