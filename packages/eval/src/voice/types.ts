@@ -26,6 +26,8 @@ export type ExpectedLine = {
 export type VoiceCase = {
   id: string;
   source: 'synthetic' | 'recorded';
+  review_status?: 'unreviewed' | 'reviewed';
+  original_draft?: unknown;
   /** What a listener hears. Empty for silence. */
   transcript: string;
   language: 'vi' | 'en';
