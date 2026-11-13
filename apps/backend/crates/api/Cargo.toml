@@ -66,6 +66,6 @@ toml = { version = "1.1.8", default-features = false, features = ["parse", "serd
 rsa = { version = "0.9.10", features = ["pem"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["testing", "trace", "logs"] }
 futures-util = "0.3"
-jsonschema = { version = "0.60", default-features = false }
+jsonschema = { version = "0.61", default-features = false }
 serde_norway = "0.9"
 image.workspace = true
