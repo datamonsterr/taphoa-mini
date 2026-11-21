@@ -25,10 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Namespace profile (faster CPU and disk; 4 vCPU, 8 GB); GitHub runners are free on this public
-  # repo, so only the heavy jobs leave ubuntu-latest.
+  # GitHub-hosted runners are the free default; CI_HEAVY_RUNNER can select a custom runner.
   build:
-    runs-on: namespace-profile-datamonster01
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7

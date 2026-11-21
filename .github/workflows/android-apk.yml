@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: namespace-profile-linux-xl
+    runs-on: ${{ vars.CI_ANDROID_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions:
       # gh release create for test builds.
