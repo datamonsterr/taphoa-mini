@@ -1,4 +1,9 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    future::{Future, IntoFuture},
+    net::SocketAddr,
+    sync::Arc,
+    time::Duration,
+};
 use taphoa_api::{
     AppState,
     analytics::{PostHogAnalytics, PostHogConfig},
@@ -19,8 +24,19 @@ use taphoa_api::{
     vector::VectorIndex,
 };
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+const RUNTIME_TIMEOUT: Duration = Duration::from_secs(1);
+
+fn main() -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(run());
+    // Dropping a Tokio runtime otherwise waits forever for detached native loaders.
+    runtime.shutdown_timeout(RUNTIME_TIMEOUT);
+    result
+}
+async fn run() -> anyhow::Result<()> {
     // Both ring and aws-lc-rs are linked, so rustls cannot pick a process default itself.
     // Install ring before anything builds a TLS client (telemetry, sqlx, S3, reqwest).
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -159,29 +175,65 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
         }
     }
     tracing::info!(%address, "API listening");
-    let shutdown_stop = stop.clone();
-    let server_result = axum::serve(
+    let models = state.models.clone();
+    let mut server_shutdown = stop.subscribe();
+    let server = axum::serve(
         listener,
         router(state).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
-        shutdown().await;
-        let _ = shutdown_stop.send(true);
+        while !*server_shutdown.borrow_and_update() {
+            if server_shutdown.changed().await.is_err() {
+                break;
+            }
+        }
     })
-    .await;
-    let _ = stop.send(true);
-    let mut task_result = Ok(());
-    for task in background {
-        if let Err(error) = task.await {
-            task_result = Err(error);
+    .into_future();
+    tokio::pin!(server);
+    let server_result = tokio::select! {
+        result = &mut server => Some(result),
+        () = shutdown() => None,
+    };
+    // Stop accepting, release cold-load waiters, then share one drain bound across
+    // HTTP, background jobs and database cleanup before capture/telemetry flush.
+    stop.send_replace(true);
+    models.shutdown();
+    if let Some(result) = bounded_drain(
+        async {
+            let server_result = match server_result {
+                Some(result) => result,
+                None => server.await,
+            };
+            let mut task_result = Ok(());
+            for task in background {
+                if let Err(error) = task.await {
+                    task_result = Err(error);
+                }
+            }
+            if let Some(pool) = pool {
+                pool.close().await;
+            }
+            server_result?;
+            task_result?;
+            Ok::<_, anyhow::Error>(())
+        },
+        DRAIN_TIMEOUT,
+    )
+    .await
+    {
+        result?;
+    }
+    Ok(())
+}
+
+async fn bounded_drain<T>(work: impl Future<Output = T>, bound: Duration) -> Option<T> {
+    match tokio::time::timeout(bound, work).await {
+        Ok(result) => Some(result),
+        Err(_) => {
+            tracing::warn!("request/job drain timed out; continuing shutdown flush");
+            None
         }
     }
-    if let Some(pool) = pool {
-        pool.close().await;
-    }
-    server_result?;
-    task_result?;
-    Ok(())
 }
 
 async fn shutdown() {
@@ -201,4 +253,40 @@ async fn shutdown() {
     let terminate = std::future::pending::<()>();
     tokio::select! { () = ctrl_c => {}, () = terminate => {} }
     tracing::info!("shutdown requested; draining requests");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn drain_is_bounded_and_preserves_completed_results() {
+        assert_eq!(
+            bounded_drain(async { 42 }, Duration::from_millis(10)).await,
+            Some(42)
+        );
+        let start = std::time::Instant::now();
+        assert_eq!(
+            bounded_drain(std::future::pending::<()>(), Duration::from_millis(20)).await,
+            None
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+    #[test]
+    fn runtime_shutdown_does_not_wait_for_detached_loader() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (release, wait) = std::sync::mpsc::channel();
+        let (started, ready) = std::sync::mpsc::channel();
+        runtime.spawn_blocking(move || {
+            started.send(()).unwrap();
+            let _ = wait.recv();
+        });
+        ready.recv().unwrap();
+        let start = std::time::Instant::now();
+        runtime.shutdown_timeout(Duration::from_millis(20));
+        release.send(()).unwrap();
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
 }

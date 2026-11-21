@@ -17,6 +17,18 @@ pub struct LazyModels {
     pub ocr: Option<ModelHolder<VietOcr>>,
 }
 impl LazyModels {
+    pub fn shutdown(&self) {
+        if let Some(holder) = &self.sam {
+            holder.shutdown();
+        }
+        if let Some(holder) = &self.dino {
+            holder.shutdown();
+        }
+        if let Some(holder) = &self.ocr {
+            holder.shutdown();
+        }
+    }
+
     /// Only check configuration/files here. ORT and warm-up run inside each holder's loader.
     pub fn from_config(config: &Config) -> anyhow::Result<Self> {
         let idle = Duration::from_secs(config.model_idle_unload_secs);
