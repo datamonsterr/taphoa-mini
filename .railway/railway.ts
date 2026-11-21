@@ -30,11 +30,13 @@ export default defineRailway((ctx) => {
   const postgresVolume = volume('postgres-volume', {
     alerts: { usage: { '100': {}, '80': {}, '95': {} } },
     allowOnlineResize: true,
-    // Live volumes are in San Francisco (sfo) in both environments. Declaring another region
-    // would plan a volume move; keep this equal to `railway config pull`.
-    region: 'sfo',
-    // test filled 5 GB with leaked integration databases on 2026-11-05 (see #329); give it room.
-    sizeMB: ctx.isEnvironment('production') ? 5000 : 10000,
+    // Declaring a region other than the live one plans a volume move; keep this equal to
+    // `railway config pull`. Production is in San Francisco (sfo). The test volume moved to
+    // Singapore (sin) when its data directory was reset on 2026-11-21.
+    region: ctx.isEnvironment('test') ? 'sin' : 'sfo',
+    // 5000 MB is the largest volume the Hobby plan allows ("Max size of 5000 MB on current
+    // plan"), so a full test volume is fixed by removing data, not by growing it.
+    sizeMB: 5000,
   });
   const Postgres = service('Postgres', {
     source: image('pgvector/pgvector:0.8.7-pg18-trixie'),
