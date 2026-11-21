@@ -978,6 +978,24 @@ class RailwayTestDatabaseMaintenance(unittest.TestCase):
         self.assertIn("Dropped stale integration database 'it_legacy'", out.stdout)
         self.assertIn("::warning::Postgres databases total 300 bytes", out.stdout)
 
+    def test_psql_failure_shows_stderr_without_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "psql")
+            fake.write_text(textwrap.dedent('''\
+                #!/usr/bin/env python3
+                import sys
+                sys.stderr.write("psql: FATAL: the database system is down\\n")
+                sys.exit(2)
+            '''))
+            fake.chmod(0o755)
+            out = run(["python3", "-I", str(HERE / "it_database.py")], env={
+                "PATH": tmp + os.pathsep + os.environ["PATH"],
+                "DATABASE_URL": "postgres://admin:s3cretpw@db.example:5432/railway",
+            })
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("the database system is down", out.stderr)
+        self.assertNotIn("s3cretpw", out.stdout + out.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
