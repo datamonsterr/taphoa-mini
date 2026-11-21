@@ -87,18 +87,27 @@ pub fn cutout(image: &RgbImage, mask: &GrayImage, bbox: [f32; 4], pad: f32) -> O
     Some(out)
 }
 
+/// Exact square resize used for both local tensors and remote RGB transport.
+/// Already-sized crops are preserved byte-for-byte on the worker.
+pub fn resize_for_embedding(crop: &RgbImage, side: u32) -> std::borrow::Cow<'_, RgbImage> {
+    if crop.width() == side && crop.height() == side {
+        std::borrow::Cow::Borrowed(crop)
+    } else {
+        std::borrow::Cow::Owned(image::imageops::resize(
+            crop,
+            side,
+            side,
+            FilterType::CatmullRom,
+        ))
+    }
+}
+
 /// Resizes to `EMBED_SIDE` square and writes CHW floats normalized with ImageNet statistics
 /// into `out` (length `3 * EMBED_SIDE * EMBED_SIDE`).
 pub fn normalize_into(crop: &RgbImage, out: &mut [f32], side_px: u32) {
     let side = side_px as usize;
     debug_assert_eq!(out.len(), 3 * side * side);
-    let resized;
-    let source = if crop.width() == side_px && crop.height() == side_px {
-        crop
-    } else {
-        resized = image::imageops::resize(crop, side_px, side_px, FilterType::CatmullRom);
-        &resized
-    };
+    let source = resize_for_embedding(crop, side_px);
     for (x, y, pixel) in source.enumerate_pixels() {
         for channel in 0..3 {
             out[channel * side * side + y as usize * side + x as usize] =

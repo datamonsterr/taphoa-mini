@@ -97,6 +97,7 @@ pub struct RemoteModels {
     runtime: tokio::runtime::Handle,
     local: AppState,
     model: String,
+    side: u32,
 }
 struct RemoteEncoding {
     image: Arc<[u8]>,
@@ -152,6 +153,7 @@ impl RemoteModels {
             runtime: tokio::runtime::Handle::current(),
             local,
             model: format!("dinov2-vits14-onnx@1/{side}"),
+            side,
         })
     }
     fn ticket(&self) -> Result<Ticket, CallError> {
@@ -462,6 +464,22 @@ pub fn api_error(error: RemoteError) -> ApiError {
         error
     }
 }
+fn embedding_request(crops: &[image::RgbImage], side: u32) -> CropsRequest {
+    CropsRequest {
+        crops: crops
+            .iter()
+            .map(|crop| {
+                let resized = taphoa_recognition::crop::resize_for_embedding(crop, side);
+                RgbCrop {
+                    width: side,
+                    height: side,
+                    pixels: resized.as_raw().clone(),
+                }
+            })
+            .collect(),
+    }
+}
+
 impl Segmenter for RemoteModels {
     fn segment(&self, image: &[u8]) -> Result<Vec<Segment>, SegmentError> {
         self.call(
@@ -513,52 +531,12 @@ impl Embedder for RemoteModels {
             "embed-crops",
             || {
                 let mut vectors = Vec::with_capacity(crops.len());
-                let mut batch = Vec::new();
-                let mut size = 8;
-                for crop in crops {
-                    let length = crop.as_raw().len() + 16;
-                    if !batch.is_empty() && (size + length > BODY_LIMIT || batch.len() == 8) {
-                        vectors.extend(self.embeddings(
-                            "embed-crops",
-                            &CropsRequest {
-                                crops: std::mem::take(&mut batch),
-                            },
-                        )?);
-                        size = 8;
-                    }
-                    if length + 8 > BODY_LIMIT {
-                        if !batch.is_empty() {
-                            vectors.extend(self.embeddings(
-                                "embed-crops",
-                                &CropsRequest {
-                                    crops: std::mem::take(&mut batch),
-                                },
-                            )?);
-                            size = 8;
-                        }
-                        let mut bytes = Vec::new();
-                        crop.write_to(
-                            &mut std::io::Cursor::new(&mut bytes),
-                            image::ImageFormat::Png,
-                        )
-                        .map_err(|_| {
-                            CallError::Client(RemoteError {
-                                status: 400,
-                                message: "invalid crop".into(),
-                            })
-                        })?;
-                        vectors.push(self.single_embedding(&bytes)?);
-                    } else {
-                        batch.push(RgbCrop {
-                            width: crop.width(),
-                            height: crop.height(),
-                            pixels: crop.as_raw().clone(),
-                        });
-                        size += length;
-                    }
-                }
-                if !batch.is_empty() {
-                    vectors.extend(self.embeddings("embed-crops", &CropsRequest { crops: batch })?);
+                // At side <= 224, eight RGB crops plus wire framing are < 1.21 MiB.
+                // Resize before transport with the very same local tensor preprocessing.
+                for batch in crops.chunks(8) {
+                    vectors.extend(
+                        self.embeddings("embed-crops", &embedding_request(batch, self.side))?,
+                    );
                 }
                 if vectors.len() != crops.len()
                     || vectors
@@ -1192,5 +1170,110 @@ mod ocr_limit_tests {
             Circuit::Closed(_)
         ));
         task.abort();
+    }
+}
+
+#[cfg(test)]
+mod crop_transport_tests {
+    use super::*;
+    #[test]
+    fn remote_crop_tensors_match_local_exactly_at_every_side() {
+        let crop = image::RgbImage::from_fn(371, 193, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        for side in (56..=224).step_by(14) {
+            let request = embedding_request(std::slice::from_ref(&crop), side);
+            let decoded: CropsRequest = wire::decode(&wire::encode(&request).unwrap()).unwrap();
+            let rgb = &decoded.crops[0];
+            let worker =
+                image::RgbImage::from_raw(rgb.width, rgb.height, rgb.pixels.clone()).unwrap();
+            let mut local_tensor = vec![0.; 3 * side as usize * side as usize];
+            let mut worker_tensor = local_tensor.clone();
+            taphoa_recognition::crop::normalize_into(&crop, &mut local_tensor, side);
+            taphoa_recognition::crop::normalize_into(&worker, &mut worker_tensor, side);
+            assert_eq!(local_tensor, worker_tensor, "side {side}");
+        }
+    }
+    #[tokio::test]
+    async fn large_crops_reach_worker_as_small_batches() {
+        use axum::{Router, body::Bytes, http::header, routing::post};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let app = Router::new().route(
+            "/v1/embed-crops",
+            post(move |bytes: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    let request: CropsRequest = wire::decode(&bytes).unwrap();
+                    assert!(request.crops.len() <= 8);
+                    let side = request.crops[0].width;
+                    for crop in &request.crops {
+                        assert_eq!((crop.width, crop.height), (side, side));
+                        assert!(side <= 224);
+                    }
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    (
+                        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+                        wire::encode(&EmbeddingResponse {
+                            model: format!("dinov2-vits14-onnx@1/{side}"),
+                            dim: 384,
+                            vectors: vec![vec![1. / (384f32).sqrt(); 384]; request.crops.len()],
+                        })
+                        .unwrap(),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let remote = RemoteModels::new(
+            &url,
+            "a-crop-transport-token-at-least-32-characters",
+            AppState::default(),
+        )
+        .unwrap();
+        // Incompressible full-size RGB exceeds the wire limit even as PNG.
+        let mut noise = 0x12345678u32;
+        let large = image::RgbImage::from_fn(2200, 1700, |_, _| {
+            noise ^= noise << 13;
+            noise ^= noise >> 17;
+            noise ^= noise << 5;
+            image::Rgb([noise as u8, (noise >> 8) as u8, (noise >> 16) as u8])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        large.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        assert!(png.get_ref().len() > BODY_LIMIT);
+        let mut crops = vec![image::RgbImage::new(32, 64); 8];
+        crops.push(large);
+        let result = tokio::task::spawn_blocking(move || remote.embed_crops(&crops))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.len(), 9);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        server.abort();
+    }
+    #[test]
+    fn oversized_crop_and_maximum_batches_fit_the_wire_limit() {
+        let crop = image::RgbImage::new(4096, 4096);
+        assert!(
+            wire::encode(&CropsRequest {
+                crops: vec![RgbCrop {
+                    width: 4096,
+                    height: 4096,
+                    pixels: crop.as_raw().clone()
+                }]
+            })
+            .is_err()
+        );
+        let resized = taphoa_recognition::crop::resize_for_embedding(&crop, 224).into_owned();
+        let request = embedding_request(&vec![resized; 8], 224);
+        let bytes = wire::encode(&request).unwrap();
+        assert_eq!(bytes.len(), 8 + 8 * (16 + 224 * 224 * 3));
+        assert!(bytes.len() < BODY_LIMIT);
     }
 }
