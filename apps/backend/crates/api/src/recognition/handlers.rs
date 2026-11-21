@@ -140,6 +140,7 @@ async fn probe_document(
         ApiError::internal()
     })?
     .map_err(|error| match error {
+        OcrError::Remote(error) => crate::remote_models::api_error(error),
         OcrError::InvalidImage(_) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "validation_failed",
@@ -480,6 +481,9 @@ async fn create_scan(
     let original = original?;
     let work: pipeline::BlockingResult = match inference {
         Ok(Ok(work)) => work,
+        Ok(Err(pipeline::StageError::Remote(error))) => {
+            return Err(crate::remote_models::api_error(error));
+        }
         Ok(Err(pipeline::StageError::InvalidImage(_))) => {
             return Err(ApiError::validation_failed("could not decode the image"));
         }

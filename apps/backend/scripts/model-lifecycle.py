@@ -55,6 +55,9 @@ def main():
     parser.add_argument("--latency", type=int, default=0, metavar="RUNS")
     parser.add_argument("--idle", type=int, default=15)
     parser.add_argument("--output", type=Path, default=Path("/tmp/model-lifecycle.json"))
+    parser.add_argument("--inference-pid", type=int, help="record worker CPU seconds per request and RSS (default: API process)")
+    parser.add_argument("--worker-pid", type=int, help="stop this transient worker during a fallback drill; implies INFERENCE_URL")
+    parser.add_argument("--worker-restart-command", help="shell command to start a replacement transient worker for the drill")
     parser.add_argument("--compare", type=Path, metavar="BASELINE", help="alternate baseline/new processes twice; >=20 warm samples per variant")
     args = parser.parse_args()
     if args.compare:
@@ -108,7 +111,7 @@ def main():
     signing = f'{b64(json.dumps({"alg": "RS256", "kid": "local"}).encode())}.{b64(json.dumps(claims).encode())}'
     token = signing + "." + b64(key.sign(signing.encode(), padding.PKCS1v15(), hashes.SHA256()))
     env = os.environ.copy()
-    env.update(PORT=str(free_port()), CLERK_ISSUER=issuer, CLERK_JWKS_URL=f"http://127.0.0.1:{jwks_server.server_port}/jwks", CLERK_AUTHORIZED_PARTIES="", CLERK_SECRET_KEY="", RUST_LOG="taphoa_api=info", LOG_FORMAT="json", SAM_THREADS="4", SAM_DECODERS="4", OCR_THREADS="4", MODEL_IDLE_UNLOAD_SECS=str(args.idle), RATE_LIMIT_RECEIPT_PER_MINUTE="1000", RATE_LIMIT_RECEIPT_STORE_PER_DAY="1000")
+    env.update(PORT=str(free_port()), CLERK_ISSUER=issuer, CLERK_JWKS_URL=f"http://127.0.0.1:{jwks_server.server_port}/jwks", CLERK_AUTHORIZED_PARTIES="", CLERK_SECRET_KEY="", RUST_LOG="taphoa_api=info", LOG_FORMAT="json", SAM_THREADS="4", SAM_DECODERS="4", OCR_THREADS="4", MODEL_IDLE_UNLOAD_SECS=str(args.idle), RATE_LIMIT_RECEIPT_PER_MINUTE="1000", RATE_LIMIT_RECEIPT_STORE_PER_DAY="1000", RATE_LIMIT_SCAN_PER_MINUTE="1000", RATE_LIMIT_SEGMENT_PER_MINUTE="1000")
     model_dir = Path(env.get("MODEL_DIR", BACKEND / "models"))
     for name, filename in {"SAM_ENCODER_PATH": "mobile_sam_image_encoder.onnx", "SAM_DECODER_PATH": "sam_mask_decoder_multi.onnx", "DINO_MODEL_PATH": "dinov2_small.onnx", "OCR_DET_PATH": "ocr_det.onnx", "OCR_ENCODER_PATH": "ocr_vietocr_encoder.onnx", "OCR_DECODER_PATH": "ocr_vietocr_decoder.onnx", "OCR_VOCAB_PATH": "ocr_vietocr.json"}.items():
         env.setdefault(name, str(model_dir / filename))
@@ -144,6 +147,12 @@ def main():
                         raise RuntimeError("health deadline exceeded")
                     time.sleep(0.01)
             rss = lambda: int(next(line.split()[1] for line in Path(f"/proc/{process.pid}/status").read_text().splitlines() if line.startswith("VmRSS:")))
+            inference_pid = args.inference_pid or process.pid
+            def inference_cpu():
+                fields = Path(f"/proc/{inference_pid}/stat").read_text().split()
+                return (int(fields[13]) + int(fields[14])) / os.sysconf("SC_CLK_TCK")
+            def inference_rss():
+                return int(next(line.split()[1] for line in Path(f"/proc/{inference_pid}/status").read_text().splitlines() if line.startswith("VmRSS:")))
             results = {"shared_host_load_1m": os.getloadavg()[0], "health_ms": round((time.monotonic() - started) * 1000, 1), "start_rss_kib": rss()}
             request("/v1/stores", {"store_name": "Lifecycle measurement", "display_name": "Local"})
             if not args.baseline:
@@ -164,19 +173,49 @@ def main():
                 for endpoint, body, headers in [("scans", scan_body, scan_headers), ("segment", segment_body, segment_headers), ("receipts", {"image_id": receipt_scan["image"]["id"]}, {})]:
                     samples = []
                     ocr_samples = []
+                    cpu_samples = []
                     for n in range(args.latency + 1):
                         path = {"scans": "/v1/recognition/scans", "segment": "/v1/segment", "receipts": "/v1/receipts"}[endpoint]
                         start = time.monotonic()
+                        cpu_before = inference_cpu()
                         response = request(path, body, dict(headers, **{"Idempotency-Key": str(uuid.uuid4())}))
                         elapsed = round((time.monotonic() - start) * 1000, 1)
                         if n:
                             samples.append(elapsed)
+                            cpu_samples.append(round(inference_cpu()-cpu_before, 4))
                             if endpoint == "receipts":
                                 ocr_samples.append(response["timings"]["ocr"])
-                    results["latency"][endpoint] = {"wall_ms": samples, "ocr_ms": ocr_samples}
+                    results["latency"][endpoint] = {"wall_ms": samples, "ocr_ms": ocr_samples, "inference_cpu_seconds": cpu_samples, "inference_rss_kib": inference_rss()}
                     print(endpoint, results["latency"][endpoint], flush=True)
+            if args.worker_pid:
+                import signal
+                if not args.worker_restart_command:
+                    raise ValueError("--worker-restart-command required for fallback drill")
+                drill_body, drill_headers = multipart(BACKEND / "tests/fixtures/shelf-1600.jpg", {})
+                def drill_request():
+                    started = time.monotonic()
+                    try:
+                        value = request("/v1/segment", drill_body, drill_headers)
+                        return {"status": 200, "wall_ms": round((time.monotonic()-started)*1000, 1), "segments": len(value)}
+                    except urllib.error.HTTPError as error:
+                        return {"status": error.code, "wall_ms": round((time.monotonic()-started)*1000, 1)}
+                results["fallback_drill"] = {"before": drill_request()}
+                os.kill(args.worker_pid, signal.SIGTERM)
+                time.sleep(2)
+                results["fallback_drill"]["first_local"] = drill_request()
+                results["fallback_drill"]["breaker_open"] = drill_request()
+                replacement = subprocess.Popen(args.worker_restart_command, shell=True, start_new_session=True)
+                try:
+                    time.sleep(32)
+                    results["fallback_drill"]["after_restart"] = drill_request()
+                    results["fallback_drill"]["warm_after_restart"] = request("/v1/recognition/warm", b"")
+                    # The idle-unload checks below verify models release after recovery.
+                finally:
+                    os.killpg(replacement.pid, signal.SIGTERM)
+                    replacement.wait(timeout=30)
+                print("fallback_drill", results["fallback_drill"], flush=True)
             results["post_inference_rss_kib"] = rss()
-            if not args.baseline and args.idle:
+            if not args.baseline and args.idle and (not env.get("INFERENCE_URL") or args.worker_pid):
                 # Wait for every family to be unloaded, then another 30 seconds.
                 deadline = time.monotonic() + args.idle * 3 + 120
                 def all_unloaded():
@@ -188,7 +227,8 @@ def main():
                             continue
                         if fields.get("message") in ("model loaded", "model unloaded"):
                             states[fields["family"]] = fields["message"]
-                    return len(states) == 3 and all(value == "model unloaded" for value in states.values())
+                    expected = 1 if args.worker_pid else 3
+                    return len(states) >= expected and all(value == "model unloaded" for value in states.values())
                 while not all_unloaded():
                     if time.monotonic() > deadline:
                         raise RuntimeError("not all model families unloaded")

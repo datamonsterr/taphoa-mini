@@ -37,6 +37,8 @@ pub struct DocumentSignal {
 
 #[derive(Debug, thiserror::Error)]
 pub enum OcrError {
+    #[error(transparent)]
+    Remote(#[from] crate::wire::RemoteError),
     #[error("invalid image: {0}")]
     InvalidImage(String),
     #[error("OCR inference failed: {0}")]

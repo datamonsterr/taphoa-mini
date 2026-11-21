@@ -132,3 +132,21 @@ mod tests {
         assert!(decode::<ImageRequest>(&bytes).is_err());
     }
 }
+
+/// A worker client error, or a retryable lack of both worker and local weights.
+/// API callers retain its HTTP status instead of turning bad input into a 500.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("inference HTTP {status}: {message}")]
+pub struct RemoteError {
+    pub status: u16,
+    pub message: String,
+}
+
+/// Preserve Embedder::model()/dim() across processes: differing EMBED_SIDE
+/// settings must never mix incompatible reference/query embeddings.
+#[derive(Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    pub model: String,
+    pub dim: usize,
+    pub vectors: Vec<Vec<f32>>,
+}

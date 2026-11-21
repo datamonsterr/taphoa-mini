@@ -103,6 +103,7 @@ fn task_failure(e: tokio::task::JoinError) -> ApiError {
 
 fn inference_failure(e: SegmentError) -> ApiError {
     match e {
+        SegmentError::Remote(error) => crate::remote_models::api_error(error),
         SegmentError::InvalidPrompt(msg) => {
             ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", msg)
         }

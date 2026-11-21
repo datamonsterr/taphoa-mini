@@ -4245,7 +4245,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "http-body-util",
  "image",
  "serde",
  "serde_json",

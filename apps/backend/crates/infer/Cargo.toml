@@ -8,15 +8,16 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-http-body-util.workspace = true
 image.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 taphoa-recognition = { path = "../recognition" }
 tokio.workspace = true
-tower.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 subtle = "2.6.1"
 sha2 = "0.11.1"
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tower.workspace = true

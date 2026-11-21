@@ -70,6 +70,8 @@ impl ScanPurpose {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum StageError {
+    #[error(transparent)]
+    Remote(taphoa_recognition::wire::RemoteError),
     #[error("invalid image: {0}")]
     InvalidImage(String),
     #[error("inference failed: {0}")]
@@ -108,6 +110,7 @@ pub(crate) fn block_pipeline(
             taphoa_recognition::SegmentError::InvalidImage(_) => {
                 StageError::InvalidImage(error.to_string())
             }
+            taphoa_recognition::SegmentError::Remote(error) => StageError::Remote(error),
             other => StageError::Inference(other.to_string()),
         })?;
     let segment_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -144,9 +147,10 @@ pub(crate) fn block_pipeline(
     let thumbnails = thumbnails?;
     // One embedding call for all crops; ownership moves instead of copying.
     let (segments, crops): (Vec<Segment>, Vec<RgbImage>) = picks.into_iter().unzip();
-    let vectors: Vec<Vec<f32>> = embedder
-        .embed_crops(&crops)
-        .map_err(|error| StageError::Inference(error.to_string()))?;
+    let vectors: Vec<Vec<f32>> = embedder.embed_crops(&crops).map_err(|error| match error {
+        taphoa_recognition::EmbedError::Remote(error) => StageError::Remote(error),
+        error => StageError::Inference(error.to_string()),
+    })?;
     if vectors.len() != segments.len() {
         return Err(StageError::Inference("incomplete crop embeddings".into()));
     }

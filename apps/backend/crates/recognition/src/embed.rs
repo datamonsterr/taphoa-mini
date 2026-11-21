@@ -9,6 +9,8 @@ use std::{path::Path, sync::Mutex};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EmbedError {
+    #[error(transparent)]
+    Remote(#[from] crate::wire::RemoteError),
     #[error("invalid image: {0}")]
     InvalidImage(String),
     #[error("embedding failed: {0}")]

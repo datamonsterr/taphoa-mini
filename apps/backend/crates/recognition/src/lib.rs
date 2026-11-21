@@ -32,6 +32,8 @@ pub struct PointPrompt {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SegmentError {
+    #[error(transparent)]
+    Remote(#[from] crate::wire::RemoteError),
     #[error("invalid image: {0}")]
     InvalidImage(String),
     #[error("inference failed: {0}")]

@@ -122,7 +122,15 @@ impl<T: ?Sized + Send + Sync + 'static> ModelHolder<T> {
     }
 
     pub async fn get(&self) -> anyhow::Result<ModelLease<T>> {
-        self.get_with_timing().await.map(|(lease, _)| lease)
+        let (lease, _) = self.get_with_timing().await?;
+        if matches!(self.inner.name, "sam" | "dinov2" | "ocr") {
+            tracing::info!(
+                backend = "local",
+                family = self.inner.name,
+                "inference model leased"
+            );
+        }
+        Ok(lease)
     }
     pub async fn get_with_timing(&self) -> anyhow::Result<(ModelLease<T>, LoadTiming)> {
         tokio::time::timeout(LOAD_TIMEOUT, self.acquire())

@@ -158,12 +158,15 @@ impl Engine {
                             .ok_or_else(|| Failure::bad("invalid crop"))?,
                     );
                 }
-                pack(
-                    self.models
+                pack(EmbeddingResponse {
+                    model: self.models.embedder.model().into(),
+                    dim: self.models.embedder.dim(),
+                    vectors: self
+                        .models
                         .embedder
                         .embed_crops(&crops)
                         .map_err(embed_failure)?,
-                )
+                })
             }
             "decode-points" => {
                 let request: PointsRequest = unpack(bytes)?;
@@ -216,12 +219,16 @@ impl Engine {
                         });
                         pack(response)
                     }
-                    "embed" => pack(
-                        self.models
-                            .embedder
-                            .embed(&request.image)
-                            .map_err(embed_failure)?,
-                    ),
+                    "embed" => pack(EmbeddingResponse {
+                        model: self.models.embedder.model().into(),
+                        dim: self.models.embedder.dim(),
+                        vectors: vec![
+                            self.models
+                                .embedder
+                                .embed(&request.image)
+                                .map_err(embed_failure)?,
+                        ],
+                    }),
                     "detect-text" => pack(self.models.detector.detect(&request.image)?),
                     "document-signal" => {
                         pack(self.models.detector.document_signal(&request.image)?)

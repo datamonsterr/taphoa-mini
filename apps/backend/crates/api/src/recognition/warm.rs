@@ -9,9 +9,16 @@ use std::time::Duration;
 
 #[derive(Serialize)]
 pub struct WarmResponse {
-    sam: LoadTiming,
-    dinov2: LoadTiming,
-    ocr: LoadTiming,
+    sam: FamilyTiming,
+    dinov2: FamilyTiming,
+    ocr: FamilyTiming,
+}
+
+#[derive(Serialize)]
+struct FamilyTiming {
+    #[serde(flatten)]
+    timing: LoadTiming,
+    backend: &'static str,
 }
 
 pub async fn warm(State(state): State<AppState>, actor: Actor) -> ApiResult<Json<WarmResponse>> {
@@ -24,6 +31,27 @@ pub async fn warm(State(state): State<AppState>, actor: Actor) -> ApiResult<Json
         "model warm requests",
     )
     .await?;
+    warm_models(&state).await.map(Json)
+}
+
+pub(crate) async fn warm_models(state: &AppState) -> ApiResult<WarmResponse> {
+    if let Some(remote) = &state.remote_models
+        && remote.healthy().await
+    {
+        let family = || FamilyTiming {
+            timing: fixed_timing(),
+            backend: "remote",
+        };
+        return Ok(WarmResponse {
+            sam: family(),
+            dinov2: family(),
+            ocr: family(),
+        });
+    }
+    let state = state
+        .remote_models
+        .as_ref()
+        .map_or(state, |r| r.local_state());
     let sam = async {
         match &state.models.sam {
             Some(holder) => holder
@@ -77,7 +105,15 @@ pub async fn warm(State(state): State<AppState>, actor: Actor) -> ApiResult<Json
     };
     // Keep all leases until every family is ready, including with a very short idle timeout.
     let ((_, sam), (_, dinov2), (_, ocr)) = tokio::try_join!(sam, dino, ocr)?;
-    Ok(Json(WarmResponse { sam, dinov2, ocr }))
+    let family = |timing| FamilyTiming {
+        timing,
+        backend: "local",
+    };
+    Ok(WarmResponse {
+        sam: family(sam),
+        dinov2: family(dinov2),
+        ocr: family(ocr),
+    })
 }
 fn fixed_timing() -> LoadTiming {
     LoadTiming {

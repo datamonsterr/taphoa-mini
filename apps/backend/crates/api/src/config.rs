@@ -90,6 +90,8 @@ pub struct Config {
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
     pub model_idle_unload_secs: u64,
+    pub inference_url: Option<String>,
+    pub inference_token: Option<String>,
     pub document_probe_concurrency: usize,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
@@ -101,6 +103,9 @@ impl Config {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        if get("INFERENCE_URL").is_some() != get("INFERENCE_TOKEN").is_some() {
+            bail!("set both INFERENCE_URL and INFERENCE_TOKEN, or neither");
+        }
         let clerk = ClerkSettings::from_lookup(&get)?;
         if clerk.is_none() {
             bail!("CLERK_PUBLISHABLE_KEY or CLERK_ISSUER is required");
@@ -184,6 +189,8 @@ impl Config {
             ocr_decoder,
             ocr_vocab,
             ocr_threads,
+            inference_url: get("INFERENCE_URL"),
+            inference_token: get("INFERENCE_TOKEN"),
             model_idle_unload_secs: get("MODEL_IDLE_UNLOAD_SECS")
                 .unwrap_or_else(|| "900".into())
                 .parse()

@@ -157,13 +157,13 @@ flowchart LR
   `railway config plan` / `apply`. See [deploy.md](deploy.md).
 - The backend image bundles ONNX Runtime and model weights (SAM encoder/decoder, and the
   embedding model once added). `SKIP_MODELS=1` builds a model-free image whose
-  recognition routes return 503.
+  recognition routes need an inference worker or return 503.
 - **Region** (proposed follow-up): services run in `sfo` while users and the bucket are in
   Asia. Each scan pays a trans-Pacific round trip (~180 ms each way for a ~300 KB upload
   plus the response). Move backend, Postgres and Redis to an Asian region before the
   pilot; measure first against the 3 s budget.
-- **Scaling**: one backend replica. Inference runs on CPU (Railway has no GPU) behind one
-  in-process semaphore. Horizontal scaling later is safe because the API is stateless:
+- **Scaling**: one backend replica. Inference uses the optional owner-hosted GPU worker,
+  with lazy CPU models as the fallback, behind one in-process semaphore. Horizontal scaling later is safe because the API is stateless:
   SSE fan-out goes through Redis and all writes go to Postgres.
 
 Local development uses the same graph in Docker Compose: `postgres`, `redis`, `backend`,
@@ -336,6 +336,35 @@ flowchart TD
   calls `malloc_trim(0)` to return unused pages to the OS. The index worker uses the
   same DINOv2 holder and holds no model while waiting for jobs. The SAM encoding
   cache owns tensors, so cached point requests acquire a fresh SAM lease after unload.
+- **Owner-hosted inference worker.** Setting both `INFERENCE_URL` and `INFERENCE_TOKEN`
+  switches all recognition traits to remote adapters. `taphoa-infer` loads and warms
+  MobileSAM, DINOv2, the text detector and VietOCR before binding loopback. It has no
+  database, object store, Redis, Clerk or telemetry exporter. CUDA is opt-in through
+  `INFERENCE_PROVIDER=cuda`; registration failure stops loading. Every `/v1/` route
+  checks a constant-time bearer-token digest; the public health route exposes only
+  readiness, provider, loaded families and version. Binary v1 messages use bounded
+  bincode with raw image bytes, f32 vectors and bit-packed masks. RGB crop batches avoid
+  repeated PNG encoding; embeddings carry their model ID and dimension to prevent
+  incompatible `EMBED_SIDE` settings from mixing vectors.
+  The worker runs one inference at a time with two queued requests, a 10 MiB body limit,
+  dimension validation and a 10 s deadline. Native inference already running at a
+  deadline cannot be interrupted safely; its admission permit stays held until it ends.
+  Point encodings remain in a 16-entry, 300 s worker cache. The API caches opaque handles
+  and source bytes; `410 unknown_encoding` causes one re-encode/retry. Local fallback
+  encodings retain tensors and never pin a local session between calls.
+  Remote calls have a 500 ms connect timeout and a shared 10 s budget across crop
+  batches/retries. Transport failures, timeouts and 5xx responses open a process-wide
+  circuit for 30 s and run that call through the existing lazy CPU holders. During the
+  open period calls go directly local; one half-open probe can close the circuit.
+  A failed or cancelled probe reopens it; stale successes cannot close a newer outage.
+  Worker 4xx responses preserve their status without fallback. Missing local weights
+  produce the existing retryable 503. No request is speculatively sent to both backends.
+  Warm checks worker health first and reports `backend` for each family without loading
+  CPU models. Fallback leases release normally, so idle unloading still applies after
+  recovery. Logs include `backend` and fallback `reason`, without credentials/images.
+  [Installation](../infra/inference-worker/README.md) uses a sandboxed systemd user unit;
+  the tunnel is a separate later step. [Measurements and reproduction](specs/recognition-latency.md#inference-worker)
+  cover CPU/GPU parity, API latency and failover under resource limits.
 - **Concurrency.** One inference slot per instance (implemented). A second request gets
   `503 segmenter busy` with `Retry-After: 1`; the phone retries once and otherwise offers
   grid mode.

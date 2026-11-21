@@ -213,9 +213,12 @@ async fn create(
     })
     .await
     .map_err(|_| ApiError::internal())?
-    .map_err(|error| {
-        tracing::error!(%error,"receipt OCR failed");
-        ApiError::internal()
+    .map_err(|error| match error {
+        taphoa_recognition::ocr::OcrError::Remote(error) => crate::remote_models::api_error(error),
+        error => {
+            tracing::error!(%error,"receipt OCR failed");
+            ApiError::internal()
+        }
     })?;
     let ocr_ms = millis(started);
     if lines.is_empty() {

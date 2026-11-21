@@ -100,6 +100,9 @@ export default defineRailway((ctx) => {
       OCR_THREADS: preserve(),
       // Lazy model family idle timeout; backend defaults to 900 seconds (0 disables unload).
       MODEL_IDLE_UNLOAD_SECS: preserve(),
+      // Optional owner-hosted inference worker; lazy CPU models remain the fallback.
+      INFERENCE_URL: preserve(),
+      INFERENCE_TOKEN: preserve(),
       // Telemetry credentials and routing are managed in Railway in both environments.
       POSTHOG_PROJECT_TOKEN: preserve(),
       POSTHOG_HOST: preserve(),

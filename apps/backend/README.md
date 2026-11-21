@@ -38,10 +38,25 @@ unused allocator pages with `malloc_trim(0)` after session destruction.
 
 `POST /v1/recognition/warm` requires a signed-in store member and loads all three
 families concurrently. It returns `200` with `{sam, dinov2, ocr}`, each containing
-`load_ms` (the last load duration) and `already_loaded` (ready when this call arrived).
+`load_ms` (the last load duration), `already_loaded` (ready when this call arrived),
+and `backend` (`local` or `remote`).
 It is idempotent and limited to six requests per member per minute. Unconfigured
 families return 503. Use it on entry to a camera/receipt screen to overlap model
 loading with preparation.
+
+Set both `INFERENCE_URL` and `INFERENCE_TOKEN` (at least 32 characters) to send recognition
+to the owner-hosted `taphoa-infer` worker. Leave both unset for local inference. The worker
+uses a separate bearer token from Clerk. The client connects within 500 ms and allows 10 s
+per call. Transport errors, timeouts and worker 5xx responses load the existing lazy CPU
+fallback and open a shared circuit for 30 s; one subsequent call probes recovery. Worker
+4xx responses retain their status and do not trigger fallback. With a ready worker, warm
+checks its health and leaves local models unloaded. Local fallback models still unload
+after `MODEL_IDLE_UNLOAD_SECS`. Model-free backend images need reachable worker inference;
+if both are unavailable they return retryable 503. Each inference log records `backend`
+and the fallback `reason`, without tokens or images.
+
+See [worker installation and operation](../../infra/inference-worker/README.md) and
+[measurements](../../docs/specs/recognition-latency.md#inference-worker).
 
 ### Authentication (Clerk)
 
