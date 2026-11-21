@@ -4,6 +4,7 @@ pub mod embed;
 pub mod ocr;
 pub mod provider;
 mod sam;
+pub mod wire;
 pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
 pub use sam::{
     ImageEncoding, MockPointSegmenter, PointSegment, PointSegmenter, SamOptions, SamSegmenter,

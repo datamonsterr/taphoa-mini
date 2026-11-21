@@ -71,6 +71,7 @@ struct Sessions {
 
 /// Encoder output for one photo. Cheap to clone via Arc; cached per image_id by the API.
 pub struct ImageEncoding {
+    external: Option<Arc<dyn std::any::Any + Send + Sync>>,
     pub width: u32,
     pub height: u32,
     /// Resized dimensions passed into the encoder (in the 1024-space).
@@ -92,11 +93,28 @@ pub struct PointSegment {
 }
 
 impl ImageEncoding {
+    /// Opaque adapter state; local tensor data never crosses the wire.
+    pub fn external(width: u32, height: u32, state: Arc<dyn std::any::Any + Send + Sync>) -> Self {
+        Self {
+            width,
+            height,
+            external: Some(state),
+            resized_width: 0,
+            resized_height: 0,
+            embedding_shape: Vec::new(),
+            embeddings: Vec::new(),
+            mask_side: 0,
+        }
+    }
+    pub fn external_state<T: std::any::Any>(&self) -> Option<&T> {
+        self.external.as_ref()?.downcast_ref()
+    }
     /// Minimal stub for tests and mocks; returns a plausible 1600×1200 encoding with zero
     /// embeddings. Not a cfg(test) item so that `MockPointSegmenter::encode` can use it in
     /// integration-test crates that import the mock.
     pub(crate) fn mock() -> Self {
         Self {
+            external: None,
             width: 1600,
             height: 1200,
             resized_width: 1024,
@@ -411,6 +429,7 @@ impl SamSegmenter {
         let embeddings = embeddings_view.to_vec();
 
         Ok(ImageEncoding {
+            external: None,
             width,
             height,
             resized_width,

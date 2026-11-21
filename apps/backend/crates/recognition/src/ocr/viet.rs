@@ -195,6 +195,11 @@ impl VietOcr {
         self.detector.clone()
     }
 
+    /// Exercise the encoder and greedy decoder even when warm-up detection finds no text.
+    pub fn warm_recognizer(&self, crop: &RgbImage) -> Result<(), OcrError> {
+        self.recognize(std::slice::from_ref(crop)).map(|_| ())
+    }
+
     fn recognize(&self, crops: &[RgbImage]) -> Result<Vec<Decoded>, OcrError> {
         let mut by_width: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
         for (i, crop) in crops.iter().enumerate() {

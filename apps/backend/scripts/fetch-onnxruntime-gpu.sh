@@ -19,7 +19,7 @@ while read -r package version checksum url; do
   [[ -f "$marker" ]] && continue
   wheel="$temporary/${url##*/}"
   curl --fail --location --retry 3 "$url" --output "$wheel"
-  echo "$checksum  $wheel" | sha256sum --check
+  echo "$checksum  $wheel" | sha256sum --check >&2
   # Retain upstream licenses along with the libraries. Never install Python code.
   python3 - "$wheel" "$runtime_dir" <<'PY'
 import pathlib, sys, zipfile
