@@ -519,3 +519,32 @@ mod tests {
         assert_eq!(config.decoder, Some(PathBuf::from("SAM_DECODER_PATH")));
     }
 }
+
+#[cfg(test)]
+mod deployment_variables_tests {
+    #[test]
+    fn new_inference_variables_are_preserved_and_documented() {
+        let railway = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../../.railway/railway.ts"
+        ));
+        let example = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env.example"));
+        for variable in [
+            "MODEL_IDLE_UNLOAD_SECS",
+            "INFERENCE_URL",
+            "INFERENCE_TOKEN",
+            "INFERENCE_ALLOW_PLAINTEXT",
+            "INFERENCE_PROVIDER",
+            "INFERENCE_GPU_MEM_MB",
+        ] {
+            assert!(
+                railway.contains(&format!("{variable}: preserve()")),
+                "{variable} must survive IaC apply"
+            );
+            assert!(
+                example.contains(&format!("{variable}=")),
+                "{variable} must be discoverable locally"
+            );
+        }
+    }
+}

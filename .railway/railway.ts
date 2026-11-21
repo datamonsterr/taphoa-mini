@@ -105,6 +105,11 @@ export default defineRailway((ctx) => {
       // Optional owner-hosted inference worker; lazy CPU models remain the fallback.
       INFERENCE_URL: preserve(),
       INFERENCE_TOKEN: preserve(),
+      // Opt in only when the outer network transport is already encrypted.
+      INFERENCE_ALLOW_PLAINTEXT: preserve(),
+      // Shared recognition provider settings; Railway keeps the default CPU provider.
+      INFERENCE_PROVIDER: preserve(),
+      INFERENCE_GPU_MEM_MB: preserve(),
       // Telemetry credentials and routing are managed in Railway in both environments.
       POSTHOG_PROJECT_TOKEN: preserve(),
       POSTHOG_HOST: preserve(),
