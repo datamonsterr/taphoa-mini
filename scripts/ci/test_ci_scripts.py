@@ -286,10 +286,24 @@ FAKE_RAILWAY = textwrap.dedent(
     if args[:2] == ["deployment", "list"]:
         state.write_text(str(calls + 1))
         statuses = os.environ["FAKE_STATUSES"].split(",")
-        rows = [{"id": "old", "status": "SUCCESS"}]
+        if os.environ.get("FAKE_LONG_HISTORY") == "1":
+            rows = [{"id": "skipped-" + str(i), "status": "SKIPPED"} for i in range(12)]
+            rows.append({"id": "old", "status": "SUCCESS"})
+        else:
+            rows = [] if os.environ.get("FAKE_NO_RUNNING") == "1" else [{"id": "old", "status": "SUCCESS"}]
         if calls > 0:
             rows.insert(0, {"id": "new", "status": statuses[min(calls - 1, len(statuses) - 1)]})
-        print(json.dumps(rows))
+        if calls > 2 and os.environ.get("FAKE_REDEPLOY"):
+            redeploy_statuses = os.environ["FAKE_REDEPLOY"].split(",")
+            rows.insert(0, {"id": "redeployed", "status": redeploy_statuses[min(calls - 3, len(redeploy_statuses) - 1)]})
+        limit = int(args[args.index("--limit") + 1])
+        print(json.dumps(rows[:limit]))
+    elif args[:1] == ["up"]:
+        pass
+    elif args[:1] == ["redeploy"]:
+        if os.environ.get("FAKE_REDEPLOY_EXIT"):
+            sys.exit(int(os.environ["FAKE_REDEPLOY_EXIT"]))
+        print(json.dumps({"id": "redeployed"}))
     elif args[:1] == ["logs"]:
         print("fake build log")
     """
@@ -375,7 +389,7 @@ class RailwayDrift(unittest.TestCase):
 
 
 class RailwayDeploy(unittest.TestCase):
-    def deploy(self, statuses, timeout="5"):
+    def deploy(self, statuses, timeout="5", **extra_env):
         with tempfile.TemporaryDirectory() as tmp:
             fake = pathlib.Path(tmp, "railway")
             fake.write_text(FAKE_RAILWAY)
@@ -388,6 +402,7 @@ class RailwayDeploy(unittest.TestCase):
                     "FAKE_STATUSES": statuses,
                     "RAILWAY_POLL_INTERVAL": "0",
                     "RAILWAY_DEPLOY_TIMEOUT": timeout,
+                    **extra_env,
                 },
             )
 
@@ -396,10 +411,30 @@ class RailwayDeploy(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("new SUCCESS", out.stdout)
 
-    def test_skipped_returns_instead_of_hanging(self):
-        out = self.deploy("SKIPPED")
+    def test_skipped_with_running_success_does_not_redeploy(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY_EXIT="9")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("SKIPPED", out.stdout)
+        self.assertNotIn("redeploy", out.stdout + out.stderr)
+
+    def test_skipped_with_old_success_beyond_ten_does_not_redeploy(self):
+        out = self.deploy("SKIPPED", FAKE_LONG_HISTORY="1", FAKE_REDEPLOY_EXIT="9")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("SKIPPED", out.stdout)
+        self.assertNotIn("redeploy", out.stdout + out.stderr)
+
+    def test_skipped_without_running_redeploys_to_success(self):
+        out = self.deploy("SKIPPED", FAKE_NO_RUNNING="1", FAKE_REDEPLOY="DEPLOYING,SUCCESS")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("redeployed SUCCESS", out.stdout)
+
+    def test_redeployed_failure_exits_nonzero(self):
+        out = self.deploy("SKIPPED", FAKE_NO_RUNNING="1", FAKE_REDEPLOY="DEPLOYING,FAILED")
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+
+    def test_redeploy_command_failure_exits_nonzero(self):
+        out = self.deploy("SKIPPED", FAKE_NO_RUNNING="1", FAKE_REDEPLOY_EXIT="7")
+        self.assertEqual(out.returncode, 7, out.stdout + out.stderr)
 
     def test_failed_prints_build_log(self):
         out = self.deploy("BUILDING,FAILED")

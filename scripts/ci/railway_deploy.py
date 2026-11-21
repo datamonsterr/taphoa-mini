@@ -4,9 +4,11 @@ Usage: railway_deploy.py <service> [environment]
 
 `railway up --ci` never returns when Railway marks the upload SKIPPED (no change against the
 running deployment), which held the deploy concurrency group until the job timeout. This script
-uploads with `--detach`, then polls `railway deployment list` for the new deployment:
-SUCCESS and SKIPPED exit 0, FAILED / CRASHED / REMOVED print the build log and exit 1, and no
-terminal status within RAILWAY_DEPLOY_TIMEOUT seconds (default 1800) exits 1.
+uploads with `--detach`, then polls `railway deployment list` for the new deployment. If an
+upload is SKIPPED and no deployment is running, it redeploys the service's current source and
+polls that deployment too. SUCCESS and SKIPPED with a running deployment exit 0, FAILED / CRASHED
+/ REMOVED print the build log and exit 1, and no terminal status within RAILWAY_DEPLOY_TIMEOUT
+seconds (default 1800) exits 1.
 """
 
 import json
@@ -26,9 +28,9 @@ def scope(service, environment):
     return args
 
 
-def deployments(service, environment):
+def deployments(service, environment, limit=10):
     out = subprocess.run(
-        ["railway", "deployment", "list", *scope(service, environment), "--limit", "10", "--json"],
+        ["railway", "deployment", "list", *scope(service, environment), "--limit", str(limit), "--json"],
         capture_output=True,
         text=True,
         check=True,
@@ -48,33 +50,75 @@ def main(argv):
     timeout = float(os.environ.get("RAILWAY_DEPLOY_TIMEOUT", "1800"))
     interval = float(os.environ.get("RAILWAY_POLL_INTERVAL", "15"))
 
-    known = {deployment_id for deployment_id, _ in deployments(service, environment)}
+    existing = deployments(service, environment, limit=200)
+    known = {deployment_id for deployment_id, _ in existing}
     upload = subprocess.run(["railway", "up", *scope(service, environment), "--detach"], check=False)
     if upload.returncode != 0:
         print(f"::error::railway up failed with exit code {upload.returncode}", file=sys.stderr)
         return upload.returncode
 
-    deadline = time.monotonic() + timeout
-    status = "UNKNOWN"
-    while time.monotonic() < deadline:
-        fresh = [(i, s) for i, s in deployments(service, environment) if i not in known]
-        if fresh:
-            deployment_id, status = fresh[0]
-            if status in OK:
-                if status == "SKIPPED":
-                    print(f"::notice::Deployment {deployment_id} SKIPPED: the running deployment already matches.")
-                else:
+    def poll(deployment_id, known, skipped_without_running_is_error=False):
+        deadline = time.monotonic() + timeout
+        status = "UNKNOWN"
+        while time.monotonic() < deadline:
+            matches = [(i, s) for i, s in deployments(service, environment) if i == deployment_id]
+            if matches:
+                status = matches[0][1]
+                if status in OK:
+                    if status == "SKIPPED":
+                        if skipped_without_running_is_error:
+                            print(
+                                f"::error::Redeployment {deployment_id} SKIPPED with no running deployment",
+                                file=sys.stderr,
+                            )
+                            return 1
+                        return "skipped"
                     print(f"Deployment {deployment_id} SUCCESS")
-                return 0
-            if status in BAD:
-                print(f"::error::Deployment {deployment_id} {status}", file=sys.stderr)
-                subprocess.run(
-                    ["railway", "logs", *scope(service, environment), "--build", "--lines", "200"], check=False
-                )
-                return 1
-        time.sleep(interval)
-    print(f"::error::No terminal deployment status within {timeout:.0f}s (last: {status})", file=sys.stderr)
-    return 1
+                    return 0
+                if status in BAD:
+                    print(f"::error::Deployment {deployment_id} {status}", file=sys.stderr)
+                    subprocess.run(
+                        ["railway", "logs", *scope(service, environment), "--build", "--lines", "200"],
+                        check=False,
+                    )
+                    return 1
+            elif deployment_id is None:
+                fresh = [(i, s) for i, s in deployments(service, environment) if i not in known]
+                if fresh:
+                    deployment_id, status = fresh[0]
+            time.sleep(interval)
+        print(f"::error::No terminal deployment status within {timeout:.0f}s (last: {status})", file=sys.stderr)
+        return 1
+
+    result = poll(None, known)
+    if result != "skipped":
+        return result
+    print("::notice::Upload SKIPPED; checking for a running deployment.")
+    running = deployments(service, environment, limit=200)
+    if any(deployment_id in known and status == "SUCCESS" for deployment_id, status in running):
+        print("::notice::Deployment SKIPPED: the running deployment already matches.")
+        return 0
+
+    known = {deployment_id for deployment_id, _ in deployments(service, environment, limit=200)}
+    redeploy = subprocess.run(
+        ["railway", "redeploy", *scope(service, environment), "--yes", "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if redeploy.returncode != 0:
+        print(f"::error::railway redeploy failed with exit code {redeploy.returncode}", file=sys.stderr)
+        if redeploy.stderr:
+            print(redeploy.stderr, file=sys.stderr, end="")
+        return redeploy.returncode or 1
+    try:
+        response = json.loads(redeploy.stdout)
+        deployment_id = response.get("id") if isinstance(response, dict) else None
+    except json.JSONDecodeError:
+        deployment_id = None
+    if not deployment_id:
+        deployment_id = next((i for i, _ in deployments(service, environment) if i not in known), None)
+    return poll(deployment_id, known, skipped_without_running_is_error=True)
 
 
 if __name__ == "__main__":
