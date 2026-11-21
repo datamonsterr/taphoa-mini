@@ -74,7 +74,10 @@ impl DinoEmbedder {
         } else {
             std::thread::available_parallelism().map_or(2, |n| n.get())
         };
-        let session = Session::builder(&environment)
+        let provider = crate::provider::Provider::from_env().map_err(inference)?;
+        let threads = provider.threads(threads);
+        let session = provider
+            .configure(Session::builder(&environment).map_err(inference)?)
             .map_err(inference)?
             .with_optimization_level(GraphOptimizationLevel::All)
             .map_err(inference)?

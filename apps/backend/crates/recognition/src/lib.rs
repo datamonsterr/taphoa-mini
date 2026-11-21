@@ -2,6 +2,7 @@
 pub mod crop;
 pub mod embed;
 pub mod ocr;
+pub mod provider;
 mod sam;
 pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
 pub use sam::{
@@ -123,6 +124,12 @@ pub(crate) fn ort_environment() -> Result<ort::environment::Environment, String>
         std::sync::OnceLock::new();
     ENVIRONMENT
         .get_or_init(|| {
+            if matches!(
+                provider::Provider::from_env()?,
+                provider::Provider::Cuda { .. }
+            ) {
+                provider::blocking_sync()?;
+            }
             // Explicit loading reports a missing runtime as an error before any tensor call.
             let library =
                 std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "libonnxruntime.so".into());

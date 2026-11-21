@@ -165,13 +165,15 @@ impl SamSegmenter {
             return Err(inference("invalid SAM filtering/grid options"));
         }
         let environment = crate::ort_environment().map_err(inference)?;
-        let threads = thread_count(options.threads);
+        let provider = crate::provider::Provider::from_env().map_err(inference)?;
+        let threads = provider.threads(thread_count(options.threads));
         let decoder_count = decoder_pool(options.decoders, threads);
         let spinning = crate::ort_spinning();
         // Builders stay on their own threads (ort 2.0.0-rc.15 builders are !Send).
         // Independent sessions can be committed concurrently.
         let load = |path: &Path, intra_threads| {
-            Session::builder(&environment)
+            provider
+                .configure(Session::builder(&environment).map_err(inference)?)
                 .map_err(inference)?
                 .with_optimization_level(GraphOptimizationLevel::All)
                 .map_err(inference)?

@@ -97,11 +97,13 @@ fn decode(bytes: &[u8]) -> Result<RgbImage, OcrError> {
 }
 fn session(path: &Path, threads: usize) -> Result<Session, OcrError> {
     let environment = crate::ort_environment().map_err(inference)?;
-    Session::builder(&environment)
+    let provider = crate::provider::Provider::from_env().map_err(inference)?;
+    provider
+        .configure(Session::builder(&environment).map_err(inference)?)
         .map_err(inference)?
         .with_optimization_level(GraphOptimizationLevel::All)
         .map_err(inference)?
-        .with_intra_threads(if threads == 0 { 4 } else { threads })
+        .with_intra_threads(provider.threads(if threads == 0 { 4 } else { threads }))
         .map_err(inference)?
         .with_intra_op_spinning(crate::ort_spinning())
         .map_err(inference)?
