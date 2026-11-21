@@ -70,7 +70,8 @@ vary by +-30 % in segmentation time.
   8 vCPU cgroup shared with the API it burns CPU quota and gets throttled in production.
 - Families load on first use after the API starts serving, without synthetic inference.
   `warm` prepares sessions; the first real inference pays arena allocation and validates
-  compatibility/output shape. Concurrent first callers wait for loading (up to 120 seconds);
+  compatibility/output shape. Concurrent first callers share one load (up to 120 seconds
+  on warm/background paths);
   load failures/timeouts and occupied inference slots return 503 with `Retry-After: 1`.
 
 ## Reproduce
@@ -670,7 +671,8 @@ locally. With `MODEL_IDLE_UNLOAD_SECS=15`, the fallback SAM lease releases and i
 sessions unload during the recovery wait; subsequent inference stays remote.
 This verifies the idle lifecycle survives fallback. The first failure here is a
 refused connection after shutdown, not a blackholed 10 s timeout; that worst case
-can add the full remote deadline before local cold-load/inference. No speculative
+can spend 10 s remotely before local cold-load/inference, which now shares the
+remaining 18 s HTTP request budget. No speculative
 parallel inference is used. Both transient worker scopes are stopped afterward;
 no persistent service was enabled or started.
 
@@ -684,6 +686,15 @@ re-encoding, f32 embeddings cost four bytes per element, and masks use one bit p
 pixel. Embedding replies include model ID/dimension so different `EMBED_SIDE`
 settings cannot silently mix vectors. Both path and content type are versioned;
 serde types live in `taphoa_recognition::wire`.
+
+Before transport, crops use exactly the local embedder's Catmull–Rom square resize
+to `EMBED_SIDE`; the worker preserves already-sized RGB pixels. Batches contain at
+most eight crops, at most 1,204,360 bytes at side 224, safely below the 10 MiB wire
+limit. Full-size crops no longer need the oversized-PNG escape path. On the actual
+`shelf-1600.jpg` scan (20 crops, side 112), total binary embedding request bodies
+fell from **12,720,521 bytes** to **752,984 bytes** across three batches (**94.1%**
+smaller). This excludes HTTP headers and the unchanged segmentation photo request.
+Tensor parity is tested exactly at every accepted side (56..224, step 14).
 
 Every `/v1/` operation requires a bearer token of at least 32 characters, compared
 as constant-time SHA-256 digests. `/healthz` is public and returns exactly status,
@@ -707,8 +718,19 @@ A worker encoding is a random handle into a bounded 16-entry / 300 s cache. The
 API caches the opaque handle and source bytes, not remote latent tensors.
 `410 unknown_encoding` causes one re-encode/retry and updates the cached handle.
 Fallback can cache a CPU tensor encoding without retaining its SAM sessions.
-The backend uses 500 ms connect timeout and a 10 s total budget per trait call,
-including all crop batches and encoding retries. A transport failure, timeout or
+The backend uses a 500 ms connect timeout and a 10 s cap per trait call, including
+all crop batches and encoding retries, constrained by the remaining HTTP deadline.
+Recognition POST routes (scan, segment, segment points, receipts, document probes
+and enrollment) share **one 18 s deadline per request**, including payload reads,
+model loading, every remote stage, local fallback and storage. The mobile limit is
+`SCAN_TIMEOUT_MS = 20_000` in
+`apps/mobile/src/features/camera/useScanSession.ts`; two seconds of margin allow the
+retryable 503 response to reach the client. Expiry releases HTTP admission and shares
+cooperative cancellation with SAM prompts, embedding batches and receipt decoder
+steps through `recognition::work::WorkControl`. Native calls already running are
+allowed to return, but no further stage starts. Optional detector work retains its
+admission while running after a successful scan; cancellation releases it.
+A transport failure, timeout or
 worker 5xx opens a shared 30 s circuit and uses the existing lazy CPU holder for
 that call; subsequent calls go directly local. One half-open probe is admitted
 afterward, success closes the circuit, and failure/cancellation reopens it. A late
@@ -717,6 +739,23 @@ fallback. Missing local weights produce retryable 503. No speculative hedging is
 used. Warm uses cheap worker health while ready and reports each family's
 `backend`; local models still unload after recovery. Logs record `backend` and
 fallback `reason` without images/tokens.
+
+Scan document detection is optional throughout loading and inference. Its lazy load
+overlaps required SAM/DINOv2 loading and adds no wait once they are ready; failed or
+still-loading OCR logs a warning and produces the absent document signal. Detection
+itself retains the existing 50 ms maximum tail wait. Receipt OCR loads outside the
+transaction, followed by the same hash/replay check under a new transaction.
+
+Index jobs distinguish temporary model availability from real job failures. Load
+failure/timeout or remote 503 with no local fallback requeues with exponential
+backoff capped at five minutes, without consuming the five-real-failure budget.
+Claims stay monotonic for stale-worker fencing; invalid images and storage/inference
+errors still count as real failures.
+
+API shutdown stops accepting and releases model-load waiters immediately. HTTP/jobs
+and pool cleanup drain for at most 5 s, then PostHog capture and telemetry flush for
+at most 5 s each; an explicit Tokio runtime waits at most 1 s for detached blocking
+loaders. Total: 16 s plus scheduling overhead; see [deployment](../deploy.md#redaction-retry-and-shutdown).
 
 ### Reproduce
 
