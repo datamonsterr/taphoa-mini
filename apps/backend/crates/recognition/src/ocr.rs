@@ -37,6 +37,12 @@ pub struct DocumentSignal {
 
 #[derive(Debug, thiserror::Error)]
 pub enum OcrError {
+    #[error(transparent)]
+    Cancelled(#[from] crate::work::Cancelled),
+    #[error("receipt exceeds OCR work limit: {0}")]
+    LimitExceeded(&'static str),
+    #[error(transparent)]
+    Remote(#[from] crate::wire::RemoteError),
     #[error("invalid image: {0}")]
     InvalidImage(String),
     #[error("OCR inference failed: {0}")]
@@ -56,9 +62,45 @@ pub trait TextDetector: Send + Sync {
     }
 }
 
+/// Limits are opt-in so existing local trait consumers keep their behavior.
+#[derive(Clone, Copy, Debug)]
+pub struct OcrLimits {
+    pub max_boxes: usize,
+    pub max_crop_pixels: u64,
+}
+impl Default for OcrLimits {
+    fn default() -> Self {
+        Self {
+            max_boxes: 512,
+            max_crop_pixels: 16 * 1024 * 1024,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReceiptOptions<'a> {
+    pub limits: Option<OcrLimits>,
+    pub control: Option<&'a crate::work::WorkControl>,
+}
+impl ReceiptOptions<'_> {
+    pub fn bounded() -> Self {
+        Self {
+            limits: Some(OcrLimits::default()),
+            control: None,
+        }
+    }
+}
+
 pub trait ReceiptOcr: Send + Sync {
     /// Lines ordered top-to-bottom, with columns joined left-to-right by one space.
     fn read_lines(&self, image: &[u8]) -> Result<Vec<OcrLine>, OcrError>;
+    fn read_lines_with_options(
+        &self,
+        image: &[u8],
+        options: Option<&ReceiptOptions<'_>>,
+    ) -> Result<Vec<OcrLine>, OcrError> {
+        crate::work::checkpoint(options.and_then(|o| o.control))?;
+        self.read_lines(image)
+    }
 }
 
 #[derive(Default)]
@@ -97,11 +139,13 @@ fn decode(bytes: &[u8]) -> Result<RgbImage, OcrError> {
 }
 fn session(path: &Path, threads: usize) -> Result<Session, OcrError> {
     let environment = crate::ort_environment().map_err(inference)?;
-    Session::builder(&environment)
+    let provider = crate::provider::Provider::from_env().map_err(inference)?;
+    provider
+        .configure(Session::builder(&environment).map_err(inference)?)
         .map_err(inference)?
         .with_optimization_level(GraphOptimizationLevel::All)
         .map_err(inference)?
-        .with_intra_threads(if threads == 0 { 4 } else { threads })
+        .with_intra_threads(provider.threads(if threads == 0 { 4 } else { threads }))
         .map_err(inference)?
         .with_intra_op_spinning(crate::ort_spinning())
         .map_err(inference)?
@@ -181,7 +225,7 @@ fn group_lines(mut boxes: Vec<TextBox>) -> Vec<Vec<TextBox>> {
 
 const DOCUMENT_MIN_LINES: u32 = 6;
 const DOCUMENT_MIN_AREA_RATIO: f32 = 0.08;
-fn document_signal(boxes: &[TextBox], width: u32, height: u32) -> DocumentSignal {
+pub fn document_signal(boxes: &[TextBox], width: u32, height: u32) -> DocumentSignal {
     let lines = group_lines(boxes.to_vec());
     let text_lines = lines.len() as u32;
     let line_boxes = lines

@@ -19,6 +19,7 @@ pub mod push;
 pub mod ratelimit;
 pub mod receipts;
 pub mod recognition;
+pub mod remote_models;
 pub mod reports;
 pub mod retention;
 pub mod sales;
@@ -80,6 +81,7 @@ pub struct AppState {
     pub redis: Option<ConnectionManager>,
     pub hub: events::Hub,
     pub models: models::LazyModels,
+    pub remote_models: Option<Arc<remote_models::RemoteModels>>,
     pub segmenter: Option<Arc<dyn Segmenter>>,
     pub point_segmenter: Option<Arc<dyn PointSegmenter>>,
     pub text_detector: Option<Arc<dyn taphoa_recognition::ocr::TextDetector>>,
@@ -122,6 +124,7 @@ impl Default for AppState {
             redis: None,
             hub: events::Hub::new(),
             models: models::LazyModels::default(),
+            remote_models: None,
             segmenter: None,
             point_segmenter: None,
             text_detector: None,
@@ -446,6 +449,7 @@ async fn segment(
     })?;
     result.map(Json).map_err(|error| match error {
         SegmentError::InvalidImage(_) => bad_request(),
+        SegmentError::Remote(error) => remote_models::api_error(error),
         error => {
             tracing::error!(%error, "segmentation failed");
             ApiError::new(

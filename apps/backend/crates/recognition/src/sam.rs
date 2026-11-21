@@ -71,6 +71,7 @@ struct Sessions {
 
 /// Encoder output for one photo. Cheap to clone via Arc; cached per image_id by the API.
 pub struct ImageEncoding {
+    external: Option<Arc<dyn std::any::Any + Send + Sync>>,
     pub width: u32,
     pub height: u32,
     /// Resized dimensions passed into the encoder (in the 1024-space).
@@ -92,11 +93,28 @@ pub struct PointSegment {
 }
 
 impl ImageEncoding {
+    /// Opaque adapter state; local tensor data never crosses the wire.
+    pub fn external(width: u32, height: u32, state: Arc<dyn std::any::Any + Send + Sync>) -> Self {
+        Self {
+            width,
+            height,
+            external: Some(state),
+            resized_width: 0,
+            resized_height: 0,
+            embedding_shape: Vec::new(),
+            embeddings: Vec::new(),
+            mask_side: 0,
+        }
+    }
+    pub fn external_state<T: std::any::Any>(&self) -> Option<&T> {
+        self.external.as_ref()?.downcast_ref()
+    }
     /// Minimal stub for tests and mocks; returns a plausible 1600×1200 encoding with zero
     /// embeddings. Not a cfg(test) item so that `MockPointSegmenter::encode` can use it in
     /// integration-test crates that import the mock.
     pub(crate) fn mock() -> Self {
         Self {
+            external: None,
             width: 1600,
             height: 1200,
             resized_width: 1024,
@@ -165,13 +183,15 @@ impl SamSegmenter {
             return Err(inference("invalid SAM filtering/grid options"));
         }
         let environment = crate::ort_environment().map_err(inference)?;
-        let threads = thread_count(options.threads);
+        let provider = crate::provider::Provider::from_env().map_err(inference)?;
+        let threads = provider.threads(thread_count(options.threads));
         let decoder_count = decoder_pool(options.decoders, threads);
         let spinning = crate::ort_spinning();
         // Builders stay on their own threads (ort 2.0.0-rc.15 builders are !Send).
         // Independent sessions can be committed concurrently.
         let load = |path: &Path, intra_threads| {
-            Session::builder(&environment)
+            provider
+                .configure(Session::builder(&environment).map_err(inference)?)
                 .map_err(inference)?
                 .with_optimization_level(GraphOptimizationLevel::All)
                 .map_err(inference)?
@@ -227,6 +247,7 @@ impl SamSegmenter {
         embedding_shape: &[i64],
         embeddings: &[f32],
         dims: (u32, u32),
+        control: Option<&crate::work::WorkControl>,
     ) -> Result<Vec<Found>, SegmentError> {
         if points.is_empty() {
             return Ok(Vec::new());
@@ -250,6 +271,7 @@ impl SamSegmenter {
                             points,
                             dims,
                             options,
+                            control,
                         )
                     })
                 })
@@ -257,8 +279,12 @@ impl SamSegmenter {
             handles
                 .into_iter()
                 .map(|h| {
-                    h.join()
-                        .unwrap_or_else(|_| Err(inference("decoder worker panicked")))
+                    h.join().unwrap_or_else(|panic| {
+                        if control.is_some() {
+                            std::panic::resume_unwind(panic);
+                        }
+                        Err(inference("decoder worker panicked"))
+                    })
                 })
                 .collect()
         });
@@ -272,6 +298,7 @@ impl SamSegmenter {
     fn segment_image(
         &self,
         image: &DynamicImage,
+        control: Option<&crate::work::WorkControl>,
     ) -> Result<(Vec<Segment>, SegmentTimings), SegmentError> {
         let t0 = std::time::Instant::now();
         let (width, height) = (image.width(), image.height());
@@ -293,6 +320,7 @@ impl SamSegmenter {
             .encoder
             .lock()
             .map_err(|_| inference("SAM session lock poisoned"))?;
+        crate::work::checkpoint(control)?;
         let encoded = encoder.run(ort::inputs![input]).map_err(inference)?;
         let encode_ms = t1.elapsed().as_secs_f64() * 1000.0;
         let t2 = std::time::Instant::now();
@@ -321,7 +349,13 @@ impl SamSegmenter {
         // Round 1: a coarse grid. Round 2: only fine-grid points that no accepted mask covers yet.
         // Each decode costs ~150 ms of one core, so skipping covered points is the main saving.
         let coarse = (grid / 2).max(1);
-        let mut found = self.run_round(&grid_points(coarse), embedding_shape, embeddings, dims)?;
+        let mut found = self.run_round(
+            &grid_points(coarse),
+            embedding_shape,
+            embeddings,
+            dims,
+            control,
+        )?;
         if grid > coarse {
             let remaining: Vec<(f32, f32)> = grid_points(grid)
                 .into_iter()
@@ -335,7 +369,7 @@ impl SamSegmenter {
                         .any(|(_, mask)| mask[my * mask_width as usize + mx])
                 })
                 .collect();
-            found.extend(self.run_round(&remaining, embedding_shape, embeddings, dims)?);
+            found.extend(self.run_round(&remaining, embedding_shape, embeddings, dims, control)?);
         }
         let mut candidates: Vec<Segment> = found.into_iter().map(|(s, _)| s).collect();
         // Scale boxes and areas from mask resolution back to the original photo.
@@ -375,10 +409,18 @@ impl SamSegmenter {
         &self,
         bytes: &[u8],
     ) -> Result<(Vec<Segment>, SegmentTimings), SegmentError> {
+        self.segment_controlled(bytes, None)
+    }
+    fn segment_controlled(
+        &self,
+        bytes: &[u8],
+        control: Option<&crate::work::WorkControl>,
+    ) -> Result<(Vec<Segment>, SegmentTimings), SegmentError> {
+        crate::work::checkpoint(control)?;
         let t = std::time::Instant::now();
         let image = decode(bytes)?;
         let decode_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let (segments, mut timings) = self.segment_image(&image)?;
+        let (segments, mut timings) = self.segment_image(&image, control)?;
         timings.decode_ms = decode_ms;
         Ok((segments, timings))
     }
@@ -409,6 +451,7 @@ impl SamSegmenter {
         let embeddings = embeddings_view.to_vec();
 
         Ok(ImageEncoding {
+            external: None,
             width,
             height,
             resized_width,
@@ -590,11 +633,13 @@ fn decode_points_auto(
     points: &[(f32, f32)],
     (mask_width, mask_height): (u32, u32),
     options: &SamOptions,
+    control: Option<&crate::work::WorkControl>,
 ) -> Result<Vec<Found>, SegmentError> {
     let mut out = Vec::new();
     let mask_input = vec![0_f32; 256 * 256];
     let pixels = mask_width as usize * mask_height as usize;
     for &(x, y) in points {
+        crate::work::checkpoint(control)?;
         // A foreground point plus SAM's required "not a point" padding label.
         let output = decoder
             .run(ort::inputs![
@@ -696,6 +741,14 @@ fn mask_segment(mask: &[f32], width: u32, height: u32, score: f32) -> Option<Seg
 impl Segmenter for SamSegmenter {
     fn segment(&self, bytes: &[u8]) -> Result<Vec<Segment>, SegmentError> {
         self.segment_with_timings(bytes)
+            .map(|(segments, _)| segments)
+    }
+    fn segment_with_control(
+        &self,
+        bytes: &[u8],
+        control: &crate::work::WorkControl,
+    ) -> Result<Vec<Segment>, SegmentError> {
+        self.segment_controlled(bytes, Some(control))
             .map(|(segments, _)| segments)
     }
 }

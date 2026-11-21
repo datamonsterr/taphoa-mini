@@ -1,0 +1,38 @@
+[Unit]
+Description=Taphoa inference worker (loopback; tunnel configured separately)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/taphoa-infer
+WorkingDirectory=%h/.local/share/taphoa-infer
+Environment=INFERENCE_BIND=127.0.0.1:8090
+Environment=INFERENCE_PROVIDER=cuda
+Environment=INFERENCE_GPU_MEM_MB=3072
+Environment=CUDA_CACHE_PATH=%S/taphoa-infer/cuda-cache
+EnvironmentFile=%h/.config/taphoa-infer/environment
+StateDirectory=taphoa-infer
+CPUQuota=200%
+MemoryHigh=infinity
+MemoryMax=2G
+MemorySwapMax=0
+Nice=5
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+# PrivateDevices would hide /dev/nvidia*. Keep GPU access for this user.
+
+[Install]
+WantedBy=default.target

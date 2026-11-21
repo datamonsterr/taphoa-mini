@@ -2775,16 +2775,20 @@ components:
   schemas:
     ModelLoadTiming:
       type: object
-      required: [load_ms, already_loaded]
+      required: [load_ms, already_loaded, backend]
       properties:
         load_ms:
           type: integer
           format: int64
           minimum: 0
-          description: Most recent family load duration in milliseconds, including warm-up.
+          description: Most recent local family load duration in milliseconds (zero for the worker).
         already_loaded:
           type: boolean
           description: Whether this family was ready when the call reached its holder.
+        backend:
+          type: string
+          enum: [local, remote]
+          description: Backend selected for the next inference with current worker health.
     WaitlistRequest:
       type: object
       required: [email]

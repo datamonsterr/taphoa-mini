@@ -38,10 +38,40 @@ unused allocator pages with `malloc_trim(0)` after session destruction.
 
 `POST /v1/recognition/warm` requires a signed-in store member and loads all three
 families concurrently. It returns `200` with `{sam, dinov2, ocr}`, each containing
-`load_ms` (the last load duration) and `already_loaded` (ready when this call arrived).
+`load_ms` (the last load duration), `already_loaded` (ready when this call arrived),
+and `backend` (`local` or `remote`).
 It is idempotent and limited to six requests per member per minute. Unconfigured
 families return 503. Use it on entry to a camera/receipt screen to overlap model
 loading with preparation.
+
+Set both `INFERENCE_URL` and `INFERENCE_TOKEN` (at least 32 characters) to send recognition
+to the owner-hosted `taphoa-infer` worker. Leave both unset for local inference. The worker
+uses a separate bearer token from Clerk. `INFERENCE_URL` requires HTTPS except for
+loopback hosts (`localhost`, 127.0.0.0/8 and ::1). `INFERENCE_ALLOW_PLAINTEXT=1` is only
+for a transport that is already encrypted, such as a private WireGuard network;
+otherwise non-loopback HTTP fails startup. Worker health is read in chunks and rejected
+as soon as it exceeds 4096 bytes, including responses without Content-Length.
+The client connects within 500 ms and allows 10 s
+per call. Transport errors, timeouts and worker 5xx responses load the existing lazy CPU
+fallback and open a shared circuit for 30 s; one subsequent call probes recovery. Worker
+4xx responses retain their status and do not trigger fallback. With a ready worker, warm
+checks its health and leaves local models unloaded. Local fallback models still unload
+after `MODEL_IDLE_UNLOAD_SECS`. Model-free backend images need reachable worker inference;
+if both are unavailable they return retryable 503. Each inference log records `backend`
+and the fallback `reason`, without tokens or images. Receipt OCR uses a generous
+512-box / 16 Mi-pixel total crop cap; exceeding it returns a 422 client error.
+The worker admits at most 32 HTTP connections before authentication, closes excess
+sockets immediately, and limits headers to 8 KiB / 32 fields with a 3 s header and
+idle keep-alive timeout. Cancellation stops further model batches/prompts within
+the 10 s request budget. An engine panic marks health unready and exits for restart.
+Its unit uses `MemoryHigh=infinity`, `MemoryMax=2G`, `MemorySwapMax=0` and
+`CPUQuota=200%`; the hard limit remains while worker pages cannot be swapped out.
+The final scoped GPU check measured 1145.6 MiB RSS, zero swap and 1522 MiB VRAM;
+scan/segment/receipt p50 was 674.5 / 338.3 / 332.6 ms over 20 warm calls each,
+within 5% of the earlier results on this shared host.
+
+See [worker installation and operation](../../infra/inference-worker/README.md) and
+[measurements](../../docs/specs/recognition-latency.md#inference-worker).
 
 ### Authentication (Clerk)
 

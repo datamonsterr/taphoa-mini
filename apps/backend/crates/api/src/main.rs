@@ -46,6 +46,8 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
     let storage_config = StorageConfig::from_env()?;
     let mut state = AppState::connect_with_config(&config, None).await?;
     state.models = taphoa_api::models::LazyModels::from_config(&config)?;
+    state.remote_models =
+        taphoa_api::remote_models::RemoteModels::from_config(&config, state.clone())?;
     state.push = Some(Arc::new(taphoa_api::push::ExpoPush::new(
         taphoa_api::push::PushConfig::from_env()?,
     )?));

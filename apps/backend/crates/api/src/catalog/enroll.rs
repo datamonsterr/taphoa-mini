@@ -50,6 +50,7 @@ pub(crate) async fn resolve_images(
 
 fn embed_error(error: EmbedError) -> ApiError {
     match error {
+        EmbedError::Remote(error) => crate::remote_models::api_error(error),
         EmbedError::InvalidImage(_) => ApiError::validation_failed("invalid image"),
         error => {
             tracing::error!(%error, "embedding failed");

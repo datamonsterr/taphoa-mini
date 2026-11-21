@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/api", "crates/recognition"]
+members = ["crates/api", "crates/recognition", "crates/infer"]
 resolver = "3"
 
 [workspace.package]
@@ -13,7 +13,7 @@ anyhow = "1"
 axum = { version = "0.8.9", features = ["multipart"] }
 http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-23"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-23", "cuda"] }
 redis = { version = "1.7.1", default-features = false, features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

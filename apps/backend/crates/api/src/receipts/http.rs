@@ -209,13 +209,22 @@ async fn create(
     let started = Instant::now();
     let lines = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        ocr.read_lines(&bytes)
+        ocr.read_lines_with_options(
+            &bytes,
+            Some(&taphoa_recognition::ocr::ReceiptOptions::bounded()),
+        )
     })
     .await
     .map_err(|_| ApiError::internal())?
-    .map_err(|error| {
-        tracing::error!(%error,"receipt OCR failed");
-        ApiError::internal()
+    .map_err(|error| match error {
+        taphoa_recognition::ocr::OcrError::LimitExceeded(message) => {
+            ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "ocr_work_limit", message)
+        }
+        taphoa_recognition::ocr::OcrError::Remote(error) => crate::remote_models::api_error(error),
+        error => {
+            tracing::error!(%error,"receipt OCR failed");
+            ApiError::internal()
+        }
     })?;
     let ocr_ms = millis(started);
     if lines.is_empty() {

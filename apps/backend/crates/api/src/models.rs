@@ -76,12 +76,20 @@ fn load_error(error: anyhow::Error) -> crate::ApiError {
 }
 impl AppState {
     pub fn embedding_holder(&self) -> Option<ModelHolder<dyn Embedder>> {
+        if let Some(remote) = &self.remote_models {
+            return Some(ModelHolder::from(remote.clone() as Arc<dyn Embedder>));
+        }
         self.embedder
             .clone()
             .map(ModelHolder::from)
             .or_else(|| self.models.dino.clone())
     }
     pub async fn model_segmenter(&self) -> ApiResult<Option<ModelLease<dyn Segmenter>>> {
+        if let Some(remote) = &self.remote_models {
+            return Ok(Some(
+                ModelLease::fixed(remote.clone() as Arc<dyn Segmenter>),
+            ));
+        }
         if let Some(model) = &self.segmenter {
             return Ok(Some(ModelLease::fixed(model.clone())));
         }
@@ -97,6 +105,11 @@ impl AppState {
         }
     }
     pub async fn model_point_segmenter(&self) -> ApiResult<Option<ModelLease<dyn PointSegmenter>>> {
+        if let Some(remote) = &self.remote_models {
+            return Ok(Some(ModelLease::fixed(
+                remote.clone() as Arc<dyn PointSegmenter>
+            )));
+        }
         if let Some(model) = &self.point_segmenter {
             return Ok(Some(ModelLease::fixed(model.clone())));
         }
@@ -112,12 +125,20 @@ impl AppState {
         }
     }
     pub async fn model_embedder(&self) -> ApiResult<Option<ModelLease<dyn Embedder>>> {
+        if let Some(remote) = &self.remote_models {
+            return Ok(Some(ModelLease::fixed(remote.clone() as Arc<dyn Embedder>)));
+        }
         match self.embedding_holder() {
             Some(holder) => Ok(Some(holder.get().await.map_err(load_error)?)),
             None => Ok(None),
         }
     }
     pub async fn model_text_detector(&self) -> ApiResult<Option<ModelLease<dyn TextDetector>>> {
+        if let Some(remote) = &self.remote_models {
+            return Ok(Some(ModelLease::fixed(
+                remote.clone() as Arc<dyn TextDetector>
+            )));
+        }
         if let Some(model) = &self.text_detector {
             return Ok(Some(ModelLease::fixed(model.clone())));
         }
@@ -133,6 +154,11 @@ impl AppState {
         }
     }
     pub async fn model_receipt_ocr(&self) -> ApiResult<Option<ModelLease<dyn ReceiptOcr>>> {
+        if let Some(remote) = &self.remote_models {
+            return Ok(Some(ModelLease::fixed(
+                remote.clone() as Arc<dyn ReceiptOcr>
+            )));
+        }
         if let Some(model) = &self.receipt_ocr {
             return Ok(Some(ModelLease::fixed(model.clone())));
         }

@@ -521,3 +521,267 @@ the real-model cached encoding across unload/reload test passed. Fake-loader tes
 cover single flight, idle unload/reload, active/cloned inference leases, zero timeout,
 cancelled waiters and retry after a failed load. A boot/health/readiness test uses invalid
 model files to prove these paths never try to load a session.
+
+## Inference worker
+
+Implementation and measurements on 2026-11-21, Ryzen 5 2600 / GTX 1060 6GB,
+ONNX Runtime **1.23.2**, `ort =2.0.0-rc.15`, existing checksum-pinned models and
+fixtures. The Rust worker uses the GPU and NVIDIA libraries installed by
+`fetch-onnxruntime-gpu.sh`, not the spike's Python environment. CUDA registers on
+all six sessions with device 0, HEURISTIC search, a default 3072 MiB arena limit
+**per session**, same-as-requested growth and one intra-op thread. The default
+SAM decoder pool has one session on CUDA. Dynamically loaded cudart receives
+`cudaSetDeviceFlags(4)` before ORT/session creation, enabling blocking sync without
+a build-time or default-test CUDA dependency. Registration errors fail loading.
+The arena limit is not a global VRAM cap; the desktop retains GPU headroom.
+
+### Output parity
+
+`crates/api/examples/inference_worker_parity.rs` compares the actual synchronous
+CPU adapters with remote CUDA traits, including JPEG decoding/preprocessing and
+all postprocessing. Both return **20** shelf segments. Across all **64** point
+prompts with each provider's own encoder result, minimum binary mask IoU is
+**0.9999622656** (required 0.99). Whole-photo DINO cosine is
+**0.9999999999990998**, and minimum cosine over all segmented crops is
+**0.9999999999896898** (required 0.9999). OCR grouped text matches exactly on all
+three receipts: **10 / 11 / 10 lines**. The automatic `Segmenter` trait exposes
+boxes/areas rather than masks, so its count is checked separately and binary mask
+IoU uses all 64 point decodes through `PointSegmenter`. This is CPU/CUDA numerical parity on the
+repository fixtures, not a new labelled accuracy evaluation.
+
+### API latency and resources under limits
+
+In the initial measurement, the same release `taphoa-api` binary serves both
+variants against the same local Compose Postgres/RustFS. API affinity is CPUs 0–3,
+CPU adapters use four threads /
+four SAM decoders, and the CUDA worker runs in a transient
+`systemd-run --user --scope -p CPUQuota=200% -p MemoryMax=2G`. Each endpoint discards
+one initial request and records **20** sequential warm HTTP requests. Percentiles
+use nearest rank (p50 = sorted sample 10, p95 = sample 19). Scan/segment use
+`shelf-1600.jpg`; receipt creation uses `receipt-1.jpg` with deterministic parsing,
+without cloud Decisions work. Calls include auth, database, local storage and
+image/wire processing. There is no tunnel/WAN in these loopback figures.
+
+| Real backend endpoint | Local CPU p50 / p95 ms | CUDA worker p50 / p95 ms |
+| --------------------- | ---------------------: | -----------------------: |
+| Scan                  |        2275.1 / 2343.1 |            696.0 / 735.6 |
+| Segment               |        1568.6 / 1610.6 |            331.5 / 345.6 |
+| Receipt               |          829.0 / 935.8 |            333.9 / 354.5 |
+
+Worker warm health takes **2.5 ms**, reporting all families `remote`, zero load
+milliseconds and already loaded. API RSS after warm is **28.7 MiB**, versus
+**634.7 MiB** after local session creation. After the complete batches the remote
+API is **84.3 MiB** and has logged no local model loads; local CPU is **1720.0 MiB**.
+Local models unload, leaving **189.8 MiB** API RSS 30 s later. These are process RSS,
+not Railway's billed working-set metric.
+
+| Worker resource (all families loaded and exercised) |                         Observation |
+| --------------------------------------------------- | ----------------------------------: |
+| RSS after API batches                               |                           811.1 MiB |
+| Process RSS high-water mark                         |                          1132.9 MiB |
+| Process swap at that reading                        |                           362.2 MiB |
+| Process VRAM                                        |                            1572 MiB |
+| Whole GPU used / free (6 GiB total)                 |                     1829 / 4235 MiB |
+| Worker CPU seconds per scan, mean of 20             |                              0.3615 |
+| Worker CPU seconds per segment / receipt, means     |                     0.2010 / 0.2925 |
+| Idle CPU over 60.044 s                              |   0.030 CPU-s, 0.04996% of one core |
+| Idle RSS / VRAM in the separate 60 s sample         |                923.4 MiB / 1558 MiB |
+| Scope memory peak (cgroup accounting)               |                           747.8 MiB |
+| Scope memory max / CPU quota                        | 2048 MiB / 2 CPU-seconds per second |
+
+The shared host paged some inactive host state: report swap alongside RSS rather
+than interpreting resident memory as total host allocation. Cgroup memory accounts
+shared file pages differently from process RSS. Every family remains loaded, and
+latencies above hold under the limits without OOM or any VRAM exhaustion. GPU
+memory is whole-process, not a per-model sum. Desktop/other GPU users retain more
+than 4 GiB free. Idle was sampled after parity, before the API batch (the later
+batch adds 14 MiB VRAM). Local CPU API process CPU-s per scan averaged **7.761**;
+the worker CPU figure excludes the API's remaining preprocessing/network CPU.
+
+The final runs were sequential after compilation and parity completed. Host
+one-minute load was **7.19** at CPU startup and **2.25** at worker-backed API startup;
+the CPU run finished at **2.65**. These are shared-host observations, not exclusive
+hardware or a claim of identical competing load. An exploratory CPU batch that
+overlapped compilation/parity is excluded. The prior reference p50 values
+2430 / 1634 / 802 ms are consistent in scale but were not substituted for this
+run. CPU affinity remains the same as the earlier lifecycle harness; the worker
+is quota-limited rather than pinned to those same four cores.
+
+### Memory policy recheck (2026-11-21)
+
+The earlier worker's own `memory.events` high/max/OOM counters stayed zero even
+while its pages were swapped under pressure in the shared `user-1000.slice`.
+The decided policy therefore keeps the hard cap and prevents worker swap:
+`MemoryHigh=infinity`, `MemoryMax=2G`, `MemorySwapMax=0`, `CPUQuota=200%`.
+Disabling the worker's soft limit does not remove ancestor slice limits.
+
+After rebuilding the hardened worker and backend, a fresh transient
+`systemd-run --user --scope` used exactly those four properties. `systemctl --user
+show` confirmed infinity / 2147483648 / 0 and `CPUQuotaPerSecUSec=2s`; the cgroup
+files confirmed `memory.high=max`, `memory.max=2147483648` and `memory.swap.max=0`.
+Health reported `ready`, provider `cuda`, loaded `sam`, `dinov2` and `ocr`.
+The same fixtures/harness, CPU runtime for the API, CPUs 0–3 API affinity and
+nearest-rank percentiles were used, discarding one initial call per endpoint.
+
+| Backend endpoint | Earlier worker p50 ms | No-swap worker p50 / p95 ms | p50 change | Warm calls |
+| ---------------- | --------------------: | --------------------------: | ---------: | ---------: |
+| Scan             |                 696.0 |               674.5 / 697.8 |      -3.1% |         20 |
+| Segment          |                 331.5 |               338.3 / 344.4 |      +2.1% |         20 |
+| Receipt          |                 333.9 |               332.6 / 348.6 |      -0.4% |         20 |
+
+All p50 changes stay within the existing 5% warm-latency tolerance. This is a
+short shared-host regression check, not an exclusive-hardware comparison; startup
+one-minute host load was 3.05. Backend warm took 2.3 ms, reported all families
+remote/already loaded, and the API log contained no local model loads or fallback.
+
+| Final worker observation                           |                    Value |
+| -------------------------------------------------- | -----------------------: |
+| RSS and process RSS high-water (each)              | 1145.6 MiB (1173136 KiB) |
+| Process swap, before/after and 63 periodic samples |                    0 KiB |
+| VRAM after all backend batches                     |                 1522 MiB |
+| Scope memory current / peak                        |        767.9 / 771.4 MiB |
+| Scope memory.swap.current / memory.swap.max        |                    0 / 0 |
+| Scope memory.events high / max / oom / oom_kill    |            0 / 0 / 0 / 0 |
+
+The monitor sampled process/cgroup memory and VRAM every half second while the
+API performed the calls. All models stayed loaded, and GPU usage left substantial
+headroom on the 6 GiB card that also drives the desktop. The worker and the
+harness's API/JWKS processes were stopped; the transient scope became inactive.
+No persistent unit or tunnel was started. Raw result/samples, latency JSON and
+adjacent logs are retained in
+`/media/storage/cache/g-inference-worker/evidence/hardening-noswap/`.
+
+### Fallback drill
+
+A fresh real API process initially warms remotely. The harness sends one shelf
+segment, SIGTERMs the worker, sends two more, restarts a fresh scoped worker and
+probes after the 30 s breaker window. Every client response is **200**, with
+**20 segments**:
+
+| Stage                        | HTTP status | Client wall ms | Backend / evidence                              |
+| ---------------------------- | ----------: | -------------: | ----------------------------------------------- |
+| Before stop                  |         200 |          346.9 | remote                                          |
+| First failed-over request    |         200 |         2088.6 | `worker_transport`, SAM cold load 341 ms        |
+| Next call, breaker open      |         200 |         1578.5 | local, `circuit_open`; no second worker request |
+| After worker restart / probe |         200 |          376.7 | remote, `inference circuit recovered`           |
+
+Warm after recovery reports all families `remote` and does not load DINOv2/OCR
+locally. With `MODEL_IDLE_UNLOAD_SECS=15`, the fallback SAM lease releases and its
+sessions unload during the recovery wait; subsequent inference stays remote.
+This verifies the idle lifecycle survives fallback. The first failure here is a
+refused connection after shutdown, not a blackholed 10 s timeout; that worst case
+can add the full remote deadline before local cold-load/inference. No speculative
+parallel inference is used. Both transient worker scopes are stopped afterward;
+no persistent service was enabled or started.
+
+### Protocol and lifecycle
+
+The worker exposes eight POST operations under `/v1/`: `segment`, `encode`,
+`decode-points`, `embed`, `embed-crops`, `detect-text`, `document-signal` and
+`read-lines`. Wire v1 uses bincode 1, fixed-width little-endian fields, a 10 MiB
+decode limit and rejected trailing data. Images are bytes, RGB batches avoid PNG
+re-encoding, f32 embeddings cost four bytes per element, and masks use one bit per
+pixel. Embedding replies include model ID/dimension so different `EMBED_SIDE`
+settings cannot silently mix vectors. Both path and content type are versioned;
+serde types live in `taphoa_recognition::wire`.
+
+Every `/v1/` operation requires a bearer token of at least 32 characters, compared
+as constant-time SHA-256 digests. `/healthz` is public and returns exactly status,
+provider, loaded families and version. Images are checked before pixel allocation
+(4096-pixel edges, existing decode limits), crops/points are validated, one native
+operation runs with two queued requests, overload returns 503 / `Retry-After: 1`,
+and a 10 s deadline includes body receipt and queue time. Expired/cancelled queued
+jobs are skipped; active cancellation is checked between SAM prompts, embedding
+batches, OCR batches and recurrent decoder steps. Only a native ORT call already
+running is allowed to return before cancellation releases the slot. OCR is limited
+to 512 detected boxes / 16 Mi-pixels of total crops, checked before materialisation;
+422 `ocr_work_limit` remains a client error without fallback. Before auth, the worker
+caps accepted HTTP/1 connections at 32, closes excess immediately, limits headers to
+8 KiB / 32 fields, and applies a 3 s header/idle keep-alive deadline. Engine panic
+marks health not-ready and exits non-zero for restart. Remote non-loopback HTTP
+requires an explicit encrypted-transport override; health bodies are stopped at 4 KiB.
+All families, including VietOCR's recognizer even when a blank detector finds no
+text, are warmed before the listener binds. SIGTERM drains the service.
+
+A worker encoding is a random handle into a bounded 16-entry / 300 s cache. The
+API caches the opaque handle and source bytes, not remote latent tensors.
+`410 unknown_encoding` causes one re-encode/retry and updates the cached handle.
+Fallback can cache a CPU tensor encoding without retaining its SAM sessions.
+The backend uses 500 ms connect timeout and a 10 s total budget per trait call,
+including all crop batches and encoding retries. A transport failure, timeout or
+worker 5xx opens a shared 30 s circuit and uses the existing lazy CPU holder for
+that call; subsequent calls go directly local. One half-open probe is admitted
+afterward, success closes the circuit, and failure/cancellation reopens it. A late
+success cannot close a newer outage. 4xx preserves the worker's status without
+fallback. Missing local weights produce retryable 503. No speculative hedging is
+used. Warm uses cheap worker health while ready and reports each family's
+`backend`; local models still unload after recovery. Logs record `backend` and
+fallback `reason` without images/tokens.
+
+### Reproduce
+
+All expensive commands use the shared heavy wrapper; build separately, with the
+required target directory and four jobs. No tunnel or persistent service startup
+is needed for these measurements. Installation and lifecycle commands for the
+controller are in [the worker README](../../infra/inference-worker/README.md).
+
+```sh
+export CARGO_TARGET_DIR=/media/storage/cache/g-inference-worker
+~/.cache/taphoa-mini/heavy cargo build --release -j 4 \
+  --manifest-path apps/backend/Cargo.toml -p taphoa-api -p taphoa-infer \
+  --bin taphoa-api --bin taphoa-infer --example inference_worker_parity
+~/.cache/taphoa-mini/heavy apps/backend/scripts/fetch-onnxruntime-gpu.sh \
+  > /tmp/inference-gpu-runtime.sh
+```
+
+In a separate terminal, load the runtime exports and a private token, then start
+one transient scoped worker (stop it with SIGTERM after measurement):
+
+```sh
+source /tmp/inference-gpu-runtime.sh
+# Load INFERENCE_TOKEN securely; do not print it or commit it.
+export MODEL_DIR=/media/storage/cache/taphoa-models
+export INFERENCE_PROVIDER=cuda
+export INFERENCE_BIND=127.0.0.1:18090
+~/.cache/taphoa-mini/heavy systemd-run --user --scope \
+  -p CPUQuota=200% -p MemoryHigh=infinity -p MemoryMax=2G -p MemorySwapMax=0 \
+  "$CARGO_TARGET_DIR/release/taphoa-infer"
+```
+
+Wait for `/healthz` to say ready. Keep the API/CPU parity process on the separate
+CPU runtime (and leave `INFERENCE_PROVIDER` unset there). Use an existing disposable
+Compose Postgres database; the harness migrates it, creates disposable stores and
+uses a cached RSA signing key/local JWKS, plus local RustFS. It makes no Clerk or
+cloud LLM call. Run these sequentially after builds finish:
+
+```sh
+export DATABASE_URL=postgres://taphoa:taphoa@127.0.0.1:55432/g_inference_worker
+export MODEL_DIR=/media/storage/cache/taphoa-models
+export ORT_DYLIB_PATH=/media/storage/cache/taphoa-onnxruntime/lib/libonnxruntime.so.1.23.2
+unset INFERENCE_PROVIDER
+
+# First run without worker configuration:
+unset INFERENCE_URL
+~/.cache/taphoa-mini/heavy python3 apps/backend/scripts/model-lifecycle.py \
+  "$CARGO_TARGET_DIR/release/taphoa-api" --latency 20 --idle 15 \
+  --output /tmp/inference-cpu.json
+
+# Load the same private INFERENCE_TOKEN used by the worker; never log it.
+export INFERENCE_URL=http://127.0.0.1:18090
+~/.cache/taphoa-mini/heavy taskset -c 0-3 \
+  "$CARGO_TARGET_DIR/release/examples/inference_worker_parity"
+~/.cache/taphoa-mini/heavy python3 apps/backend/scripts/model-lifecycle.py \
+  "$CARGO_TARGET_DIR/release/taphoa-api" --latency 20 --idle 15 \
+  --inference-pid <worker-pid> --output /tmp/inference-remote.json
+~/.cache/taphoa-mini/heavy python3 apps/backend/scripts/inference-worker-resources.py \
+  <worker-pid> --seconds 60 --output /tmp/inference-idle.json
+```
+
+For the fallback drill, run `model-lifecycle.py` with `--worker-pid <worker-pid>`
+and `--worker-restart-command /path/to/transient-restart-script`. That script must
+load the same GPU runtime/token and start a transient scoped worker on the same
+port; it must not enable a service. The harness records a successful remote
+segment, stops the worker, records first/local-open-circuit responses, restarts,
+waits 32 s, checks recovery and warm, then stops the replacement. It verifies
+idle unloading of whichever local families were loaded. JSON and adjacent JSONL
+API logs include timings, worker CPU seconds per request, RSS and backend selection.
