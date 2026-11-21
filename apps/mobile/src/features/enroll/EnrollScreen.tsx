@@ -19,6 +19,7 @@ import { parseCrop } from '@/lib/bbox';
 import { formatVnd } from '@/lib/format';
 import { newUuid } from '@/lib/uuid';
 import { useCartStore } from '@/stores/cart';
+import { useWarmRecognition } from '@/features/recognition/useWarmRecognition';
 import { colors, fontFamily, radius, space, typography } from '@/theme';
 
 import { ProductForm, type ProductValues } from './ProductForm';
@@ -97,6 +98,7 @@ function CaptureModal({ visible, onCancel, onCaptured }: CaptureProps) {
 }
 
 export function EnrollScreen() {
+  useWarmRecognition();
   const router = useRouter();
   // `scanId` and `detectionId` are the camera's hand-off; CreateProductRequest has no field for
   // them yet. `crop` ("x,y,w,h" in photo pixels) is the pressed detection's box.
