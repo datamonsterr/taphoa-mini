@@ -1595,11 +1595,16 @@ export interface components {
         ModelLoadTiming: {
             /**
              * Format: int64
-             * @description Most recent family load duration in milliseconds, including warm-up.
+             * @description Most recent local family load duration in milliseconds (zero for the worker).
              */
             load_ms: number;
             /** @description Whether this family was ready when the call reached its holder. */
             already_loaded: boolean;
+            /**
+             * @description Backend selected for the next inference with current worker health.
+             * @enum {string}
+             */
+            backend: "local" | "remote";
         };
         WaitlistRequest: {
             /** @description Email address up to 254 characters after normalization. */
