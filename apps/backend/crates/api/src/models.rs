@@ -45,18 +45,28 @@ impl LazyModels {
                         .ok_or_else(|| anyhow::anyhow!("DINOv2 weights absent"))
                 })
             });
-        let ocr = config
-            .ocr_det
-            .as_ref()
-            .filter(|path| path.exists())
-            .map(|_| {
+        let ocr = match (
+            &config.ocr_det,
+            &config.ocr_encoder,
+            &config.ocr_decoder,
+            &config.ocr_vocab,
+        ) {
+            (None, None, None, None) => None,
+            (Some(det), Some(enc), Some(dec), Some(vocab))
+                if [det, enc, dec, vocab].iter().all(|path| !path.exists()) =>
+            {
+                None
+            }
+            (Some(_), Some(_), Some(_), Some(_)) => {
                 let config = config.clone();
-                ModelHolder::new("ocr", idle, move || {
+                Some(ModelHolder::new("ocr", idle, move || {
                     config
                         .ocr()?
                         .ok_or_else(|| anyhow::anyhow!("OCR weights absent"))
-                })
-            });
+                }))
+            }
+            _ => anyhow::bail!("set all four OCR paths, or none"),
+        };
         Ok(Self { sam, dino, ocr })
     }
 }
@@ -149,11 +159,71 @@ impl<T: Embedder + 'static> From<Arc<T>> for ModelHolder<dyn Embedder> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::response::IntoResponse;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn partial_ocr_files_create_a_holder_and_return_retryable_load_errors() {
+        let present = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        let absent =
+            std::env::temp_dir().join(format!("taphoa-ocr-missing-{}", uuid::Uuid::new_v4()));
+        let keys = [
+            "OCR_DET_PATH",
+            "OCR_ENCODER_PATH",
+            "OCR_DECODER_PATH",
+            "OCR_VOCAB_PATH",
+        ];
+        // Cover each partial set, especially a missing detector with another file present.
+        for mask in 0u8..16 {
+            let config = Config::from_lookup(|name| {
+                if name == "CLERK_ISSUER" {
+                    return Some("https://local.clerk.accounts.dev".into());
+                }
+                keys.iter().position(|key| *key == name).map(|index| {
+                    if mask & (1 << index) != 0 {
+                        present.to_owned()
+                    } else {
+                        absent.to_string_lossy().into_owned()
+                    }
+                })
+            })
+            .unwrap();
+            let models = LazyModels::from_config(&config).unwrap();
+            assert_eq!(models.ocr.is_some(), mask != 0, "file mask {mask}");
+            if mask == 0 || mask == 15 {
+                continue;
+            }
+            let cause = models
+                .ocr
+                .as_ref()
+                .unwrap()
+                .get()
+                .await
+                .err()
+                .expect("partial load fails");
+            assert!(
+                cause
+                    .to_string()
+                    .contains("OCR model files must all be present")
+            );
+            let state = AppState {
+                models,
+                ..AppState::default()
+            };
+            let response = state
+                .model_receipt_ocr()
+                .await
+                .err()
+                .expect("retryable OCR error")
+                .into_response();
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()["retry-after"], "1");
+        }
+    }
 
     #[tokio::test]
     async fn startup_and_health_do_not_open_even_invalid_model_files() {

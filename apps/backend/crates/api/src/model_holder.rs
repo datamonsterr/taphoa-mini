@@ -165,6 +165,7 @@ impl<T: ?Sized + Send + Sync + 'static> ModelHolder<T> {
                         tokio::spawn(async move {
                             let started = Instant::now();
                             let loader_inner = inner.clone();
+                            // Family loading creates sessions only and runs no inference; inference starts when a caller uses its lease.
                             let loaded =
                                 tokio::task::spawn_blocking(move || (loader_inner.loader)()).await;
                             let result = loaded.map_err(anyhow::Error::from).and_then(|r| r);

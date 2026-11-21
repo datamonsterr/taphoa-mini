@@ -208,6 +208,7 @@ impl SamSegmenter {
             .first()
             .and_then(|input| input.dtype().tensor_shape())
             .is_some_and(|shape| shape.len() == 3);
+        // No synthetic warm-up: pinned/checksummed pairs are covered by CI; incompatibility fails on first inference.
         Ok(Self {
             sessions: Sessions {
                 encoder: Mutex::new(encoder),

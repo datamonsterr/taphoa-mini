@@ -321,7 +321,13 @@ flowchart TD
 - **Model lifecycle.** Startup serves before any model load or warm-up; health/readiness
   depend only on ordinary dependencies. SAM, DINOv2 and OCR have independent
   `ModelHolder` instances, with a single blocking load per family and leases pinning
-  sessions throughout inference (including cancelled requests). Requests wait up to
+  sessions throughout inference (including cancelled requests). Loaders create sessions
+  without synthetic inference: the first real inference allocates arenas and checks
+  compatibility/output shape. An incompatible SAM encoder/decoder pair therefore
+  fails on first inference rather than at load; models are pinned and checksum-verified,
+  and CI's real-model test covers the pair. `warm` prepares sessions only. A partial
+  OCR file set creates a holder and fails on use with a logged cause and retryable
+  503; only an entirely absent file set leaves OCR unconfigured. Requests wait up to
   120 seconds for loading, then get 503 with `Retry-After: 1`. The signed-in member
   route `POST /v1/recognition/warm` starts all families concurrently, reports per-family
   `load_ms` and `already_loaded`, and allows six calls per member per minute.

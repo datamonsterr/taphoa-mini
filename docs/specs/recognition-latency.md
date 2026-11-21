@@ -68,8 +68,9 @@ vary by +-30 % in segmentation time.
 - **ONNX Runtime thread spinning is off by default** (`ORT_SPINNING`, set `1` or `true` to
   enable). Spinning keeps worker threads busy-waiting while they wait for work; on our
   8 vCPU cgroup shared with the API it burns CPU quota and gets throttled in production.
-- Families load on first use after the API starts serving; DINOv2 warm-up runs during
-  the lazy load. SAM does not run a synthetic warm-up (see A2 measurements below). Concurrent first callers wait for loading (up to 120 seconds);
+- Families load on first use after the API starts serving, without synthetic inference.
+  `warm` prepares sessions; the first real inference pays arena allocation and validates
+  compatibility/output shape. Concurrent first callers wait for loading (up to 120 seconds);
   load failures/timeouts and occupied inference slots return 503 with `Retry-After: 1`.
 
 ## Reproduce
@@ -313,31 +314,89 @@ inference algorithms changed. `/healthz` polling interval was 10 ms. RSS is Linu
 capture host load; later runs record the one-minute load average. These are shared-host
 observations, not a controlled latency acceptance run.
 
-### Warm-up decision
+### Initial exploratory warm-up measurements (superseded)
 
-The existing `bench` and `embed_bench` examples were built from the baseline twice:
+The initial exploratory run built the existing `bench` and `embed_bench` examples from
+the baseline twice:
 unchanged, and with only the load-time warm-up calls removed in a temporary source
 copy. Three alternating trials per variant used the same four cores; each measured
 one first shelf segmentation or one first DINOv2 crop (112 px). Host one-minute load
 was 13.3–15.9. Times are milliseconds; this comparison includes the first real inference.
 
-| Family | First inference with warm-up | First inference without warm-up | Decision                                                                                                                                                       |
-| ------ | ---------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SAM    | 3523, 3977, 2947             | 3867, 3068, 2787                | Remove synthetic warm-up: no consistent first-request benefit. Load alone fell from 8435–11911 ms to 908–1228 ms in these sequential-session benchmark builds. |
-| DINOv2 | 90.3, 57.2, 52.6             | 108.1, 101.5, 110.2             | Retain warm-up: first-crop median fell from 108.1 to 57.2 ms (47%).                                                                                            |
+| Family | First inference with warm-up | First inference without warm-up | Decision                                                                                                                                                             |
+| ------ | ---------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SAM    | 3523, 3977, 2947             | 3867, 3068, 2787                | Initial removal based on a noisy first-request comparison; superseded by the review follow-up below. Load was 8435–11911 ms with warm-up versus 908–1228 ms without. |
+| DINOv2 | 90.3, 57.2, 52.6             | 108.1, 101.5, 110.2             | Initially retained based on first-crop latency alone; the cold-path comparison below supersedes this decision.                                                       |
 
-OCR has no synthetic warm-up. SAM still allocates its inference arenas on the first
-real image; `warm` prepares sessions, while the first real request may pay that work.
-The session creation inside SAM and OCR is now concurrent and runs within the holder's
+The exploratory runs compared first inference without counting the load-time inference
+itself. The review follow-up below compares both costs and keeps neither synthetic
+warm-up. The session creation inside SAM and OCR remains concurrent inside the holder's
 blocking loader; builders stay on their own threads, following the pinned
-[ort 2.0.0-rc.15 API](https://docs.rs/ort/2.0.0-rc.15/ort/session/builder/struct.SessionBuilder.html). DINOv2 retains output-dimension validation during its warm-up.
+[ort 2.0.0-rc.15 API](https://docs.rs/ort/2.0.0-rc.15/ort/session/builder/struct.SessionBuilder.html).
 
-### Final cold load (SAM synthetic warm-up removed)
+### Review follow-up: optimize load plus first request
+
+Both families now **create sessions only; no inference runs during loading**. The
+controller explicitly chose the combined cold path instead of optimizing only the
+first real inference after a synthetic one. All timings below are release binaries,
+real pinned models, `taskset -c 0-3`, four SAM threads and four decoder sessions.
+Trials alternated warm-up/no-warm-up order between pairs; values are medians in ms.
+
+| Family / variant                   | Cold load | First real inference | Paired cold total |
+| ---------------------------------- | --------: | -------------------: | ----------------: |
+| SAM, with warm-up                  |    6250.4 |               2313.2 |            8588.4 |
+| SAM, without warm-up (**kept**)    |     459.5 |               2382.7 |            2850.6 |
+| DINOv2, with warm-up               |     282.9 |                 47.2 |             330.7 |
+| DINOv2, without warm-up (**kept**) |     232.3 |                 50.3 |             283.8 |
+
+The paired cold total is the median of each process's load + first inference, so it
+can differ slightly from the sum of the two component medians.
+
+SAM: five trials per variant using `bench`, `shelf-1600.jpg` and one first segment;
+host one-minute load 9.69–10.87. The four headline numbers are **6250 ms load +
+2313 ms first segment with warm-up**, versus **460 ms + 2383 ms without**. Warm-up
+saves only 70 ms on the first segment and costs about 5.8 seconds at load. Even though
+the first-segment difference is under 5%, the controller superseded that rule and
+retained no warm-up: roughly 2.84 s beats 8.56 s on the combined cold path.
+
+DINOv2: ten trials per variant using `embed_bench`, one crop, 112 px input;
+host one-minute load 3.75–4.25. Its synthetic inference adds **50.6 ms** to load and
+saves **3.1 ms** on the first embed. The controller chose to remove it as well: the
+paired cold-total median improves from **330.7 to 283.8 ms**. The DINOv2 loader and
+benchmark sources were unchanged from the baseline, so its already-built with/without
+warm-up benchmark binaries were reused for these fresh alternating trials.
+
+An **incompatible SAM encoder/decoder pair now fails on the first inference instead
+of at load**; the loader cannot detect it without executing the models. Models remain
+pinned and checksum-verified by `fetch-models.sh`, and CI runs the real pair in
+`crates/recognition/tests/model.rs` (the `sam_end_to_end_small_image` test).
+DINOv2 output-shape validation remains in `embed_crops`, and the same CI model suite
+checks its 384-dimensional unit vectors. No inference runs outside admission during
+loading because neither loader performs inference. Partial OCR sets still fail during
+loading with a logged cause and `503` / `Retry-After: 1`; all-absent OCR files leave no
+holder. A fake-file unit test covers every partial combination without real models.
+
+Final release API check after removing both warm-ups (one cold process, shared-host
+one-minute load **5.44**, four pinned cores): `/healthz` accepted in **40.4 ms**;
+`POST /v1/recognition/warm` completed in **907.7 ms**, with overlapping SAM/DINOv2/OCR
+loads of **366 / 393 / 905 ms**. A second warm call reported all families already loaded.
+The next request was the first real `POST /v1/segment` on `shelf-1600.jpg`: **1614.0 ms**
+HTTP wall time, 20 segments. Unlike the older memory-exercise script ordering, no scan
+or other model inference preceded this segment. This is a single run, separate from
+the paired benchmark medians and the still-pending 5% warm-latency acceptance gate.
+
+Follow-up validation: `cargo fmt --check`, clippy with `--all-targets -- -D warnings`,
+and `cargo test` passed (**536 passed, 402 ignored**). The real
+`sam_end_to_end_small_image` and `dino_embeds_crops_as_unit_vectors` tests were also run
+with the pinned models and both passed. The new partial-OCR unit test covers all file
+presence combinations, checks the loader's missing-file cause and its retryable 503.
+
+### Initial session-only SAM trial (DINOv2 still had warm-up)
 
 Shared host, one-minute load **15.02** at startup: accepted `/healthz` in **53.1 ms**.
 A cold authenticated `POST /v1/recognition/warm` completed in **1102.0 ms**; a second
 call reported `already_loaded=true` for all three families. The per-family durations
-include concurrent session creation (and DINOv2 warm-up), so they overlap:
+include concurrent session creation and the then-enabled DINOv2 warm-up, so they overlap:
 
 | Family | Cold load during concurrent warm |
 | ------ | -------------------------------: |
@@ -345,7 +404,7 @@ include concurrent session creation (and DINOv2 warm-up), so they overlap:
 | DINOv2 |                           792 ms |
 | OCR    |                          1095 ms |
 
-The final process used **26032 KiB (25.4 MiB)** RSS at health acceptance and
+The no-warm-up process used **26032 KiB (25.4 MiB)** RSS at health acceptance and
 **644816 KiB (629.7 MiB)** after `warm`. It then exercised real scan, segment and
 receipt OCR before the idle unload reading below. Thirty seconds after the last
 unload, RSS was **109004 KiB (106.4 MiB; 111.6 MB)**; host load was then **9.40**. These one-sample HTTP latencies
@@ -354,12 +413,12 @@ warm-latency acceptance comparison.
 
 ### Allocator experiment and startup
 
-The final cycle includes actual scan, segment and receipt inference. The two allocator
-comparison cycles below were collected before removing the unnecessary SAM warm-up:
+The no-warm-up cycle includes actual scan, segment and receipt inference. The two allocator
+comparison cycles below retained SAM synthetic warm-up:
 
 | Variant (shared host)                             | Start → health |  Start RSS | All families loaded RSS |       RSS 30 s after last unload |
 | ------------------------------------------------- | -------------: | ---------: | ----------------------: | -------------------------------: |
-| Final lazy, no SAM warm-up; load 15.02 → 9.40     |        53.1 ms |   25.4 MiB |               629.7 MiB | 106.4 MiB (109004 KiB; 111.6 MB) |
+| Initial lazy, no SAM warm-up; load 15.02 → 9.40   |        53.1 ms |   25.4 MiB |               629.7 MiB | 106.4 MiB (109004 KiB; 111.6 MB) |
 | Eager baseline; load not captured                 |      9972.8 ms | 1030.3 MiB |              1032.2 MiB |                    Never unloads |
 | Lazy, `malloc_trim` suppressed; load not captured |       238.6 ms |   21.6 MiB |              1160.9 MiB |           279.3 MiB (285976 KiB) |
 | Lazy, glibc `malloc_trim(0)`; load 10.25          |        78.2 ms |   21.4 MiB |              1229.8 MiB | 146.9 MiB (150440 KiB; 154.1 MB) |
@@ -370,7 +429,7 @@ trial also accepted health in 52.5 ms. To isolate trimming, the no-trim run used
 `LD_PRELOAD` shim overriding only `malloc_trim` to return zero. Ordinary session drops
 left 292.8 MB resident, above the 200 MB acceptance limit; explicit trimming brought
 this below the limit. No allocator replacement or child-process inference was needed.
-The final cycle also remained under 200 MB after all three inference paths. These
+The no-warm-up cycle also remained under 200 MB after all three inference paths. These
 measurements did not populate the point encoding/photo cache; that unchanged cache
 can retain additional tensors and photos until its next access/insertion evicts them.
 Trimming and session destruction run on blocking threads. New acquisitions wait for
