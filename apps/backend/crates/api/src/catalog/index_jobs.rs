@@ -166,6 +166,7 @@ struct ClaimedJob {
     store_id: Uuid,
     product_id: Uuid,
     attempts: i32,
+    failure_attempts: i32,
 }
 
 /// Recover expired leases and process at most one due job. `false` means no work.
@@ -190,7 +191,7 @@ pub async fn process_next(
         "UPDATE index_jobs SET status='running', attempts=attempts+1, updated_at=now()
          WHERE id=(SELECT id FROM index_jobs WHERE status='queued' AND run_after<=now()
              ORDER BY run_after, created_at, id FOR UPDATE SKIP LOCKED LIMIT 1)
-         RETURNING id, store_id, product_id, attempts",
+         RETURNING id, store_id, product_id, attempts, failure_attempts",
     )
     .fetch_optional(pool)
     .await?;
@@ -209,7 +210,8 @@ pub async fn process_next(
                 attempts = job.attempts,
                 "index job failed"
             );
-            schedule_retry(pool, &job, format!("{error:#}"), config).await?;
+            let unavailable = model_unavailable(&error);
+            schedule_retry(pool, &job, format!("{error:#}"), unavailable, config).await?;
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -375,13 +377,20 @@ async fn schedule_retry(
     pool: &PgPool,
     job: &ClaimedJob,
     error: String,
+    unavailable: bool,
     config: &WorkerConfig,
 ) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
     if !lock_claim(&mut tx, job).await? {
         return Ok(());
     }
-    if job.attempts >= MAX_ATTEMPTS {
+    let failures = job.failure_attempts + i32::from(!unavailable);
+    sqlx::query("UPDATE index_jobs SET failure_attempts=$2 WHERE id=$1")
+        .bind(job.id)
+        .bind(failures)
+        .execute(&mut *tx)
+        .await?;
+    if failures >= MAX_ATTEMPTS {
         sqlx::query(
             "UPDATE index_jobs SET status='failed', last_error=$2, updated_at=now() WHERE id=$1",
         )
@@ -398,10 +407,7 @@ async fn schedule_retry(
                 .await?;
         emit_indexed(&mut tx, job, "failed", count as i32).await?;
     } else {
-        let delay = config
-            .backoff_base
-            .saturating_mul(1u32 << job.attempts)
-            .min(BACKOFF_CAP);
+        let delay = retry_delay(config.backoff_base, job.attempts);
         sqlx::query(
             "UPDATE index_jobs SET status='queued', last_error=$2,
              run_after=now()+make_interval(secs => $3), updated_at=now() WHERE id=$1",
@@ -479,4 +485,55 @@ fn compute_prototype(embeddings: &[Embedding]) -> Option<Vec<f32>> {
         .collect();
     crop::l2_normalize(&mut mean);
     Some(mean)
+}
+
+/// The claim count remains monotonic for stale-worker fencing and backoff;
+/// only real failures consume failure_attempts.
+fn model_unavailable(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.is::<crate::model_holder::ModelUnavailable>()
+                || matches!(cause.downcast_ref::<taphoa_recognition::EmbedError>(), Some(taphoa_recognition::EmbedError::Remote(e)) if e.status == 503)
+            || cause
+                .downcast_ref::<taphoa_recognition::wire::RemoteError>()
+                .is_some_and(|e| e.status == 503)
+    })
+}
+fn retry_delay(base: Duration, attempts: i32) -> Duration {
+    base.saturating_mul(1u32 << attempts.clamp(0, 31))
+        .min(BACKOFF_CAP)
+}
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn availability_errors_are_distinct_from_permanent_job_failures() {
+        let load = anyhow::Error::new(crate::model_holder::ModelUnavailable(
+            "cold load failed or timed out".into(),
+        ))
+        .context("indexing");
+        assert!(model_unavailable(&load));
+        let remote =
+            taphoa_recognition::EmbedError::Remote(taphoa_recognition::wire::RemoteError {
+                status: 503,
+                message: "no fallback".into(),
+            });
+        assert!(model_unavailable(&remote.into()));
+        for error in [
+            anyhow::anyhow!("storage failed"),
+            taphoa_recognition::EmbedError::InvalidImage("bad PNG".into()).into(),
+            taphoa_recognition::EmbedError::Inference("bad output".into()).into(),
+        ] {
+            assert!(!model_unavailable(&error));
+        }
+    }
+    #[test]
+    fn availability_backoff_never_spins_or_overflows() {
+        assert_eq!(
+            retry_delay(Duration::from_secs(1), 1),
+            Duration::from_secs(2)
+        );
+        for attempts in [9, 32, i32::MAX] {
+            assert_eq!(retry_delay(Duration::from_secs(1), attempts), BACKOFF_CAP);
+        }
+    }
 }

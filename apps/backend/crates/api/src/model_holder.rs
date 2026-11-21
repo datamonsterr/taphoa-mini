@@ -6,6 +6,10 @@ use std::{
 };
 use tokio::{sync::watch, time::Instant};
 
+#[derive(Debug, thiserror::Error)]
+#[error("model temporarily unavailable: {0}")]
+pub struct ModelUnavailable(pub String);
+
 pub const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
 type LoadResult = Option<Result<(), String>>;
 type Loader<T> = dyn Fn() -> anyhow::Result<Arc<T>> + Send + Sync;
@@ -135,7 +139,9 @@ impl<T: ?Sized + Send + Sync + 'static> ModelHolder<T> {
     pub async fn get_with_timing(&self) -> anyhow::Result<(ModelLease<T>, LoadTiming)> {
         tokio::time::timeout(LOAD_TIMEOUT, self.acquire())
             .await
-            .map_err(|_| anyhow::anyhow!("{} model load timed out", self.inner.name))?
+            .map_err(|_| anyhow::anyhow!("{} model load timed out", self.inner.name))
+            .and_then(|result| result)
+            .map_err(|error| ModelUnavailable(error.to_string()).into())
     }
     async fn acquire(&self) -> anyhow::Result<(ModelLease<T>, LoadTiming)> {
         let mut already_loaded = true;
