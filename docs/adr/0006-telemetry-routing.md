@@ -1,5 +1,8 @@
 # ADR 0006: OpenTelemetry through one collector to self-hosted Langfuse and PostHog Cloud
 
+Superseded in part by [ADR 0011](0011-scale-to-zero-hosting.md): telemetry routing
+moves to direct backend export with in-process redaction as the collector retires.
+
 Status: Superseded by [ADR 0007](0007-posthog-only-observability.md) · Date: 2026-10-25
 
 ## Context

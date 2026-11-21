@@ -1,5 +1,15 @@
 # OpenTelemetry Collector
 
+Being retired under [ADR 0011](../../docs/adr/0011-scale-to-zero-hosting.md).
+An always-on helper costs memory while idle; the backend now redacts at the SDK
+export boundary and can send OTLP/HTTP directly to PostHog using two environment
+variables. See [cutover, rollback and accepted loss](../../docs/deploy.md#direct-export-cutover-controller).
+Keep this service available until the controller verifies direct exports and
+production has run for one week; removal is a later change. Keep the backend rule
+table and this config equal until then. The backend uses shorter bounded retries
+and queues, so it does not reproduce the collector's unlimited elapsed retry or
+separate memory limiter.
+
 Pinned image: `otel/opentelemetry-collector-contrib:0.163.2`.
 
 The backend sends OTLP/HTTP with `Authorization: Bearer <COLLECTOR_BEARER_TOKEN>`
@@ -59,6 +69,9 @@ python3 -m unittest discover -s infra/otel-collector/tests -v
 
 pnpm exec prettier --check .github/workflows/ci.yml infra/otel-collector
 ```
+
+Redaction examples live in `tests/redaction-cases.json`, shared with the backend
+SDK tests, including key matching boundaries and digit-run lengths.
 
 The tests run the pinned image with `config.yaml` followed by
 `tests/override.yaml` via multiple `--config` flags. The override only selects
