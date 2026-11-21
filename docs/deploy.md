@@ -280,9 +280,17 @@ make readiness fail. After deployment, upload with `POST /v1/images`, fetch
 
 ## Railway `test` environment
 
-`test` mirrors production but is isolated: its own Postgres (pgvector), Redis, `images`
-bucket and `backend` service, deployed from any branch to validate it with real
-infrastructure before merge. Backend URL: **https://backend-test-70c2.up.railway.app**.
+`test` mirrors production but is isolated: its own Postgres (pgvector), Redis and `images`
+bucket. The backend deployment is ephemeral: the "Deploy backend" workflow removes it when
+the `test` job ends. Preview app builds (EAS profile `preview`) use
+**https://backend-test-70c2.up.railway.app** and can reach it only while a workflow run holds
+the backend up. To keep it running for measurement, dispatch the workflow with
+`gh workflow run deploy.yml -f ref=<branch> -f keep_test_backend=true`. Remove it afterwards
+with `railway down --service backend --environment test --yes` from a linked Railway project
+with a test-scoped token.
+
+The test environment's Postgres, Redis and bucket remain available between runs for
+`scripts/ci/with-railway-test-services.sh`; that helper does not use the backend.
 
 Created once with:
 
