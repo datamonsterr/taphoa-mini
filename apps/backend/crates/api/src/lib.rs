@@ -11,6 +11,8 @@ pub mod events;
 pub mod expenses;
 pub mod idempotency;
 pub mod images;
+pub mod model_holder;
+pub mod models;
 pub mod money;
 pub mod pagination;
 pub mod push;
@@ -77,6 +79,7 @@ pub struct AppState {
     pub postgres: Option<PgPool>,
     pub redis: Option<ConnectionManager>,
     pub hub: events::Hub,
+    pub models: models::LazyModels,
     pub segmenter: Option<Arc<dyn Segmenter>>,
     pub point_segmenter: Option<Arc<dyn PointSegmenter>>,
     pub text_detector: Option<Arc<dyn taphoa_recognition::ocr::TextDetector>>,
@@ -118,6 +121,7 @@ impl Default for AppState {
             postgres: None,
             redis: None,
             hub: events::Hub::new(),
+            models: models::LazyModels::default(),
             segmenter: None,
             point_segmenter: None,
             text_detector: None,
@@ -410,7 +414,7 @@ async fn segment(
         "segmentation requests",
     )
     .await?;
-    let segmenter = state.segmenter.ok_or_else(no_model)?;
+    let segmenter = state.model_segmenter().await?.ok_or_else(no_model)?;
     let permit = state
         .inference_slots
         .try_acquire_owned()

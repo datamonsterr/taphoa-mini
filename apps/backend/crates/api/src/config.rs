@@ -2,7 +2,7 @@ use crate::ratelimit::{ClientIpSource, RateLimits};
 use anyhow::{Context, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD_INDIFFERENT};
 use std::{path::PathBuf, sync::Arc};
-use taphoa_recognition::ocr::{PpOcrDetector, VietOcr};
+use taphoa_recognition::ocr::VietOcr;
 use taphoa_recognition::{DinoEmbedder, Embedder, SamOptions, SamSegmenter, Segmenter};
 
 // No Debug: contains the optional Clerk secret key.
@@ -89,6 +89,7 @@ pub struct Config {
     pub ocr_decoder: Option<PathBuf>,
     pub ocr_vocab: Option<PathBuf>,
     pub ocr_threads: usize,
+    pub model_idle_unload_secs: u64,
     pub document_probe_concurrency: usize,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
@@ -183,6 +184,10 @@ impl Config {
             ocr_decoder,
             ocr_vocab,
             ocr_threads,
+            model_idle_unload_secs: get("MODEL_IDLE_UNLOAD_SECS")
+                .unwrap_or_else(|| "900".into())
+                .parse()
+                .context("MODEL_IDLE_UNLOAD_SECS must be a nonnegative integer")?,
             document_probe_concurrency: positive("DOCUMENT_PROBE_CONCURRENCY", 1)? as usize,
             rate_limits,
             client_ip,
@@ -217,9 +222,8 @@ impl Config {
                 if paths.iter().any(|p| !p.is_file()) {
                     bail!("OCR model files must all be present");
                 }
-                let detector = Arc::new(PpOcrDetector::load(det, self.ocr_threads)?);
-                Ok(Some(Arc::new(VietOcr::load(
-                    detector,
+                Ok(Some(Arc::new(VietOcr::load_paths(
+                    det,
                     enc,
                     dec,
                     vocab,
@@ -261,6 +265,23 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn idle_timeout_defaults_and_accepts_zero() {
+        for (raw, expected) in [
+            (None, Some(900)),
+            (Some("0"), Some(0)),
+            (Some("15"), Some(15)),
+            (Some("-1"), None),
+            (Some("bad"), None),
+        ] {
+            let config = Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://test.clerk.accounts.dev".into()),
+                "MODEL_IDLE_UNLOAD_SECS" => raw.map(str::to_owned),
+                _ => None,
+            });
+            assert_eq!(config.ok().map(|c| c.model_idle_unload_secs), expected);
+        }
+    }
     #[test]
     fn startup_validates_business_clock_override() {
         for (raw, environment, valid) in [
@@ -448,6 +469,7 @@ mod tests {
                 "PORT" => "9000".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
                 "OCR_THREADS" => "4".into(),
+                "MODEL_IDLE_UNLOAD_SECS" => "900".into(),
                 "DOCUMENT_PROBE_CONCURRENCY" => "2".into(),
                 "RATE_LIMIT_PIN_ATTEMPTS" => "3".into(),
                 "CLIENT_IP_SOURCE" => "x-real-ip".into(),

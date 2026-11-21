@@ -98,6 +98,8 @@ export default defineRailway((ctx) => {
       SAM_DECODERS: preserve(),
       // OCR paths are inherited from the Dockerfile; the backend defaults intra-op workers to 4.
       OCR_THREADS: preserve(),
+      // Lazy model family idle timeout; backend defaults to 900 seconds (0 disables unload).
+      MODEL_IDLE_UNLOAD_SECS: preserve(),
       // Telemetry credentials and routing are managed in Railway in both environments.
       POSTHOG_PROJECT_TOKEN: preserve(),
       POSTHOG_HOST: preserve(),

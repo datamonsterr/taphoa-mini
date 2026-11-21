@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod pgvector;
 pub mod segment_points;
 pub(crate) mod service;
+pub mod warm;
 
 pub use encoding_cache::EncodingCache;
 pub(crate) use handlers::router;

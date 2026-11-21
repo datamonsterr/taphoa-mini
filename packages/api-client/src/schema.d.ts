@@ -305,6 +305,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recognition/warm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load all recognition model families
+         * @description Requires a signed-in store member. Loads SAM, DINOv2 and OCR concurrently,
+         *     sharing in-progress loads with other requests. Idempotent; six calls per
+         *     member per minute. Waits at most 120 seconds. Missing configuration, failed
+         *     loading or timeout returns 503; load failures/timeouts include Retry-After: 1.
+         *     Each family's load_ms is its most recent load duration; already_loaded is
+         *     true if it was ready when this call reached the holder.
+         */
+        post: operations["warmRecognition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recognition/document-probes": {
         parameters: {
             query?: never;
@@ -1567,6 +1592,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ModelLoadTiming: {
+            /**
+             * Format: int64
+             * @description Most recent family load duration in milliseconds, including warm-up.
+             */
+            load_ms: number;
+            /** @description Whether this family was ready when the call reached its holder. */
+            already_loaded: boolean;
+        };
         WaitlistRequest: {
             /** @description Email address up to 254 characters after normalization. */
             email: string;
@@ -3734,6 +3768,37 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    warmRecognition: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Selects the store; required when the Clerk user has more than one active membership, optional with exactly one. */
+                "X-Store-Id"?: components["parameters"]["X-Store-Id"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All model families are ready. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sam: components["schemas"]["ModelLoadTiming"];
+                        dinov2: components["schemas"]["ModelLoadTiming"];
+                        ocr: components["schemas"]["ModelLoadTiming"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };

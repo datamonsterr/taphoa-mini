@@ -297,7 +297,10 @@ pub(crate) async fn create(
             .into_response());
     }
 
-    let embedder = state.embedder.clone().ok_or_else(ApiError::unavailable)?;
+    let embedder = state
+        .model_embedder()
+        .await?
+        .ok_or_else(ApiError::unavailable)?;
     let model_name = embedder.model().to_owned();
     let images = enroll::resolve_images(&state, actor.store_id, &request.image_ids()).await?;
     let mut cutout_ids: Vec<Uuid> = request

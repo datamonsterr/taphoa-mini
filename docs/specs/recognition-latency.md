@@ -68,7 +68,9 @@ vary by +-30 % in segmentation time.
 - **ONNX Runtime thread spinning is off by default** (`ORT_SPINNING`, set `1` or `true` to
   enable). Spinning keeps worker threads busy-waiting while they wait for work; on our
   8 vCPU cgroup shared with the API it burns CPU quota and gets throttled in production.
-- Sessions load and run one warm-up inference at startup; the API returns 503 until ready.
+- Families load on first use after the API starts serving; DINOv2 warm-up runs during
+  the lazy load. SAM does not run a synthetic warm-up (see A2 measurements below). Concurrent first callers wait for loading (up to 120 seconds);
+  load failures/timeouts and occupied inference slots return 503 with `Retry-After: 1`.
 
 ## Reproduce
 
@@ -299,3 +301,143 @@ Store reads add the threshold column to their existing query, with no extra
 join or database round trip. No speculative handler change or gate relaxation
 was made. The complete API suite therefore remains reported as failed, despite
 all receipt/stock/recognition acceptance checks passing.
+
+## A2: lazy model lifecycle (2026-11-21)
+
+Release API against the existing Docker Compose pgvector Postgres and RustFS on this
+shared Ryzen 5 2600 host, pinned with `taskset -c 0-3`, `SAM_THREADS=4`,
+`SAM_DECODERS=4`, `OCR_THREADS=4`, ONNX Runtime 1.23.2, checksum-pinned real models.
+The baseline was built from the task's starting commit `b3aaa4b4`. No model files, thresholds or
+inference algorithms changed. `/healthz` polling interval was 10 ms. RSS is Linux
+`/proc/<pid>/status` `VmRSS`; MiB below means KiB / 1024. The initial runs did not
+capture host load; later runs record the one-minute load average. These are shared-host
+observations, not a controlled latency acceptance run.
+
+### Warm-up decision
+
+The existing `bench` and `embed_bench` examples were built from the baseline twice:
+unchanged, and with only the load-time warm-up calls removed in a temporary source
+copy. Three alternating trials per variant used the same four cores; each measured
+one first shelf segmentation or one first DINOv2 crop (112 px). Host one-minute load
+was 13.3–15.9. Times are milliseconds; this comparison includes the first real inference.
+
+| Family | First inference with warm-up | First inference without warm-up | Decision                                                                                                                                                       |
+| ------ | ---------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SAM    | 3523, 3977, 2947             | 3867, 3068, 2787                | Remove synthetic warm-up: no consistent first-request benefit. Load alone fell from 8435–11911 ms to 908–1228 ms in these sequential-session benchmark builds. |
+| DINOv2 | 90.3, 57.2, 52.6             | 108.1, 101.5, 110.2             | Retain warm-up: first-crop median fell from 108.1 to 57.2 ms (47%).                                                                                            |
+
+OCR has no synthetic warm-up. SAM still allocates its inference arenas on the first
+real image; `warm` prepares sessions, while the first real request may pay that work.
+The session creation inside SAM and OCR is now concurrent and runs within the holder's
+blocking loader; builders stay on their own threads, following the pinned
+[ort 2.0.0-rc.15 API](https://docs.rs/ort/2.0.0-rc.15/ort/session/builder/struct.SessionBuilder.html). DINOv2 retains output-dimension validation during its warm-up.
+
+### Final cold load (SAM synthetic warm-up removed)
+
+Shared host, one-minute load **15.02** at startup: accepted `/healthz` in **53.1 ms**.
+A cold authenticated `POST /v1/recognition/warm` completed in **1102.0 ms**; a second
+call reported `already_loaded=true` for all three families. The per-family durations
+include concurrent session creation (and DINOv2 warm-up), so they overlap:
+
+| Family | Cold load during concurrent warm |
+| ------ | -------------------------------: |
+| SAM    |                           635 ms |
+| DINOv2 |                           792 ms |
+| OCR    |                          1095 ms |
+
+The final process used **26032 KiB (25.4 MiB)** RSS at health acceptance and
+**644816 KiB (629.7 MiB)** after `warm`. It then exercised real scan, segment and
+receipt OCR before the idle unload reading below. Thirty seconds after the last
+unload, RSS was **109004 KiB (106.4 MiB; 111.6 MB)**; host load was then **9.40**. These one-sample HTTP latencies
+(4953, 3067 and 1982 ms) are recorded only as memory-exercise context, not as the
+warm-latency acceptance comparison.
+
+### Allocator experiment and startup
+
+The final cycle includes actual scan, segment and receipt inference. The two allocator
+comparison cycles below were collected before removing the unnecessary SAM warm-up:
+
+| Variant (shared host)                             | Start → health |  Start RSS | All families loaded RSS |       RSS 30 s after last unload |
+| ------------------------------------------------- | -------------: | ---------: | ----------------------: | -------------------------------: |
+| Final lazy, no SAM warm-up; load 15.02 → 9.40     |        53.1 ms |   25.4 MiB |               629.7 MiB | 106.4 MiB (109004 KiB; 111.6 MB) |
+| Eager baseline; load not captured                 |      9972.8 ms | 1030.3 MiB |              1032.2 MiB |                    Never unloads |
+| Lazy, `malloc_trim` suppressed; load not captured |       238.6 ms |   21.6 MiB |              1160.9 MiB |           279.3 MiB (285976 KiB) |
+| Lazy, glibc `malloc_trim(0)`; load 10.25          |        78.2 ms |   21.4 MiB |              1229.8 MiB | 146.9 MiB (150440 KiB; 154.1 MB) |
+
+`MODEL_IDLE_UNLOAD_SECS=15`; all families were loaded by the real authenticated warm
+route and a second call reported `already_loaded=true` for every family. The first lazy
+trial also accepted health in 52.5 ms. To isolate trimming, the no-trim run used an
+`LD_PRELOAD` shim overriding only `malloc_trim` to return zero. Ordinary session drops
+left 292.8 MB resident, above the 200 MB acceptance limit; explicit trimming brought
+this below the limit. No allocator replacement or child-process inference was needed.
+The final cycle also remained under 200 MB after all three inference paths. These
+measurements did not populate the point encoding/photo cache; that unchanged cache
+can retain additional tensors and photos until its next access/insertion evicts them.
+Trimming and session destruction run on blocking threads. New acquisitions wait for
+unload to finish, then initiate a single reload.
+
+### Warm endpoint latency comparison: quiet rerun pending
+
+The real HTTP measurement script mirrors the existing e2e fixture requests: shelf
+1600×1200 scan and segment, plus receipt-1.jpg OCR with local rules fallback (no external
+Decisions call). Each endpoint excludes one initial request and then records seven
+warm requests. The first comparison retained the existing SAM warm-up; its warm inference
+path is the same as the final implementation after the initial request. Host load was
+not captured for these early batches; simultaneous builds/inference made it variable.
+
+| Endpoint           |   Before p50 / p95 |    After p50 / p95 | Samples |
+| ------------------ | -----------------: | -----------------: | ------- |
+| Scan, HTTP wall    | 3584.2 / 4137.8 ms | 3621.8 / 5797.1 ms | 7 each  |
+| Segment, HTTP wall | 2444.6 / 2632.3 ms | 2363.2 / 4094.8 ms | 7 each  |
+| Receipt, HTTP wall | 1467.7 / 1659.8 ms | 1986.5 / 2837.3 ms | 7 each  |
+| Receipt OCR only   |     1452 / 1645 ms |     1966 / 2812 ms | 7 each  |
+
+The **within-5% warm-latency acceptance remains pending a quiet paired rerun by the
+controller**. These noisy batches do not establish that gate. Existing Railway WAN
+numbers above are not directly comparable to this local run. The committed script's
+`--compare BASELINE_BINARY` mode alternates baseline/new processes twice, pins each to
+the same four cores, and reports p50/p95 over at least 20 warm samples per endpoint and
+variant. It also records host load, startup, per-family cold load from `warm`, and RSS
+before loading, after loading and 30 seconds after every family unloads. The eager
+baseline's per-family times are unavailable (it has no warm route); its cold load is
+included in startup and its post-idle memory remains resident.
+
+### Reproduce
+
+Python's `cryptography` package and `taskset` are required. The script uses a cached local
+RSA key and JWKS server and creates disposable stores in the chosen local database;
+no Clerk account is needed. `--latency` defaults to Compose's local RustFS credentials,
+which can be overridden with the storage variables in `.env.example`. It raises the
+local receipt quota to allow the measurement batch. Models and the runtime must already
+be downloaded; the script does not build, download, deploy or modify model files.
+
+```sh
+export CARGO_TARGET_DIR=/media/storage/cache/a2-lazy-models
+~/.cache/taphoa-mini/heavy cargo build --release -j 4 \
+  --manifest-path apps/backend/Cargo.toml -p taphoa-api --bin taphoa-api
+export DATABASE_URL=postgres://taphoa:taphoa@127.0.0.1:55432/a2_lifecycle
+export MODEL_DIR=/media/storage/cache/taphoa-models
+export ORT_DYLIB_PATH=/path/to/onnxruntime/lib/libonnxruntime.so.1.23.2
+
+# A single memory cycle, including cold warm and idempotent warm calls:
+~/.cache/taphoa-mini/heavy python3 apps/backend/scripts/model-lifecycle.py \
+  "$CARGO_TARGET_DIR/release/taphoa-api" --idle 15 --output /tmp/a2-memory.json
+
+# Baseline/new alternation, >=20 warm samples per endpoint/variant, memory cycles:
+~/.cache/taphoa-mini/heavy python3 apps/backend/scripts/model-lifecycle.py \
+  "$CARGO_TARGET_DIR/release/taphoa-api" --compare /path/to/baseline-api \
+  --latency 20 --idle 15 --output /tmp/a2-comparison.json
+```
+
+Build and save the baseline binary from the starting commit before rebuilding the new
+one in the same target directory. Use a reachable, already migrated disposable Compose
+database (create `a2_lifecycle` first). Output JSON and adjacent JSONL logs stay outside
+the repository by default. The script reports the eager baseline's retained RSS 30 s
+later instead of claiming it unloaded.
+
+Validation: default `cargo test` passed 535 tests (402 follow the existing ignored-test
+convention); the separate warm membership/idempotence/rate-limit integration tests and
+the real-model cached encoding across unload/reload test passed. Fake-loader tests
+cover single flight, idle unload/reload, active/cloned inference leases, zero timeout,
+cancelled waiters and retry after a failed load. A boot/health/readiness test uses invalid
+model files to prove these paths never try to load a session.

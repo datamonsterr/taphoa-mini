@@ -52,6 +52,7 @@ pub(crate) fn router() -> Router<AppState> {
                 .layer(RequestBodyLimitLayer::new(MAX_IMAGE_REQUEST_BYTES)),
         )
         .route("/v1/recognition/scans/{scanId}", get(get_scan))
+        .route("/v1/recognition/warm", post(super::warm::warm))
 }
 
 /// A low-rate preview still only needs text detection, with no persisted artifacts.
@@ -78,7 +79,7 @@ async fn probe_document(
     if !decision.allowed {
         return Err(ApiError::too_many_requests(decision.retry_after_secs));
     }
-    let detector = state.text_detector.clone().ok_or_else(|| {
+    let detector = state.model_text_detector().await?.ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ocr_unavailable",
@@ -359,9 +360,14 @@ async fn create_scan(
     if state.inference_slots.available_permits() == 0 {
         return Err(busy());
     }
+    let (segmenter, embedder, text_detector) = tokio::try_join!(
+        state.model_segmenter(),
+        state.model_embedder(),
+        state.model_text_detector()
+    )?;
     let (segmenter, embedder, vector_index) = match (
-        state.segmenter.as_ref().map(Arc::clone),
-        state.embedder.as_ref().map(Arc::clone),
+        segmenter,
+        embedder,
         state.vector_index.as_ref().map(Arc::clone),
     ) {
         (Some(segmenter), Some(embedder), Some(vector_index)) => {
@@ -423,8 +429,8 @@ async fn create_scan(
         .try_acquire_owned()
         .map_err(|_| busy())?;
     let config = state.recognition;
-    let block_embedder = Arc::clone(&embedder);
-    let block_segmenter = Arc::clone(&segmenter);
+    let block_embedder = embedder.clone();
+    let block_segmenter = segmenter.clone();
     let mode = request.mode;
     let pipeline_bytes = image_bytes.clone();
     // Storing the original (a bucket round trip) overlaps with inference.
@@ -447,7 +453,7 @@ async fn create_scan(
     // detector timeout. Slow OCR cannot create an unbounded background inference queue.
     let permit = Arc::new(permit);
     let detector_permit = Arc::clone(&permit);
-    let document_task = state.text_detector.clone().map(|detector| {
+    let document_task = text_detector.map(|detector| {
         let bytes = image_bytes.clone();
         tokio::task::spawn_blocking(move || {
             let _permit = detector_permit;
@@ -501,7 +507,7 @@ async fn create_scan(
     let search_wall = Instant::now();
     let searches = work.detections.iter().map(|detection| {
         let index = Arc::clone(&vector_index);
-        let embedder = Arc::clone(&embedder);
+        let embedder = embedder.clone();
         let embedding = detection.embedding.clone();
         async move {
             index
