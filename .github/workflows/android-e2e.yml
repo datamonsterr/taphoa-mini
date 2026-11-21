@@ -66,13 +66,12 @@ jobs:
 
   # Same prebuilt binary as ci.yml: built in rust:1-bookworm with a persistent cargo/target
   # cache, so maestro never runs a cold cargo build on the emulator runner.
-  # The heavy jobs run on Namespace profiles (faster CPU and disk, KVM without setup):
-  # backend-binary on 4 vCPU / 8 GB, the emulator jobs on 8 vCPU / 16 GB. GitHub runners are free
-  # on this public repo, so the light jobs stay on ubuntu-latest.
+  # Heavy builds use GitHub-hosted runners by default; CI_HEAVY_RUNNER and CI_ANDROID_RUNNER
+  # can select custom runners. The KVM setup below handles GitHub-hosted runners.
   backend-binary:
     needs: clerk-secrets
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: namespace-profile-datamonster01
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -102,7 +101,7 @@ jobs:
   apk:
     needs: clerk-secrets
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: namespace-profile-linux-xl
+    runs-on: ${{ vars.CI_ANDROID_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -170,7 +169,7 @@ jobs:
     name: maestro (${{ matrix.shard }})
     needs: [clerk-secrets, backend-binary, apk]
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: namespace-profile-linux-xl
+    runs-on: ${{ vars.CI_ANDROID_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -250,8 +249,7 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
-      # Namespace runners expose a writable /dev/kvm and have no udev; the rule is only for
-      # GitHub-hosted runners, where /dev/kvm is root-only until udev reloads.
+      # GitHub-hosted runners may need a udev rule to make /dev/kvm writable.
       - name: Enable KVM
         run: |
           if [ -w /dev/kvm ]; then echo "/dev/kvm is writable; no udev rule needed"; exit 0; fi
@@ -349,7 +347,7 @@ jobs:
   expo-go:
     needs: clerk-secrets
     if: needs.clerk-secrets.outputs.configured == 'true'
-    runs-on: namespace-profile-linux-xl
+    runs-on: ${{ vars.CI_ANDROID_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     env:
       MAESTRO_VERSION: 2.11.0
@@ -402,8 +400,7 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
-      # Namespace runners expose a writable /dev/kvm and have no udev; the rule is only for
-      # GitHub-hosted runners, where /dev/kvm is root-only until udev reloads.
+      # GitHub-hosted runners may need a udev rule to make /dev/kvm writable.
       - name: Enable KVM
         run: |
           if [ -w /dev/kvm ]; then echo "/dev/kvm is writable; no udev rule needed"; exit 0; fi

@@ -412,6 +412,39 @@ class RailwayDeploy(unittest.TestCase):
         self.assertIn("No terminal deployment status", out.stderr)
 
 
+class RailwayDown(unittest.TestCase):
+    def run_down(self, behavior):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "railway")
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "assert sys.argv[1:] == ['down', '--service', 'backend', '--environment', 'test', '--yes']\n"
+                "behavior = os.environ['FAKE_BEHAVIOR']\n"
+                "print('No deployment found' if behavior == 'empty' else 'failed', file=sys.stderr)\n"
+                "sys.exit(0 if behavior == 'success' else 1)\n"
+            )
+            fake.chmod(0o755)
+            return run(
+                ["python3", "-I", str(HERE / "railway_down.py"), "backend", "test"],
+                env={"PATH": f"{tmp}:{os.environ['PATH']}", "FAKE_BEHAVIOR": behavior},
+            )
+
+    def test_removes_deployment(self):
+        out = self.run_down("success")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+    def test_missing_deployment_is_not_an_error(self):
+        out = self.run_down("empty")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("No deployment to remove", out.stdout)
+
+    def test_other_cli_failure_propagates(self):
+        out = self.run_down("failure")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("failed", out.stderr)
+
+
 FAKE_GH = textwrap.dedent(
     """\
     #!/usr/bin/env python3

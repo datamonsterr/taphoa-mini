@@ -7,7 +7,7 @@ FROM debian:bookworm-slim AS assets
 ARG SKIP_MODELS=1
 ARG TARGETARCH
 ENV ORT_INSTALL_DIR=/opt/onnxruntime MODEL_DIR=/opt/models
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 COPY apps/backend/scripts/ /scripts/
 RUN /scripts/fetch-onnxruntime.sh && mkdir -p /opt/models \
