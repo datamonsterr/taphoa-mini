@@ -41,9 +41,13 @@ Owner decisions of 2026-11-21:
 1. Phased path: Phase A on Railway first, then Phase B off Railway.
 2. The `test` environment becomes ephemeral. The `test` backend runs only while the deploy
    workflow needs it.
-3. The agent may merge, deploy and change Railway configuration. It asks before the production
-   database or bucket migration, before the API URL cutover, and before deleting or cancelling
-   anything on Railway production.
+3. The agent may merge, deploy and change Railway configuration. It asks before the API URL
+   cutover and before deleting or cancelling anything on Railway production.
+4. Production data is disposable: there are no customers yet. Phase B starts with an empty
+   database and an empty bucket. Nothing is migrated.
+5. The recognition models run on the owner's GPU machine if a measurement shows that latency
+   and output quality hold (see "Inference on the owner's machine"). The cloud backend keeps
+   the lazy CPU models of A2 as the fallback.
 
 ## Phase A: Railway at the plan fee
 
@@ -117,18 +121,30 @@ Acceptance:
 
 Outline only. Each item gets its own acceptance list after the spike (B0).
 
-| Item | Change                                                                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B0   | Spike on Cloud Run in `asia-southeast1`: cold start of a model-free image and of the model image, warm scan latency on 4 and 8 vCPU. Go or no-go. |
-| B1   | One binary, two roles. `api` (1 vCPU, no models) proxies recognition routes to `ml` (4 to 8 vCPU, models). Both scale to zero.                    |
-| B2   | Background loops become one idempotent `POST /internal/tick`, called by a scheduler every 5 minutes. The same call keeps an instance warm.        |
-| B3   | Migrations leave the boot path and run in the deploy workflow. The pool connects lazily.                                                          |
-| B4   | Work that runs after the response today (thumbnail uploads, analytics, telemetry flush) finishes before the response ends or moves into the tick. |
-| B5   | Redis is removed. PIN lockout, per-address limits and daily quotas live in Postgres. Burst limits live in memory.                                 |
-| B6   | Postgres moves to Supabase free in Singapore (`vector`, `pg_trgm`, `unaccent`), with a nightly dump to object storage.                            |
-| B7   | Images move from Railway buckets to Cloudflare R2. The S3 client is already driven by environment variables.                                      |
-| B8   | The landing page moves to a free static host. Integration tests use CI service containers.                                                        |
-| B9   | Cutover: new API URL in the app and the web build, old URL kept for a transition period, then Railway is cancelled.                               |
+| Item | Change                                                                                                                                                                           |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B0   | Spike on Cloud Run in `asia-southeast1`: cold start of a model-free image and of the model image, warm scan latency on 4 and 8 vCPU. Go or no-go.                                |
+| B1   | One binary, two roles. `api` (1 vCPU, no models) proxies recognition routes to `ml` (4 to 8 vCPU, models). Both scale to zero.                                                   |
+| B2   | Background loops become one idempotent `POST /internal/tick`, called by a scheduler every 5 minutes. The same call keeps an instance warm.                                       |
+| B3   | Migrations leave the boot path and run in the deploy workflow. The pool connects lazily.                                                                                         |
+| B4   | Work that runs after the response today (thumbnail uploads, analytics, telemetry flush) finishes before the response ends or moves into the tick.                                |
+| B5   | Redis is removed. PIN lockout, per-address limits and daily quotas live in Postgres. Burst limits live in memory.                                                                |
+| B6   | A new Supabase free Postgres in Singapore (`vector`, `pg_trgm`, `unaccent`), created empty by the migrations. A nightly dump to object storage starts before the first customer. |
+| B7   | A new, empty Cloudflare R2 bucket replaces the Railway buckets. The S3 client is already driven by environment variables.                                                        |
+| B8   | The landing page moves to a free static host. Integration tests use CI service containers.                                                                                       |
+| B9   | Cutover: new API URL in the app and the web build, old URL kept for a transition period, then Railway is cancelled.                                                              |
+
+### Inference on the owner's machine
+
+Decision 5 moves the model work off cloud CPUs. A worker on the owner's machine (GTX 1060 6GB)
+holds the models in VRAM and serves stateless inference calls: image in, masks, embeddings or
+text out. It has no database and no bucket access. The cloud backend calls it through a tunnel
+with a shared secret and falls back to its own lazy CPU models when the worker does not answer.
+The worker runs as a user service with CPU and memory limits so that the machine stays usable.
+
+This is gated by a spike that measures, on this GPU, per-model latency, VRAM, CPU and memory use,
+and output parity with the CPU provider. Its results and the task list are added here after
+the spike.
 
 `GET /v1/events` has no caller in the app today (only `packages/e2e` uses it). B5 decides
 whether it stays as an in-process stream or goes.
@@ -148,7 +164,8 @@ Prices behind the target, read from vendor pages on 2026-11-21:
 - Hot endpoints keep an upstream p95 of at most 40 ms on a warm instance.
 - Warm checkout scan p95 is at most 2101 ms end to end.
 - An ordinary API call never waits for a model to load.
-- No store data is lost. Every migration has a rehearsal on `test` and a rollback step.
+- Production data is not carried over (decision 4). The nightly database dump works before the
+  first customer signs up.
 
 ## Out of scope
 
