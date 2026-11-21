@@ -64,6 +64,7 @@ import { cropRect, formatCrop, mapBox, type BBox } from '@/lib/bbox';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
 import { voiceHref } from '@/features/voice/route';
 import { useCanEnroll, useMembership } from '@/features/auth/useMembership';
+import { useWarmRecognition } from '@/features/recognition/useWarmRecognition';
 import { camera, colors, size, space } from '@/theme';
 
 import {
@@ -243,6 +244,7 @@ export function CameraScreen() {
   const t = useT(strings);
   const router = useRouter();
   const focused = useIsFocused();
+  useWarmRecognition(focused);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();

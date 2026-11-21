@@ -32,3 +32,4 @@ export * from './digest';
 export * from './devices';
 export * from './documentProbes';
 export * from './sync';
+export { warmRecognition } from './warmRecognition';
