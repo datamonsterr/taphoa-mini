@@ -57,6 +57,37 @@ impl From<RemoteError> for CallError {
     }
 }
 
+/// Plaintext is safe only on loopback or an explicitly encrypted outer transport.
+pub(crate) fn validate_url(url: &str, allow_plaintext: bool) -> anyhow::Result<reqwest::Url> {
+    let parsed = reqwest::Url::parse(url)?;
+    anyhow::ensure!(
+        matches!(parsed.scheme(), "http" | "https")
+            && parsed.host().is_some()
+            && parsed.username().is_empty()
+            && parsed.password().is_none()
+            && parsed.query().is_none()
+            && parsed.fragment().is_none(),
+        "INFERENCE_URL must be an HTTP(S) URL without credentials, query or fragment"
+    );
+    let host = parsed
+        .host_str()
+        .unwrap_or("")
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let loopback = host.trim_end_matches('.').eq_ignore_ascii_case("localhost")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| match ip {
+            std::net::IpAddr::V4(ip) => ip.is_loopback(),
+            std::net::IpAddr::V6(ip) => {
+                ip.is_loopback() || ip.to_ipv4_mapped().is_some_and(|ip| ip.is_loopback())
+            }
+        });
+    anyhow::ensure!(
+        parsed.scheme() == "https" || loopback || allow_plaintext,
+        "INFERENCE_URL requires https:// for non-loopback hosts; INFERENCE_ALLOW_PLAINTEXT=1 is only for a transport that is already encrypted, such as a private WireGuard network"
+    );
+    Ok(parsed)
+}
+
 pub struct RemoteModels {
     url: String,
     token: String,
@@ -75,25 +106,28 @@ struct RemoteEncoding {
 impl RemoteModels {
     pub fn from_config(config: &Config, local: AppState) -> anyhow::Result<Option<Arc<Self>>> {
         match (&config.inference_url, &config.inference_token) {
-            (Some(url), Some(token)) => Self::new(url, token, local).map(|m| Some(Arc::new(m))),
+            (Some(url), Some(token)) => {
+                Self::new_with_plaintext(url, token, local, config.inference_allow_plaintext)
+                    .map(|m| Some(Arc::new(m)))
+            }
             (None, None) => Ok(None),
             _ => anyhow::bail!("set both INFERENCE_URL and INFERENCE_TOKEN, or neither"),
         }
     }
     pub fn new(url: &str, token: &str, local: AppState) -> anyhow::Result<Self> {
+        Self::new_with_plaintext(url, token, local, false)
+    }
+    fn new_with_plaintext(
+        url: &str,
+        token: &str,
+        local: AppState,
+        allow_plaintext: bool,
+    ) -> anyhow::Result<Self> {
         anyhow::ensure!(
             local.remote_models.is_none(),
             "local fallback must not contain a remote adapter"
         );
-        let parsed = reqwest::Url::parse(url)?;
-        anyhow::ensure!(
-            matches!(parsed.scheme(), "http" | "https")
-                && parsed.username().is_empty()
-                && parsed.password().is_none()
-                && parsed.query().is_none()
-                && parsed.fragment().is_none(),
-            "INFERENCE_URL must be an HTTP(S) URL without credentials, query or fragment"
-        );
+        validate_url(url, allow_plaintext)?;
         anyhow::ensure!(
             token.chars().count() >= 32,
             "INFERENCE_TOKEN must contain at least 32 characters"
@@ -342,27 +376,35 @@ impl RemoteModels {
             .send()
             .await;
         let result = match response {
-            Ok(r) if r.status().is_success() => {
-                // Health is the sole JSON endpoint; bound it before deserializing.
-                match r.content_length() {
-                    Some(n) if n > 4096 => false,
-                    _ => match r.bytes().await {
-                        Ok(b) if b.len() <= 4096 => {
-                            serde_json::from_slice::<Health>(&b).is_ok_and(|h| {
-                                h.status == "ready"
-                                    && ["sam", "dinov2", "ocr"]
-                                        .iter()
-                                        .all(|f| h.loaded.iter().any(|x| x == f))
-                            })
-                        }
-                        _ => false,
-                    },
-                }
-            }
-            _ => false,
+            Ok(response) => Self::health_response(response).await,
+            Err(_) => false,
         };
         self.finish(guard.ticket.take().unwrap(), !result);
         result
+    }
+    async fn health_response(mut response: reqwest::Response) -> bool {
+        if !response.status().is_success() || response.content_length().is_some_and(|n| n > 4096) {
+            return false;
+        }
+        let mut bytes = Vec::new();
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    if chunk.len() > 4096 - bytes.len() {
+                        return false;
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                Ok(None) => break,
+                Err(_) => return false,
+            }
+        }
+        serde_json::from_slice::<Health>(&bytes).is_ok_and(|h| {
+            h.status == "ready"
+                && ["sam", "dinov2", "ocr"]
+                    .iter()
+                    .all(|f| h.loaded.iter().any(|x| x == f))
+        })
     }
     fn unavailable() -> RemoteError {
         RemoteError {
@@ -636,7 +678,10 @@ impl ReceiptOcr for RemoteModels {
                     .block_on(local.model_receipt_ocr())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.read_lines(image)
+                model.read_lines_with_options(
+                    image,
+                    Some(&taphoa_recognition::ocr::ReceiptOptions::bounded()),
+                )
             },
         )
     }
@@ -925,6 +970,176 @@ mod tests {
         assert!(matches!(
             *remote.circuit.lock().unwrap(),
             Circuit::Open { .. }
+        ));
+        task.abort();
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    use axum::{
+        Router,
+        body::{Body, Bytes},
+        routing::get,
+    };
+    use futures_util::StreamExt;
+    #[test]
+    fn inference_transport_matrix_requires_encryption_unless_explicitly_overridden() {
+        for url in [
+            "http://127.0.0.1:8090",
+            "http://127.12.3.4",
+            "http://localhost",
+            "http://LOCALHOST.",
+            "http://[::1]",
+            "http://[::ffff:127.0.0.1]",
+            "https://inference.example",
+            "https://192.168.1.20",
+        ] {
+            assert!(validate_url(url, false).is_ok(), "{url}");
+        }
+        for url in [
+            "http://example.com",
+            "http://192.168.1.20",
+            "http://10.0.0.2",
+            "http://[::]",
+            "http://0.0.0.0",
+            "http://127.0.0.1.evil",
+            "http://worker.localhost",
+        ] {
+            assert!(
+                validate_url(url, false)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("INFERENCE_ALLOW_PLAINTEXT=1"),
+                "{url}"
+            );
+            assert!(validate_url(url, true).is_ok(), "{url}");
+        }
+        for url in [
+            "ftp://example.com",
+            "https://user:secret@example.com",
+            "http://localhost?token=secret",
+            "http://localhost#fragment",
+        ] {
+            assert!(validate_url(url, false).is_err());
+            assert!(validate_url(url, true).is_err());
+        }
+        let config = |value: &str| {
+            crate::config::Config::from_lookup(|name| match name {
+                "CLERK_ISSUER" => Some("https://local.clerk.accounts.dev".into()),
+                "INFERENCE_URL" => Some("http://192.168.1.20".into()),
+                "INFERENCE_TOKEN" => Some("a-test-token-that-is-at-least-32-characters".into()),
+                "INFERENCE_ALLOW_PLAINTEXT" => Some(value.into()),
+                _ => None,
+            })
+        };
+        assert!(config("0").is_err());
+        assert!(config("true").is_err());
+        assert!(config("1").unwrap().inference_allow_plaintext);
+    }
+    #[tokio::test]
+    async fn oversized_chunked_health_is_stopped_before_body_completion() {
+        let app = Router::new().route(
+            "/healthz",
+            get(|| async {
+                let chunks = futures_util::stream::iter(
+                    (0..16).map(|_| Ok::<_, std::io::Error>(Bytes::from(vec![b'x'; 1024]))),
+                );
+                // Never completes: bytes() would wait until the 500 ms timeout.
+                Body::from_stream(chunks.chain(futures_util::stream::pending()))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let remote = RemoteModels::new(
+            &url,
+            "health-test-token-with-at-least-32-characters",
+            AppState::default(),
+        )
+        .unwrap();
+        let response = remote
+            .client
+            .get(format!("{url}/healthz"))
+            .send()
+            .await
+            .unwrap();
+        assert!(response.content_length().is_none());
+        drop(response);
+        assert!(
+            !tokio::time::timeout(Duration::from_millis(250), remote.healthy())
+                .await
+                .expect("must stop at 4 KiB without waiting for the full body")
+        );
+        assert!(matches!(
+            *remote.circuit.lock().unwrap(),
+            Circuit::Open { .. }
+        ));
+        server.abort();
+    }
+}
+
+#[cfg(test)]
+mod ocr_limit_tests {
+    use super::*;
+    use axum::{
+        Router,
+        http::{StatusCode, header},
+        routing::post,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Local(Arc<AtomicUsize>);
+    impl ReceiptOcr for Local {
+        fn read_lines(&self, _: &[u8]) -> Result<Vec<OcrLine>, OcrError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+    }
+    #[tokio::test]
+    async fn worker_ocr_work_limit_is_a_client_error_and_never_falls_back() {
+        let router = Router::new().route(
+            "/v1/read-lines",
+            post(|| async {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    [(header::CONTENT_TYPE, CONTENT_TYPE)],
+                    wire::encode(&ErrorResponse {
+                        code: "ocr_work_limit".into(),
+                        message: "too many text boxes".into(),
+                    })
+                    .unwrap(),
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let calls = Arc::new(AtomicUsize::new(0));
+        let local = AppState {
+            receipt_ocr: Some(Arc::new(Local(calls.clone()))),
+            ..AppState::default()
+        };
+        let remote = Arc::new(
+            RemoteModels::new(&url, "receipt-test-token-at-least-32-characters", local).unwrap(),
+        );
+        let copy = remote.clone();
+        let error = tokio::task::spawn_blocking(move || copy.read_lines(&[0]))
+            .await
+            .unwrap()
+            .unwrap_err();
+        let OcrError::Remote(error) = error else {
+            panic!("expected client error")
+        };
+        assert_eq!(api_error(error).status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            *remote.circuit.lock().unwrap(),
+            Circuit::Closed(_)
         ));
         task.abort();
     }

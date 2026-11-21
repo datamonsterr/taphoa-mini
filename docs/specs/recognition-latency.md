@@ -551,8 +551,9 @@ repository fixtures, not a new labelled accuracy evaluation.
 
 ### API latency and resources under limits
 
-The same release `taphoa-api` binary serves both variants, against the same local
-Compose Postgres/RustFS. API affinity is CPUs 0–3, CPU adapters use four threads /
+In the initial measurement, the same release `taphoa-api` binary serves both
+variants against the same local Compose Postgres/RustFS. API affinity is CPUs 0–3,
+CPU adapters use four threads /
 four SAM decoders, and the CUDA worker runs in a transient
 `systemd-run --user --scope -p CPUQuota=200% -p MemoryMax=2G`. Each endpoint discards
 one initial request and records **20** sequential warm HTTP requests. Percentiles
@@ -606,6 +607,50 @@ overlapped compilation/parity is excluded. The prior reference p50 values
 run. CPU affinity remains the same as the earlier lifecycle harness; the worker
 is quota-limited rather than pinned to those same four cores.
 
+### Memory policy recheck (2026-11-21)
+
+The earlier worker's own `memory.events` high/max/OOM counters stayed zero even
+while its pages were swapped under pressure in the shared `user-1000.slice`.
+The decided policy therefore keeps the hard cap and prevents worker swap:
+`MemoryHigh=infinity`, `MemoryMax=2G`, `MemorySwapMax=0`, `CPUQuota=200%`.
+Disabling the worker's soft limit does not remove ancestor slice limits.
+
+After rebuilding the hardened worker and backend, a fresh transient
+`systemd-run --user --scope` used exactly those four properties. `systemctl --user
+show` confirmed infinity / 2147483648 / 0 and `CPUQuotaPerSecUSec=2s`; the cgroup
+files confirmed `memory.high=max`, `memory.max=2147483648` and `memory.swap.max=0`.
+Health reported `ready`, provider `cuda`, loaded `sam`, `dinov2` and `ocr`.
+The same fixtures/harness, CPU runtime for the API, CPUs 0–3 API affinity and
+nearest-rank percentiles were used, discarding one initial call per endpoint.
+
+| Backend endpoint | Earlier worker p50 ms | No-swap worker p50 / p95 ms | p50 change | Warm calls |
+| ---------------- | --------------------: | --------------------------: | ---------: | ---------: |
+| Scan             |                 696.0 |               674.5 / 697.8 |      -3.1% |         20 |
+| Segment          |                 331.5 |               338.3 / 344.4 |      +2.1% |         20 |
+| Receipt          |                 333.9 |               332.6 / 348.6 |      -0.4% |         20 |
+
+All p50 changes stay within the existing 5% warm-latency tolerance. This is a
+short shared-host regression check, not an exclusive-hardware comparison; startup
+one-minute host load was 3.05. Backend warm took 2.3 ms, reported all families
+remote/already loaded, and the API log contained no local model loads or fallback.
+
+| Final worker observation                           |                    Value |
+| -------------------------------------------------- | -----------------------: |
+| RSS and process RSS high-water (each)              | 1145.6 MiB (1173136 KiB) |
+| Process swap, before/after and 63 periodic samples |                    0 KiB |
+| VRAM after all backend batches                     |                 1522 MiB |
+| Scope memory current / peak                        |        767.9 / 771.4 MiB |
+| Scope memory.swap.current / memory.swap.max        |                    0 / 0 |
+| Scope memory.events high / max / oom / oom_kill    |            0 / 0 / 0 / 0 |
+
+The monitor sampled process/cgroup memory and VRAM every half second while the
+API performed the calls. All models stayed loaded, and GPU usage left substantial
+headroom on the 6 GiB card that also drives the desktop. The worker and the
+harness's API/JWKS processes were stopped; the transient scope became inactive.
+No persistent unit or tunnel was started. Raw result/samples, latency JSON and
+adjacent logs are retained in
+`/media/storage/cache/g-inference-worker/evidence/hardening-noswap/`.
+
 ### Fallback drill
 
 A fresh real API process initially warms remotely. The harness sends one shelf
@@ -646,7 +691,15 @@ provider, loaded families and version. Images are checked before pixel allocatio
 (4096-pixel edges, existing decode limits), crops/points are validated, one native
 operation runs with two queued requests, overload returns 503 / `Retry-After: 1`,
 and a 10 s deadline includes body receipt and queue time. Expired/cancelled queued
-jobs are skipped; already running native inference retains its slot until it ends.
+jobs are skipped; active cancellation is checked between SAM prompts, embedding
+batches, OCR batches and recurrent decoder steps. Only a native ORT call already
+running is allowed to return before cancellation releases the slot. OCR is limited
+to 512 detected boxes / 16 Mi-pixels of total crops, checked before materialisation;
+422 `ocr_work_limit` remains a client error without fallback. Before auth, the worker
+caps accepted HTTP/1 connections at 32, closes excess immediately, limits headers to
+8 KiB / 32 fields, and applies a 3 s header/idle keep-alive deadline. Engine panic
+marks health not-ready and exits non-zero for restart. Remote non-loopback HTTP
+requires an explicit encrypted-transport override; health bodies are stopped at 4 KiB.
 All families, including VietOCR's recognizer even when a blank detector finds no
 text, are warmed before the listener binds. SIGTERM drains the service.
 
@@ -691,7 +744,7 @@ export MODEL_DIR=/media/storage/cache/taphoa-models
 export INFERENCE_PROVIDER=cuda
 export INFERENCE_BIND=127.0.0.1:18090
 ~/.cache/taphoa-mini/heavy systemd-run --user --scope \
-  -p CPUQuota=200% -p MemoryMax=2G \
+  -p CPUQuota=200% -p MemoryHigh=infinity -p MemoryMax=2G -p MemorySwapMax=0 \
   "$CARGO_TARGET_DIR/release/taphoa-infer"
 ```
 

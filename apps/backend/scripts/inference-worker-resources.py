@@ -16,7 +16,22 @@ def sample(pid):
     rss = int(next(line.split()[1] for line in Path(f"/proc/{pid}/status").read_text().splitlines() if line.startswith("VmRSS:")))
     rows = subprocess.check_output(["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory", "--format=csv,noheader,nounits"], text=True)
     vram = sum(int(row.split(",")[1]) for row in rows.splitlines() if int(row.split(",")[0]) == pid)
-    return {"cpu_seconds": cpu, "rss_kib": rss, "vram_mib": vram}
+    status = {line.split(":",1)[0]: line.split()[1] for line in Path(f"/proc/{pid}/status").read_text().splitlines() if line.startswith(("VmHWM:", "VmSwap:"))}
+    relative = next(line.split("::",1)[1] for line in Path(f"/proc/{pid}/cgroup").read_text().splitlines() if line.startswith("0::"))
+    root = Path("/sys/fs/cgroup")
+    node = root / relative.lstrip("/")
+    counters = {}
+    for directory in [node, *node.parents]:
+        if directory == root or root not in directory.parents:
+            break
+        values = {}
+        for name in ["memory.events", "memory.events.local", "memory.current", "memory.peak", "memory.high", "memory.max", "memory.swap.current", "memory.swap.max"]:
+            path = directory / name
+            if path.exists():
+                text = path.read_text().strip()
+                values[name] = dict((key, int(value)) for key, value in map(str.split, text.splitlines())) if "events" in name else (int(text) if text.isdigit() else text)
+        counters[str(directory.relative_to(root))] = values
+    return {"cpu_seconds": cpu, "rss_kib": rss, "rss_high_water_kib": int(status["VmHWM"]), "swap_kib": int(status["VmSwap"]), "vram_mib": vram, "cgroups": counters}
 
 
 def main():

@@ -146,7 +146,7 @@ async fn probe_document(
             "validation_failed",
             "could not decode the image",
         ),
-        OcrError::Inference(error) => {
+        error => {
             tracing::error!(%error, "document probe inference failed");
             ApiError::internal()
         }

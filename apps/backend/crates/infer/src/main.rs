@@ -24,15 +24,27 @@ async fn main() -> anyhow::Result<()> {
     let service = Service::new(models, &token, provider.name())?;
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!(%bind,provider=provider.name(),"inference worker ready");
-    axum::serve(listener, service.router())
-        .with_graceful_shutdown(async {
+    let serving = taphoa_infer::transport::serve(
+        listener,
+        service.clone().router(),
+        async {
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("SIGTERM handler");
             tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
-        })
-        .await?;
-    Ok(())
+        },
+        taphoa_infer::transport::Limits::default(),
+    );
+    let supervision = service.supervise();
+    tokio::pin!(supervision);
+    tokio::select! {
+        result = &mut supervision => result,
+        result = serving => {
+            result?;
+            service.stop_engine().await?;
+            supervision.await
+        }
+    }
 }
 fn path(variable: &str, filename: &str) -> PathBuf {
     std::env::var_os(variable)

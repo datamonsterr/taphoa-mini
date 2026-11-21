@@ -13,8 +13,9 @@ Environment=CUDA_CACHE_PATH=%S/taphoa-infer/cuda-cache
 EnvironmentFile=%h/.config/taphoa-infer/environment
 StateDirectory=taphoa-infer
 CPUQuota=200%
-MemoryHigh=1536M
+MemoryHigh=infinity
 MemoryMax=2G
+MemorySwapMax=0
 Nice=5
 Restart=on-failure
 RestartSec=5

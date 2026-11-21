@@ -5,6 +5,7 @@ pub mod ocr;
 pub mod provider;
 mod sam;
 pub mod wire;
+pub mod work;
 pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
 pub use sam::{
     ImageEncoding, MockPointSegmenter, PointSegment, PointSegmenter, SamOptions, SamSegmenter,
@@ -32,6 +33,8 @@ pub struct PointPrompt {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SegmentError {
+    #[error(transparent)]
+    Cancelled(#[from] work::Cancelled),
     #[error(transparent)]
     Remote(#[from] crate::wire::RemoteError),
     #[error("invalid image: {0}")]
@@ -91,6 +94,14 @@ pub fn validate_points(
 
 pub trait Segmenter: Send + Sync {
     fn segment(&self, image: &[u8]) -> Result<Vec<Segment>, SegmentError>;
+    fn segment_with_control(
+        &self,
+        image: &[u8],
+        control: &work::WorkControl,
+    ) -> Result<Vec<Segment>, SegmentError> {
+        control.check()?;
+        self.segment(image)
+    }
 }
 
 pub struct YoloSegmenter;

@@ -4245,6 +4245,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "hyper",
+ "hyper-util",
  "image",
  "serde",
  "serde_json",

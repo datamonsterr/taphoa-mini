@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+hyper = { version = "1.12.0", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
 image.workspace = true
 serde.workspace = true
 taphoa-recognition = { path = "../recognition" }
@@ -19,5 +21,6 @@ sha2 = "0.11.1"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["io-util"] }
 serde_json.workspace = true
 tower.workspace = true

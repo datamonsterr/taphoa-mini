@@ -1,4 +1,5 @@
 //! Small inference-only service. No cloud credentials or persistence.
+pub mod transport;
 use axum::{
     Router,
     body::Bytes,
@@ -12,14 +13,18 @@ use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use subtle::ConstantTimeEq;
 use taphoa_recognition::{
     Embedder, ImageEncoding, PointSegmenter, SegmentError, Segmenter,
-    ocr::{OcrError, ReceiptOcr, TextDetector},
+    ocr::{OcrError, OcrLimits, ReceiptOcr, ReceiptOptions, TextDetector},
     wire::{self, *},
+    work::WorkControl,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 
@@ -72,6 +77,7 @@ impl Failure {
 impl From<SegmentError> for Failure {
     fn from(e: SegmentError) -> Self {
         match e {
+            SegmentError::Cancelled(_) => Self::timeout(),
             SegmentError::InvalidImage(s) => Self::bad(s),
             SegmentError::InvalidPrompt(s) => {
                 Self(StatusCode::UNPROCESSABLE_ENTITY, "invalid_prompt", s)
@@ -87,6 +93,12 @@ impl From<SegmentError> for Failure {
 impl From<OcrError> for Failure {
     fn from(e: OcrError) -> Self {
         match e {
+            OcrError::Cancelled(_) => Self::timeout(),
+            OcrError::LimitExceeded(message) => Self(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "ocr_work_limit",
+                message.into(),
+            ),
             OcrError::InvalidImage(s) => Self::bad(s),
             e => Self(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -135,7 +147,21 @@ fn dimensions(bytes: &[u8]) -> Result<(u32, u32), Failure> {
     Ok((w, h))
 }
 impl Engine {
+    #[cfg(test)]
     fn run(&mut self, operation: &str, bytes: &[u8]) -> Result<Vec<u8>, Failure> {
+        self.run_controlled(
+            operation,
+            bytes,
+            &WorkControl::new(Instant::now() + DEADLINE),
+        )
+    }
+    fn run_controlled(
+        &mut self,
+        operation: &str,
+        bytes: &[u8],
+        control: &WorkControl,
+    ) -> Result<Vec<u8>, Failure> {
+        control.check().map_err(|_| Failure::timeout())?;
         match operation {
             "embed-crops" => {
                 let request: CropsRequest = unpack(bytes)?;
@@ -164,7 +190,7 @@ impl Engine {
                     vectors: self
                         .models
                         .embedder
-                        .embed_crops(&crops)
+                        .embed_crops_with_control(&crops, control)
                         .map_err(embed_failure)?,
                 })
             }
@@ -196,9 +222,13 @@ impl Engine {
             }
             "segment" | "encode" | "embed" | "detect-text" | "document-signal" | "read-lines" => {
                 let request: ImageRequest = unpack(bytes)?;
-                dimensions(&request.image)?;
+                let (width, height) = dimensions(&request.image)?;
                 match operation {
-                    "segment" => pack(self.models.segmenter.segment(&request.image)?),
+                    "segment" => pack(
+                        self.models
+                            .segmenter
+                            .segment_with_control(&request.image, control)?,
+                    ),
                     "encode" => {
                         let encoding = self.models.points.encode(&request.image)?;
                         let handle = uuid::Uuid::new_v4().to_string();
@@ -225,15 +255,33 @@ impl Engine {
                         vectors: vec![
                             self.models
                                 .embedder
-                                .embed(&request.image)
+                                .embed_with_control(&request.image, control)
                                 .map_err(embed_failure)?,
                         ],
                     }),
-                    "detect-text" => pack(self.models.detector.detect(&request.image)?),
-                    "document-signal" => {
-                        pack(self.models.detector.document_signal(&request.image)?)
+                    "detect-text" | "document-signal" => {
+                        let boxes = self.models.detector.detect(&request.image)?;
+                        if boxes.len() > OcrLimits::default().max_boxes {
+                            return Err(
+                                OcrError::LimitExceeded("too many detected text boxes").into()
+                            );
+                        }
+                        control.check().map_err(|_| Failure::timeout())?;
+                        if operation == "detect-text" {
+                            pack(boxes)
+                        } else {
+                            pack(taphoa_recognition::ocr::document_signal(
+                                &boxes, width, height,
+                            ))
+                        }
                     }
-                    "read-lines" => pack(self.models.ocr.read_lines(&request.image)?),
+                    "read-lines" => pack(self.models.ocr.read_lines_with_options(
+                        &request.image,
+                        Some(&ReceiptOptions {
+                            limits: Some(OcrLimits::default()),
+                            control: Some(control),
+                        }),
+                    )?),
                     _ => unreachable!(),
                 }
             }
@@ -247,6 +295,7 @@ impl Engine {
 }
 fn embed_failure(e: taphoa_recognition::EmbedError) -> Failure {
     match e {
+        taphoa_recognition::EmbedError::Cancelled(_) => Failure::timeout(),
         taphoa_recognition::EmbedError::InvalidImage(s) => Failure::bad(s),
         e => Failure(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -255,10 +304,29 @@ fn embed_failure(e: taphoa_recognition::EmbedError) -> Failure {
         ),
     }
 }
+enum Command {
+    Infer(Job),
+    Stop,
+}
+
+struct CancelOnDrop(WorkControl);
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+struct Liveness(Arc<AtomicBool>);
+impl Drop for Liveness {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 struct Job {
     operation: String,
     bytes: Bytes,
-    deadline: Instant,
+    control: WorkControl,
     reply: oneshot::Sender<Result<Vec<u8>, Failure>>,
     // Retained until native work ends, including after request cancellation/timeout.
     _permit: Arc<OwnedSemaphorePermit>,
@@ -266,7 +334,10 @@ struct Job {
 #[derive(Clone)]
 pub struct Service {
     token_hash: [u8; 32],
-    sender: mpsc::Sender<Job>,
+    sender: mpsc::Sender<Command>,
+    alive: Arc<AtomicBool>,
+    stopping: Arc<AtomicBool>,
+    engine_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     slots: Arc<Semaphore>,
     provider: String,
 }
@@ -276,30 +347,62 @@ impl Service {
             token.chars().count() >= 32,
             "INFERENCE_TOKEN must contain at least 32 characters"
         );
-        let (sender, mut receiver) = mpsc::channel::<Job>(QUEUE_SIZE);
-        tokio::task::spawn_blocking(move || {
+        let (sender, mut receiver) = mpsc::channel::<Command>(QUEUE_SIZE);
+        let alive = Arc::new(AtomicBool::new(true));
+        let liveness = Liveness(alive.clone());
+        let task = tokio::task::spawn_blocking(move || {
+            let _liveness = liveness;
             let mut engine = Engine {
                 models,
                 encodings: VecDeque::new(),
             };
-            while let Some(job) = receiver.blocking_recv() {
+            while let Some(command) = receiver.blocking_recv() {
+                let Command::Infer(job) = command else {
+                    break;
+                };
                 if job.reply.is_closed() {
                     continue;
                 }
-                let result = if Instant::now() >= job.deadline {
-                    Err(Failure::timeout())
-                } else {
-                    engine.run(&job.operation, &job.bytes)
-                };
+                let result = engine.run_controlled(&job.operation, &job.bytes, &job.control);
                 let _ = job.reply.send(result);
             }
         });
         Ok(Self {
             token_hash: Sha256::digest(token.as_bytes()).into(),
             sender,
+            alive,
+            stopping: Arc::new(AtomicBool::new(false)),
+            engine_task: Arc::new(Mutex::new(Some(task))),
             slots: Arc::new(Semaphore::new(QUEUE_SIZE + 1)),
             provider: provider.into(),
         })
+    }
+    /// Main races this supervisor with the HTTP server. A failed engine makes
+    /// main return Err (non-zero exit) rather than reuse potentially poisoned models.
+    pub async fn supervise(&self) -> anyhow::Result<()> {
+        let task = self
+            .engine_task
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("engine supervisor already running"))?;
+        if let Err(error) = task.await {
+            tracing::error!(%error, "inference engine terminated");
+            anyhow::bail!("inference engine task failed: {error}");
+        }
+        if !self.stopping.load(Ordering::Acquire) {
+            tracing::error!("inference engine exited unexpectedly without a shutdown request");
+            anyhow::bail!("inference engine exited unexpectedly");
+        }
+        Ok(())
+    }
+    /// Called only once HTTP connections have drained.
+    pub async fn stop_engine(&self) -> anyhow::Result<()> {
+        self.stopping.store(true, Ordering::Release);
+        self.sender
+            .send(Command::Stop)
+            .await
+            .map_err(|_| anyhow::anyhow!("inference engine already stopped"))
     }
     pub fn router(self) -> Router {
         let mut protected = Router::new();
@@ -332,6 +435,9 @@ impl Service {
     }
 }
 async fn guard(State(service): State<Service>, mut request: Request, next: Next) -> Response {
+    if !service.alive.load(Ordering::Acquire) {
+        return Failure::busy().into_response();
+    }
     let token = request
         .headers()
         .get(header::AUTHORIZATION)
@@ -379,28 +485,38 @@ async fn infer(
     uri: Uri,
     bytes: Bytes,
 ) -> Result<Response, Failure> {
+    let control = WorkControl::new(deadline);
+    let _cancel = CancelOnDrop(control.clone());
     let (reply, receiver) = oneshot::channel();
     let operation = uri.path().trim_start_matches("/v1/").to_owned();
     service
         .sender
-        .try_send(Job {
+        .try_send(Command::Infer(Job {
             operation,
             bytes,
-            deadline,
+            control,
             reply,
             _permit: permit,
-        })
+        }))
         .map_err(|_| Failure::busy())?;
     let bytes = receiver.await.map_err(|_| Failure::busy())??;
     Ok(([(header::CONTENT_TYPE, CONTENT_TYPE)], bytes).into_response())
 }
-async fn health(State(service): State<Service>) -> axum::Json<Health> {
-    axum::Json(Health {
-        status: "ready".into(),
-        provider: service.provider,
-        loaded: vec!["sam".into(), "dinov2".into(), "ocr".into()],
-        version: env!("CARGO_PKG_VERSION").into(),
-    })
+async fn health(State(service): State<Service>) -> impl IntoResponse {
+    let alive = service.alive.load(Ordering::Acquire);
+    (
+        if alive {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        },
+        axum::Json(Health {
+            status: if alive { "ready" } else { "not_ready" }.into(),
+            provider: service.provider,
+            loaded: vec!["sam".into(), "dinov2".into(), "ocr".into()],
+            version: env!("CARGO_PKG_VERSION").into(),
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -412,7 +528,7 @@ mod tests {
     };
     use tower::ServiceExt;
     const TOKEN: &str = "a-test-token-with-at-least-32-characters";
-    fn fake() -> Models {
+    pub(crate) fn fake() -> Models {
         Models {
             segmenter: Arc::new(taphoa_recognition::MockSegmenter::default()),
             points: Arc::new(taphoa_recognition::MockPointSegmenter::default()),
@@ -421,7 +537,7 @@ mod tests {
             ocr: Arc::new(taphoa_recognition::ocr::FakeReceiptOcr::default()),
         }
     }
-    fn photo(width: u32, height: u32) -> Vec<u8> {
+    pub(crate) fn photo(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = Vec::new();
         image::RgbImage::new(width, height)
             .write_to(
@@ -567,5 +683,177 @@ mod tests {
             engine.run("embed-crops", &bad).unwrap_err().0,
             StatusCode::BAD_REQUEST
         );
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    const TOKEN: &str = "lifecycle-test-token-at-least-32-characters";
+    fn request() -> Request<Body> {
+        Request::post("/v1/segment")
+            .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+            .header(header::CONTENT_TYPE, CONTENT_TYPE)
+            .body(Body::from(
+                wire::encode(&ImageRequest {
+                    image: crate::tests::photo(2, 2),
+                })
+                .unwrap(),
+            ))
+            .unwrap()
+    }
+    struct Panicking {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        poison: Mutex<()>,
+    }
+    impl Segmenter for Panicking {
+        fn segment(&self, _: &[u8]) -> Result<Vec<taphoa_recognition::Segment>, SegmentError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let _lock = self.poison.lock().unwrap();
+            panic!("intentional decoder panic");
+        }
+    }
+    #[tokio::test]
+    async fn panic_marks_unready_supervisor_fails_and_poisoned_model_is_never_reused() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut models = crate::tests::fake();
+        models.segmenter = Arc::new(Panicking {
+            calls: calls.clone(),
+            poison: Mutex::new(()),
+        });
+        let service = Service::new(models, TOKEN, "cpu").unwrap();
+        let router = service.clone().router();
+        assert_eq!(
+            router.clone().oneshot(request()).await.unwrap().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let response = router
+            .clone()
+            .oneshot(Request::get("/healthz").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let health: Health =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(health.status, "not_ready");
+        assert!(
+            service
+                .supervise()
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("panicked")
+        );
+        assert_eq!(
+            router.oneshot(request()).await.unwrap().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn only_deliberate_shutdown_allows_a_clean_engine_exit() {
+        let service = Service::new(crate::tests::fake(), TOKEN, "cpu").unwrap();
+        service.sender.send(Command::Stop).await.unwrap();
+        assert!(
+            service
+                .supervise()
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("unexpectedly")
+        );
+        let service = Service::new(crate::tests::fake(), TOKEN, "cpu").unwrap();
+        service.stop_engine().await.unwrap();
+        service.supervise().await.unwrap();
+    }
+    struct Cancellable {
+        started: Arc<tokio::sync::Notify>,
+        stopped: Arc<tokio::sync::Notify>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl Segmenter for Cancellable {
+        fn segment(&self, _: &[u8]) -> Result<Vec<taphoa_recognition::Segment>, SegmentError> {
+            panic!("controlled method required")
+        }
+        fn segment_with_control(
+            &self,
+            _: &[u8],
+            control: &WorkControl,
+        ) -> Result<Vec<taphoa_recognition::Segment>, SegmentError> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                return Ok(Vec::new());
+            }
+            self.started.notify_one();
+            loop {
+                if let Err(error) = control.check() {
+                    self.stopped.notify_one();
+                    return Err(error.into());
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+    #[tokio::test]
+    async fn abandoned_request_cancels_active_work_and_engine_accepts_next_job() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let stopped = Arc::new(tokio::sync::Notify::new());
+        let mut models = crate::tests::fake();
+        models.segmenter = Arc::new(Cancellable {
+            started: started.clone(),
+            stopped: stopped.clone(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let service = Service::new(models, TOKEN, "cpu").unwrap();
+        let router = service.clone().router();
+        let pending = tokio::spawn(router.clone().oneshot(request()));
+        tokio::time::timeout(Duration::from_secs(1), started.notified())
+            .await
+            .unwrap();
+        pending.abort();
+        let _ = pending.await;
+        tokio::time::timeout(Duration::from_secs(1), stopped.notified())
+            .await
+            .unwrap();
+        assert_eq!(
+            router.oneshot(request()).await.unwrap().status(),
+            StatusCode::OK
+        );
+        service.stop_engine().await.unwrap();
+        service.supervise().await.unwrap();
+    }
+    struct TooDense;
+    impl ReceiptOcr for TooDense {
+        fn read_lines(&self, _: &[u8]) -> Result<Vec<taphoa_recognition::ocr::OcrLine>, OcrError> {
+            panic!("worker must supply options")
+        }
+        fn read_lines_with_options(
+            &self,
+            _: &[u8],
+            options: Option<&ReceiptOptions<'_>>,
+        ) -> Result<Vec<taphoa_recognition::ocr::OcrLine>, OcrError> {
+            let options = options.unwrap();
+            assert_eq!(options.limits.unwrap().max_boxes, 512);
+            assert!(options.control.is_some());
+            Err(OcrError::LimitExceeded("too many detected text boxes"))
+        }
+    }
+    #[tokio::test]
+    async fn ocr_budget_rejection_is_a_distinct_client_error() {
+        let mut models = crate::tests::fake();
+        models.ocr = Arc::new(TooDense);
+        let service = Service::new(models, TOKEN, "cpu").unwrap();
+        let mut request = request();
+        *request.uri_mut() = "/v1/read-lines".parse().unwrap();
+        let response = service.clone().router().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let error: ErrorResponse =
+            wire::decode(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(error.code, "ocr_work_limit");
+        assert!(service.alive.load(Ordering::Acquire));
     }
 }

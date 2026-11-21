@@ -92,6 +92,7 @@ pub struct Config {
     pub model_idle_unload_secs: u64,
     pub inference_url: Option<String>,
     pub inference_token: Option<String>,
+    pub inference_allow_plaintext: bool,
     pub document_probe_concurrency: usize,
     pub clerk: Option<ClerkSettings>,
     pub db_max_connections: u32,
@@ -105,6 +106,14 @@ impl Config {
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
         if get("INFERENCE_URL").is_some() != get("INFERENCE_TOKEN").is_some() {
             bail!("set both INFERENCE_URL and INFERENCE_TOKEN, or neither");
+        }
+        let inference_allow_plaintext = match get("INFERENCE_ALLOW_PLAINTEXT").as_deref() {
+            None | Some("0") => false,
+            Some("1") => true,
+            _ => bail!("INFERENCE_ALLOW_PLAINTEXT must be 0 or 1"),
+        };
+        if let Some(url) = get("INFERENCE_URL") {
+            crate::remote_models::validate_url(&url, inference_allow_plaintext)?;
         }
         let clerk = ClerkSettings::from_lookup(&get)?;
         if clerk.is_none() {
@@ -191,6 +200,7 @@ impl Config {
             ocr_threads,
             inference_url: get("INFERENCE_URL"),
             inference_token: get("INFERENCE_TOKEN"),
+            inference_allow_plaintext,
             model_idle_unload_secs: get("MODEL_IDLE_UNLOAD_SECS")
                 .unwrap_or_else(|| "900".into())
                 .parse()
@@ -474,6 +484,9 @@ mod tests {
             Some(match name {
                 "CLERK_ISSUER" => "https://test.clerk.accounts.dev".into(),
                 "PORT" => "9000".into(),
+                "INFERENCE_URL" => "https://inference.example".into(),
+                "INFERENCE_TOKEN" => "config-test-token-at-least-32-characters".into(),
+                "INFERENCE_ALLOW_PLAINTEXT" => "0".into(),
                 "DB_MAX_CONNECTIONS" => "24".into(),
                 "OCR_THREADS" => "4".into(),
                 "MODEL_IDLE_UNLOAD_SECS" => "900".into(),

@@ -347,12 +347,25 @@ flowchart TD
   repeated PNG encoding; embeddings carry their model ID and dimension to prevent
   incompatible `EMBED_SIDE` settings from mixing vectors.
   The worker runs one inference at a time with two queued requests, a 10 MiB body limit,
-  dimension validation and a 10 s deadline. Native inference already running at a
-  deadline cannot be interrupted safely; its admission permit stays held until it ends.
+  dimension validation and a 10 s deadline. Before auth, HTTP/1 connections are capped
+  at 32; excess sockets close immediately. Request headers and idle keep-alive each
+  have a 3 s budget; headers/start line are limited to 8 KiB and 32 fields. Native
+  inference already running at a deadline must finish before its slot is released;
+  cancellation checks stop further SAM prompts, embedding batches and OCR steps.
+  OCR caps 512 boxes / 16 Mi-pixels of total crops before materialisation, returning
+  client 422 without fallback. The local API receipt path uses the same generous cap.
+  Engine panic marks health not-ready and terminates the worker for systemd restart.
+  The unit uses `MemoryHigh=infinity`, `MemoryMax=2G`, `MemorySwapMax=0` and
+  `CPUQuota=200%`. The final scoped GPU check measured 1145.6 MiB RSS, zero swap,
+  1522 MiB VRAM and scan/segment/receipt p50 of 674.5 / 338.3 / 332.6 ms over 20
+  warm calls each, within 5% of the earlier shared-host results.
   Point encodings remain in a 16-entry, 300 s worker cache. The API caches opaque handles
   and source bytes; `410 unknown_encoding` causes one re-encode/retry. Local fallback
   encodings retain tensors and never pin a local session between calls.
-  Remote calls have a 500 ms connect timeout and a shared 10 s budget across crop
+  Non-loopback `INFERENCE_URL` requires HTTPS. `INFERENCE_ALLOW_PLAINTEXT=1` is
+  only for a transport that is already encrypted, such as a private WireGuard network.
+  Health replies are streamed and stopped at 4 KiB. Remote calls have a 500 ms connect
+  timeout and a shared 10 s budget across crop
   batches/retries. Transport failures, timeouts and 5xx responses open a process-wide
   circuit for 30 s and run that call through the existing lazy CPU holders. During the
   open period calls go directly local; one half-open probe can close the circuit.

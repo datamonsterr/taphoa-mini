@@ -10,6 +10,8 @@ use std::{path::Path, sync::Mutex};
 #[derive(Debug, thiserror::Error)]
 pub enum EmbedError {
     #[error(transparent)]
+    Cancelled(#[from] crate::work::Cancelled),
+    #[error(transparent)]
     Remote(#[from] crate::wire::RemoteError),
     #[error("invalid image: {0}")]
     InvalidImage(String),
@@ -21,6 +23,29 @@ pub trait Embedder: Send + Sync {
     fn model(&self) -> &str;
     fn dim(&self) -> usize;
     fn embed(&self, image: &[u8]) -> Result<Vec<f32>, EmbedError>;
+    fn embed_with_control(
+        &self,
+        image: &[u8],
+        control: &crate::work::WorkControl,
+    ) -> Result<Vec<f32>, EmbedError> {
+        control.check()?;
+        self.embed(image)
+    }
+    fn embed_crops_with_control(
+        &self,
+        crops: &[RgbImage],
+        control: &crate::work::WorkControl,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
+        crops
+            .iter()
+            .map(|crop| {
+                control.check()?;
+                self.embed_crops(std::slice::from_ref(crop))?
+                    .pop()
+                    .ok_or_else(|| inference("missing crop embedding"))
+            })
+            .collect()
+    }
     /// Embeds decoded crops. Adapters with real batching override this; the default
     /// re-encodes each crop as PNG so any adapter works in the scan pipeline.
     fn embed_crops(&self, crops: &[image::RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
@@ -121,6 +146,35 @@ impl Embedder for DinoEmbedder {
     }
 
     fn embed_crops(&self, crops: &[RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        self.embed_crops_controlled(crops, None)
+    }
+    fn embed_crops_with_control(
+        &self,
+        crops: &[RgbImage],
+        control: &crate::work::WorkControl,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
+        self.embed_crops_controlled(crops, Some(control))
+    }
+    fn embed_with_control(
+        &self,
+        bytes: &[u8],
+        control: &crate::work::WorkControl,
+    ) -> Result<Vec<f32>, EmbedError> {
+        control.check()?;
+        let image = crate::crop::decode_limited(bytes)
+            .map_err(EmbedError::InvalidImage)?
+            .to_rgb8();
+        self.embed_crops_controlled(&[image], Some(control))?
+            .pop()
+            .ok_or_else(|| inference("missing embedding"))
+    }
+}
+impl DinoEmbedder {
+    fn embed_crops_controlled(
+        &self,
+        crops: &[RgbImage],
+        control: Option<&crate::work::WorkControl>,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
         let side = self.side as usize;
         let dim = Self::DIM;
         let mut out = Vec::with_capacity(crops.len());
@@ -129,6 +183,7 @@ impl Embedder for DinoEmbedder {
             .lock()
             .map_err(|_| inference("embedder lock poisoned"))?;
         for chunk in crops.chunks(self.batch) {
+            crate::work::checkpoint(control)?;
             let mut input = vec![0.0_f32; chunk.len() * 3 * side * side];
             for (crop, slot) in chunk.iter().zip(input.chunks_mut(3 * side * side)) {
                 normalize_into(crop, slot, self.side);
@@ -203,5 +258,43 @@ mod tests {
             assert!(vector.iter().all(|x| x.is_finite()));
             assert!((vector.iter().map(|x| x * x).sum::<f32>() - 1.).abs() < 1e-5);
         }
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    #[test]
+    fn cancelled_crop_sequence_stops_before_next_crop() {
+        struct Fake {
+            control: crate::work::WorkControl,
+            calls: std::sync::atomic::AtomicUsize,
+        }
+        impl Embedder for Fake {
+            fn model(&self) -> &str {
+                "fake"
+            }
+            fn dim(&self) -> usize {
+                1
+            }
+            fn embed(&self, _: &[u8]) -> Result<Vec<f32>, EmbedError> {
+                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.control.cancel();
+                Ok(vec![1.])
+            }
+        }
+        let control = crate::work::WorkControl::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(10),
+        );
+        let model = Fake {
+            control: control.clone(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let crops = vec![RgbImage::new(2, 2); 3];
+        assert!(matches!(
+            model.embed_crops_with_control(&crops, &control),
+            Err(EmbedError::Cancelled(_))
+        ));
+        assert_eq!(model.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }

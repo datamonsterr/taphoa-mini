@@ -4,14 +4,18 @@
 models on the owner's GTX 1060 6GB. The API sends inference over HTTP and retains
 its lazy CPU models for outages. The worker has no database, object storage,
 Redis, Clerk or telemetry exporter. The tunnel is a separate, later step; this
-installation binds only `127.0.0.1:8090`. The release executable is 7.3 MiB;
+installation binds only `127.0.0.1:8090`. The rebuilt release executable is 5.2 MiB;
 `ldd` has only the standard C/math/GCC runtime dependencies (ORT/CUDA load dynamically).
 
-On this machine, under a transient 200% CPU / 2 GiB limit, warm API p50/p95 is
-696/736 ms for a scan, 332/346 ms for segment and 334/355 ms for a receipt (20
-requests each). All families use 1572 MiB VRAM; observed RSS is 811 MiB with 362
-MiB swapped, and process RSS high-water is 1133 MiB. A 60 s idle sample uses 0.03
-CPU seconds (0.05% of one core). Worker CPU averages 0.3615 seconds per scan.
+On this machine, the final transient scope uses 200% CPU, `MemoryHigh=infinity`,
+`MemoryMax=2G` and `MemorySwapMax=0`. Warm API p50/p95 is **674.5/697.8 ms** for
+a scan, **338.3/344.4 ms** for segment and **332.6/348.6 ms** for a receipt (20
+requests each). All families use **1522 MiB VRAM**; final RSS/high-water is
+**1145.6 MiB**, and swap stays **0** across 63 periodic samples plus before/after
+readings. The scope records zero high/max/OOM events. Compared with the earlier
+696.0 / 331.5 / 333.9 ms p50, changes are -3.1% / +2.1% / -0.4%, within the existing
+5% latency tolerance. An earlier 60 s idle sample used 0.03 CPU seconds (0.05%
+of one core); that run allowed swap and is retained separately in the latency spec.
 CPU/CUDA output parity passed on the repo fixtures. These are loopback/shared-host
 measurements; the tunnel is unmeasured. Full results and limitations are in
 [Inference worker](../../docs/specs/recognition-latency.md#inference-worker).
@@ -69,7 +73,10 @@ starts and enables nothing. `start` above is a deliberate controller action. Opt
 login-time startup is `systemctl --user enable taphoa-infer`; no lingering is configured.
 The generated token is never printed. Copy it securely to the API's `INFERENCE_TOKEN`
 and set `INFERENCE_URL` to the eventual worker address. For a local test, use the
-loopback URL. Leave `INFERENCE_PROVIDER` unset on the API so fallback uses CPU.
+loopback URL. Remote hosts require HTTPS; the API refuses non-loopback plaintext
+HTTP at startup unless `INFERENCE_ALLOW_PLAINTEXT=1`, which is only for a transport
+that is already encrypted, such as a private WireGuard network. Redirects remain disabled.
+Leave `INFERENCE_PROVIDER` unset on the API so fallback uses CPU.
 Do not configure the tunnel as part of this installation.
 
 The worker defaults to CUDA in the unit, 3072 MiB **per-session** arena limit,
@@ -111,8 +118,34 @@ Tokens need at least 32 characters and are compared using constant-time SHA-256
 digests. Bodies are limited to 10 MiB; images to 4096 pixels per edge and decoded
 allocation limits. Crop dimensions/lengths and points are checked before inference.
 One operation runs while two wait. Excess work returns `503` with `Retry-After: 1`.
-Each request has a 10 s deadline covering body receipt and queue time. Already running
-native work retains its slot until it finishes even if its HTTP deadline expires.
+Before authentication, at most **32** accepted HTTP/1 connections can be served.
+Excess sockets are immediately closed without spawning waiting tasks. Complete request
+headers must arrive within **3 seconds**, including each keep-alive wait; partial bytes
+do not reset the deadline. Start line plus headers are capped at **8192 bytes**, with
+at most 32 headers and a 16 KiB connection buffer. Oversized headers get 431. HTTP/2
+is not accepted on this internal hop. The implementation uses the pinned
+[hyper 1.12.0 builder](https://docs.rs/hyper/1.12.0/hyper/server/conn/http1/struct.Builder.html)
+and [hyper-util 0.1.21 adapter](https://docs.rs/hyper-util/0.1.21/hyper_util/service/struct.TowerToHyperService.html).
+
+Each request has a 10 s deadline covering body receipt and queue time. Deadline or
+request cancellation stops SAM before its next prompt, DINOv2 before its next batch,
+and OCR before its next crop batch or recurrent decoder step. A native ORT call
+already running returns before the slot can be released; later steps do not run.
+Receipt OCR checks at most **512 detected boxes** and **16,777,216 total crop pixels**
+after detection, before grouping or materialising crops. This permits roughly a
+hundred multi-column receipt lines while bounding RGB crops to 48 MiB, including
+overlaps. Exceeding either limit returns **422 `ocr_work_limit`**, propagated as a
+client error with no fallback or breaker opening. Detector/document-signal routes
+also cap boxes before grouping. Recognition's options are optional; ordinary local
+library calls keep their behavior, while the API receipt path also opts into these
+generous caps.
+
+The engine's task is supervised. A panic clears liveness immediately, makes health
+return 503 with status `not_ready`, and makes main exit non-zero so systemd restarts
+fresh models. Queued requests cannot reuse potentially poisoned sessions. Only an
+explicit stop after HTTP drain counts as a normal engine exit. Backend health
+responses are streamed with a hard 4096-byte accumulation limit, including chunked
+responses without Content-Length.
 SIGTERM drains requests and native work; the unit permits 30 s to stop.
 
 The worker holds at most 16 SAM encodings for 300 s, evicting oldest insertions.
@@ -130,7 +163,8 @@ selected `backend`; local sessions unload after `MODEL_IDLE_UNLOAD_SECS` as usua
 
 ## Service constraints and operation
 
-The template sets `CPUQuota=200%`, `MemoryHigh=1536M`, `MemoryMax=2G`, `Nice=5`,
+The template sets `CPUQuota=200%`, `MemoryHigh=infinity`, `MemoryMax=2G`,
+`MemorySwapMax=0`, `Nice=5`,
 `Restart=on-failure`, `NoNewPrivileges=yes`, a private temporary directory, read-only
 home/system, SUID/realtime/kernel/control-group restrictions, a locked personality,
 and only Unix/IPv4/IPv6 socket families. These options were tested with a transient
@@ -139,6 +173,14 @@ response. `PrivateDevices` is omitted because it hides `/dev/nvidia*`. The CUDA 
 is writable under the user's systemd state directory. No system package or privileged
 capability is required. The resource benchmark used a transient user scope; nothing
 was persistently enabled or started during implementation.
+
+The soft limit is deliberately disabled. Earlier worker `memory.events`
+high/max/OOM counters were zero while 362 MiB of its pages were swapped because
+of pressure in the shared `user-1000.slice`; lowering the worker's soft limit
+would not address that source of pressure. The 2 GiB hard cap remains, and
+`MemorySwapMax=0` prevents this worker from swapping. The final scope confirms
+these exact settings at runtime, with zero process/cgroup swap throughout the
+backend latency check. Ancestor slice limits still apply.
 
 Update by rebuilding in a heavy slot and rerunning `install.sh` with the prebuilt
 binary, then `systemctl --user daemon-reload` and `systemctl --user restart taphoa-infer`.
@@ -172,7 +214,7 @@ recognition thresholds/results and mobile application unchanged.
 
 | Acceptance item                   | Result and evidence                                                                                                                                                                                                                                                                                                                                                          |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Default CPU-only workspace checks | PASS: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`, 547 passed / 402 existing ignored tests. No GPU variables were set. Clippy exits 0; Cargo reports the existing unused `axum-extra` manifest warning.                                                                                                                                |
+| Default CPU-only workspace checks | PASS: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`, 561 passed / 402 existing ignored tests. No GPU variables were set. Clippy exits 0; Cargo reports the existing unused `axum-extra` manifest warning.                                                                                                                                |
 | Formatting / OpenAPI              | PASS: Prettier on every touched Markdown/TS/YAML file; `pnpm lint:api` validates the warm response's `backend` property, with six pre-existing warnings.                                                                                                                                                                                                                     |
 | Fake model/worker tests           | PASS: remote success; refused transport / 5xx local fallback; open circuit and single half-open recovery; stale-success protection; 4xx propagation; one unknown-handle renewal; warm remote and local states; auth missing/wrong/right, 10 MiB body limit, saturated admission 503/Retry-After, invalid dimensions/crops, bounded/expired handles and mask/wire round-trip. |
 | GPU install / startup             | PASS: all eight wheel SHA-256 checks, idempotent rerun; actual worker ready on CUDA using installed libraries; strict provider registration and blocking sync.                                                                                                                                                                                                               |
@@ -180,6 +222,7 @@ recognition thresholds/results and mobile application unchanged.
 | Real API latency                  | PASS: 20 warm calls per endpoint per mode, same release API, CPU-only then CUDA worker under the requested scope limits; table in latency spec.                                                                                                                                                                                                                              |
 | Outage / recovery / unloading     | PASS: statuses 200 throughout; first local call 2088.6 ms; open-circuit call 1578.5 ms; recovered remote 376.7 ms. Logged cold load, breaker reason, recovery and SAM idle unload; warm returns remote without local loads.                                                                                                                                                  |
 | Resources and user sandbox        | PASS: scope enforces 200% CPU / 2 GiB; latency holds, all-model RSS/VRAM, CPU-s per scan and 60 s idle measured. The listed sandbox settings also started real CUDA models in a transient user service and returned ready.                                                                                                                                                   |
+| Security hardening recheck        | PASS: connection admission/header/idle tests; OCR box/area preflight and cancellation; engine supervision/liveness; encrypted URL matrix; oversized chunked health. Final scope: MemoryHigh=infinity, MemoryMax=2G, MemorySwapMax=0, CPUQuota=200%; 1145.6 MiB RSS, zero swap, 1522 MiB VRAM, 20 warm calls per endpoint within 5% of earlier p50.                           |
 | Documentation / packaging / scope | PASS: unit, copy-only installer, operator instructions, architecture and latency report. No tunnel, deploy workflow, Railway command, persistent unit startup, push or PR. All test worker processes/scopes stopped.                                                                                                                                                         |
 
 Raw JSON and logs are retained on this machine in
@@ -187,6 +230,9 @@ Raw JSON and logs are retained on this machine in
 `g-cpu-final.json`, `g-remote-final.json`, `g-fallback-drill.json`,
 `g-worker-idle.json`, adjacent API logs, final test/clippy/OpenAPI/Prettier logs and
 scope/sandbox evidence. The excluded exploratory batch is not used in the report.
+The final hardening run is in the `hardening-noswap/` subdirectory: `result.json`,
+`samples.json`, `latency.json`, adjacent API/worker logs, the measurement driver,
+and fresh CPU-only format/clippy/test and Prettier logs.
 
 Changed files are grouped as follows:
 
@@ -194,8 +240,9 @@ Changed files are grouped as follows:
   `src/{provider,wire,lib,sam,embed,ocr}.rs`, plus `ocr/viet.rs`: provider policy,
   shared binary types, opaque encoding support and explicit recognizer warm-up.
 - `apps/backend/scripts/fetch-onnxruntime-gpu.sh`: pinned rootless native runtime.
-- `apps/backend/crates/infer/{Cargo.toml,src/lib.rs,src/main.rs}`: standalone worker,
+- `apps/backend/crates/infer/{Cargo.toml,src/lib.rs,src/main.rs,src/transport.rs}`: standalone worker,
   admission/security/cache, tests, startup/warm-up and shutdown.
+- Recognition `src/work.rs`: optional shared cancellation/deadline checkpoints.
 - API `src/{config,lib,main,models,model_holder,remote_models}.rs`,
   recognition warm/points/handlers/service, catalog enrollment and receipt HTTP:
   settings, trait adapters, lazy fallback and HTTP error/backend reporting.
@@ -210,7 +257,7 @@ latency or labelled model accuracy; the host has competing load and swap. A
 blackholed worker can cost 10 s before CPU fallback, which may also be cold. Warm
 honors the same 30 s circuit, so it warms locally during an open interval. The
 GPU arena limit is per session rather than a total VRAM reservation; monitor
-headroom with new workloads. Native calls already running at a deadline finish
-before their slot is released. Token rotation requires coordinated API/worker
+headroom with new workloads. A native call already running at a deadline finishes
+before its slot is released; cooperative checks prevent subsequent work. Token rotation requires coordinated API/worker
 restarts. The service is available when the user manager is running; login-time
 startup is optional and lingering was not configured.
