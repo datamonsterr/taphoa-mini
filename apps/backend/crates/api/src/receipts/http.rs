@@ -218,12 +218,12 @@ async fn create(
         .try_acquire_owned()
         .map_err(|_| crate::busy())?;
     let started = Instant::now();
-    let lines = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        ocr.read_lines_with_options(
-            &bytes,
-            Some(&taphoa_recognition::ocr::ReceiptOptions::bounded()),
-        )
+    let inference_permit = permit;
+    let lines = crate::inference::spawn_blocking(move || {
+        let control = taphoa_recognition::work::current();
+        let mut options = taphoa_recognition::ocr::ReceiptOptions::bounded();
+        options.control = control.as_ref();
+        ocr.read_lines_with_options(&bytes, Some(&options))
     })
     .await
     .map_err(|_| ApiError::internal())?
@@ -232,11 +232,13 @@ async fn create(
             ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "ocr_work_limit", message)
         }
         taphoa_recognition::ocr::OcrError::Remote(error) => crate::remote_models::api_error(error),
+        taphoa_recognition::ocr::OcrError::Cancelled(_) => crate::busy(),
         error => {
             tracing::error!(%error,"receipt OCR failed");
             ApiError::internal()
         }
     })?;
+    drop(inference_permit);
     let ocr_ms = millis(started);
     if lines.is_empty() {
         return Err(ApiError::new(

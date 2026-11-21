@@ -11,6 +11,7 @@ pub mod events;
 pub mod expenses;
 pub mod idempotency;
 pub mod images;
+pub mod inference;
 pub mod model_holder;
 pub mod models;
 pub mod money;
@@ -269,6 +270,7 @@ pub fn router(state: AppState) -> Router {
         .merge(sync::router())
         .merge(assistant::router())
         .merge(voice::router(&state.voice.config))
+        .layer(axum::middleware::from_fn(inference::request_deadline))
         .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(cors())
         .layer(axum::middleware::from_fn(telemetry::http_span))
@@ -434,22 +436,21 @@ async fn segment(
         image = Some(bytes);
     }
     let image = image.ok_or_else(bad_request)?;
-    let result = tokio::task::spawn_blocking(move || {
-        let _permit = permit; // Remains held even if the HTTP request is cancelled.
-        segmenter.segment(&image)
-    })
-    .await
-    .map_err(|error| {
-        tracing::error!(%error, "segmentation task failed");
-        ApiError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal",
-            "inference failed",
-        )
-    })?;
+    let _permit = permit;
+    let result = inference::spawn_blocking(move || inference::segment(&*segmenter, &image))
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "segmentation task failed");
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "inference failed",
+            )
+        })?;
     result.map(Json).map_err(|error| match error {
         SegmentError::InvalidImage(_) => bad_request(),
         SegmentError::Remote(error) => remote_models::api_error(error),
+        SegmentError::Cancelled(_) => busy(),
         error => {
             tracing::error!(%error, "segmentation failed");
             ApiError::new(

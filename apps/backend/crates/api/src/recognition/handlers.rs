@@ -129,9 +129,11 @@ async fn probe_document(
         }));
     };
     let inference_started = Instant::now();
-    let signal = tokio::task::spawn_blocking(move || {
-        // Retain admission even if the HTTP request is cancelled.
-        let _permit = permit;
+    let _permit = permit;
+    let signal = crate::inference::spawn_blocking(move || {
+        if let Some(control) = taphoa_recognition::work::current() {
+            control.check()?;
+        }
         detector.document_signal(&bytes)
     })
     .await
@@ -141,6 +143,7 @@ async fn probe_document(
     })?
     .map_err(|error| match error {
         OcrError::Remote(error) => crate::remote_models::api_error(error),
+        OcrError::Cancelled(_) => crate::busy(),
         OcrError::InvalidImage(_) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "validation_failed",
@@ -450,19 +453,22 @@ async fn create_scan(
             }
         }
     };
-    // Both blocking jobs retain the admission permit, including after cancellation or
-    // detector timeout. Slow OCR cannot create an unbounded background inference queue.
-    let permit = Arc::new(permit);
-    let detector_permit = Arc::clone(&permit);
+    // Native OCR retains admission on success; request cancellation releases it
+    // and stops the next cooperative inference stage.
+    let permit = crate::inference::admit(permit);
+    let detector_permit = permit.clone();
     let document_task = text_detector.map(|detector| {
         let bytes = image_bytes.clone();
-        tokio::task::spawn_blocking(move || {
+        crate::inference::spawn_blocking(move || {
             let _permit = detector_permit;
+            if let Some(control) = taphoa_recognition::work::current() {
+                control.check()?;
+            }
             detector.document_signal(&bytes)
         })
     });
-    let inference = tokio::task::spawn_blocking(move || {
-        let _permit = permit; // Held even if the HTTP request is cancelled.
+    let inference = crate::inference::spawn_blocking(move || {
+        let _permit = permit;
         pipeline::block_pipeline(
             &*block_segmenter,
             &*block_embedder,
@@ -502,7 +508,10 @@ async fn create_scan(
         Some(task) => {
             match tokio::time::timeout(std::time::Duration::from_millis(50), task).await {
                 Ok(Ok(Ok(signal))) => signal,
-                _ => pipeline::no_document(),
+                _ => {
+                    tracing::warn!("optional document signal failed or exceeded 50 ms tail budget");
+                    pipeline::no_document()
+                }
             }
         }
         None => pipeline::no_document(),

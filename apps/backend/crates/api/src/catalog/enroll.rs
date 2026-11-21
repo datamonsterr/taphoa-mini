@@ -51,6 +51,7 @@ pub(crate) async fn resolve_images(
 fn embed_error(error: EmbedError) -> ApiError {
     match error {
         EmbedError::Remote(error) => crate::remote_models::api_error(error),
+        EmbedError::Cancelled(_) => crate::busy(),
         EmbedError::InvalidImage(_) => ApiError::validation_failed("invalid image"),
         error => {
             tracing::error!(%error, "embedding failed");
@@ -99,8 +100,8 @@ pub(crate) async fn embed_reference(
         .acquire_owned()
         .await
         .map_err(|_| ApiError::internal())?;
-    tokio::task::spawn_blocking(move || {
-        let _permit = permit;
+    let _permit = permit;
+    crate::inference::spawn_blocking(move || {
         let input = if let Some(bbox) = crop_bbox {
             let decoded = crop::decode_limited(&bytes).map_err(EmbedError::InvalidImage)?;
             let image = crop::crop_with_padding(
@@ -117,7 +118,7 @@ pub(crate) async fn embed_reference(
         } else {
             bytes
         };
-        embedder.embed(&input)
+        crate::inference::embed(&*embedder, &input)
     })
     .await
     .map_err(|error| {

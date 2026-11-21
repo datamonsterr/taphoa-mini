@@ -24,6 +24,9 @@ impl WorkControl {
             cancelled: Arc::new(AtomicBool::new(false)),
         }
     }
+    pub fn deadline(&self) -> Instant {
+        self.deadline
+    }
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
     }
@@ -38,6 +41,22 @@ impl WorkControl {
 pub(crate) fn checkpoint(control: Option<&WorkControl>) -> Result<(), Cancelled> {
     control.map_or(Ok(()), WorkControl::check)
 }
+thread_local! { static CURRENT: std::cell::RefCell<Option<WorkControl>> = const { std::cell::RefCell::new(None) }; }
+/// The API propagates its request control to synchronous adapters and their fallback.
+pub fn current() -> Option<WorkControl> {
+    CURRENT.with(|slot| slot.borrow().clone())
+}
+pub fn scope<T>(control: Option<WorkControl>, work: impl FnOnce() -> T) -> T {
+    struct Restore(Option<WorkControl>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CURRENT.with(|slot| slot.replace(self.0.take()));
+        }
+    }
+    let _restore = Restore(CURRENT.with(|slot| slot.replace(control)));
+    work()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

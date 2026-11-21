@@ -2,6 +2,7 @@
 //! runtime handle drives async HTTP and the existing asynchronous lazy holders.
 use crate::{ApiError, AppState, config::Config};
 use serde::{Serialize, de::DeserializeOwned};
+use std::future::Future;
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -193,13 +194,18 @@ impl RemoteModels {
         operation: &str,
         work: impl FnOnce() -> Result<T, CallError>,
     ) -> Result<T, CallError> {
+        if taphoa_recognition::work::current().is_some_and(|control| control.check().is_err()) {
+            return Err(CallError::Unavailable("request_deadline"));
+        }
         let ticket = self.ticket()?;
         let mut guard = AttemptGuard {
             remote: self,
             ticket: Some(ticket),
         };
-        let _deadline =
-            CallDeadline(CALL_DEADLINE.replace(Some(Instant::now() + Duration::from_secs(10))));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = taphoa_recognition::work::current()
+            .map_or(deadline, |control| deadline.min(control.deadline()));
+        let _deadline = CallDeadline(CALL_DEADLINE.replace(Some(deadline)));
         let result = work();
         self.finish(
             guard.ticket.take().unwrap(),
@@ -353,9 +359,34 @@ impl RemoteModels {
             .into()),
             Err(CallError::Unavailable(reason)) => {
                 tracing::info!(backend = "local", operation, reason, "inference fallback");
+                if taphoa_recognition::work::current()
+                    .is_some_and(|control| control.check().is_err())
+                {
+                    return Err(Self::unavailable().into());
+                }
                 local(&self.local)
             }
         }
+    }
+    fn local_lease<T>(
+        &self,
+        load: impl Future<Output = crate::ApiResult<T>>,
+    ) -> crate::ApiResult<T> {
+        let control = taphoa_recognition::work::current();
+        self.runtime.block_on(async {
+            let result = match control.as_ref() {
+                Some(control) => tokio::time::timeout_at(control.deadline().into(), load)
+                    .await
+                    .map_err(|_| crate::busy())?,
+                None => load.await,
+            };
+            // A ready loader may win the timer poll at the deadline. Never start
+            // native fallback after expiry or cancellation of its request.
+            if control.is_some_and(|control| control.check().is_err()) {
+                return Err(crate::busy());
+            }
+            result
+        })
     }
     pub fn local_state(&self) -> &AppState {
         &self.local
@@ -438,11 +469,10 @@ impl Segmenter for RemoteModels {
             || self.image("segment", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_segmenter())
+                    .local_lease(local.model_segmenter())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.segment(image)
+                crate::inference::segment(&*model, image)
             },
         )
     }
@@ -460,13 +490,20 @@ impl Embedder for RemoteModels {
             || self.single_embedding(image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_embedder())
+                    .local_lease(local.model_embedder())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.embed(image)
+                crate::inference::embed(&*model, image)
             },
         )
+    }
+    fn embed_crops_with_control(
+        &self,
+        crops: &[image::RgbImage],
+        control: &taphoa_recognition::work::WorkControl,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
+        control.check()?;
+        taphoa_recognition::work::scope(Some(control.clone()), || self.embed_crops(crops))
     }
     fn embed_crops(&self, crops: &[image::RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
         if crops.is_empty() {
@@ -534,11 +571,10 @@ impl Embedder for RemoteModels {
             },
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_embedder())
+                    .local_lease(local.model_embedder())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.embed_crops(crops)
+                crate::inference::embed_crops(&*model, crops)
             },
         )
     }
@@ -562,8 +598,7 @@ impl PointSegmenter for RemoteModels {
             },
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_point_segmenter())
+                    .local_lease(local.model_point_segmenter())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 let encoding = model.encode(image)?;
@@ -619,8 +654,7 @@ impl PointSegmenter for RemoteModels {
             },
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_point_segmenter())
+                    .local_lease(local.model_point_segmenter())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 match state {
@@ -644,8 +678,7 @@ impl TextDetector for RemoteModels {
             || self.image("detect-text", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_text_detector())
+                    .local_lease(local.model_text_detector())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 model.detect(image)
@@ -658,8 +691,7 @@ impl TextDetector for RemoteModels {
             || self.image("document-signal", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_text_detector())
+                    .local_lease(local.model_text_detector())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 model.document_signal(image)
@@ -674,14 +706,13 @@ impl ReceiptOcr for RemoteModels {
             || self.image("read-lines", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_receipt_ocr())
+                    .local_lease(local.model_receipt_ocr())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.read_lines_with_options(
-                    image,
-                    Some(&taphoa_recognition::ocr::ReceiptOptions::bounded()),
-                )
+                let control = taphoa_recognition::work::current();
+                let mut options = taphoa_recognition::ocr::ReceiptOptions::bounded();
+                options.control = control.as_ref();
+                model.read_lines_with_options(image, Some(&options))
             },
         )
     }
@@ -957,6 +988,25 @@ mod tests {
         );
         assert_eq!(loads.load(Ordering::SeqCst), 1);
         task.abort();
+    }
+    #[tokio::test]
+    async fn cancelled_load_result_is_not_used_for_local_inference() {
+        let remote = RemoteModels::new("http://127.0.0.1:1", TOKEN, AppState::default()).unwrap();
+        let error = tokio::task::spawn_blocking(move || {
+            let control =
+                taphoa_recognition::work::WorkControl::new(Instant::now() + Duration::from_secs(1));
+            taphoa_recognition::work::scope(Some(control.clone()), || {
+                remote
+                    .local_lease(async {
+                        control.cancel();
+                        Ok(42)
+                    })
+                    .unwrap_err()
+            })
+        })
+        .await
+        .unwrap();
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
     }
     #[tokio::test]
     async fn stale_success_cannot_close_a_newer_open_circuit() {
