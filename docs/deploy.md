@@ -513,10 +513,26 @@ and warns when the total `pg_database_size` exceeds 3.5 GB (3,500,000,000 bytes;
 `IT_DB_SIZE_LIMIT_BYTES`), listing the largest databases. This sum does not include all
 volume usage, such as WAL. Set the age limit longer than any expected integration run.
 
-If the volume is full and Postgres cannot start, grow the test Postgres volume first; once
-Postgres is running, the next integration run will clean up stale databases. Alternatively,
-when Postgres is available, manually drop abandoned `it_` databases with
+When Postgres is available, manually drop abandoned `it_` databases with
 `DROP DATABASE "<name>" WITH (FORCE)`; leave other databases and active runs alone.
+
+If the volume is full and Postgres cannot start, the volume cannot be grown: 5000 MB is the
+Hobby plan's maximum (`railway config apply` answers "Max size of 5000 MB on current plan").
+Test data is disposable, so reset the test data directory instead (done on 2026-11-21):
+
+1. Link the `test` environment. In a scratch copy of `.railway/railway.ts`, give the `Postgres`
+   service this start command for `test` only:
+   `/bin/sh -c "rm -rf /var/lib/postgresql/data/* /var/lib/postgresql/data/.[!.]*; exec docker-entrypoint.sh postgres"`.
+2. `railway config plan --file <copy>` must show that one change and `Environment test`. Apply
+   it and wait for "database system is ready to accept connections".
+3. Remove the start command from the copy, plan again (one change: the start command back to
+   null) and apply it at once. While the command is in place every restart empties the database.
+4. The next backend deploy runs the migrations and `scripts/ci/seed-test.sh` seeds the data.
+
+Never use `railway volume delete` for this. `postgres-volume` is one volume with an instance
+per environment (the same id in `test` and `production`), so deleting it removes the
+production database too. A redeploy can also move the test volume to the service's region;
+keep the `region` in `.railway/railway.ts` equal to the live one.
 
 ### GitHub configuration for the test environment
 
