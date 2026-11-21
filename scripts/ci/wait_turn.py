@@ -8,7 +8,7 @@ shared Railway `test` environment. This gives a FIFO queue instead: the job wait
 of the same workflow with a smaller run id has its `test` job queued or in progress. Older runs
 never wait on newer ones, so the queue cannot deadlock. Needs GITHUB_REPOSITORY, GITHUB_RUN_ID
 and a token with `actions: read` for `gh`. Gives up after WAIT_TURN_TIMEOUT seconds (default
-2400).
+3600).
 """
 
 import json
@@ -48,7 +48,7 @@ def main(argv):
     job_name = argv[2] if len(argv) > 2 else "test"
     repo = os.environ["GITHUB_REPOSITORY"]
     own_id = int(os.environ["GITHUB_RUN_ID"])
-    timeout = float(os.environ.get("WAIT_TURN_TIMEOUT", "2400"))
+    timeout = float(os.environ.get("WAIT_TURN_TIMEOUT", "3600"))
     interval = float(os.environ.get("WAIT_TURN_INTERVAL", "20"))
 
     deadline = time.monotonic() + timeout

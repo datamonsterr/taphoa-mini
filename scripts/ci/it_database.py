@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 
 NEW_NAME = re.compile(r"^it_(\d+)_[A-Za-z0-9]+_\d+_\d+$")
@@ -35,11 +36,22 @@ def size_warning(sizes, limit):
     return f"::warning::Postgres databases total {total} bytes (limit {limit}); largest: {details}"
 
 
+def redact(text, url):
+    # The URL carries the password, and CalledProcessError would print the whole command.
+    for secret in {url, urlsplit(url).password or ""} - {""}:
+        text = text.replace(secret, "***")
+    return text
+
+
 def query(url, sql):
-    return subprocess.run(
-        ["psql", url, "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql],
-        check=True, text=True, capture_output=True,
-    ).stdout.strip()
+    try:
+        return subprocess.run(
+            ["psql", url, "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql],
+            check=True, text=True, capture_output=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        stderr = redact((exc.stderr or "").strip(), url) or "no stderr output"
+        raise RuntimeError(f"psql exited {exc.returncode}: {stderr}") from None
 
 
 def main():
@@ -62,6 +74,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
+    except (ValueError, KeyError, RuntimeError) as exc:
         print(f"Integration database maintenance failed: {exc}", file=sys.stderr)
         sys.exit(1)

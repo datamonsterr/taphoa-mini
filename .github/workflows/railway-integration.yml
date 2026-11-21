@@ -31,6 +31,9 @@ jobs:
   api:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      # Jobs time out at 40 and 15 minutes, so one hour is longer than any run.
+      IT_DB_MAX_AGE_HOURS: '1'
     steps:
       - uses: actions/checkout@v7
       - name: Check for Railway test credentials
@@ -88,6 +91,9 @@ jobs:
   heavy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Jobs time out at 40 and 15 minutes, so one hour is longer than any run.
+      IT_DB_MAX_AGE_HOURS: '1'
     steps:
       - uses: actions/checkout@v7
       - name: Check for Railway test credentials
