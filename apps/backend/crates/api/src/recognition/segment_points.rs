@@ -192,11 +192,7 @@ pub async fn segment_points(
         ));
     }
 
-    let point_segmenter = state
-        .point_segmenter
-        .as_ref()
-        .map(Arc::clone)
-        .ok_or_else(no_model)?;
+    let point_segmenter = state.model_point_segmenter().await?.ok_or_else(no_model)?;
 
     let storage = state
         .storage
@@ -248,7 +244,7 @@ pub async fn segment_points(
             .map_err(|_| busy())?;
 
         let start_encode = Instant::now();
-        let seg = Arc::clone(&point_segmenter);
+        let seg = point_segmenter.clone();
         let (encoding, photo) = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let photo = Arc::new(decode_rgb(&bytes)?);
@@ -297,7 +293,7 @@ pub async fn segment_points(
         .try_acquire_owned()
         .map_err(|_| busy())?;
 
-    let seg = Arc::clone(&point_segmenter);
+    let seg = point_segmenter.clone();
     let enc = Arc::clone(&encoding);
     let pts = prompts.clone();
     let photo_for_blocking = Arc::clone(&photo);

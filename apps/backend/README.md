@@ -22,11 +22,26 @@ the process starts with readiness reporting the missing dependencies. `stores` h
 UUID identity, required name, and a timestamp; the only extension is `vector`.
 
 `PORT` defaults to 8080. Both SAM path variables must be set together. With neither
-set, or both files absent, segmentation returns 503. One missing file, invalid model,
-or missing runtime with existing models fails startup. `RUST_LOG` controls tracing;
+set, or both files absent, segmentation returns 503. A missing file, invalid model,
+or missing runtime is reported on first use. No model loads or warms up before serving. `RUST_LOG` controls tracing;
 `LOG_FORMAT=json` enables JSON logs and is the Docker default. SIGTERM/Ctrl-C drains
 requests and closes the Postgres pool. Configuration is environment-only; the binary
 does not automatically read `.env`.
+
+SAM, DINOv2 and OCR load independently on first use in blocking tasks. Concurrent callers
+share one load and wait up to 120 seconds; load failure/timeout returns 503 with
+`Retry-After: 1`. `/healthz` and `/readyz` never wait for models. Inference still uses
+the existing admission limits. `MODEL_IDLE_UNLOAD_SECS` defaults to `900`; `0` disables
+unloading. A family unloads only after its last inference lease finishes and it has
+been idle for that period (checked at most every 30 seconds). Linux glibc releases
+unused allocator pages with `malloc_trim(0)` after session destruction.
+
+`POST /v1/recognition/warm` requires a signed-in store member and loads all three
+families concurrently. It returns `200` with `{sam, dinov2, ocr}`, each containing
+`load_ms` (the last load duration) and `already_loaded` (ready when this call arrived).
+It is idempotent and limited to six requests per member per minute. Unconfigured
+families return 503. Use it on entry to a camera/receipt screen to overlap model
+loading with preparation.
 
 ### Authentication (Clerk)
 

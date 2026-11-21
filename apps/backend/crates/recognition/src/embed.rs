@@ -86,20 +86,14 @@ impl DinoEmbedder {
             .map_err(inference)?
             .commit_from_file(model)
             .map_err(inference)?;
-        let this = Self {
+        Ok(Self {
             session: Mutex::new(session),
             // Vectors from different input sides are not comparable, so the side is part of
             // the model id that product_embeddings are filtered by.
             model: format!("dinov2-vits14-onnx@1/{side}"),
             batch: 8,
             side,
-        };
-        // Warm-up: first run allocates arenas and packs weights.
-        let vectors = this.embed_crops(&[RgbImage::new(side, side)])?;
-        if vectors.first().map(Vec::len) != Some(Self::DIM) {
-            return Err(inference("model must output 384-d embeddings"));
-        }
-        Ok(this)
+        })
     }
 }
 

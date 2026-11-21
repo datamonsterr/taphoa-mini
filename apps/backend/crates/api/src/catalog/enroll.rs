@@ -1,5 +1,6 @@
 //! Enrollment helpers: image resolution, embedding and duplicate detection.
 use super::products::pool;
+use crate::model_holder::ModelLease;
 use crate::{ApiError, ApiResult, AppState};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -59,7 +60,7 @@ fn embed_error(error: EmbedError) -> ApiError {
 
 pub(crate) async fn embed_reference(
     state: &AppState,
-    embedder: Arc<dyn Embedder>,
+    embedder: ModelLease<dyn Embedder>,
     object_key: &str,
     cutout_key: Option<&str>,
     bbox: Option<[f32; 4]>,

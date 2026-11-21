@@ -505,6 +505,36 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- Recognition
+  /v1/recognition/warm:
+    post:
+      tags: [Recognition]
+      operationId: warmRecognition
+      summary: Load all recognition model families
+      description: |
+        Requires a signed-in store member. Loads SAM, DINOv2 and OCR concurrently,
+        sharing in-progress loads with other requests. Idempotent; six calls per
+        member per minute. Waits at most 120 seconds. Missing configuration, failed
+        loading or timeout returns 503; load failures/timeouts include Retry-After: 1.
+        Each family's load_ms is its most recent load duration; already_loaded is
+        true if it was ready when this call reached the holder.
+      parameters:
+        - $ref: '#/components/parameters/X-Store-Id'
+      responses:
+        '200':
+          description: All model families are ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sam, dinov2, ocr]
+                properties:
+                  sam: { $ref: '#/components/schemas/ModelLoadTiming' }
+                  dinov2: { $ref: '#/components/schemas/ModelLoadTiming' }
+                  ocr: { $ref: '#/components/schemas/ModelLoadTiming' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/recognition/document-probes:
     post:
       tags: [Recognition]
@@ -2743,6 +2773,18 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    ModelLoadTiming:
+      type: object
+      required: [load_ms, already_loaded]
+      properties:
+        load_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Most recent family load duration in milliseconds, including warm-up.
+        already_loaded:
+          type: boolean
+          description: Whether this family was ready when the call reached its holder.
     WaitlistRequest:
       type: object
       required: [email]

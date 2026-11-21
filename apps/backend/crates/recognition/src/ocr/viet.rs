@@ -138,15 +138,55 @@ impl VietOcr {
         vocab: &Path,
         threads: usize,
     ) -> Result<Self, OcrError> {
+        Self::load_with_detector(move || Ok(detector), encoder, decoder, vocab, threads)
+    }
+
+    /// Create all three independent OCR sessions concurrently inside the blocking loader.
+    pub fn load_paths(
+        detector: &Path,
+        encoder: &Path,
+        decoder: &Path,
+        vocab: &Path,
+        threads: usize,
+    ) -> Result<Self, OcrError> {
+        Self::load_with_detector(
+            || PpOcrDetector::load(detector, threads).map(Arc::new),
+            encoder,
+            decoder,
+            vocab,
+            threads,
+        )
+    }
+
+    fn load_with_detector(
+        detector: impl FnOnce() -> Result<Arc<PpOcrDetector>, OcrError> + Send,
+        encoder: &Path,
+        decoder: &Path,
+        vocab: &Path,
+        threads: usize,
+    ) -> Result<Self, OcrError> {
         let vocab: Vocab =
             serde_json::from_slice(&std::fs::read(vocab).map_err(inference)?).map_err(inference)?;
         vocab.validate()?;
+        let (detector, encoder, decoder) = std::thread::scope(|scope| {
+            let detector = scope.spawn(detector);
+            let encoder = scope.spawn(|| session(encoder, threads));
+            let decoder = scope.spawn(|| session(decoder, threads));
+            Ok::<_, OcrError>((
+                detector
+                    .join()
+                    .map_err(|_| inference("detector loader panicked"))??,
+                encoder
+                    .join()
+                    .map_err(|_| inference("OCR encoder loader panicked"))??,
+                decoder
+                    .join()
+                    .map_err(|_| inference("OCR decoder loader panicked"))??,
+            ))
+        })?;
         Ok(Self {
             detector,
-            sessions: Mutex::new(Sessions {
-                encoder: session(encoder, threads)?,
-                decoder: session(decoder, threads)?,
-            }),
+            sessions: Mutex::new(Sessions { encoder, decoder }),
             vocab,
         })
     }

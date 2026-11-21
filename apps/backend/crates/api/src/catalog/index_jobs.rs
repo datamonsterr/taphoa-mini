@@ -1,5 +1,6 @@
 //! Durable reference embedding jobs, with LISTEN wakeups and polling recovery.
 use super::enroll::vector_text;
+use crate::model_holder::{ModelHolder, ModelLease};
 use crate::{
     events::{self, Event},
     recognition::service::CROP_PADDING,
@@ -78,12 +79,13 @@ impl Default for WorkerConfig {
 /// Start only when Postgres, object storage and an embedder are configured.
 pub fn spawn(
     pool: PgPool,
-    embedder: Arc<dyn Embedder>,
+    embedder: impl Into<ModelHolder<dyn Embedder>>,
     storage: Arc<dyn ObjectStore>,
     inference_slots: Arc<tokio::sync::Semaphore>,
     mut shutdown: watch::Receiver<bool>,
     config: WorkerConfig,
 ) -> JoinHandle<()> {
+    let embedder = embedder.into();
     tokio::spawn(async move {
         tokio::select! {
             biased;
@@ -104,7 +106,7 @@ pub fn spawn(
 
 async fn worker_loop(
     pool: PgPool,
-    embedder: Arc<dyn Embedder>,
+    embedder: ModelHolder<dyn Embedder>,
     storage: Arc<dyn ObjectStore>,
     slots: Arc<tokio::sync::Semaphore>,
     config: WorkerConfig,
@@ -170,11 +172,12 @@ struct ClaimedJob {
 /// Processing errors are persisted as retries; database errors propagate to the caller.
 pub async fn process_next(
     pool: &PgPool,
-    embedder: Arc<dyn Embedder>,
+    embedder: impl Into<ModelHolder<dyn Embedder>>,
     storage: Arc<dyn ObjectStore>,
     inference_slots: Arc<tokio::sync::Semaphore>,
     config: &WorkerConfig,
 ) -> anyhow::Result<bool> {
+    let embedder = embedder.into();
     sqlx::query(
         "UPDATE index_jobs SET status='queued', run_after=now(), updated_at=now()
          WHERE id IN (SELECT id FROM index_jobs WHERE status='running'
@@ -266,12 +269,13 @@ async fn lock_claim(conn: &mut PgConnection, job: &ClaimedJob) -> Result<bool, s
 
 async fn run_job(
     pool: &PgPool,
-    embedder: Arc<dyn Embedder>,
+    embedder: ModelHolder<dyn Embedder>,
     storage: Arc<dyn ObjectStore>,
     slots: Arc<tokio::sync::Semaphore>,
     job: &ClaimedJob,
 ) -> anyhow::Result<()> {
     let images = references(&mut *pool.acquire().await?, job).await?;
+    let embedder = embedder.get().await?;
     let model = embedder.model().to_owned();
     let mut embeddings = Vec::with_capacity(images.len() * 2);
     for image in &images {
@@ -427,7 +431,7 @@ async fn emit_indexed(
 }
 
 async fn embed_image(
-    embedder: Arc<dyn Embedder>,
+    embedder: ModelLease<dyn Embedder>,
     slots: Arc<tokio::sync::Semaphore>,
     bytes: Vec<u8>,
     bbox: Option<[f32; 4]>,

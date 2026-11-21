@@ -44,23 +44,14 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
     let digest_config = DigestJobConfig::from_env()?;
     let config = Config::from_env()?;
     let storage_config = StorageConfig::from_env()?;
-    let sam = config.sam_segmenter()?;
-    let segmenter = sam
-        .as_ref()
-        .map(|s| Arc::clone(s) as Arc<dyn taphoa_recognition::Segmenter>);
-    let point_segmenter = sam.map(|s| s as Arc<dyn taphoa_recognition::PointSegmenter>);
-    let mut state = AppState::connect_with_config(&config, segmenter).await?;
+    let mut state = AppState::connect_with_config(&config, None).await?;
+    state.models = taphoa_api::models::LazyModels::from_config(&config)?;
     state.push = Some(Arc::new(taphoa_api::push::ExpoPush::new(
         taphoa_api::push::PushConfig::from_env()?,
     )?));
     if let Some(analytics) = analytics {
         state.analytics = analytics;
         tracing::info!("posthog analytics enabled");
-    }
-    state.point_segmenter = point_segmenter;
-    if let Some(ocr) = config.ocr()? {
-        state.text_detector = Some(ocr.detector());
-        state.receipt_ocr = Some(ocr);
     }
     state.decisions = taphoa_api::decisions::DecisionsConfig::from_env()?
         .map(taphoa_api::decisions::OpenRouterDecisions::new)
@@ -97,7 +88,6 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
         }
     }
     state.voice.config = Arc::new(voice_config);
-    state.embedder = config.embedder()?;
     state.recognition = RecognitionConfig::from_env()?;
     state.vector_index = state.postgres.clone().map(|pool| {
         Arc::new(taphoa_api::recognition::pgvector::PgVectorIndex::new(pool))
@@ -155,7 +145,7 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
             ));
         }
         // Spawn the index-job worker only when all required dependencies are present.
-        if let (Some(embedder), Some(storage)) = (state.embedder.clone(), state.storage.clone()) {
+        if let (Some(embedder), Some(storage)) = (state.embedding_holder(), state.storage.clone()) {
             background.push(spawn_index_worker(
                 pool,
                 embedder,

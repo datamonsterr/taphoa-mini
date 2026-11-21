@@ -318,6 +318,24 @@ flowchart TD
   4 cores), so the deployed segmenter is MobileSAM behind the same `Segmenter` trait; the
   embedder runs at 112 px input. Measurements and the 4 vCPU requirement are in
   [recognition-latency](specs/recognition-latency.md).
+- **Model lifecycle.** Startup serves before any model load or warm-up; health/readiness
+  depend only on ordinary dependencies. SAM, DINOv2 and OCR have independent
+  `ModelHolder` instances, with a single blocking load per family and leases pinning
+  sessions throughout inference (including cancelled requests). Loaders create sessions
+  without synthetic inference: the first real inference allocates arenas and checks
+  compatibility/output shape. An incompatible SAM encoder/decoder pair therefore
+  fails on first inference rather than at load; models are pinned and checksum-verified,
+  and CI's real-model test covers the pair. `warm` prepares sessions only. A partial
+  OCR file set creates a holder and fails on use with a logged cause and retryable
+  503; only an entirely absent file set leaves OCR unconfigured. Requests wait up to
+  120 seconds for loading, then get 503 with `Retry-After: 1`. The signed-in member
+  route `POST /v1/recognition/warm` starts all families concurrently, reports per-family
+  `load_ms` and `already_loaded`, and allows six calls per member per minute.
+  `MODEL_IDLE_UNLOAD_SECS` defaults to 900 (0 disables unloading). Every 30 seconds
+  or less, idle families with no active leases drop their sessions; Linux glibc then
+  calls `malloc_trim(0)` to return unused pages to the OS. The index worker uses the
+  same DINOv2 holder and holds no model while waiting for jobs. The SAM encoding
+  cache owns tensors, so cached point requests acquire a fresh SAM lease after unload.
 - **Concurrency.** One inference slot per instance (implemented). A second request gets
   `503 segmenter busy` with `Retry-After: 1`; the phone retries once and otherwise offers
   grid mode.

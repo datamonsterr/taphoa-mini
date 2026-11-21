@@ -168,41 +168,48 @@ impl SamSegmenter {
         let threads = thread_count(options.threads);
         let decoder_count = decoder_pool(options.decoders, threads);
         let spinning = crate::ort_spinning();
-        let encoder = Session::builder(&environment)
-            .map_err(inference)?
-            .with_optimization_level(GraphOptimizationLevel::All)
-            .map_err(inference)?
-            .with_intra_threads(threads)
-            .map_err(inference)?
-            .with_intra_op_spinning(spinning)
-            .map_err(inference)?
-            .with_inter_op_spinning(spinning)
-            .map_err(inference)?
-            .commit_from_file(encoder)
-            .map_err(inference)?;
+        // Builders stay on their own threads (ort 2.0.0-rc.15 builders are !Send).
+        // Independent sessions can be committed concurrently.
+        let load = |path: &Path, intra_threads| {
+            Session::builder(&environment)
+                .map_err(inference)?
+                .with_optimization_level(GraphOptimizationLevel::All)
+                .map_err(inference)?
+                .with_intra_threads(intra_threads)
+                .map_err(inference)?
+                .with_intra_op_spinning(spinning)
+                .map_err(inference)?
+                .with_inter_op_spinning(spinning)
+                .map_err(inference)?
+                .commit_from_file(path)
+                .map_err(inference)
+        };
+        let (encoder, decoders) = std::thread::scope(|scope| {
+            let encoder = scope.spawn(|| load(encoder, threads));
+            let decoders: Vec<_> = (0..decoder_count)
+                .map(|_| scope.spawn(|| load(decoder, 1)))
+                .collect();
+            let encoder = encoder
+                .join()
+                .map_err(|_| inference("encoder loader panicked"))??;
+            let decoders = decoders
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .map_err(|_| inference("decoder loader panicked"))?
+                        .map(Mutex::new)
+                })
+                .collect::<Result<Vec<_>, SegmentError>>()?;
+            Ok::<_, SegmentError>((encoder, decoders))
+        })?;
         let hwc_input = encoder
             .inputs()
             .first()
             .and_then(|input| input.dtype().tensor_shape())
             .is_some_and(|shape| shape.len() == 3);
-        let mut decoders = Vec::new();
-        for _ in 0..decoder_count {
-            decoders.push(Mutex::new(
-                Session::builder(&environment)
-                    .map_err(inference)?
-                    .with_optimization_level(GraphOptimizationLevel::All)
-                    .map_err(inference)?
-                    .with_intra_threads(1)
-                    .map_err(inference)?
-                    .with_intra_op_spinning(spinning)
-                    .map_err(inference)?
-                    .with_inter_op_spinning(spinning)
-                    .map_err(inference)?
-                    .commit_from_file(decoder)
-                    .map_err(inference)?,
-            ));
-        }
-        let this = Self {
+        // No synthetic warm-up: pinned/checksummed pairs are covered by CI; incompatibility fails on first inference.
+        Ok(Self {
             sessions: Sessions {
                 encoder: Mutex::new(encoder),
                 decoders,
@@ -210,19 +217,7 @@ impl SamSegmenter {
             },
             options,
             decode_rr: AtomicUsize::new(0),
-        };
-        this.warm_up()?;
-        Ok(this)
-    }
-
-    /// First inference allocates arenas and packs weights; pay for it at boot, not on a request.
-    fn warm_up(&self) -> Result<(), SegmentError> {
-        let image = DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
-            320,
-            240,
-            image::Rgb([128, 128, 128]),
-        ));
-        self.segment_image(&image).map(|_| ())
+        })
     }
 
     /// Decodes `points` across the decoder workers; returns accepted masks with their bitmaps.

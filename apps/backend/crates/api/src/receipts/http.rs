@@ -178,7 +178,7 @@ async fn create(
         "receipt scans for this store today",
     )
     .await?;
-    let ocr = state.receipt_ocr.clone().ok_or_else(|| {
+    let ocr = state.model_receipt_ocr().await?.ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ocr_unavailable",
