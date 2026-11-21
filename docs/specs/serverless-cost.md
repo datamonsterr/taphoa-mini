@@ -142,9 +142,39 @@ text out. It has no database and no bucket access. The cloud backend calls it th
 with a shared secret and falls back to its own lazy CPU models when the worker does not answer.
 The worker runs as a user service with CPU and memory limits so that the machine stays usable.
 
-This is gated by a spike that measures, on this GPU, per-model latency, VRAM, CPU and memory use,
-and output parity with the CPU provider. Its results and the task list are added here after
-the spike.
+Spike result (2026-11-21, ONNX Runtime 1.23.2 with the CUDA provider, CUDA 12 and cuDNN 9
+from PyPI wheels, no system packages; report in `/media/storage/cache/gpu-spike/REPORT.md` on
+the owner's machine):
+
+| Measure                                    | GPU (GTX 1060)                         | Reference                                         |
+| ------------------------------------------ | -------------------------------------- | ------------------------------------------------- |
+| MobileSAM encoder, warm p50                | 117 ms                                 | 1652 ms on 4 busy CPU threads                     |
+| SAM decoder, one prompt                    | 8.5 ms                                 | 83 ms                                             |
+| DINOv2, one crop                           | 4.4 ms                                 | 118 ms                                            |
+| Fixed scan: 64 prompts, 20 crops, detector | 731 ms p50, 741 p95                    | production CPU: 1.2 to 1.6 s plus 0.25 to 0.4 s   |
+| Receipt OCR, three fixtures                | 273 to 329 ms                          | production CPU: 450 to 500 ms                     |
+| Two scans at once                          | 1254 ms p50 each                       |                                                   |
+| All models loaded, idle                    | 1902 MiB VRAM, 1097 MiB RAM, 0.05% CPU |                                                   |
+| CPU per scan                               | 0.74 CPU-s, 0.55 with blocking sync    |                                                   |
+| First inference after load                 | up to 3.1 s                            | the worker stays loaded, so this is paid at start |
+
+Parity with the CPU provider on the fixtures: DINOv2 cosine similarity 1.0 to eleven decimals,
+SAM best-mask IoU 1.0 with no selection mismatch over 64 prompts, VietOCR text equal on 55 of
+55 crops. The SAM decoder accepts one prompt per call, so prompts run in sequence.
+
+The worker cannot be VRAM-only: the CUDA runtime keeps about 1.1 GiB of host memory. CPU use is
+near zero when idle and about half a CPU-second per scan.
+
+Tasks:
+
+| Item | Change                                                                                                                                                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1   | `taphoa_recognition` can register the CUDA provider (`INFERENCE_PROVIDER=cuda`), one decoder session, heuristic convolution search, a VRAM limit, blocking sync. CPU stays the default.                 |
+| G2   | New binary `taphoa-infer`: stateless HTTP inference over `taphoa_recognition` (segment, point segment with its encoding cache, embed, text detect, receipt OCR), bearer secret, no database, no bucket. |
+| G3   | The backend gets remote implementations of the recognition traits (`INFERENCE_URL`, `INFERENCE_TOKEN`) with a short connect timeout and a circuit breaker that falls back to the lazy CPU models.       |
+| G4   | A pinned script installs the GPU runtime libraries for the worker; a systemd user unit runs it with `CPUQuota`, `MemoryMax` and `Nice`.                                                                 |
+| G5   | A tunnel gives the worker a public HTTPS name. Owner decision: which tunnel.                                                                                                                            |
+| G6   | Gate: the recognition eval gives the same decisions through the worker as on CPU, and scan p95 measured from the deployed backend through the tunnel is at most the current 2101 ms.                    |
 
 `GET /v1/events` has no caller in the app today (only `packages/e2e` uses it). B5 decides
 whether it stays as an in-process stream or goes.
