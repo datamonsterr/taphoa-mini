@@ -356,6 +356,20 @@ mod real_model_tests {
     #[tokio::test]
     #[ignore = "requires real SAM models and ORT_DYLIB_PATH"]
     async fn cached_encoding_survives_session_unload() {
+        let model_files_present = ["SAM_ENCODER_PATH", "SAM_DECODER_PATH"]
+            .into_iter()
+            .all(|var| {
+                std::env::var_os(var).is_some_and(|path| std::path::Path::new(&path).is_file())
+            });
+        let runtime_present = std::env::var_os("ORT_DYLIB_PATH")
+            .is_some_and(|path| std::path::Path::new(&path).is_file());
+        if !model_files_present || !runtime_present {
+            eprintln!(
+                "SKIP cached_encoding_survives_session_unload: SAM models or ORT runtime not present"
+            );
+            return;
+        }
+
         let holder = ModelHolder::new("sam", Duration::from_secs(300), || {
             Ok(Arc::new(SamSegmenter::load(
                 std::path::Path::new(&std::env::var("SAM_ENCODER_PATH")?),
