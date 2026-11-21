@@ -166,20 +166,24 @@ on `test`.
 
 ## Telemetry
 
-Backend traces and logs travel over OTLP/HTTP to one production OTel Collector.
-It routes all traces (`/i/v1/traces`) and all logs (`/i/v1/logs`) to PostHog Cloud
-US, the only telemetry destination; backend business events use the PostHog project
-configuration.
-Production uses the private base endpoint reference
-`http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318`.
-Test uses `https://otel-collector-production-ce86.up.railway.app` with the same
-collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
-`/v1/traces` and `/v1/logs`. Set bearer authorization for both environments.
+Backend traces and logs use OTLP/HTTP protobuf. The backend redacts both signals
+before export, whether routed through the collector or directly to PostHog Cloud
+US. Business events retain their separate PostHog capture configuration.
+[ADR 0011](adr/0011-scale-to-zero-hosting.md) retires the always-on collector.
+
+Until cutover, production uses
+`http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318`; test uses
+`https://otel-collector-production-ce86.up.railway.app`. Both use the collector
+bearer token. The direct base endpoint is `https://us.i.posthog.com/i`:
+`/v1/traces` and `/v1/logs` are appended, preserving `/i`. This matches
+[opentelemetry-otlp 0.33.1 endpoint semantics](https://docs.rs/opentelemetry-otlp/0.33.1/opentelemetry_otlp/#environment-variables)
+and [PostHog's logs endpoint and bearer authentication](https://posthog.com/docs/logs/installation/other).
+No additional routing setting is needed.
 
 | Service   | Variable                      | Purpose                                                                                                                                                                                                              |
 | --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; absent means export is off                                                                                                                                                                       |
-| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<collector-token>` (W3C/OTel env format; space URL-encoded)                                                                                                                                  |
+| Backend   | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP base URL: collector URL today, `https://us.i.posthog.com/i` for direct export; absent means local logs only                                                                                                     |
+| Backend   | `OTEL_EXPORTER_OTLP_HEADERS`  | `Authorization=Bearer%20<project-token>` direct, or the collector token through the collector (W3C/OTel env format; space URL-encoded)                                                                               |
 | Backend   | `OTEL_SERVICE_NAME`           | Resource service name, default `taphoa-backend`                                                                                                                                                                      |
 | Backend   | `TELEMETRY_ENVIRONMENT`       | Optional override; by default the backend uses Railway's `RAILWAY_ENVIRONMENT_NAME` (`production`, `test`), else `local`                                                                                             |
 | Backend   | `SERVICE_VERSION`             | Release identifier; the deploy workflow sets it to the deployed SHA before `railway up`; fallback is Railway commit SHA, then an optional local `.service-version` file in the working directory, then crate version |
@@ -188,11 +192,80 @@ collector bearer token over HTTPS. Endpoints are base URLs; the exporter adds
 | Collector | `POSTHOG_HOST`                | PostHog Cloud US ingestion host                                                                                                                                                                                      |
 | Collector | `POSTHOG_PROJECT_TOKEN`       | PostHog project token for OTLP export                                                                                                                                                                                |
 
-Production backend values are Railway references: the endpoint is
+### Direct export cutover (controller)
+
+| Environment           | `OTEL_EXPORTER_OTLP_ENDPOINT` | `OTEL_EXPORTER_OTLP_HEADERS`                        | Environment resource                                          |
+| --------------------- | ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------- |
+| `production`          | `https://us.i.posthog.com/i`  | `Authorization=Bearer%20<production-project-token>` | `production` from Railway                                     |
+| `test`                | `https://us.i.posthog.com/i`  | `Authorization=Bearer%20<test-project-token>`       | `test` from Railway                                           |
+| Local / eval (opt in) | `https://us.i.posthog.com/i`  | `Authorization=Bearer%20<project-token>`            | `local` by default; set `TELEMETRY_ENVIRONMENT=eval` for eval |
+
+Use the PostHog project token already configured for that environment's business
+events (it can be the same project in production and test). Supply the header
+securely at runtime; never commit or print its value. `Bearer%20` is the portable
+URL-encoded space form; `Authorization=Bearer <project-token>` is also accepted.
+
+1. Set the two OTLP variables above in each backend environment, starting with test.
+2. Redeploy the backend. Leave the collector running for rollback.
+3. Send a request and check its trace and log in PostHog with the expected
+   `deployment.environment.name`, service version and trace correlation. Confirm
+   the redaction examples below contain no sensitive data. The controller performs
+   this live check; automated tests use loopback capture only.
+4. After production has run for one week on direct export, remove the collector
+   service and its IaC declaration in a later reviewed change. This change leaves
+   the service and `.railway/railway.ts` intact.
+
+Rollback before removal: restore the collector endpoint and bearer header, then
+redeploy. Production's existing references are
 `http://${{otel-collector.RAILWAY_PRIVATE_DOMAIN}}:4318` and
-`OTEL_EXPORTER_OTLP_HEADERS` is `Authorization=Bearer%20${{otel-collector.COLLECTOR_BEARER_TOKEN}}`.
-The test backend holds a literal copy of the header set, applied through
-`railway variable set --stdin`. Never commit the token.
+`Authorization=Bearer%20${{otel-collector.COLLECTOR_BEARER_TOKEN}}`; test uses the
+public HTTPS URL and a securely supplied copy of the collector header.
+
+### Redaction, retry and shutdown
+
+`apps/backend/crates/api/src/telemetry/redaction.rs` wraps both SDK exporters,
+including their resources. Its rules must match `infra/otel-collector/config.yaml`
+until retirement; both suites read `infra/otel-collector/tests/redaction-cases.json`.
+
+| Collector rule                                                                    | Backend rule                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transform/redact`: delete matching resource/span/log keys                        | Case-insensitive `http.request.header.authorization`, any key containing `cookie`, exact `token`/`secret`, or keys ending `.token`/`.secret` with a nonempty prefix |
+| `replace_pattern(log.body, "[0-9]{9,15}", "[REDACTED]") where IsString(log.body)` | Same unanchored digit regex and replacement on string bodies only; longer runs are masked in chunks, other body types pass unchanged                                |
+| `resource/defaults`: insert environment `unknown`                                 | Insert only when `deployment.environment.name` is absent; preserve existing values (including empty strings)                                                        |
+
+There is no attribute allowlist or value masking rule. Unmatching attributes,
+span events, links and instrumentation scopes pass unchanged, just as with the
+collector. In particular, bare `authorization` and `access_token` do not match
+its key rule. Do not put credentials in those fields or arbitrary bodies.
+
+The pinned `opentelemetry`, `opentelemetry_sdk` and `opentelemetry-otlp` versions
+are **0.33.1**. SDK batch defaults are 2,048 queued records per signal, batches of
+512, trace delay 5 s and log delay 1 s (standard `OTEL_BSP_*` / `OTEL_BLRP_*`
+variables can override these). The batch processors do not requeue failed batches.
+The [OTLP HTTP exporter](https://docs.rs/opentelemetry-otlp/0.33.1/opentelemetry_otlp/)
+itself retries transport failures and HTTP 429/502/503/504: at most three retries,
+starting at 100 ms with exponential backoff capped at 1,600 ms and up to 100 ms
+jitter. It honors `Retry-After` seconds. Other HTTP failures are permanent.
+The exporter timeout defaults to 10 s (`OTEL_EXPORTER_OTLP_TIMEOUT`, milliseconds,
+or signal-specific timeout); this bounds retry decisions and sleeps, but an
+already running request can finish after that deadline. Once retries are exhausted
+or a permanent error occurs, that batch is dropped. This loss is accepted.
+
+After requests and jobs finish, shutdown flushes both providers concurrently and
+waits at most 5 s total (the same bound as the existing PostHog capture drain); it
+does not add separate force-flush waits. The platform must allow at least 5 s
+between SIGTERM and SIGKILL for telemetry, plus time for requests, jobs and the
+preceding capture drain. The controller must verify and set the backend's
+`RAILWAY_DEPLOYMENT_DRAINING_SECONDS` before relying on a full shutdown flush;
+no backend drain value is declared in `.railway/railway.ts` today. Railway's
+[documented default is 0 s](https://docs.railway.com/variables/reference).
+Pending or in-flight records at a hard kill, timeout or process exit are an
+accepted loss. Queues are finite and memory-only: overload drops new
+records, and a restart loses queued data. There is no application queue. Direct
+export therefore has shorter buffering/retry than the collector's 1,000-request
+queues and unlimited elapsed retry, no separate collector memory limiter, and
+uses uncompressed protobuf rather than the collector's gzip. Local fmt logs stay
+unchanged, including when the endpoint is unset or `OTEL_SDK_DISABLED=true`.
 
 The backend also preserves `POSTHOG_HOST` and `POSTHOG_PROJECT_TOKEN` in both
 environments for server-side product events. All four backend PostHog/OTLP
@@ -208,7 +281,7 @@ change must produce no X2 creates, updates or deletes in either plan. Any
 new drift (Clerk variables, backend source/restart settings, volume regions or image
 buckets) needs separate review before any apply.
 
-Deploy the collector once its configuration has landed and its three variables
+While the collector remains in use, deploy it once its configuration and three variables
 are set. From the **worktree root**:
 
 ```sh

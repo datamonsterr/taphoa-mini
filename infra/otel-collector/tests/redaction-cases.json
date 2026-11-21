@@ -1,0 +1,32 @@
+{
+  "blocked_keys": [
+    "http.request.header.authorization",
+    "cookie",
+    "http.request.header.cookie",
+    "session.Cookie.value",
+    "auth.token",
+    "auth.secret",
+    "token",
+    "secret",
+    "HTTP.REQUEST.HEADER.AUTHORIZATION",
+    "AUTH.TOKEN",
+    "nested.auth.SeCrEt",
+    "prefixCOOKIEsuffix"
+  ],
+  "allowed_attributes": {
+    "safe": "kept",
+    "authorization": "collector keeps bare authorization",
+    "access_token": "kept",
+    "tokens": "kept",
+    "secretary": "kept",
+    ".token": "kept",
+    "gen_ai.usage.input_tokens": "42"
+  },
+  "string_bodies": [
+    ["account 123456789012 end", "account [REDACTED] end"],
+    ["12345678 123456789 123456789012345", "12345678 [REDACTED] [REDACTED]"],
+    ["1234567890123456", "[REDACTED]6"],
+    ["123456789012345678901234567890", "[REDACTED][REDACTED]"],
+    ["ordinary body", "ordinary body"]
+  ]
+}

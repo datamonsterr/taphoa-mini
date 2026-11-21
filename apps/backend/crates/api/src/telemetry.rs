@@ -38,6 +38,8 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
+mod redaction;
+
 const INHERITED: &[&str] = &[
     "user.id",
     "taphoa.store.id",
@@ -114,16 +116,21 @@ pub struct TelemetryGuard {
     logs: Option<SdkLoggerProvider>,
 }
 impl TelemetryGuard {
-    /// Call after requests and background jobs have drained. Attempt all four operations.
+    /// SDK shutdown flushes queued records itself. Drain both signals concurrently so
+    /// telemetry adds at most five seconds after requests/jobs, even during an outage.
     pub fn shutdown(mut self) {
-        if let Some(provider) = self.traces.take() {
-            let _ = provider.force_flush();
-            let _ = provider.shutdown();
-        }
-        if let Some(provider) = self.logs.take() {
-            let _ = provider.force_flush();
-            let _ = provider.shutdown();
-        }
+        std::thread::scope(|scope| {
+            if let Some(provider) = self.traces.take() {
+                scope.spawn(move || {
+                    let _ = provider.shutdown_with_timeout(Duration::from_secs(5));
+                });
+            }
+            if let Some(provider) = self.logs.take() {
+                scope.spawn(move || {
+                    let _ = provider.shutdown_with_timeout(Duration::from_secs(5));
+                });
+            }
+        });
     }
 }
 
@@ -192,11 +199,11 @@ fn build_providers(
     Ok((
         SdkTracerProvider::builder()
             .with_resource(config.resource())
-            .with_batch_exporter(traces)
+            .with_batch_exporter(redaction::Traces(traces))
             .build(),
         SdkLoggerProvider::builder()
             .with_resource(config.resource())
-            .with_batch_exporter(logs)
+            .with_batch_exporter(redaction::Logs::new(logs))
             .build(),
     ))
 }

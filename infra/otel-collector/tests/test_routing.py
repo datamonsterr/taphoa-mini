@@ -18,16 +18,8 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IMAGE = "otel/opentelemetry-collector-contrib:0.163.2"
 TOKEN = "collector-test-token"
-SENSITIVE = (
-    "http.request.header.authorization",
-    "cookie",
-    "http.request.header.cookie",
-    "session.Cookie.value",
-    "auth.token",
-    "auth.secret",
-    "token",
-    "secret",
-)
+CASES = json.loads((ROOT / "tests/redaction-cases.json").read_text())
+SENSITIVE = tuple(CASES["blocked_keys"])
 
 
 def attributes(values):
@@ -39,7 +31,7 @@ def values(attrs):
 
 
 def sensitive_attributes():
-    return attributes(dict.fromkeys(SENSITIVE, "must-disappear") | {"safe": "kept"})
+    return attributes(dict.fromkeys(SENSITIVE, "must-disappear") | CASES["allowed_attributes"])
 
 
 class RoutingTest(unittest.TestCase):
@@ -134,7 +126,8 @@ class RoutingTest(unittest.TestCase):
         cls.log_payload = {"resourceLogs": [
             {"resource": {"attributes": sensitive_attributes() + attributes(env)}, "scopeLogs": [
                 {"scope": {"name": "taphoa.logs"}, "logRecords": [
-                    {"body": {"stringValue": "account 123456789012 end"}, "attributes": sensitive_attributes()},
+                    *[{"body": {"stringValue": body}, "attributes": sensitive_attributes()}
+                      for body, _expected in CASES["string_bodies"]],
                     {"body": {"intValue": "42"}, "attributes": sensitive_attributes()},
                 ]}
             ]} for env in ({}, {"deployment.environment.name": "production"})
@@ -144,7 +137,7 @@ class RoutingTest(unittest.TestCase):
                 raise AssertionError(f"Authenticated {signal} were rejected")
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            if len(cls.items("/i/v1/traces", "resourceSpans", "scopeSpans", "spans")) == 5 and len(cls.items("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords")) == 4:
+            if len(cls.items("/i/v1/traces", "resourceSpans", "scopeSpans", "spans")) == 5 and len(cls.items("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords")) == 2 * (len(CASES["string_bodies"]) + 1):
                 return
             time.sleep(0.1)
         diagnostics = subprocess.run(["docker", "logs", cls.container], capture_output=True, text=True)
@@ -195,7 +188,7 @@ class RoutingTest(unittest.TestCase):
 
     def test_logs_reach_posthog(self):
         logs = self.items("/i/v1/logs", "resourceLogs", "scopeLogs", "logRecords")
-        self.assertEqual(len(logs), 4)
+        self.assertEqual(len(logs), 2 * (len(CASES["string_bodies"]) + 1))
 
     def test_only_posthog_receives_requests(self):
         self.assertEqual({path for path, _headers, _body in self.requests}, {"/i/v1/traces", "/i/v1/logs"})
@@ -216,10 +209,12 @@ class RoutingTest(unittest.TestCase):
                 for attrs in (resource["attributes"], record["attributes"]):
                     actual = values(attrs)
                     self.assertFalse(set(SENSITIVE) & actual.keys())
-                    self.assertEqual(actual["safe"], {"stringValue": "kept"})
+                    for key, value in CASES["allowed_attributes"].items():
+                        self.assertEqual(actual[key], {"stringValue": value})
                 if records == "logRecords":
                     if "stringValue" in record["body"]:
-                        self.assertEqual(record["body"]["stringValue"], "account [REDACTED] end")
+                        self.assertIn(record["body"]["stringValue"],
+                                      [expected for _body, expected in CASES["string_bodies"]])
                     else:
                         self.assertEqual(record["body"], {"intValue": "42"})
 
