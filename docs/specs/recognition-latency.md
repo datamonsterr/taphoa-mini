@@ -383,7 +383,7 @@ loads of **366 / 393 / 905 ms**. A second warm call reported all families alread
 The next request was the first real `POST /v1/segment` on `shelf-1600.jpg`: **1614.0 ms**
 HTTP wall time, 20 segments. Unlike the older memory-exercise script ordering, no scan
 or other model inference preceded this segment. This is a single run, separate from
-the paired benchmark medians and the still-pending 5% warm-latency acceptance gate.
+the paired benchmark medians and the 5% warm-latency acceptance gate below.
 
 Follow-up validation: `cargo fmt --check`, clippy with `--all-targets -- -D warnings`,
 and `cargo test` passed (**536 passed, 402 ignored**). The real
@@ -435,7 +435,7 @@ can retain additional tensors and photos until its next access/insertion evicts 
 Trimming and session destruction run on blocking threads. New acquisitions wait for
 unload to finish, then initiate a single reload.
 
-### Warm endpoint latency comparison: quiet rerun pending
+### Warm endpoint latency comparison
 
 The real HTTP measurement script mirrors the existing e2e fixture requests: shelf
 1600×1200 scan and segment, plus receipt-1.jpg OCR with local rules fallback (no external
@@ -451,9 +451,30 @@ not captured for these early batches; simultaneous builds/inference made it vari
 | Receipt, HTTP wall | 1467.7 / 1659.8 ms | 1986.5 / 2837.3 ms | 7 each  |
 | Receipt OCR only   |     1452 / 1645 ms |     1966 / 2812 ms | 7 each  |
 
-The **within-5% warm-latency acceptance remains pending a quiet paired rerun by the
-controller**. These noisy batches do not establish that gate. Existing Railway WAN
-numbers above are not directly comparable to this local run. The committed script's
+These noisy batches do not establish the gate. Existing Railway WAN numbers above are not
+directly comparable to this local run.
+
+Quiet paired rerun (2026-11-21, one-minute load 1.1 to 2.6, `--compare` with `--latency 20
+--idle 15`, baseline and new processes alternated twice on the same four cores,
+`SAM_DECODERS=4`):
+
+| Measure                          |               Before |              After |
+| -------------------------------- | -------------------: | -----------------: |
+| Process start to `/healthz`      |       6008 / 6697 ms |     41.3 / 41.5 ms |
+| Resident memory at start         |      1015 / 1026 MiB |    25.9 / 26.4 MiB |
+| Resident memory after requests   |      1569 / 1583 MiB |    1597 / 1696 MiB |
+| Resident memory 30 s idle        | 1569 / 1583 MiB kept |      135 / 169 MiB |
+| Cold `POST /v1/recognition/warm` |                    — |       438 / 452 ms |
+| Scan, HTTP wall p50 / p95        |   2430.3 / 2537.7 ms | 2488.4 / 2585.1 ms |
+| Segment, HTTP wall p50 / p95     |   1633.7 / 1831.6 ms | 1675.8 / 1773.1 ms |
+| Receipt, HTTP wall p50 / p95     |     801.5 / 866.0 ms |   831.6 / 897.0 ms |
+
+The first five rows give both runs of each variant; the latency rows pool 20 warm samples
+per endpoint and variant. Warm medians moved by +2.4% (scan), +2.6% (segment) and +3.8%
+(receipt), so the **within-5% warm-latency acceptance passes**. Memory after all families
+unload is under the 200 MB limit in both runs.
+
+The committed script's
 `--compare BASELINE_BINARY` mode alternates baseline/new processes twice, pins each to
 the same four cores, and reports p50/p95 over at least 20 warm samples per endpoint and
 variant. It also records host load, startup, per-family cold load from `warm`, and RSS
