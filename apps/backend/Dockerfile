@@ -28,6 +28,8 @@ ARG SKIP_MODELS=0
 ARG TARGETARCH
 ENV ORT_INSTALL_DIR=/opt/onnxruntime MODEL_DIR=/opt/models
 COPY apps/backend/scripts/ /scripts/
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/*
 RUN /scripts/fetch-onnxruntime.sh && mkdir -p /opt/models \
     && if [ "$SKIP_MODELS" != "1" ]; then /scripts/fetch-models.sh; fi
 
