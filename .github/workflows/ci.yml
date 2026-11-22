@@ -233,7 +233,7 @@ jobs:
           --health-cmd "pg_isready -U taphoa -d taphoa"
           --health-interval 5s --health-timeout 3s --health-retries 20
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports:
           - 6379:6379
         options: >-
