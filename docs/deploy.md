@@ -251,11 +251,16 @@ or signal-specific timeout); this bounds retry decisions and sleeps, but an
 already running request can finish after that deadline. Once retries are exhausted
 or a permanent error occurs, that batch is dropped. This loss is accepted.
 
-After requests and jobs finish, shutdown flushes both providers concurrently and
-waits at most 5 s total (the same bound as the existing PostHog capture drain); it
-does not add separate force-flush waits. The platform must allow at least 5 s
-between SIGTERM and SIGKILL for telemetry, plus time for requests, jobs and the
-preceding capture drain. The controller must verify and set the backend's
+On SIGTERM the API stops accepting requests and releases lazy-model load waiters.
+HTTP requests, background jobs and pool cleanup share a **5 s drain bound**. It
+then drains PostHog capture for at most **5 s**, flushes both telemetry providers
+concurrently for at most **5 s**, and calls the explicitly owned Tokio runtime's
+`shutdown_timeout` with **1 s** for detached blocking loaders. The total application
+shutdown budget is **16 s** (5 + 5 + 5 + 1), plus scheduling overhead. An in-flight
+native model call cannot be forcibly interrupted; the process exits after the
+runtime bound instead of waiting indefinitely. The platform should allow more
+than 16 s between SIGTERM and SIGKILL to accommodate scheduling overhead and a
+full flush. The controller must verify and set the backend's
 `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` before relying on a full shutdown flush;
 no backend drain value is declared in `.railway/railway.ts` today. Railway's
 [documented default is 0 s](https://docs.railway.com/variables/reference).

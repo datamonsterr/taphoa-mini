@@ -104,13 +104,18 @@ pub(crate) fn block_pipeline(
 ) -> Result<BlockingResult, StageError> {
     let started = std::time::Instant::now();
     let decoded = decode_rgb(image_bytes)?;
-    let segments = segmenter
-        .segment(image_bytes)
-        .map_err(|error| match error {
+    let segments =
+        crate::inference::segment(segmenter, image_bytes).map_err(|error| match error {
             taphoa_recognition::SegmentError::InvalidImage(_) => {
                 StageError::InvalidImage(error.to_string())
             }
             taphoa_recognition::SegmentError::Remote(error) => StageError::Remote(error),
+            taphoa_recognition::SegmentError::Cancelled(_) => {
+                StageError::Remote(taphoa_recognition::wire::RemoteError {
+                    status: 503,
+                    message: "request deadline exceeded".into(),
+                })
+            }
             other => StageError::Inference(other.to_string()),
         })?;
     let segment_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -147,10 +152,17 @@ pub(crate) fn block_pipeline(
     let thumbnails = thumbnails?;
     // One embedding call for all crops; ownership moves instead of copying.
     let (segments, crops): (Vec<Segment>, Vec<RgbImage>) = picks.into_iter().unzip();
-    let vectors: Vec<Vec<f32>> = embedder.embed_crops(&crops).map_err(|error| match error {
-        taphoa_recognition::EmbedError::Remote(error) => StageError::Remote(error),
-        error => StageError::Inference(error.to_string()),
-    })?;
+    let vectors: Vec<Vec<f32>> =
+        crate::inference::embed_crops(embedder, &crops).map_err(|error| match error {
+            taphoa_recognition::EmbedError::Remote(error) => StageError::Remote(error),
+            taphoa_recognition::EmbedError::Cancelled(_) => {
+                StageError::Remote(taphoa_recognition::wire::RemoteError {
+                    status: 503,
+                    message: "request deadline exceeded".into(),
+                })
+            }
+            error => StageError::Inference(error.to_string()),
+        })?;
     if vectors.len() != segments.len() {
         return Err(StageError::Inference("incomplete crop embeddings".into()));
     }

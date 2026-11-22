@@ -1103,3 +1103,80 @@ async fn reclaimed_lease_fences_old_success_and_failure() {
     }
     cleanup(&pool, store_id).await;
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn unavailable_models_retry_past_five_claims_then_recover() {
+    use taphoa_api::model_holder::ModelHolder;
+    let _guard = serial_guard().await;
+    let pool = pool().await;
+    let storage = Arc::new(MemStore::default());
+    let store_id = new_store(&pool).await;
+    let product_id = new_product(&pool, store_id).await;
+    let image_id = new_image(
+        &pool,
+        store_id,
+        &storage,
+        &format!("img/{}.png", Uuid::new_v4()),
+    )
+    .await;
+    attach_image(&pool, product_id, image_id, 0).await;
+    let mut tx = pool.begin().await.unwrap();
+    let id = enqueue(&mut tx, store_id, product_id).await.unwrap();
+    tx.commit().await.unwrap();
+    let available = Arc::new(AtomicBool::new(false));
+    let ready = available.clone();
+    let holder: ModelHolder<dyn Embedder> = ModelHolder::new("fake", Duration::ZERO, move || {
+        anyhow::ensure!(ready.load(Ordering::SeqCst), "weights unavailable");
+        Ok(Arc::new(MockEmbedder) as Arc<dyn Embedder>)
+    });
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    for attempt in 1..=8 {
+        sqlx::query("UPDATE index_jobs SET run_after=now() WHERE id=$1")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            process_next(
+                &pool,
+                holder.clone(),
+                storage.clone(),
+                slots.clone(),
+                &test_config()
+            )
+            .await
+            .unwrap()
+        );
+        let (status, failures, claims, delay): (String, i32, i32, f64) = sqlx::query_as("SELECT status,failure_attempts,attempts,extract(epoch FROM run_after-updated_at)::float8 FROM index_jobs WHERE id=$1").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!((status.as_str(), failures, claims), ("queued", 0, attempt));
+        assert!(delay > 0. && delay <= 300.);
+        assert!(
+            !process_next(
+                &pool,
+                holder.clone(),
+                storage.clone(),
+                slots.clone(),
+                &test_config()
+            )
+            .await
+            .unwrap()
+        );
+    }
+    available.store(true, Ordering::SeqCst);
+    sqlx::query("UPDATE index_jobs SET run_after=now() WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    process_next(&pool, holder, storage, slots, &test_config())
+        .await
+        .unwrap();
+    let status: String = sqlx::query_scalar("SELECT status FROM index_jobs WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "done");
+    cleanup(&pool, store_id).await;
+}

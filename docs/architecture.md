@@ -328,13 +328,20 @@ flowchart TD
   and CI's real-model test covers the pair. `warm` prepares sessions only. A partial
   OCR file set creates a holder and fails on use with a logged cause and retryable
   503; only an entirely absent file set leaves OCR unconfigured. Requests wait up to
-  120 seconds for loading, then get 503 with `Retry-After: 1`. The signed-in member
+  120 seconds for loading on warm/background paths. Recognition HTTP requests share
+  an 18 s deadline across loading, inference, remote fallback and storage, returning
+  the existing 503 with `Retry-After: 1` on expiry. The signed-in member
   route `POST /v1/recognition/warm` starts all families concurrently, reports per-family
   `load_ms` and `already_loaded`, and allows six calls per member per minute.
   `MODEL_IDLE_UNLOAD_SECS` defaults to 900 (0 disables unloading). Every 30 seconds
   or less, idle families with no active leases drop their sessions; Linux glibc then
   calls `malloc_trim(0)` to return unused pages to the OS. The index worker uses the
-  same DINOv2 holder and holds no model while waiting for jobs. The SAM encoding
+  same DINOv2 holder and holds no model while waiting for jobs. Index claims remain
+  monotonic for fencing and exponential backoff (capped at 5 minutes); model load
+  failures/timeouts and remote 503 without fallback requeue without spending the
+  five-real-failure budget. Invalid images, storage and inference errors still spend
+  that budget. Receipt creation releases its transaction before acquiring OCR, then
+  repeats the same hash/idempotency check after loading. The SAM encoding
   cache owns tensors, so cached point requests acquire a fresh SAM lease after unload.
 - **Owner-hosted inference worker.** Setting both `INFERENCE_URL` and `INFERENCE_TOKEN`
   switches all recognition traits to remote adapters. `taphoa-infer` loads and warms
@@ -344,7 +351,9 @@ flowchart TD
   checks a constant-time bearer-token digest; the public health route exposes only
   readiness, provider, loaded families and version. Binary v1 messages use bounded
   bincode with raw image bytes, f32 vectors and bit-packed masks. RGB crop batches avoid
-  repeated PNG encoding; embeddings carry their model ID and dimension to prevent
+  repeated PNG encoding. Crops use the local embedder's exact Catmull–Rom square
+  resize to `EMBED_SIDE` before transport, in batches of at most eight (under 1.21 MiB
+  at side 224); embeddings carry their model ID and dimension to prevent
   incompatible `EMBED_SIDE` settings from mixing vectors.
   The worker runs one inference at a time with two queued requests, a 10 MiB body limit,
   dimension validation and a 10 s deadline. Before auth, HTTP/1 connections are capped
@@ -365,8 +374,12 @@ flowchart TD
   Non-loopback `INFERENCE_URL` requires HTTPS. `INFERENCE_ALLOW_PLAINTEXT=1` is
   only for a transport that is already encrypted, such as a private WireGuard network.
   Health replies are streamed and stopped at 4 KiB. Remote calls have a 500 ms connect
-  timeout and a shared 10 s budget across crop
-  batches/retries. Transport failures, timeouts and 5xx responses open a process-wide
+  timeout and a 10 s cap per trait call across crop batches/retries, limited by the
+  remaining 18 s HTTP request deadline. The deadline also covers local fallback loads
+  and inference, and releases HTTP admission on expiry. Cooperative work controls
+  prevent further SAM prompts, crop batches and OCR decoder steps after cancellation;
+  a native call already running is allowed to finish. Transport failures, timeouts
+  and 5xx responses open a process-wide
   circuit for 30 s and run that call through the existing lazy CPU holders. During the
   open period calls go directly local; one half-open probe can close the circuit.
   A failed or cancelled probe reopens it; stale successes cannot close a newer outage.
@@ -378,6 +391,15 @@ flowchart TD
   [Installation](../infra/inference-worker/README.md) uses a sandboxed systemd user unit;
   the tunnel is a separate later step. [Measurements and reproduction](specs/recognition-latency.md#inference-worker)
   cover CPU/GPU parity, API latency and failover under resource limits.
+- **Optional document signal.** Scan detector loading overlaps SAM/DINOv2 loading
+  and adds no wait after those required models are ready. A failed or still-loading
+  OCR family logs a warning and contributes no document signal. Detection inference
+  overlaps segmentation with at most 50 ms additional tail wait; failure or timeout
+  also degrades to the absent signal.
+- **Shutdown.** SIGTERM stops HTTP admission and releases model-load waiters. HTTP,
+  jobs and pool cleanup share 5 s; capture and telemetry then have 5 s each, followed
+  by a 1 s explicit runtime shutdown bound for detached native loaders: 16 s total
+  plus scheduling overhead. See [deployment](deploy.md#redaction-retry-and-shutdown).
 - **Concurrency.** One inference slot per instance (implemented). A second request gets
   `503 segmenter busy` with `Retry-After: 1`; the phone retries once and otherwise offers
   grid mode.

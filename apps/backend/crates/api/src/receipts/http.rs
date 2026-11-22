@@ -160,7 +160,25 @@ async fn create(
         tx.commit().await?;
         return Ok((StatusCode::CREATED, Json(value)));
     }
+    // Release both the pool connection and advisory lock before a possible cold load.
+    tx.commit().await?;
     let input: Create = serde_json::from_value(raw).map_err(|_| invalid("invalid receipt"))?;
+    let ocr = state.model_receipt_ocr().await?.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ocr_unavailable",
+            "receipt OCR not configured",
+        )
+    })?;
+    // Another caller may have committed the same key while the model loaded.
+    // Repeat the exact hash/replay check under the same transaction lock.
+    let mut tx = pool(&state)?.begin().await?;
+    if let Some(id) = saved(&mut tx, &actor, "create", &key, &hash, None).await? {
+        let row = load(&mut tx, actor.store_id, id).await?;
+        let value = response(&mut tx, &state, row).await?;
+        tx.commit().await?;
+        return Ok((StatusCode::CREATED, Json(value)));
+    }
     // Replays above never reach here, so retries do not spend the budget.
     crate::ratelimit::enforce(
         &state,
@@ -178,13 +196,6 @@ async fn create(
         "receipt scans for this store today",
     )
     .await?;
-    let ocr = state.model_receipt_ocr().await?.ok_or_else(|| {
-        ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ocr_unavailable",
-            "receipt OCR not configured",
-        )
-    })?;
     let object_key: String =
         sqlx::query_scalar("SELECT object_key FROM images WHERE store_id=$1 AND id=$2")
             .bind(actor.store_id)
@@ -207,12 +218,12 @@ async fn create(
         .try_acquire_owned()
         .map_err(|_| crate::busy())?;
     let started = Instant::now();
-    let lines = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        ocr.read_lines_with_options(
-            &bytes,
-            Some(&taphoa_recognition::ocr::ReceiptOptions::bounded()),
-        )
+    let inference_permit = permit;
+    let lines = crate::inference::spawn_blocking(move || {
+        let control = taphoa_recognition::work::current();
+        let mut options = taphoa_recognition::ocr::ReceiptOptions::bounded();
+        options.control = control.as_ref();
+        ocr.read_lines_with_options(&bytes, Some(&options))
     })
     .await
     .map_err(|_| ApiError::internal())?
@@ -221,11 +232,13 @@ async fn create(
             ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "ocr_work_limit", message)
         }
         taphoa_recognition::ocr::OcrError::Remote(error) => crate::remote_models::api_error(error),
+        taphoa_recognition::ocr::OcrError::Cancelled(_) => crate::busy(),
         error => {
             tracing::error!(%error,"receipt OCR failed");
             ApiError::internal()
         }
     })?;
+    drop(inference_permit);
     let ocr_ms = millis(started);
     if lines.is_empty() {
         return Err(ApiError::new(

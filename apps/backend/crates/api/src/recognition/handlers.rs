@@ -129,9 +129,11 @@ async fn probe_document(
         }));
     };
     let inference_started = Instant::now();
-    let signal = tokio::task::spawn_blocking(move || {
-        // Retain admission even if the HTTP request is cancelled.
-        let _permit = permit;
+    let _permit = permit;
+    let signal = crate::inference::spawn_blocking(move || {
+        if let Some(control) = taphoa_recognition::work::current() {
+            control.check()?;
+        }
         detector.document_signal(&bytes)
     })
     .await
@@ -141,6 +143,7 @@ async fn probe_document(
     })?
     .map_err(|error| match error {
         OcrError::Remote(error) => crate::remote_models::api_error(error),
+        OcrError::Cancelled(_) => crate::busy(),
         OcrError::InvalidImage(_) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "validation_failed",
@@ -341,6 +344,29 @@ async fn delete_quietly(storage: &dyn ObjectStore, keys: &[String], reason: &'st
     }
 }
 
+async fn required_with_optional<R, O>(
+    required: impl std::future::Future<Output = ApiResult<R>>,
+    optional: impl std::future::Future<Output = ApiResult<Option<O>>>,
+) -> ApiResult<(R, Option<O>)> {
+    tokio::pin!(required, optional);
+    let (required, optional) = tokio::select! {
+        result = &mut optional => (required.await, Some(result)),
+        result = &mut required => (result, tokio::time::timeout(std::time::Duration::ZERO, optional).await.ok()),
+    };
+    let optional = match optional {
+        Some(Ok(value)) => value,
+        Some(Err(error)) => {
+            tracing::warn!(status = %error.status, "optional document detector unavailable; skipping signal");
+            None
+        }
+        None => {
+            tracing::warn!("optional document detector still loading; skipping signal");
+            None
+        }
+    };
+    Ok((required?, optional))
+}
+
 async fn create_scan(
     State(state): State<AppState>,
     actor: Actor,
@@ -361,11 +387,11 @@ async fn create_scan(
     if state.inference_slots.available_permits() == 0 {
         return Err(busy());
     }
-    let (segmenter, embedder, text_detector) = tokio::try_join!(
-        state.model_segmenter(),
-        state.model_embedder(),
-        state.model_text_detector()
-    )?;
+    // Let optional OCR loading overlap required families, with no additional wait
+    // once SAM and DINO are ready. A cold/failed OCR family cannot veto checkout.
+    let required = async { tokio::try_join!(state.model_segmenter(), state.model_embedder()) };
+    let ((segmenter, embedder), text_detector) =
+        required_with_optional(required, state.model_text_detector()).await?;
     let (segmenter, embedder, vector_index) = match (
         segmenter,
         embedder,
@@ -450,19 +476,22 @@ async fn create_scan(
             }
         }
     };
-    // Both blocking jobs retain the admission permit, including after cancellation or
-    // detector timeout. Slow OCR cannot create an unbounded background inference queue.
-    let permit = Arc::new(permit);
-    let detector_permit = Arc::clone(&permit);
+    // Native OCR retains admission on success; request cancellation releases it
+    // and stops the next cooperative inference stage.
+    let permit = crate::inference::admit(permit);
+    let detector_permit = permit.clone();
     let document_task = text_detector.map(|detector| {
         let bytes = image_bytes.clone();
-        tokio::task::spawn_blocking(move || {
+        crate::inference::spawn_blocking(move || {
             let _permit = detector_permit;
+            if let Some(control) = taphoa_recognition::work::current() {
+                control.check()?;
+            }
             detector.document_signal(&bytes)
         })
     });
-    let inference = tokio::task::spawn_blocking(move || {
-        let _permit = permit; // Held even if the HTTP request is cancelled.
+    let inference = crate::inference::spawn_blocking(move || {
+        let _permit = permit;
         pipeline::block_pipeline(
             &*block_segmenter,
             &*block_embedder,
@@ -502,7 +531,10 @@ async fn create_scan(
         Some(task) => {
             match tokio::time::timeout(std::time::Duration::from_millis(50), task).await {
                 Ok(Ok(Ok(signal))) => signal,
-                _ => pipeline::no_document(),
+                _ => {
+                    tracing::warn!("optional document signal failed or exceeded 50 ms tail budget");
+                    pipeline::no_document()
+                }
             }
         }
         None => pipeline::no_document(),
@@ -790,4 +822,29 @@ async fn get_scan(
     };
     let response = pipeline::render_scan(storage.as_ref(), state.image_url_ttl, scan).await?;
     Ok(Json(response))
+}
+
+#[cfg(test)]
+mod optional_tests {
+    use super::*;
+    #[tokio::test]
+    async fn failed_or_slow_ocr_does_not_delay_ready_scan_models() {
+        let result = required_with_optional(async { Ok(42) }, async {
+            Err::<Option<()>, _>(crate::busy())
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, (42, None));
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            required_with_optional(
+                async { Ok(42) },
+                std::future::pending::<ApiResult<Option<()>>>(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, (42, None));
+    }
 }

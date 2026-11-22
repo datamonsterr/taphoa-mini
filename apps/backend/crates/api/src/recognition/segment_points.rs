@@ -104,6 +104,7 @@ fn task_failure(e: tokio::task::JoinError) -> ApiError {
 fn inference_failure(e: SegmentError) -> ApiError {
     match e {
         SegmentError::Remote(error) => crate::remote_models::api_error(error),
+        SegmentError::Cancelled(_) => crate::busy(),
         SegmentError::InvalidPrompt(msg) => {
             ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", msg)
         }
@@ -225,7 +226,7 @@ pub async fn segment_points(
                     .get(&row.object_key)
                     .await
                     .map_err(storage_failure)?;
-                let photo = tokio::task::spawn_blocking(move || decode_rgb(&bytes))
+                let photo = crate::inference::spawn_blocking(move || decode_rgb(&bytes))
                     .await
                     .map_err(task_failure)??;
                 Arc::new(photo)
@@ -246,9 +247,12 @@ pub async fn segment_points(
 
         let start_encode = Instant::now();
         let seg = point_segmenter.clone();
-        let (encoding, photo) = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
+        let _permit = permit;
+        let (encoding, photo) = crate::inference::spawn_blocking(move || {
             let photo = Arc::new(decode_rgb(&bytes)?);
+            if let Some(control) = taphoa_recognition::work::current() {
+                control.check().map_err(|_| crate::busy())?;
+            }
             let encoding = seg.encode(&bytes).map_err(inference_failure)?;
             Ok::<_, ApiError>((encoding, photo))
         })
@@ -299,11 +303,13 @@ pub async fn segment_points(
     let pts = prompts.clone();
     let photo_for_blocking = Arc::clone(&photo);
 
+    let inference_permit = permit;
     let (point_segment, cutout_bytes, png_bytes, decode_ms) =
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-
+        crate::inference::spawn_blocking(move || {
             let start_decode = Instant::now();
+            if let Some(control) = taphoa_recognition::work::current() {
+                control.check().map_err(|_| crate::busy())?;
+            }
             let point_segment = seg.decode_points(&enc, &pts).map_err(inference_failure)?;
             let decode_ms = start_decode.elapsed().as_millis() as u64;
 
@@ -371,6 +377,8 @@ pub async fn segment_points(
         })
         .await
         .map_err(task_failure)??;
+
+    drop(inference_permit);
 
     // Create cutout image record in database synchronously so cutout_image_id is valid immediately
     let cutout_row = ImageRow {

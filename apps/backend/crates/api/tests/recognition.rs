@@ -1281,3 +1281,25 @@ async fn scan_is_rate_limited_per_member() {
     let (status, body, _) = post_scan(&app, &other, Some(&draw_photo()), &[]).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
 }
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_succeeds_when_optional_ocr_family_fails_to_load() {
+    let (_, mut state, _) = build_state(scan_segments())
+        .await
+        .expect("test services configured");
+    state.models.ocr = Some(taphoa_api::model_holder::ModelHolder::new(
+        "ocr",
+        std::time::Duration::ZERO,
+        || anyhow::bail!("fake OCR family load failure"),
+    ));
+    let app = router(state);
+    let (_, _, token) = create_store(&app).await;
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert!(!body["detections"].as_array().unwrap().is_empty());
+    assert_eq!(
+        body["document"],
+        json!({"detected":false,"score":0.0,"text_lines":0,"line_boxes":[]})
+    );
+}

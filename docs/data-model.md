@@ -212,6 +212,7 @@ erDiagram
         uuid product_id FK
         text status
         int attempts
+        int failure_attempts
         text last_error
         timestamptz run_after
         timestamptz created_at
@@ -488,7 +489,8 @@ CREATE TABLE index_jobs (
     store_id   UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES products ON DELETE CASCADE,
     status     TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'failed')),
-    attempts   INT NOT NULL DEFAULT 0,
+    attempts   INT NOT NULL DEFAULT 0, -- monotonic claims: fencing and capped backoff
+    failure_attempts INT NOT NULL DEFAULT 0, -- only real failures; five exhaust the budget
     last_error TEXT,
     run_after  TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

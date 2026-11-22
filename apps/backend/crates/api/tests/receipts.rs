@@ -193,7 +193,7 @@ fn confirm_body(receipt: &Value) -> Value {
 #[tokio::test]
 #[ignore = "requires DATABASE_URL, REDIS_URL and storage"]
 async fn create_shape_timings_prefilter_and_concurrent_replay() {
-    let (w, photo, products, decisions) = setup(false).await;
+    let (mut w, photo, products, decisions) = setup(false).await;
     let (a, b) = tokio::join!(create(&w, photo, "same"), create(&w, photo, "same"));
     assert_eq!(a["id"], b["id"]);
     assert_eq!(decisions.requests().len(), 1);
@@ -231,6 +231,10 @@ async fn create_shape_timings_prefilter_and_concurrent_replay() {
             .unwrap()
             .contains("Mì Hảo Hảo")
     );
+    // A saved replay still works with OCR removed and spends no model/rate budget.
+    w.state.receipt_ocr = None;
+    w.app = taphoa_api::router(w.state.clone());
+    assert_eq!(create(&w, photo, "same").await["id"], a["id"]);
     request(
         &w,
         "POST",
@@ -903,4 +907,78 @@ async fn supplier_display_name_is_in_summary_and_review() {
     )
     .await;
     assert!(list["items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn cold_ocr_wait_holds_no_database_connection() {
+    use std::{sync::Mutex, time::Duration};
+    let mut w = World::new().await;
+    // Auth, receipt SQL and the probe share one connection: retaining a lease
+    // across the model wait would prevent the probe from running.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(w.pool().connect_options().as_ref().clone())
+        .await
+        .unwrap();
+    w.state.postgres = Some(pool.clone());
+    w.state.image_repository = Some(Arc::new(taphoa_api::images::PgImageRepository(
+        pool.clone(),
+    )));
+    let (release, wait) = std::sync::mpsc::channel();
+    let wait = Mutex::new(wait);
+    let started = Arc::new(tokio::sync::Notify::new());
+    let notify = started.clone();
+    w.state.models.ocr = Some(taphoa_api::model_holder::ModelHolder::new(
+        "ocr",
+        Duration::ZERO,
+        move || {
+            notify.notify_one();
+            wait.lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            anyhow::bail!("fake OCR failure")
+        },
+    ));
+    w.app = taphoa_api::router(w.state.clone());
+    let app = w.app.clone();
+    let token = w.lead.clone();
+    let task = tokio::spawn(async move {
+        app.oneshot(
+            Request::post("/v1/receipts")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .header("idempotency-key", "slow-ocr")
+                .body(Body::from(json!({"image_id":Uuid::new_v4()}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    });
+    tokio::time::timeout(Duration::from_secs(2), started.notified())
+        .await
+        .unwrap();
+    // SQLx returns dropped connections on a spawned task, including an async
+    // ping. Await actual availability instead of sampling idle/size counters.
+    let probe = tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&pool),
+    )
+    .await;
+    let request_still_waiting = !task.is_finished();
+    // Always release the fake loader before asserting, including probe failures.
+    release.send(()).unwrap();
+    let response = task.await.unwrap();
+    assert!(
+        request_still_waiting,
+        "OCR must remain blocked during the probe"
+    );
+    assert_eq!(
+        probe
+            .expect("database connection must be available while OCR is loading")
+            .unwrap(),
+        1
+    );
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }

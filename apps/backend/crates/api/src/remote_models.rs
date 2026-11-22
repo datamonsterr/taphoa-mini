@@ -2,6 +2,7 @@
 //! runtime handle drives async HTTP and the existing asynchronous lazy holders.
 use crate::{ApiError, AppState, config::Config};
 use serde::{Serialize, de::DeserializeOwned};
+use std::future::Future;
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -96,6 +97,7 @@ pub struct RemoteModels {
     runtime: tokio::runtime::Handle,
     local: AppState,
     model: String,
+    side: u32,
 }
 struct RemoteEncoding {
     image: Arc<[u8]>,
@@ -151,6 +153,7 @@ impl RemoteModels {
             runtime: tokio::runtime::Handle::current(),
             local,
             model: format!("dinov2-vits14-onnx@1/{side}"),
+            side,
         })
     }
     fn ticket(&self) -> Result<Ticket, CallError> {
@@ -193,13 +196,18 @@ impl RemoteModels {
         operation: &str,
         work: impl FnOnce() -> Result<T, CallError>,
     ) -> Result<T, CallError> {
+        if taphoa_recognition::work::current().is_some_and(|control| control.check().is_err()) {
+            return Err(CallError::Unavailable("request_deadline"));
+        }
         let ticket = self.ticket()?;
         let mut guard = AttemptGuard {
             remote: self,
             ticket: Some(ticket),
         };
-        let _deadline =
-            CallDeadline(CALL_DEADLINE.replace(Some(Instant::now() + Duration::from_secs(10))));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = taphoa_recognition::work::current()
+            .map_or(deadline, |control| deadline.min(control.deadline()));
+        let _deadline = CallDeadline(CALL_DEADLINE.replace(Some(deadline)));
         let result = work();
         self.finish(
             guard.ticket.take().unwrap(),
@@ -353,9 +361,34 @@ impl RemoteModels {
             .into()),
             Err(CallError::Unavailable(reason)) => {
                 tracing::info!(backend = "local", operation, reason, "inference fallback");
+                if taphoa_recognition::work::current()
+                    .is_some_and(|control| control.check().is_err())
+                {
+                    return Err(Self::unavailable().into());
+                }
                 local(&self.local)
             }
         }
+    }
+    fn local_lease<T>(
+        &self,
+        load: impl Future<Output = crate::ApiResult<T>>,
+    ) -> crate::ApiResult<T> {
+        let control = taphoa_recognition::work::current();
+        self.runtime.block_on(async {
+            let result = match control.as_ref() {
+                Some(control) => tokio::time::timeout_at(control.deadline().into(), load)
+                    .await
+                    .map_err(|_| crate::busy())?,
+                None => load.await,
+            };
+            // A ready loader may win the timer poll at the deadline. Never start
+            // native fallback after expiry or cancellation of its request.
+            if control.is_some_and(|control| control.check().is_err()) {
+                return Err(crate::busy());
+            }
+            result
+        })
     }
     pub fn local_state(&self) -> &AppState {
         &self.local
@@ -431,6 +464,22 @@ pub fn api_error(error: RemoteError) -> ApiError {
         error
     }
 }
+fn embedding_request(crops: &[image::RgbImage], side: u32) -> CropsRequest {
+    CropsRequest {
+        crops: crops
+            .iter()
+            .map(|crop| {
+                let resized = taphoa_recognition::crop::resize_for_embedding(crop, side);
+                RgbCrop {
+                    width: side,
+                    height: side,
+                    pixels: resized.as_raw().clone(),
+                }
+            })
+            .collect(),
+    }
+}
+
 impl Segmenter for RemoteModels {
     fn segment(&self, image: &[u8]) -> Result<Vec<Segment>, SegmentError> {
         self.call(
@@ -438,11 +487,10 @@ impl Segmenter for RemoteModels {
             || self.image("segment", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_segmenter())
+                    .local_lease(local.model_segmenter())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.segment(image)
+                crate::inference::segment(&*model, image)
             },
         )
     }
@@ -460,13 +508,20 @@ impl Embedder for RemoteModels {
             || self.single_embedding(image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_embedder())
+                    .local_lease(local.model_embedder())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.embed(image)
+                crate::inference::embed(&*model, image)
             },
         )
+    }
+    fn embed_crops_with_control(
+        &self,
+        crops: &[image::RgbImage],
+        control: &taphoa_recognition::work::WorkControl,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
+        control.check()?;
+        taphoa_recognition::work::scope(Some(control.clone()), || self.embed_crops(crops))
     }
     fn embed_crops(&self, crops: &[image::RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
         if crops.is_empty() {
@@ -476,52 +531,12 @@ impl Embedder for RemoteModels {
             "embed-crops",
             || {
                 let mut vectors = Vec::with_capacity(crops.len());
-                let mut batch = Vec::new();
-                let mut size = 8;
-                for crop in crops {
-                    let length = crop.as_raw().len() + 16;
-                    if !batch.is_empty() && (size + length > BODY_LIMIT || batch.len() == 8) {
-                        vectors.extend(self.embeddings(
-                            "embed-crops",
-                            &CropsRequest {
-                                crops: std::mem::take(&mut batch),
-                            },
-                        )?);
-                        size = 8;
-                    }
-                    if length + 8 > BODY_LIMIT {
-                        if !batch.is_empty() {
-                            vectors.extend(self.embeddings(
-                                "embed-crops",
-                                &CropsRequest {
-                                    crops: std::mem::take(&mut batch),
-                                },
-                            )?);
-                            size = 8;
-                        }
-                        let mut bytes = Vec::new();
-                        crop.write_to(
-                            &mut std::io::Cursor::new(&mut bytes),
-                            image::ImageFormat::Png,
-                        )
-                        .map_err(|_| {
-                            CallError::Client(RemoteError {
-                                status: 400,
-                                message: "invalid crop".into(),
-                            })
-                        })?;
-                        vectors.push(self.single_embedding(&bytes)?);
-                    } else {
-                        batch.push(RgbCrop {
-                            width: crop.width(),
-                            height: crop.height(),
-                            pixels: crop.as_raw().clone(),
-                        });
-                        size += length;
-                    }
-                }
-                if !batch.is_empty() {
-                    vectors.extend(self.embeddings("embed-crops", &CropsRequest { crops: batch })?);
+                // At side <= 224, eight RGB crops plus wire framing are < 1.21 MiB.
+                // Resize before transport with the very same local tensor preprocessing.
+                for batch in crops.chunks(8) {
+                    vectors.extend(
+                        self.embeddings("embed-crops", &embedding_request(batch, self.side))?,
+                    );
                 }
                 if vectors.len() != crops.len()
                     || vectors
@@ -534,11 +549,10 @@ impl Embedder for RemoteModels {
             },
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_embedder())
+                    .local_lease(local.model_embedder())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.embed_crops(crops)
+                crate::inference::embed_crops(&*model, crops)
             },
         )
     }
@@ -562,8 +576,7 @@ impl PointSegmenter for RemoteModels {
             },
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_point_segmenter())
+                    .local_lease(local.model_point_segmenter())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 let encoding = model.encode(image)?;
@@ -619,8 +632,7 @@ impl PointSegmenter for RemoteModels {
             },
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_point_segmenter())
+                    .local_lease(local.model_point_segmenter())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 match state {
@@ -644,8 +656,7 @@ impl TextDetector for RemoteModels {
             || self.image("detect-text", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_text_detector())
+                    .local_lease(local.model_text_detector())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 model.detect(image)
@@ -658,8 +669,7 @@ impl TextDetector for RemoteModels {
             || self.image("document-signal", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_text_detector())
+                    .local_lease(local.model_text_detector())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
                 model.document_signal(image)
@@ -674,14 +684,13 @@ impl ReceiptOcr for RemoteModels {
             || self.image("read-lines", image),
             |local| {
                 let model = self
-                    .runtime
-                    .block_on(local.model_receipt_ocr())
+                    .local_lease(local.model_receipt_ocr())
                     .map_err(|_| Self::unavailable())?
                     .ok_or_else(Self::unavailable)?;
-                model.read_lines_with_options(
-                    image,
-                    Some(&taphoa_recognition::ocr::ReceiptOptions::bounded()),
-                )
+                let control = taphoa_recognition::work::current();
+                let mut options = taphoa_recognition::ocr::ReceiptOptions::bounded();
+                options.control = control.as_ref();
+                model.read_lines_with_options(image, Some(&options))
             },
         )
     }
@@ -959,6 +968,25 @@ mod tests {
         task.abort();
     }
     #[tokio::test]
+    async fn cancelled_load_result_is_not_used_for_local_inference() {
+        let remote = RemoteModels::new("http://127.0.0.1:1", TOKEN, AppState::default()).unwrap();
+        let error = tokio::task::spawn_blocking(move || {
+            let control =
+                taphoa_recognition::work::WorkControl::new(Instant::now() + Duration::from_secs(1));
+            taphoa_recognition::work::scope(Some(control.clone()), || {
+                remote
+                    .local_lease(async {
+                        control.cancel();
+                        Ok(42)
+                    })
+                    .unwrap_err()
+            })
+        })
+        .await
+        .unwrap();
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+    #[tokio::test]
     async fn stale_success_cannot_close_a_newer_open_circuit() {
         let (url, _, task) = worker().await;
         let (local, _) = local();
@@ -1142,5 +1170,110 @@ mod ocr_limit_tests {
             Circuit::Closed(_)
         ));
         task.abort();
+    }
+}
+
+#[cfg(test)]
+mod crop_transport_tests {
+    use super::*;
+    #[test]
+    fn remote_crop_tensors_match_local_exactly_at_every_side() {
+        let crop = image::RgbImage::from_fn(371, 193, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        for side in (56..=224).step_by(14) {
+            let request = embedding_request(std::slice::from_ref(&crop), side);
+            let decoded: CropsRequest = wire::decode(&wire::encode(&request).unwrap()).unwrap();
+            let rgb = &decoded.crops[0];
+            let worker =
+                image::RgbImage::from_raw(rgb.width, rgb.height, rgb.pixels.clone()).unwrap();
+            let mut local_tensor = vec![0.; 3 * side as usize * side as usize];
+            let mut worker_tensor = local_tensor.clone();
+            taphoa_recognition::crop::normalize_into(&crop, &mut local_tensor, side);
+            taphoa_recognition::crop::normalize_into(&worker, &mut worker_tensor, side);
+            assert_eq!(local_tensor, worker_tensor, "side {side}");
+        }
+    }
+    #[tokio::test]
+    async fn large_crops_reach_worker_as_small_batches() {
+        use axum::{Router, body::Bytes, http::header, routing::post};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let app = Router::new().route(
+            "/v1/embed-crops",
+            post(move |bytes: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    let request: CropsRequest = wire::decode(&bytes).unwrap();
+                    assert!(request.crops.len() <= 8);
+                    let side = request.crops[0].width;
+                    for crop in &request.crops {
+                        assert_eq!((crop.width, crop.height), (side, side));
+                        assert!(side <= 224);
+                    }
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    (
+                        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+                        wire::encode(&EmbeddingResponse {
+                            model: format!("dinov2-vits14-onnx@1/{side}"),
+                            dim: 384,
+                            vectors: vec![vec![1. / (384f32).sqrt(); 384]; request.crops.len()],
+                        })
+                        .unwrap(),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let remote = RemoteModels::new(
+            &url,
+            "a-crop-transport-token-at-least-32-characters",
+            AppState::default(),
+        )
+        .unwrap();
+        // Incompressible full-size RGB exceeds the wire limit even as PNG.
+        let mut noise = 0x12345678u32;
+        let large = image::RgbImage::from_fn(2200, 1700, |_, _| {
+            noise ^= noise << 13;
+            noise ^= noise >> 17;
+            noise ^= noise << 5;
+            image::Rgb([noise as u8, (noise >> 8) as u8, (noise >> 16) as u8])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        large.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        assert!(png.get_ref().len() > BODY_LIMIT);
+        let mut crops = vec![image::RgbImage::new(32, 64); 8];
+        crops.push(large);
+        let result = tokio::task::spawn_blocking(move || remote.embed_crops(&crops))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.len(), 9);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        server.abort();
+    }
+    #[test]
+    fn oversized_crop_and_maximum_batches_fit_the_wire_limit() {
+        let crop = image::RgbImage::new(4096, 4096);
+        assert!(
+            wire::encode(&CropsRequest {
+                crops: vec![RgbCrop {
+                    width: 4096,
+                    height: 4096,
+                    pixels: crop.as_raw().clone()
+                }]
+            })
+            .is_err()
+        );
+        let resized = taphoa_recognition::crop::resize_for_embedding(&crop, 224).into_owned();
+        let request = embedding_request(&vec![resized; 8], 224);
+        let bytes = wire::encode(&request).unwrap();
+        assert_eq!(bytes.len(), 8 + 8 * (16 + 224 * 224 * 3));
+        assert!(bytes.len() < BODY_LIMIT);
     }
 }

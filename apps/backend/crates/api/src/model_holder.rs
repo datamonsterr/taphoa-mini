@@ -6,6 +6,10 @@ use std::{
 };
 use tokio::{sync::watch, time::Instant};
 
+#[derive(Debug, thiserror::Error)]
+#[error("model temporarily unavailable: {0}")]
+pub struct ModelUnavailable(pub String);
+
 pub const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
 type LoadResult = Option<Result<(), String>>;
 type Loader<T> = dyn Fn() -> anyhow::Result<Arc<T>> + Send + Sync;
@@ -18,6 +22,7 @@ struct Inner<T: ?Sized> {
     loader: Box<Loader<T>>,
     state: Mutex<State<T>>,
     idle: Duration,
+    shutdown: watch::Sender<bool>,
 }
 struct State<T: ?Sized> {
     model: Option<Arc<T>>,
@@ -94,6 +99,7 @@ impl<T: ?Sized + Send + Sync + 'static> ModelHolder<T> {
             name,
             loader: Box::new(loader),
             idle,
+            shutdown: watch::channel(false).0,
             state: Mutex::new(State {
                 model: None,
                 loading: None,
@@ -133,9 +139,22 @@ impl<T: ?Sized + Send + Sync + 'static> ModelHolder<T> {
         Ok(lease)
     }
     pub async fn get_with_timing(&self) -> anyhow::Result<(ModelLease<T>, LoadTiming)> {
-        tokio::time::timeout(LOAD_TIMEOUT, self.acquire())
-            .await
-            .map_err(|_| anyhow::anyhow!("{} model load timed out", self.inner.name))?
+        let mut shutdown = self.inner.shutdown.subscribe();
+        let result = tokio::select! {
+            biased;
+            _ = async {
+                while !*shutdown.borrow_and_update() {
+                    if shutdown.changed().await.is_err() { break; }
+                }
+            } => Err(anyhow::anyhow!("model holder shutting down")),
+            result = tokio::time::timeout(LOAD_TIMEOUT, self.acquire()) =>
+                result.map_err(|_| anyhow::anyhow!("{} model load timed out", self.inner.name)).and_then(|r| r),
+        };
+        result.map_err(|error| ModelUnavailable(error.to_string()).into())
+    }
+    /// Release waiters immediately; an already running native loader is detached.
+    pub fn shutdown(&self) {
+        self.inner.shutdown.send_replace(true);
     }
     async fn acquire(&self) -> anyhow::Result<(ModelLease<T>, LoadTiming)> {
         let mut already_loaded = true;
@@ -340,6 +359,26 @@ mod tests {
         );
         assert_eq!(*holder.get().await.unwrap(), 0);
         assert_eq!(loads.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn shutdown_releases_all_load_waiters_and_rejects_new_leases() {
+        let (release, wait) = std::sync::mpsc::channel();
+        let wait = Mutex::new(wait);
+        let started = Arc::new(tokio::sync::Notify::new());
+        let notify = started.clone();
+        let holder = ModelHolder::new("slow", Duration::ZERO, move || {
+            notify.notify_one();
+            wait.lock().unwrap().recv_timeout(Duration::from_secs(5))?;
+            Ok(Arc::new(42))
+        });
+        let copy = holder.clone();
+        let waiter = tokio::spawn(async move { copy.get().await });
+        started.notified().await;
+        holder.shutdown();
+        let result = tokio::time::timeout(Duration::from_millis(50), waiter).await;
+        release.send(()).unwrap();
+        assert!(result.unwrap().unwrap().is_err());
+        assert!(holder.get().await.is_err());
     }
     #[tokio::test]
     async fn failed_loader_can_retry() {
