@@ -1,6 +1,6 @@
 # Infrastructure cost: phased move to scale-to-zero hosting
 
-Status: Phase A in progress · Date: 2026-11-21 · Decision record: [ADR 0011](../adr/0011-scale-to-zero-hosting.md)
+Status: Phase A in progress · Date: 2026-11-22 · Decision record: [ADR 0011](../adr/0011-scale-to-zero-hosting.md)
 
 ## Goal
 
@@ -40,7 +40,8 @@ Owner decisions of 2026-11-21:
 
 1. Phased path: Phase A on Railway first, then Phase B off Railway.
 2. The `test` environment becomes ephemeral. The `test` backend runs only while the deploy
-   workflow needs it.
+   workflow needs it; Postgres and Redis run only while a deploy or manually dispatched
+   integration run needs them.
 3. The agent may merge, deploy and change Railway configuration. It asks before the API URL
    cutover and before deleting or cancelling anything on Railway production.
 4. Production data is disposable: there are no customers yet. Phase B starts with an empty
@@ -116,6 +117,30 @@ Acceptance:
 - Grow the `test` Postgres volume (already in `.railway/railway.ts` since #333), drop the leaked
   `it_*` databases, and get one green "Deploy backend" run so production is current.
 - Set `MODEL_IDLE_UNLOAD_SECS` and the telemetry variables per environment.
+
+### A6. Ephemeral `test` Postgres and Redis
+
+The "Deploy backend" workflow starts the image-based Postgres and Redis services before the
+backend deploy, waits for `SUCCESS`, and checks backend readiness before seeding and e2e tests.
+Teardown removes backend, Redis and Postgres in that order, even after failure. The existing
+`keep_test_backend` dispatch input keeps all three services for manual debugging.
+
+"Railway integration" becomes manual-only: its ignored Rust test set is already covered by
+`ci.yml`'s `rust-integration` using Postgres+pgvector, Redis and RustFS service containers.
+Manual runs start and stop their own dependencies and retain real proxy and bucket checks.
+Both workflows share a FIFO queue through teardown so one run cannot stop another's services.
+Image services restart with `redeploy --from-source`; stopping deployments preserves data.
+Never delete volumes: they are shared with production. See [operations](../deploy.md#railway-test-environment).
+
+Acceptance:
+
+- No `test` service has a running deployment between workflow runs, except when explicitly
+  retained with `keep_test_backend=true` for debugging (stop it manually afterwards).
+- Successful, failed and cancelled runs attempt teardown of every service they started;
+  partial startup failures are cleaned up too. A teardown failure never hides a test failure.
+- Manual Railway integration runs start and stop Postgres and Redis; push CI retains the full
+  ignored-test set, including the storage round trip against RustFS.
+- Postgres data survives a stop/start cycle; no volume is deleted or recreated.
 
 ## Phase B: request-billed hosting
 

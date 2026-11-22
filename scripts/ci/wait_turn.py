@@ -1,12 +1,14 @@
-"""Wait until no older run of this workflow is still using its `test` job.
+"""Wait until no older run of the selected workflows is using the test environment.
 
-Usage: wait_turn.py <workflow-file> [job-name]   (default job name: test)
+Usage: wait_turn.py <workflow-file> [job-name] [other-workflow:job ...]
+The default job name is test. Both Railway users pass deploy.yml test
+railway-integration.yml:test so the FIFO covers both workflows.
 
 GitHub concurrency groups keep one running and one pending run; a newer pending run cancels the
 older pending one, so epic branch validations and main deploys kept cancelling each other on the
 shared Railway `test` environment. This gives a FIFO queue instead: the job waits while any run
-of the same workflow with a smaller run id has its `test` job queued or in progress. Older runs
-never wait on newer ones, so the queue cannot deadlock. Needs GITHUB_REPOSITORY, GITHUB_RUN_ID
+of any selected workflow with a smaller run id has its selected job queued or in progress.
+Older runs never wait on newer ones, so the queue cannot deadlock. Needs GITHUB_REPOSITORY, GITHUB_RUN_ID
 and a token with `actions: read` for `gh`. Gives up after WAIT_TURN_TIMEOUT seconds (default
 3600).
 """
@@ -46,6 +48,7 @@ def main(argv):
         return 2
     workflow = argv[1]
     job_name = argv[2] if len(argv) > 2 else "test"
+    users = [(workflow, job_name)] + [tuple(user.split(":", 1)) for user in argv[3:]]
     repo = os.environ["GITHUB_REPOSITORY"]
     own_id = int(os.environ["GITHUB_RUN_ID"])
     timeout = float(os.environ.get("WAIT_TURN_TIMEOUT", "3600"))
@@ -53,14 +56,18 @@ def main(argv):
 
     deadline = time.monotonic() + timeout
     while True:
-        ahead = blockers(repo, workflow, job_name, own_id)
+        ahead = sorted({
+            run_id
+            for workflow, job in users
+            for run_id in blockers(repo, workflow, job, own_id)
+        })
         if not ahead:
             print("No older run is using the test environment; continuing.")
             return 0
         if time.monotonic() >= deadline:
             print(f"::error::Still waiting on runs {ahead} after {timeout:.0f}s", file=sys.stderr)
             return 1
-        print(f"Waiting for older runs to finish their {job_name} job: {ahead}", flush=True)
+        print(f"Waiting for older runs to release the test environment: {ahead}", flush=True)
         time.sleep(interval)
 
 

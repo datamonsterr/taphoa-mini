@@ -354,18 +354,75 @@ make readiness fail. After deployment, upload with `POST /v1/images`, fetch
 ## Railway `test` environment
 
 `test` mirrors production but is isolated: its own Postgres (pgvector), Redis and `images`
-bucket. The backend deployment is ephemeral: the "Deploy backend" workflow removes it when
-the `test` job ends. If an upload has unchanged backend source and Railway marks it `SKIPPED`
-while nothing is running, the workflow redeploys from the last uploaded source. Preview app
-builds (EAS profile `preview`) use
-**https://backend-test-70c2.up.railway.app** and can reach it only while a workflow run holds
-the backend up. To keep it running for measurement, dispatch the workflow with
-`gh workflow run deploy.yml -f ref=<branch> -f keep_test_backend=true`. Remove it afterwards
-with `railway down --service backend --environment test --yes` from a linked Railway project
-with a test-scoped token.
+bucket. The backend, Postgres and Redis deployments are ephemeral. The "Deploy backend"
+workflow starts Postgres and Redis and waits for their deployments to reach `SUCCESS`, gives
+sockets a five-second readiness margin, then deploys the backend. The existing
+`scripts/ci/wait-healthy.sh` loop checks `/healthz` and `/readyz` (Postgres, Redis and configured
+storage) before seeding and e2e tests. When the `test` job ends, even on failure, it removes the
+backend first, then Redis, then Postgres. Each removal runs even if an earlier removal failed;
+earlier test failures remain failures.
 
-The test environment's Postgres, Redis and bucket remain available between runs for
-`scripts/ci/with-railway-test-services.sh`; that helper does not use the backend.
+If an upload has unchanged backend source and Railway marks it `SKIPPED` while nothing is
+running, the workflow redeploys from the last uploaded source. Preview app builds (EAS profile
+`preview`) use **https://backend-test-70c2.up.railway.app** and can reach it only while a
+workflow run holds the backend up. To keep all three services running for measurement,
+dispatch `gh workflow run deploy.yml -f ref=<branch> -f keep_test_backend=true`. This input
+keeps the dependencies too. The next workflow may use and stop these services, so finish
+manual debugging before another run starts.
+
+Both workflows use `scripts/ci/wait_turn.py deploy.yml test railway-integration.yml:test` to
+queue by run id across workflows. Ownership lasts through the entire `test` job, including
+teardown. A run cancelled or timed out while waiting never starts or stops services. Coordinate
+manual CLI work with these runs; a CLI session does not hold that queue.
+
+For debugging, from a linked Railway project with a test-scoped token, start the dependencies
+by hand (the helper waits for a new deployment's `SUCCESS`, or leaves an existing `SUCCESS`
+deployment alone):
+
+```sh
+python3 -I scripts/ci/railway_service.py up Postgres test
+python3 -I scripts/ci/railway_service.py up Redis test
+```
+
+Image-based services require `railway redeploy --service Postgres --environment test --yes
+--from-source --json` after `down` (likewise for Redis). Plain `redeploy` fails with "No
+deployment found for service". The `--from-source` response can be `{"success":true}` without
+an id; the helper polls `railway deployment list` for a new deployment. The GitHub-source
+backend instead uses plain `redeploy --json` and its returned deployment id.
+
+Stop services afterwards in dependency order:
+
+```sh
+python3 -I scripts/ci/railway_down.py backend test
+python3 -I scripts/ci/railway_service.py down Redis test
+python3 -I scripts/ci/railway_service.py down Postgres test
+```
+
+`down` removes deployments and keeps stored data. Never use `railway volume delete`: the
+volumes are shared between `test` and `production`. The bucket remains available between runs.
+
+The "Railway integration" workflow (`railway-integration.yml`) is **manual dispatch only**.
+It starts Postgres and Redis itself, runs both test groups in one owning job, and always stops
+Redis then Postgres. `scripts/ci/with-railway-test-services.sh` probes both public TCP proxies
+until they accept connections before maintenance and tests; it isolates and cleans up its
+throwaway database and Redis logical database, while the workflow owns service deployments.
+When using the helper locally, start dependencies first and stop them afterwards as above.
+
+Coverage comparison with `ci.yml`'s `rust-integration` job:
+
+- Railway `api` selects workspace `#[ignore]` tests except binaries `seed`, `seed_clerk`,
+  `recognition_vector` and `validation_invite_expiry_and_ip_limits`; `heavy` selects those
+  three binaries. Both use the `railway` nextest profile and one test thread.
+- `rust-integration` selects **all** workspace `#[ignore]` tests in two partitions, running
+  `validation_invite_expiry_and_ip_limits` separately with default rate limits. It provides
+  local Postgres+pgvector, Redis and RustFS with all storage variables. In particular,
+  `storage::real_upload_reference_and_presigned_download` runs there too; no test requires
+  the Railway bucket specifically.
+- Removing Railway integration's push and nightly triggers drops that workflow's automatic
+  checks of the public proxies, real bucket credentials and deployed service configuration.
+  It loses no selected Rust test coverage on backend changes; CI still runs the full set.
+  Direct Railway integration checks remain available by manual dispatch. Deploy backend's
+  automatic readiness and e2e checks also continue.
 
 Created once with:
 

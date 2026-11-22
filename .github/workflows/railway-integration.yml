@@ -2,40 +2,34 @@ name: Railway integration
 
 # Runs the #[ignore] integration tests against the real Postgres, Redis and bucket of the
 # Railway `test` environment (public TCP proxies), with a throwaway database per run.
+# CI rust-integration runs all these ignored tests against local service containers,
+# including RustFS storage. Keep real Railway infrastructure coverage available manually.
 # The `railway` nextest profile fails a hanging test after 60 s.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 20 * * *'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/backend/**'
-      - '.github/workflows/railway-integration.yml'
-      - 'scripts/ci/**'
 
 permissions:
   contents: read
-
-concurrency:
-  group: deploy-railway-test
-  cancel-in-progress: false
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
 
 jobs:
-  # Every ignored test except the heavy binaries below. Two jobs keep a slow seed or vector
-  # test from eating the whole budget of the rest.
-  api:
+  # One owning job holds the shared FIFO through both groups and their teardown.
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Up to 60 minutes in the FIFO, 55 for tests, plus setup and teardown.
+    timeout-minutes: 130
     env:
-      # Jobs time out at 40 and 15 minutes, so one hour is longer than any run.
-      IT_DB_MAX_AGE_HOURS: '1'
+      IT_DB_MAX_AGE_HOURS: '2'
     steps:
       - uses: actions/checkout@v7
+      - name: Wait for older runs using the test environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/wait_turn.py deploy.yml test railway-integration.yml:test
       - name: Check for Railway test credentials
         id: railway
         env:
@@ -62,7 +56,17 @@ jobs:
         with:
           cache-key: test
           nextest: 'true'
-      - name: Integration tests on Railway services
+      - name: Start Railway test Postgres and Redis
+        id: services
+        if: steps.railway.outputs.configured == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: |
+          echo "started=true" >> "$GITHUB_OUTPUT"
+          python3 -I scripts/ci/railway_service.py up Postgres test
+          python3 -I scripts/ci/railway_service.py up Redis test
+      - name: Integration tests on Railway services (api)
+        timeout-minutes: 40
         if: steps.railway.outputs.configured == 'true'
         working-directory: apps/backend
         env:
@@ -72,68 +76,47 @@ jobs:
         run: >-
           ../../scripts/ci/with-railway-test-services.sh
           cargo nextest run --locked --workspace --profile railway --run-ignored only --test-threads 1 --no-tests=pass -E 'not (binary(seed) | binary(seed_clerk) | binary(recognition_vector) | test(validation_invite_expiry_and_ip_limits))'
+      - name: Save API test report
+        if: always()
+        run: |
+          report=apps/backend/target/nextest/railway/junit.xml
+          if [ -f "$report" ]; then mv "$report" "${report%.xml}-api.xml"; fi
       - name: Summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
           CONFIGURED: ${{ steps.railway.outputs.configured }}
         run: |
-          python3 -I scripts/ci/junit_summary.py "Railway integration (api)" apps/backend/target/nextest/railway/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          python3 -I scripts/ci/junit_summary.py "Railway integration (api)" apps/backend/target/nextest/railway/junit-api.xml >> "$GITHUB_STEP_SUMMARY"
           scripts/ci/job-summary.sh "Railway integration (api) timing" "railway configured: ${CONFIGURED:-false}"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: junit-railway-api
-          path: apps/backend/target/nextest/railway/junit.xml
+          path: apps/backend/target/nextest/railway/junit-api.xml
           if-no-files-found: ignore
 
-  # The seed, seed_clerk and recognition_vector binaries: the ones that hit the 120 s timeout.
-  heavy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      # Jobs time out at 40 and 15 minutes, so one hour is longer than any run.
-      IT_DB_MAX_AGE_HOURS: '1'
-    steps:
-      - uses: actions/checkout@v7
-      - name: Check for Railway test credentials
-        id: railway
-        env:
-          RAILWAY_TOKEN_TEST: ${{ secrets.RAILWAY_TOKEN_TEST }}
-        run: |
-          if [ -n "$RAILWAY_TOKEN_TEST" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::Secret RAILWAY_TOKEN_TEST is not set; skipping Railway integration tests (see docs/deploy.md)."
-          fi
-      - uses: actions/setup-node@v7
-        if: steps.railway.outputs.configured == 'true'
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-      - name: Install Railway CLI and database clients
-        if: steps.railway.outputs.configured == 'true'
-        run: |
-          npm install --global @railway/cli@5.71.0
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client redis-tools
-      - uses: ./.github/actions/setup-rust
-        if: steps.railway.outputs.configured == 'true'
-        with:
-          cache-key: test
-          nextest: 'true'
-      - name: Integration tests on Railway services
-        if: steps.railway.outputs.configured == 'true'
+      - name: Integration tests on Railway services (heavy)
+        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
+        timeout-minutes: 15
         working-directory: apps/backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
           RATE_LIMIT_STORE_CREATE_PER_HOUR: '100000'
           RATE_LIMIT_JOIN_PER_HOUR: '100000'
-          # api uses Redis db 15; the two jobs run at the same time
-          IT_REDIS_DB: '14'
         run: >-
           ../../scripts/ci/with-railway-test-services.sh
           cargo nextest run --locked --workspace --profile railway --run-ignored only --test-threads 1 --no-tests=pass -E 'binary(seed) | binary(seed_clerk) | binary(recognition_vector)'
+      - name: Remove Railway test Redis
+        if: always() && steps.services.outputs.started == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: python3 -I scripts/ci/railway_service.py down Redis test
+      - name: Remove Railway test Postgres
+        if: always() && steps.services.outputs.started == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: python3 -I scripts/ci/railway_service.py down Postgres test
       - name: Summary
         if: always()
         env:
