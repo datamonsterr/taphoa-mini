@@ -128,6 +128,9 @@ async fn serve(analytics: Option<Arc<PostHogAnalytics>>) -> anyhow::Result<()> {
     let pool = state.postgres.clone();
     let (stop, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut background = events::spawn_background(&state, shutdown_rx.clone());
+    if let Some(remote) = &state.remote_models {
+        background.push(remote.spawn_monitor(shutdown_rx.clone()));
+    }
     if let Some(pool) = pool.clone() {
         background.push(retention::spawn(pool.clone(), shutdown_rx.clone()));
         background.push(taphoa_api::voice::retention::spawn(

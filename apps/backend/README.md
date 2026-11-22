@@ -51,18 +51,25 @@ loopback hosts (`localhost`, 127.0.0.0/8 and ::1). `INFERENCE_ALLOW_PLAINTEXT=1`
 for a transport that is already encrypted, such as a private WireGuard network;
 otherwise non-loopback HTTP fails startup. Worker health is read in chunks and rejected
 as soon as it exceeds 4096 bytes, including responses without Content-Length.
-The client connects within 500 ms and allows 10 s
-per call. Transport errors, timeouts and worker 5xx responses load the existing lazy CPU
-fallback and open a shared circuit for 30 s; one subsequent call probes recovery. Worker
-4xx responses retain their status and do not trigger fallback. With a ready worker, warm
-checks its health and leaves local models unloaded. Local fallback models still unload
+The HTTP/1 client allows 3 s for TCP plus TLS connection setup, retains one idle
+connection for 90 s and enables TCP keepalive after 30 s. The existing 10 s trait-call
+budget and remaining request deadline still bound inference. A background monitor runs
+immediately and every 15 s with a 2 s health timeout to keep a connection warm and drive
+the shared circuit. The circuit starts open, closes on healthy worker checks and opens
+on failed checks or user-call transport errors, timeouts and 5xx responses. Open-circuit
+calls go directly to the existing lazy CPU fallback; user calls never probe recovery.
+Worker 4xx responses retain their status and do not trigger fallback. Warm reads the
+circuit state and leaves local models unloaded. Local fallback models still unload
 after `MODEL_IDLE_UNLOAD_SECS`. Model-free backend images need reachable worker inference;
-if both are unavailable they return retryable 503. Each inference log records `backend`
-and the fallback `reason`, without tokens or images. Receipt OCR uses a generous
+if both are unavailable they return retryable 503. Debug logs record remote operation,
+duration and outcome; info logs record each breaker state change with its reason and
+each worker `/v1/` request with route, status, bytes received and duration. Fallback logs
+record `backend` and `reason`, without tokens or images. Receipt OCR uses a generous
 512-box / 16 Mi-pixel total crop cap; exceeding it returns a 422 client error.
 The worker admits at most 32 HTTP connections before authentication, closes excess
-sockets immediately, and limits headers to 8 KiB / 32 fields with a 3 s header and
-idle keep-alive timeout. Cancellation stops further model batches/prompts within
+sockets immediately, and limits headers to 8 KiB / 32 fields with a 3 s deadline once
+a request head starts. Idle keep-alive defaults to 120 s, configured through the worker's
+`INFERENCE_IDLE_KEEPALIVE_SECS`. Cancellation stops further model batches/prompts within
 the 10 s request budget. An engine panic marks health unready and exits for restart.
 Its unit uses `MemoryHigh=infinity`, `MemoryMax=2G`, `MemorySwapMax=0` and
 `CPUQuota=200%`; the hard limit remains while worker pages cannot be swapped out.

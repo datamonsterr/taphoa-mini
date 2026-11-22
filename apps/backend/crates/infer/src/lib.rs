@@ -2,20 +2,21 @@
 pub mod transport;
 use axum::{
     Router,
-    body::Bytes,
-    extract::{DefaultBodyLimit, Extension, Request, State},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Extension, MatchedPath, Request, State},
     http::{StatusCode, Uri, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use http_body_util::BodyExt;
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -432,7 +433,36 @@ impl Service {
             .route("/healthz", get(health))
             .merge(protected)
             .with_state(self)
+            .layer(middleware::from_fn(access_log))
     }
+}
+async fn access_log(request: Request, next: Next) -> Response {
+    if !request.uri().path().starts_with("/v1/") {
+        return next.run(request).await;
+    }
+    let route = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map_or("/v1/unknown", MatchedPath::as_str)
+        .to_owned();
+    let started = Instant::now();
+    let bytes = Arc::new(AtomicU64::new(0));
+    let received = bytes.clone();
+    let (parts, body) = request.into_parts();
+    let body = Body::new(body.inspect_frame(move |frame| {
+        if let Some(data) = frame.data_ref() {
+            received.fetch_add(data.len() as u64, Ordering::Relaxed);
+        }
+    }));
+    let response = next.run(Request::from_parts(parts, body)).await;
+    tracing::info!(
+        route,
+        status = response.status().as_u16(),
+        bytes_in = bytes.load(Ordering::Relaxed),
+        duration_ms = started.elapsed().as_millis() as u64,
+        "inference request"
+    );
+    response
 }
 async fn guard(State(service): State<Service>, mut request: Request, next: Next) -> Response {
     if !service.alive.load(Ordering::Acquire) {

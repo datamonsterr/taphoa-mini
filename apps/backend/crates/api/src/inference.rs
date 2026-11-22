@@ -229,7 +229,7 @@ mod tests {
             segmenter: Some(Arc::new(Local(calls.clone()))),
             ..Default::default()
         };
-        let remote = crate::remote_models::RemoteModels::new(
+        let remote = crate::remote_models::ready_remote(
             &url,
             "a-request-budget-token-at-least-32-characters",
             state,
@@ -273,7 +273,7 @@ mod tests {
                 Ok(Arc::new(MockEmbedder) as Arc<dyn Embedder>)
             },
         ));
-        let remote = crate::remote_models::RemoteModels::new(
+        let remote = crate::remote_models::ready_remote(
             &url,
             "a-cold-fallback-token-at-least-32-characters",
             local,

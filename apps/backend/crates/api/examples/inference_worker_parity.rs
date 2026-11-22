@@ -12,7 +12,22 @@ async fn main() -> anyhow::Result<()> {
         &std::env::var("INFERENCE_TOKEN")?,
         AppState::default(),
     )?);
-    tokio::task::spawn_blocking(move || run(remote)).await??;
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let monitor = remote.spawn_monitor(stopped);
+    let result = async {
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !remote.healthy() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("worker health check failed"))?;
+        tokio::task::spawn_blocking(move || run(remote)).await?
+    }
+    .await;
+    stop.send_replace(true);
+    monitor.await?;
+    result?;
     Ok(())
 }
 fn run(remote: Arc<RemoteModels>) -> anyhow::Result<()> {
