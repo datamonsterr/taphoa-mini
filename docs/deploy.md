@@ -137,6 +137,18 @@ use the `scripted` provider. Local `.env.example` files select `scripted` so loc
 assistant turns need no model network calls. OpenRouter uses the shared
 `OPENROUTER_API_KEY`; paid and `:free` OpenRouter model IDs are accepted. Paid generations report actual OpenRouter usage costs; keep a finite USD limit on each environment key.
 
+Voice uses the same key. OpenRouter can require **at least $0.50 of remaining key
+allowance for audio**, even when text requests succeed and the account has credit.
+If voice logs show `spend_limit`, HTTP/code `402`, and
+`limit_source=openrouter_key_limit`, raise the environment key's limit in
+[OpenRouter Settings → API Keys](https://openrouter.ai/settings/keys) so its remaining
+allowance stays above that minimum (leave headroom for ongoing usage). Keep a finite
+limit. An account top-up alone does not raise a key's allowance; replacing the key also
+requires updating Railway's `OPENROUTER_API_KEY`. Model/routing/timeout changes do not
+resolve this rejection. Voice warnings retain the HTTP status, router code, limit
+source, and a bounded operational message prefix; unrecognized prose and provider
+raw metadata are redacted because they can contain request content.
+
 | Variable                                 | Default / purpose                                                          | Railway management                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `ASSISTANT_MODEL_PROVIDER`               | Backend default `openrouter`; local examples use `scripted`                | Fixed `openrouter`                                                            |
