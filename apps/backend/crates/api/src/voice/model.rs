@@ -1,4 +1,4 @@
-//! Speech model ports and the OpenRouter client (docs checked 2026-10-28): non-streaming chat
+//! Speech model ports and the OpenRouter client (docs checked 2026-11-22): non-streaming chat
 //! completion with an `input_audio` part and a strict `json_schema` response format, and the
 //! JSON `/audio/transcriptions` endpoint (raw base64 audio) for the STT fallback.
 use crate::assistant::{
@@ -326,13 +326,7 @@ pub fn parse_chat_response(
     body: &Value,
 ) -> Result<Parsed, ModelError> {
     if body.get("error").is_some_and(|e| !e.is_null()) {
-        return Err(ModelError::Unavailable {
-            status: body["error"]["code"]
-                .as_u64()
-                .and_then(|c| u16::try_from(c).ok())
-                .unwrap_or(status),
-            message: "provider error".into(),
-        });
+        return Err(http_error(status, body));
     }
     let choice = &body["choices"][0];
     let content = choice["message"]["content"]
@@ -361,6 +355,9 @@ pub fn parse_stt_response(
     status: u16,
     body: &Value,
 ) -> Result<Transcribed, ModelError> {
+    if body.get("error").is_some_and(|e| !e.is_null()) {
+        return Err(http_error(status, body));
+    }
     let text = body["text"].as_str().ok_or_else(|| ModelError::Other {
         status: Some(status),
         message: "transcription had no text".into(),
@@ -373,18 +370,66 @@ pub fn parse_stt_response(
     })
 }
 
-fn http_error(status: u16, body: &Value) -> ModelError {
-    let message = body["error"]["message"]
+/// Retain operational messages only: arbitrary provider prose may echo a prompt, audio or
+/// credentials. Match a safe prefix and discard the rest before truncating for local logs.
+/// Never log `metadata.raw`, full error bodies, or request content.
+const MAX_ERROR_MESSAGE_CHARS: usize = 256;
+fn safe_error_message(body: &Value) -> String {
+    use std::sync::LazyLock;
+    static SAFE_PREFIX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(concat!(
+            r"(?i)^(?:This request requires at least \$[0-9]+(?:\.[0-9]+)? in balance for audio",
+            r"|This request requires more credits, or fewer max_tokens",
+            r"|Insufficient credits|(?:API key )?(?:credit|usage|spend) limit (?:reached|exceeded)",
+            r"|Rate limit(?:ed| exceeded)?|Too many requests",
+            r"|Provider returned error|No (?:available )?(?:endpoints|providers) found",
+            r"|No endpoints available|Service unavailable|Request timed out",
+            r"|Invalid API key|Invalid credentials|Invalid model|Unsupported audio format)"
+        ))
+        .expect("static operational message rule")
+    });
+    body["error"]["message"]
         .as_str()
-        .unwrap_or("model HTTP request failed")
-        .to_owned();
-    match status {
-        429 => ModelError::RateLimited { status, message },
-        402 | 403 | 404 | 408 | 500..=599 => ModelError::Unavailable { status, message },
-        _ => ModelError::Other {
-            status: Some(status),
-            message,
-        },
+        .and_then(|message| SAFE_PREFIX.find(message))
+        .map(|matched| {
+            matched
+                .as_str()
+                .chars()
+                .take(MAX_ERROR_MESSAGE_CHARS)
+                .collect()
+        })
+        .unwrap_or_else(|| "upstream message redacted (unrecognized diagnostic)".into())
+}
+
+fn http_error(status: u16, body: &Value) -> ModelError {
+    // Codes are normally HTTP-like numbers. Do not retain arbitrary provider strings.
+    let code = match &body["error"]["code"] {
+        Value::Number(n) => n.as_u64().filter(|n| *n <= 999).map(|n| n.to_string()),
+        Value::String(s)
+            if !s.is_empty()
+                && s.len() <= 64
+                && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') =>
+        {
+            Some(s.clone())
+        }
+        _ => None,
+    };
+    let limit_source = body["error"]["metadata"]["limit_source"]
+        .as_str()
+        .filter(|s| {
+            matches!(
+                *s,
+                "openrouter_key_limit"
+                    | "openrouter_account_balance"
+                    | "openrouter_in_flight_budget"
+            )
+        })
+        .map(str::to_owned);
+    ModelError::Upstream {
+        status,
+        code,
+        message: safe_error_message(body),
+        limit_source,
     }
 }
 
@@ -688,7 +733,7 @@ mod tests {
                 200,
                 &json!({"error":{"code":502,"message":"upstream"}})
             ),
-            Err(ModelError::Unavailable { status: 502, .. })
+            Err(ModelError::Upstream { status: 200, code: Some(code), .. }) if code == "502"
         ));
     }
 
@@ -705,16 +750,145 @@ mod tests {
     fn http_statuses_map_to_errors() {
         assert!(matches!(
             http_error(429, &Value::Null),
-            ModelError::RateLimited { .. }
+            ModelError::Upstream { status: 429, .. }
         ));
         assert!(matches!(
             http_error(503, &Value::Null),
-            ModelError::Unavailable { .. }
+            ModelError::Upstream { status: 503, .. }
         ));
         assert!(matches!(
             http_error(400, &Value::Null),
-            ModelError::Other { .. }
+            ModelError::Upstream { status: 400, .. }
         ));
+    }
+
+    #[test]
+    fn upstream_errors_preserve_http_status_and_classify_router_code() {
+        use crate::assistant::telemetry::error_info;
+        for (http, code, category) in [
+            (402, 402, "spend_limit"),
+            (429, 429, "rate_limited"),
+            (503, 429, "rate_limited"),
+            (408, 408, "timeout"),
+            (504, 504, "timeout"),
+            (403, 403, "provider_error"),
+            (404, 404, "provider_error"),
+            (502, 502, "provider_error"),
+            (200, 402, "spend_limit"),
+        ] {
+            let error = http_error(
+                http,
+                &json!({"error":{"code":code,"message":"Provider returned error"}}),
+            );
+            assert_eq!(error.http_status(), Some(http));
+            assert_eq!(error_info(&error).0, category);
+            assert!(
+                matches!(error, ModelError::Upstream { code: Some(c), .. } if c == code.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn error_messages_are_bounded_operational_prefixes_without_request_data() {
+        let message = "This request requires at least $0.50 in balance for audio";
+        let body = json!({"error":{
+            "code":402,
+            "message":format!("{message}: sk-or-v1-secret user text AUDIO_BASE64"),
+            "metadata":{"limit_source":"openrouter_key_limit","raw":"user text"}
+        }});
+        assert_eq!(
+            http_error(402, &body),
+            ModelError::Upstream {
+                status: 402,
+                code: Some("402".into()),
+                message: message.into(),
+                limit_source: Some("openrouter_key_limit".into()),
+            }
+        );
+        for message in [
+            "sk-or-v1-secret",
+            "user text AUDIO_BASE64",
+            "Provider returned error: user text",
+            "Rate limit exceeded: sk-or-v1-secret",
+        ] {
+            let error = http_error(502, &json!({"error":{"message":message}}));
+            let ModelError::Upstream { message, .. } = error else {
+                panic!()
+            };
+            assert!(!message.contains("user text"));
+            assert!(!message.contains("sk-or-v1"));
+            assert!(!message.contains("AUDIO_BASE64"));
+            assert!(message.chars().count() <= MAX_ERROR_MESSAGE_CHARS);
+        }
+        let message = format!(
+            "This request requires at least ${}.50 in balance for audio",
+            "0".repeat(500)
+        );
+        assert_eq!(
+            safe_error_message(&json!({"error":{"message":message}}))
+                .chars()
+                .count(),
+            MAX_ERROR_MESSAGE_CHARS
+        );
+        assert!(matches!(
+            http_error(500, &json!({"error":{"code":"sk-or-v1-secret"}})),
+            ModelError::Upstream { code: None, .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn fake_http_provider_preserves_errors_for_audio_stt_and_text() {
+        use axum::{Json, Router, http::StatusCode};
+        for status in [200, 402, 429, 503] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let app = Router::new().fallback(move || async move {
+                (
+                    StatusCode::from_u16(status).unwrap(),
+                    Json(json!({"error":{
+                        "code":402,
+                        "message":"This request requires at least $0.50 in balance for audio",
+                        "metadata":{"limit_source":"openrouter_key_limit"}
+                    }})),
+                )
+            });
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = OpenRouterVoice::new(
+                OpenRouterConfig {
+                    api_key: "test-key".into(),
+                    url: format!("http://{addr}/api/v1/chat/completions"),
+                    first_token_timeout: Duration::from_secs(1),
+                    timeout: Duration::from_secs(2),
+                },
+                Duration::from_secs(2),
+                false,
+            )
+            .unwrap();
+            let audio = client
+                .parse_audio("g/audio", &clip(), "private hint", Language::Vi)
+                .await
+                .unwrap_err();
+            let stt = client
+                .transcribe("w/stt", &clip(), Language::Vi)
+                .await
+                .unwrap_err();
+            let text = client
+                .parse_text("g/text", "private transcript", "private hint", Language::Vi)
+                .await
+                .unwrap_err();
+            for error in [audio, stt, text] {
+                assert_eq!(error.http_status(), Some(status));
+                assert_eq!(
+                    crate::assistant::telemetry::error_info(&error).0,
+                    "spend_limit"
+                );
+                assert!(
+                    matches!(error, ModelError::Upstream { code:Some(c), limit_source:Some(source), .. }
+                    if c == "402" && source == "openrouter_key_limit")
+                );
+            }
+            server.abort();
+        }
     }
 
     #[test]

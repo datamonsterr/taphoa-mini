@@ -313,6 +313,18 @@ pub(crate) fn error_info(error: &ModelError) -> (&'static str, &'static str) {
         ModelError::RateLimited { .. } => ("rate_limited", "model rate limited"),
         ModelError::DailyQuota { .. } => ("daily_quota", "free model daily quota exhausted"),
         ModelError::Unavailable { .. } => ("unavailable", "model unavailable"),
+        ModelError::Upstream { status, code, .. } => {
+            match code
+                .as_deref()
+                .and_then(|c| c.parse::<u16>().ok())
+                .unwrap_or(*status)
+            {
+                402 => ("spend_limit", "model spend limit reached"),
+                429 => ("rate_limited", "model rate limited"),
+                408 | 504 => ("timeout", "upstream model request timed out"),
+                _ => ("provider_error", "upstream model failed"),
+            }
+        }
         ModelError::Timeout => ("timeout", "model request timed out"),
         ModelError::InvalidToolCall { .. } => {
             ("invalid_tool_call", "tool arguments are not valid JSON")

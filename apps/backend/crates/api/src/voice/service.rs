@@ -79,7 +79,7 @@ fn retry_last(
     retried: &mut bool,
     deadline: Instant,
 ) -> bool {
-    let ok = matches!(error, ModelError::RateLimited { .. })
+    let ok = error.is_rate_limited()
         && index + 1 == len
         && !*retried
         && Instant::now() + RATE_LIMIT_PAUSE * 2 < deadline;
@@ -219,7 +219,7 @@ async fn run_chain(
                 });
             }
             Err(error) => {
-                tracing::warn!(model = %slug, error = %assistant::error_info(&error).0, "voice audio model failed");
+                telemetry::model_failed(slug, "audio", &error);
                 if retry_last(&error, index, models.len(), &mut retried, deadline) {
                     tokio::time::sleep(RATE_LIMIT_PAUSE).await;
                     continue;
@@ -238,10 +238,18 @@ async fn run_chain(
         ("stt", stt_index, deadline),
         calls,
         model.transcribe(&cfg.stt_model, &req.clip, req.language),
-        |t| (Some(t.model.clone()), t.usage, None, Some(200), t.generation_id.clone()),
+        |t| {
+            (
+                Some(t.model.clone()),
+                t.usage,
+                None,
+                Some(200),
+                t.generation_id.clone(),
+            )
+        },
     )
     .await
-    .map_err(|error| tracing::warn!(model = %cfg.stt_model, error = %assistant::error_info(&error).0, "voice STT failed"))
+    .map_err(|error| telemetry::model_failed(&cfg.stt_model, "stt", &error))
     .ok()?;
     let text = transcript.text.trim().to_owned();
     if text.is_empty() {
@@ -312,7 +320,7 @@ async fn run_chain(
                 });
             }
             Err(error) => {
-                tracing::warn!(model = %slug, error = %assistant::error_info(&error).0, "voice text model failed");
+                telemetry::model_failed(slug, "text", &error);
                 if retry_last(&error, offset, parse_models.len(), &mut retried, deadline) {
                     tokio::time::sleep(RATE_LIMIT_PAUSE).await;
                     continue;
@@ -536,4 +544,111 @@ async fn process(
         body["sale_draft"] = d.api;
     }
     Ok((StatusCode::CREATED, body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::voice::{
+        VoiceConfig,
+        scripted::{ScriptedVoiceModel, Step},
+    };
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+        type Writer = Self;
+        fn make_writer(&'a self) -> Self {
+            self.clone()
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_chain_logs_status_router_code_and_safe_message() {
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(captured.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let failure = ModelError::Upstream {
+            status: 402,
+            code: Some("402".into()),
+            message: "This request requires at least $0.50 in balance for audio".into(),
+            limit_source: Some("openrouter_key_limit".into()),
+        };
+        let model = ScriptedVoiceModel::new([
+            Step::error(failure.clone()),
+            Step::error(failure),
+            Step::error(ModelError::Timeout),
+        ]);
+        let voice = VoiceState {
+            config: Arc::new(VoiceConfig::default()),
+            ..Default::default()
+        };
+        let req = Request {
+            id: Uuid::now_v7(),
+            mode: Mode::Sale,
+            language: crate::assistant::Language::Vi,
+            entry: "chat".into(),
+            clip: AudioClip {
+                bytes: b"private audio".to_vec(),
+                format: "m4a",
+            },
+            audio_seconds: Some(2.0),
+            donate: false,
+            model_override: None,
+            started: Instant::now(),
+        };
+        let mut calls = Vec::new();
+        assert!(
+            run_chain(&voice, &model, &req, "private user text", &mut calls)
+                .await
+                .is_none()
+        );
+        assert_eq!(calls.len(), 3);
+        assert_eq!(model.remaining(), 0);
+        let logs = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+        for field in [
+            "voice_call=\"audio\"",
+            "voice_call=\"stt\"",
+            "http_status=Some(402)",
+            "openrouter_code=Some(\"402\")",
+            "error=\"spend_limit\"",
+            "limit_source=Some(\"openrouter_key_limit\")",
+            "This request requires at least $0.50 in balance for audio",
+            "error=\"timeout\"",
+            "http_status=None",
+        ] {
+            assert!(logs.contains(field), "missing {field}: {logs}");
+        }
+        assert!(!logs.contains("private"));
+    }
+
+    #[test]
+    fn router_rate_limit_code_keeps_the_existing_bounded_retry() {
+        let error = ModelError::Upstream {
+            status: 503,
+            code: Some("429".into()),
+            message: "Rate limit exceeded".into(),
+            limit_source: None,
+        };
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        let mut retried = false;
+        assert!(!retry_last(&error, 0, 2, &mut retried, deadline));
+        assert!(retry_last(&error, 1, 2, &mut retried, deadline));
+        assert!(!retry_last(&error, 1, 2, &mut retried, deadline));
+        assert!(!retry_last(&error, 1, 2, &mut false, Instant::now()));
+    }
 }

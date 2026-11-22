@@ -88,6 +88,31 @@ pub fn model_call_span(model: &str, kind: &'static str, index: usize, address: &
     )
 }
 
+/// One warning per failed attempt, including failures from the request deadline. The HTTP
+/// adapter already sanitizes Upstream messages; other providers only get local wording.
+pub(crate) fn model_failed(model: &str, kind: &str, error: &ModelError) {
+    let (category, fallback_message) = error_info(error);
+    let (code, message, limit_source) = match error {
+        ModelError::Upstream {
+            code,
+            message,
+            limit_source,
+            ..
+        } => (code.as_deref(), message.as_str(), limit_source.as_deref()),
+        _ => (None, fallback_message, None),
+    };
+    tracing::warn!(
+        model,
+        voice_call = kind,
+        error = category,
+        http_status = ?error.http_status(),
+        openrouter_code = ?code,
+        upstream_message = message,
+        limit_source = ?limit_source,
+        "voice model call failed"
+    );
+}
+
 pub fn call_finished(span: &Span, record: &CallRecord) {
     use tracing_opentelemetry::OpenTelemetrySpanExt;
     if let Some(model) = &record.response_model {

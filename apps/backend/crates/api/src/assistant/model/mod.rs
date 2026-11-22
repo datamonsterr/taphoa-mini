@@ -143,6 +143,14 @@ pub enum ModelError {
     DailyQuota { message: String },
     #[error("model unavailable (HTTP {status}): {message}")]
     Unavailable { status: u16, message: String },
+    /// Voice HTTP errors retain only bounded, privacy-safe diagnostics.
+    #[error("upstream model error (HTTP {status}, code {code:?}): {message}")]
+    Upstream {
+        status: u16,
+        code: Option<String>,
+        message: String,
+        limit_source: Option<String>,
+    },
     #[error("model request timed out")]
     Timeout,
     #[error("invalid tool call: {message}")]
@@ -161,7 +169,10 @@ impl ModelError {
     pub fn retryable(&self) -> bool {
         matches!(
             self,
-            Self::RateLimited { .. }
+            Self::Upstream {
+                status: 429 | 500..=599,
+                ..
+            } | Self::RateLimited { .. }
                 | Self::Unavailable { .. }
                 | Self::Timeout
                 | Self::InvalidToolCall { .. }
@@ -171,9 +182,23 @@ impl ModelError {
                 }
         )
     }
+    pub fn is_rate_limited(&self) -> bool {
+        match self {
+            Self::RateLimited { .. } => true,
+            Self::Upstream { status, code, .. } => {
+                code.as_deref()
+                    .and_then(|c| c.parse::<u16>().ok())
+                    .unwrap_or(*status)
+                    == 429
+            }
+            _ => false,
+        }
+    }
     pub fn http_status(&self) -> Option<u16> {
         match self {
-            Self::RateLimited { status, .. } | Self::Unavailable { status, .. } => Some(*status),
+            Self::RateLimited { status, .. }
+            | Self::Unavailable { status, .. }
+            | Self::Upstream { status, .. } => Some(*status),
             Self::DailyQuota { .. } => Some(429),
             Self::Other { status, .. } => *status,
             Self::Timeout | Self::InvalidToolCall { .. } | Self::StreamFailed { .. } => None,
