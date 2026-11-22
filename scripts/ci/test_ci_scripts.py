@@ -447,6 +447,183 @@ class RailwayDeploy(unittest.TestCase):
         self.assertIn("No terminal deployment status", out.stderr)
 
 
+FAKE_RAILWAY_SERVICE = textwrap.dedent(
+    """\
+    #!/usr/bin/env python3
+    import json, os, pathlib, sys
+    args = sys.argv[1:]
+    with open(os.environ["FAKE_LOG"], "a") as log:
+        log.write(json.dumps(args) + "\\n")
+    assert args[args.index("--service") + 1] == "Postgres"
+    assert args[args.index("--environment") + 1] == "test"
+    if args[:2] == ["deployment", "list"]:
+        state = pathlib.Path(os.environ["FAKE_STATE"])
+        calls = int(state.read_text()) if state.exists() else 0
+        state.write_text(str(calls + 1))
+        rows = json.loads(os.environ["FAKE_DEPLOYMENTS"])
+        print(json.dumps(rows[min(calls, len(rows) - 1)]))
+    elif args[0] == "redeploy":
+        assert "--from-source" in args and "--yes" in args and "--json" in args
+        print('{"success": true}')  # Image services do not return a deployment id.
+        sys.exit(int(os.environ.get("FAKE_REDEPLOY_EXIT", "0")))
+    elif args[0] == "down":
+        assert "--yes" in args
+        print(os.environ.get("FAKE_DOWN_ERROR", ""), file=sys.stderr)
+        sys.exit(int(os.environ.get("FAKE_DOWN_EXIT", "0")))
+    else:
+        sys.exit(99)
+    """
+)
+
+
+class RailwayService(unittest.TestCase):
+    def service(self, rows, operation="up", timeout="5", **extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "railway")
+            fake.write_text(FAKE_RAILWAY_SERVICE)
+            fake.chmod(0o755)
+            log = pathlib.Path(tmp, "calls")
+            out = run(
+                ["python3", "-I", str(HERE / "railway_service.py"), operation, "Postgres", "test"],
+                env={
+                    "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "FAKE_STATE": str(pathlib.Path(tmp, "state")),
+                    "FAKE_LOG": str(log),
+                    "FAKE_DEPLOYMENTS": json.dumps(rows),
+                    "RAILWAY_POLL_INTERVAL": "0",
+                    "RAILWAY_DEPLOY_TIMEOUT": timeout,
+                    **extra,
+                },
+            )
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            return out, calls
+
+    def test_already_running_does_not_redeploy(self):
+        out, calls = self.service([[{"id": "skip", "status": "SKIPPED"},
+                                    {"id": "old", "status": "SUCCESS"}]])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("already running", out.stdout)
+
+    def test_starts_from_source_and_waits_for_newest_success(self):
+        old = {"id": "old", "status": "FAILED"}
+        out, calls = self.service([[old], [old],
+                                  [{"id": "new", "status": "DEPLOYING"}, old],
+                                  [{"id": "new", "status": "SUCCESS"}, old]])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("new SUCCESS", out.stdout)
+        self.assertEqual(calls[1], ["redeploy", "--service", "Postgres", "--environment",
+                                    "test", "--yes", "--from-source", "--json"])
+        self.assertEqual(len(calls), 5)
+
+    def test_failed_or_crashed_start_fails(self):
+        for status in ("FAILED", "CRASHED", "REMOVED"):
+            with self.subTest(status=status):
+                out, _ = self.service([[], [{"id": "new", "status": status}]])
+                self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+                self.assertIn(status, out.stderr)
+
+    def test_timeout_ignores_stale_success_for_known_id(self):
+        out, _ = self.service([[{"id": "old", "status": "REMOVED"}],
+                               [{"id": "old", "status": "SUCCESS"}]], timeout="0.2")
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("did not reach SUCCESS", out.stderr)
+
+    def test_timeout_without_any_new_deployment(self):
+        out, _ = self.service([[]], timeout="0.2")
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("did not reach SUCCESS", out.stderr)
+
+    def test_redeploy_command_failure_propagates(self):
+        out, calls = self.service([[]], FAKE_REDEPLOY_EXIT="7")
+        self.assertEqual(out.returncode, 7, out.stdout + out.stderr)
+        self.assertEqual(len(calls), 2)
+
+    def test_down_with_nothing_running_succeeds(self):
+        out, calls = self.service([], operation="down", FAKE_DOWN_EXIT="1",
+                                  FAKE_DOWN_ERROR="No active deployment found")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(calls[0][0], "down")
+        self.assertIn("No deployment to remove", out.stdout)
+
+    def test_down_failure_propagates(self):
+        out, _ = self.service([], operation="down", FAKE_DOWN_EXIT="8",
+                              FAKE_DOWN_ERROR="permission denied")
+        self.assertEqual(out.returncode, 8)
+        self.assertIn("permission denied", out.stderr)
+
+
+class RailwayServicesReadiness(unittest.TestCase):
+    def helper(self, **extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = pathlib.Path(tmp, "fake-client")
+            fake.write_text(textwrap.dedent('''\
+                #!/usr/bin/env python3
+                import json, os, pathlib, sys
+                name = pathlib.Path(sys.argv[0]).name
+                args = sys.argv[1:]
+                with open(os.environ["FAKE_LOG"], "a") as log:
+                    log.write(json.dumps([name, *args]) + "\\n")
+                if name == "railway":
+                    assert args[:2] == ["variable", "list"]
+                    service = args[args.index("--service") + 1]
+                    variables = {"RAILWAY_TCP_PROXY_DOMAIN": "fake.invalid",
+                                 "RAILWAY_TCP_PROXY_PORT": "1234", "PGUSER": "u",
+                                 "PGPASSWORD": "p", "PGDATABASE": "railway"}
+                    print(json.dumps(variables if service != "backend" else {}))
+                elif name == "psql":
+                    if args[-1] == "SELECT 1":
+                        sys.exit(int(os.environ.get("FAKE_POSTGRES_FAIL", "0")))
+                    print("[]")
+                elif name == "redis-cli" and args[-1] == "PING":
+                    state = pathlib.Path(os.environ["FAKE_STATE"])
+                    calls = int(state.read_text()) if state.exists() else 0
+                    state.write_text(str(calls + 1))
+                    print("LOADING" if calls < int(os.environ.get("FAKE_REDIS_DELAY", "0")) else "PONG")
+                elif name == "test-command":
+                    assert os.environ["DATABASE_URL"].split("/")[-1].startswith("it_")
+                    assert os.environ["REDIS_URL"].endswith("/15")
+                    sys.exit(int(os.environ.get("FAKE_COMMAND_EXIT", "0")))
+            '''))
+            fake.chmod(0o755)
+            for name in ("railway", "psql", "redis-cli", "sleep", "test-command"):
+                pathlib.Path(tmp, name).symlink_to(fake)
+            log = pathlib.Path(tmp, "calls")
+            out = run(
+                ["bash", str(HERE / "with-railway-test-services.sh"), "test-command"],
+                env={"PATH": f"{tmp}:{os.environ['PATH']}", "FAKE_LOG": str(log),
+                     "FAKE_STATE": str(pathlib.Path(tmp, "state")), **extra},
+            )
+            return out, [json.loads(line) for line in log.read_text().splitlines()]
+
+    def test_retries_until_both_public_proxies_are_ready(self):
+        out, calls = self.helper(FAKE_REDIS_DELAY="2")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        probes = [i for i, call in enumerate(calls) if call[0] == "redis-cli" and call[-1] == "PING"]
+        create = next(i for i, call in enumerate(calls) if call[0] == "psql" and call[-1].startswith("CREATE DATABASE"))
+        self.assertEqual(len(probes), 3)
+        self.assertLess(probes[-1], create)
+        self.assertIn(["test-command"], calls)
+        self.assertTrue(any(call[-1].startswith("DROP DATABASE IF EXISTS") for call in calls))
+        self.assertTrue(any(call[-1] == "FLUSHDB" for call in calls))
+
+    def test_unready_proxy_fails_before_maintenance_or_tests(self):
+        for env in ({"FAKE_POSTGRES_FAIL": "1"}, {"FAKE_REDIS_DELAY": "99"}):
+            with self.subTest(env=env):
+                out, calls = self.helper(**env)
+                self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+                self.assertIn("did not accept connections", out.stderr)
+                self.assertNotIn(["test-command"], calls)
+                queries = [call[-1] for call in calls if call[0] == "psql"]
+                self.assertEqual(set(queries), {"SELECT 1"})
+
+    def test_command_failure_survives_database_and_redis_cleanup(self):
+        out, calls = self.helper(FAKE_COMMAND_EXIT="7")
+        self.assertEqual(out.returncode, 7, out.stdout + out.stderr)
+        self.assertTrue(any(call[-1].startswith("DROP DATABASE IF EXISTS") for call in calls))
+        self.assertEqual(calls[-1][-1], "FLUSHDB")
+
+
 class RailwayDown(unittest.TestCase):
     def run_down(self, behavior):
         with tempfile.TemporaryDirectory() as tmp:
@@ -497,13 +674,13 @@ FAKE_GH = textwrap.dedent(
         if "status=in_progress" in path:
             state.write_text(str(calls + 1))
         wanted = path.split("status=")[1]
-        print(json.dumps({"workflow_runs": [{"id": int(k)} for k, v in runs.items() if v["status"] == wanted]}))
+        print(json.dumps({"workflow_runs": [{"id": int(k)} for k, v in runs.items() if v["status"] == wanted and v.get("workflow", "deploy.yml") in path]}))
     """
 )
 
 
 class WaitTurn(unittest.TestCase):
-    def wait(self, runs, timeout="5"):
+    def wait(self, runs, timeout="5", shared=False):
         import json
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -511,7 +688,8 @@ class WaitTurn(unittest.TestCase):
             fake.write_text(FAKE_GH)
             fake.chmod(0o755)
             return run(
-                ["python3", "-I", str(HERE / "wait_turn.py"), "deploy.yml"],
+                ["python3", "-I", str(HERE / "wait_turn.py"), "deploy.yml"]
+                + (["test", "railway-integration.yml:test"] if shared else []),
                 env={
                     "PATH": f"{tmp}:{os.environ['PATH']}",
                     "FAKE_STATE": str(pathlib.Path(tmp, "state")),
@@ -542,6 +720,25 @@ class WaitTurn(unittest.TestCase):
         out = self.wait({"95": {"status": "queued", "test": [None]}}, timeout="0.2")
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("Still waiting on runs [95]", out.stderr)
+
+
+    def test_shared_queue_waits_for_older_integration_run(self):
+        out = self.wait({"90": {"workflow": "railway-integration.yml", "status": "in_progress",
+                                "test": ["in_progress"] * 4 + ["completed"]}}, shared=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("Waiting for older runs", out.stdout)
+
+    def test_shared_queue_ignores_newer_integration_run(self):
+        out = self.wait({"120": {"workflow": "railway-integration.yml", "status": "in_progress",
+                                 "test": ["in_progress"]}}, shared=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertNotIn("Waiting", out.stdout)
+
+    def test_shared_queue_timeout_does_not_grant_ownership(self):
+        out = self.wait({"90": {"workflow": "railway-integration.yml", "status": "in_progress",
+                                "test": ["in_progress"]}}, shared=True, timeout="0.2")
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("Still waiting on runs [90]", out.stderr)
 
 
 class WaitHealthy(unittest.TestCase):
