@@ -124,7 +124,7 @@ test('stock threshold: labelled field with the store default as placeholder, in 
   const field = await screen.findByLabelText(
     'Ngưỡng riêng (để trống dùng mặc định)',
   );
-  expect(field.props.placeholder).toBe('5');
+  await waitFor(() => expect(field.props.placeholder).toBe('5'));
   expect(flat(field)).toMatchObject({ fontFamily: 'BeVietnamPro_400Regular' });
   expect(screen.getByText('Ngưỡng sắp hết: 5')).toHaveStyle({
     fontFamily: 'BeVietnamPro_400Regular',
