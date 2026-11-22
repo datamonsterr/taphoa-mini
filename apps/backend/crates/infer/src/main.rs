@@ -18,6 +18,7 @@ async fn main() -> anyhow::Result<()> {
         "INFERENCE_TOKEN must contain at least 32 characters"
     );
     let bind = std::env::var("INFERENCE_BIND").unwrap_or_else(|_| "127.0.0.1:8090".into());
+    let limits = taphoa_infer::transport::Limits::from_env()?;
     let provider = Provider::from_env().map_err(anyhow::Error::msg)?;
     // No socket/readiness until sessions and all inference paths have been warmed.
     let models = tokio::task::spawn_blocking(load_and_warm).await??;
@@ -33,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("SIGTERM handler");
             tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
         },
-        taphoa_infer::transport::Limits::default(),
+        limits,
     );
     let supervision = service.supervise();
     tokio::pin!(supervision);

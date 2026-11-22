@@ -24,25 +24,48 @@ impl Drop for CallDeadline {
     }
 }
 
-const BREAKER_DELAY: Duration = Duration::from_secs(30);
+const HEALTH_INTERVAL: Duration = Duration::from_secs(15);
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Debug)]
 enum Circuit {
     Closed(u64),
-    Open { until: Instant, generation: u64 },
-    HalfOpen(u64),
+    Open { generation: u64 },
+}
+impl Circuit {
+    fn generation(&self) -> u64 {
+        match *self {
+            Self::Closed(g) | Self::Open { generation: g } => g,
+        }
+    }
 }
 struct Ticket {
     generation: u64,
 }
-// Cancellation of an async warm probe must not strand the circuit half-open.
-struct AttemptGuard<'a> {
-    remote: &'a RemoteModels,
-    ticket: Option<Ticket>,
+#[derive(Clone, Copy)]
+struct FailureReason {
+    reason: &'static str,
+    status: Option<u16>,
 }
-impl Drop for AttemptGuard<'_> {
-    fn drop(&mut self) {
-        if let Some(ticket) = self.ticket.take() {
-            self.remote.finish(ticket, true);
+impl FailureReason {
+    fn new(reason: &'static str) -> Self {
+        Self {
+            reason,
+            status: None,
+        }
+    }
+    fn transport(error: &reqwest::Error) -> Self {
+        Self::new(if error.is_timeout() {
+            "worker_timeout"
+        } else if error.is_connect() {
+            "worker_connect"
+        } else {
+            "worker_transport"
+        })
+    }
+    fn http(status: u16) -> Self {
+        Self {
+            reason: "worker_http_status",
+            status: Some(status),
         }
     }
 }
@@ -51,6 +74,7 @@ enum CallError {
     Unavailable(&'static str),
     Client(RemoteError),
     UnknownEncoding,
+    HttpStatus(u16),
 }
 impl From<RemoteError> for CallError {
     fn from(e: RemoteError) -> Self {
@@ -135,11 +159,7 @@ impl RemoteModels {
             "INFERENCE_TOKEN must contain at least 32 characters"
         );
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_millis(500))
-            .timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let client = Self::client_builder().build()?;
         let side = std::env::var("EMBED_SIDE")
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
@@ -149,89 +169,98 @@ impl RemoteModels {
             url: url.trim_end_matches('/').into(),
             token: token.into(),
             client,
-            circuit: Mutex::new(Circuit::Closed(0)),
+            circuit: Mutex::new(Circuit::Open { generation: 0 }),
             runtime: tokio::runtime::Handle::current(),
             local,
             model: format!("dinov2-vits14-onnx@1/{side}"),
             side,
         })
     }
+    fn client_builder() -> reqwest::ClientBuilder {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .http1_only()
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(1)
+            .tcp_keepalive(Duration::from_secs(30))
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+    }
     fn ticket(&self) -> Result<Ticket, CallError> {
-        let mut circuit = self.circuit.lock().unwrap_or_else(|e| e.into_inner());
-        match *circuit {
+        match *self.circuit.lock().unwrap_or_else(|e| e.into_inner()) {
             Circuit::Closed(generation) => Ok(Ticket { generation }),
-            Circuit::Open { until, generation } if Instant::now() >= until => {
-                *circuit = Circuit::HalfOpen(generation);
-                Ok(Ticket { generation })
-            }
-            _ => Err(CallError::Unavailable("circuit_open")),
+            Circuit::Open { .. } => Err(CallError::Unavailable("circuit_open")),
         }
     }
-    fn finish(&self, ticket: Ticket, failed: bool) {
+    fn finish(&self, ticket: Ticket, failure: Option<FailureReason>) {
+        if let Some(failure) = failure {
+            self.set_health(ticket.generation, Err(failure));
+        }
+    }
+    fn set_health(&self, generation: u64, result: Result<(), FailureReason>) {
         let mut circuit = self.circuit.lock().unwrap_or_else(|e| e.into_inner());
-        let generation = match *circuit {
-            Circuit::Closed(g) | Circuit::HalfOpen(g) | Circuit::Open { generation: g, .. } => g,
-        };
-        // A late success from before an outage cannot close a newer open circuit.
-        if ticket.generation != generation {
+        // Neither a late health success nor a late request failure can overwrite
+        // a newer observation. User successes never close the circuit.
+        if circuit.generation() != generation {
             return;
         }
-        if failed {
-            *circuit = Circuit::Open {
-                until: Instant::now() + BREAKER_DELAY,
-                generation: generation.wrapping_add(1),
-            };
-            tracing::warn!(
-                backend = "local",
-                reason = "worker_failure",
-                "inference circuit opened for 30 seconds"
-            );
-        } else if matches!(*circuit, Circuit::HalfOpen(_)) {
-            *circuit = Circuit::Closed(generation);
-            tracing::info!(backend = "remote", "inference circuit recovered");
+        match result {
+            Err(failure) => {
+                let changed = matches!(*circuit, Circuit::Closed(_));
+                *circuit = Circuit::Open {
+                    generation: generation.wrapping_add(1),
+                };
+                if changed {
+                    tracing::info!(
+                        state = "open",
+                        reason = failure.reason,
+                        status = failure.status,
+                        "inference circuit changed"
+                    );
+                }
+            }
+            Ok(()) => {
+                let changed = matches!(*circuit, Circuit::Open { .. });
+                if changed {
+                    *circuit = Circuit::Closed(generation.wrapping_add(1));
+                    tracing::info!(
+                        state = "closed",
+                        reason = "worker_healthy",
+                        "inference circuit changed"
+                    );
+                }
+            }
         }
     }
-    fn attempt<T>(
-        &self,
-        operation: &str,
-        work: impl FnOnce() -> Result<T, CallError>,
-    ) -> Result<T, CallError> {
+    fn attempt<T>(&self, work: impl FnOnce() -> Result<T, CallError>) -> Result<T, CallError> {
         if taphoa_recognition::work::current().is_some_and(|control| control.check().is_err()) {
             return Err(CallError::Unavailable("request_deadline"));
         }
         let ticket = self.ticket()?;
-        let mut guard = AttemptGuard {
-            remote: self,
-            ticket: Some(ticket),
-        };
         let deadline = Instant::now() + Duration::from_secs(10);
         let deadline = taphoa_recognition::work::current()
             .map_or(deadline, |control| deadline.min(control.deadline()));
         let _deadline = CallDeadline(CALL_DEADLINE.replace(Some(deadline)));
         let result = work();
         self.finish(
-            guard.ticket.take().unwrap(),
-            matches!(result, Err(CallError::Unavailable(_))),
+            ticket,
+            match &result {
+                Err(CallError::Unavailable(reason)) => Some(FailureReason::new(reason)),
+                Err(CallError::HttpStatus(status)) => Some(FailureReason::http(*status)),
+                _ => None,
+            },
         );
-        if result.is_ok() {
-            tracing::info!(backend = "remote", operation, "inference served");
-        }
         result
     }
     async fn response<T: DeserializeOwned>(
         &self,
         response: Result<reqwest::Response, reqwest::Error>,
     ) -> Result<T, CallError> {
-        let mut response = response.map_err(|e| {
-            CallError::Unavailable(if e.is_timeout() {
-                "worker_timeout"
-            } else {
-                "worker_transport"
-            })
-        })?;
+        let mut response =
+            response.map_err(|e| CallError::Unavailable(FailureReason::transport(&e).reason))?;
         let status = response.status();
         if status.is_server_error() {
-            return Err(CallError::Unavailable("worker_5xx"));
+            return Err(CallError::HttpStatus(status.as_u16()));
         }
         if status.is_client_error() {
             // Do not copy worker text or request/credential material to logs/errors.
@@ -254,7 +283,7 @@ impl RemoteModels {
             }));
         }
         if !status.is_success() {
-            return Err(CallError::Unavailable("worker_protocol"));
+            return Err(CallError::HttpStatus(status.as_u16()));
         }
         if response
             .headers()
@@ -268,7 +297,7 @@ impl RemoteModels {
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|_| CallError::Unavailable("worker_transport"))?
+            .map_err(|e| CallError::Unavailable(FailureReason::transport(&e).reason))?
         {
             if bytes.len() + chunk.len() > BODY_LIMIT {
                 return Err(CallError::Unavailable("worker_response_limit"));
@@ -294,7 +323,8 @@ impl RemoteModels {
         if remaining.is_zero() {
             return Err(CallError::Unavailable("worker_timeout"));
         }
-        self.runtime.block_on(async {
+        let started = Instant::now();
+        let result = self.runtime.block_on(async {
             self.response(
                 self.client
                     .post(format!("{}/v1/{operation}", self.url))
@@ -306,8 +336,27 @@ impl RemoteModels {
                     .await,
             )
             .await
-        })
+        });
+        Self::log_call(operation, started, &result);
+        result
     }
+    fn log_call<T>(operation: &str, started: Instant, result: &Result<T, CallError>) {
+        let (outcome, status) = match result {
+            Ok(_) => ("success", None),
+            Err(CallError::Unavailable(reason)) => (*reason, None),
+            Err(CallError::HttpStatus(status)) => ("worker_http_status", Some(*status)),
+            Err(CallError::Client(error)) => ("worker_client_error", Some(error.status)),
+            Err(CallError::UnknownEncoding) => ("unknown_encoding", Some(410)),
+        };
+        tracing::debug!(
+            operation,
+            duration_ms = started.elapsed().as_millis() as u64,
+            outcome,
+            status,
+            "inference remote call"
+        );
+    }
+
     fn embeddings<T: Serialize>(
         &self,
         operation: &str,
@@ -351,9 +400,14 @@ impl RemoteModels {
         remote: impl FnOnce() -> Result<T, CallError>,
         local: impl FnOnce(&AppState) -> Result<T, E>,
     ) -> Result<T, E> {
-        match self.attempt(operation, remote) {
+        let result = self.attempt(remote).map_err(|error| match error {
+            CallError::HttpStatus(_) => CallError::Unavailable("worker_http_status"),
+            error => error,
+        });
+        match result {
             Ok(value) => Ok(value),
             Err(CallError::Client(e)) => Err(e.into()),
+            Err(CallError::HttpStatus(_)) => unreachable!("HTTP failure normalized above"),
             Err(CallError::UnknownEncoding) => Err(RemoteError {
                 status: 410,
                 message: "encoding could not be renewed".into(),
@@ -393,51 +447,102 @@ impl RemoteModels {
     pub fn local_state(&self) -> &AppState {
         &self.local
     }
-    pub async fn healthy(&self) -> bool {
-        let ticket = match self.ticket() {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
-        let mut guard = AttemptGuard {
-            remote: self,
-            ticket: Some(ticket),
-        };
-        let response = self
-            .client
-            .get(format!("{}/healthz", self.url))
-            .timeout(Duration::from_millis(500))
-            .send()
-            .await;
-        let result = match response {
-            Ok(response) => Self::health_response(response).await,
-            Err(_) => false,
-        };
-        self.finish(guard.ticket.take().unwrap(), !result);
+    /// Read the monitor's state without doing network I/O on a user request.
+    pub fn healthy(&self) -> bool {
+        matches!(
+            *self.circuit.lock().unwrap_or_else(|e| e.into_inner()),
+            Circuit::Closed(_)
+        )
+    }
+    pub fn spawn_monitor(
+        self: &Arc<Self>,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> tokio::task::JoinHandle<()> {
+        self.spawn_monitor_with_interval(shutdown, HEALTH_INTERVAL)
+    }
+    fn spawn_monitor_with_interval(
+        self: &Arc<Self>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+        period: Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        let remote = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(period);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                if *shutdown.borrow_and_update() {
+                    break;
+                }
+                tokio::select! {
+                    biased;
+                    changed = shutdown.changed() => { if changed.is_err() { break; } continue; },
+                    _ = interval.tick() => {}
+                }
+                let generation = remote
+                    .circuit
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .generation();
+                let result = tokio::select! {
+                    biased;
+                    changed = shutdown.changed() => { if changed.is_err() { break; } continue; },
+                    result = remote.probe_health() => result,
+                };
+                remote.set_health(generation, result);
+                if shutdown.has_changed().is_err() {
+                    break;
+                }
+            }
+        })
+    }
+    async fn probe_health(&self) -> Result<(), FailureReason> {
+        let started = Instant::now();
+        let result = async {
+            let response = self
+                .client
+                .get(format!("{}/healthz", self.url))
+                .timeout(HEALTH_TIMEOUT)
+                .send()
+                .await
+                .map_err(|e| FailureReason::transport(&e))?;
+            Self::health_response(response).await
+        }
+        .await;
+        let logged = result.map_err(|failure| match failure.status {
+            Some(status) => CallError::HttpStatus(status),
+            None => CallError::Unavailable(failure.reason),
+        });
+        Self::log_call("health", started, &logged);
         result
     }
-    async fn health_response(mut response: reqwest::Response) -> bool {
-        if !response.status().is_success() || response.content_length().is_some_and(|n| n > 4096) {
-            return false;
+    async fn health_response(mut response: reqwest::Response) -> Result<(), FailureReason> {
+        if !response.status().is_success() {
+            return Err(FailureReason::http(response.status().as_u16()));
+        }
+        if response.content_length().is_some_and(|n| n > 4096) {
+            return Err(FailureReason::new("worker_response_limit"));
         }
         let mut bytes = Vec::new();
-        loop {
-            match response.chunk().await {
-                Ok(Some(chunk)) => {
-                    if chunk.len() > 4096 - bytes.len() {
-                        return false;
-                    }
-                    bytes.extend_from_slice(&chunk);
-                }
-                Ok(None) => break,
-                Err(_) => return false,
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| FailureReason::transport(&e))?
+        {
+            if chunk.len() > 4096 - bytes.len() {
+                return Err(FailureReason::new("worker_response_limit"));
             }
+            bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice::<Health>(&bytes).is_ok_and(|h| {
+        if serde_json::from_slice::<Health>(&bytes).is_ok_and(|h| {
             h.status == "ready"
                 && ["sam", "dinov2", "ocr"]
                     .iter()
                     .all(|f| h.loaded.iter().any(|x| x == f))
-        })
+        }) {
+            Ok(())
+        } else {
+            Err(FailureReason::new("worker_not_ready"))
+        }
     }
     fn unavailable() -> RemoteError {
         RemoteError {
@@ -697,6 +802,17 @@ impl ReceiptOcr for RemoteModels {
 }
 
 #[cfg(test)]
+pub(crate) fn ready_remote(
+    url: &str,
+    token: &str,
+    local: AppState,
+) -> anyhow::Result<RemoteModels> {
+    let remote = RemoteModels::new(url, token, local)?;
+    *remote.circuit.lock().unwrap() = Circuit::Closed(0);
+    Ok(remote)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use axum::{
@@ -726,8 +842,15 @@ mod tests {
         calls: Arc<AtomicUsize>,
         encodes: Arc<AtomicUsize>,
         decodes: Arc<AtomicUsize>,
+        health_calls: Arc<AtomicUsize>,
+        health_hangs: Arc<std::sync::atomic::AtomicBool>,
+        peers: Arc<Mutex<std::collections::HashSet<std::net::SocketAddr>>>,
     }
-    async fn fake_segment(State(state): State<Fake>) -> axum::response::Response {
+    async fn fake_segment(
+        State(state): State<Fake>,
+        axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    ) -> axum::response::Response {
+        state.peers.lock().unwrap().insert(peer);
         state.calls.fetch_add(1, Ordering::SeqCst);
         (
             StatusCode::from_u16(state.status.load(Ordering::SeqCst) as u16).unwrap(),
@@ -736,7 +859,15 @@ mod tests {
         )
             .into_response()
     }
-    async fn fake_health(State(state): State<Fake>) -> axum::response::Response {
+    async fn fake_health(
+        State(state): State<Fake>,
+        axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    ) -> axum::response::Response {
+        state.peers.lock().unwrap().insert(peer);
+        state.health_calls.fetch_add(1, Ordering::SeqCst);
+        if state.health_hangs.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
         (
             StatusCode::from_u16(state.status.load(Ordering::SeqCst) as u16).unwrap(),
             axum::Json(Health {
@@ -797,6 +928,9 @@ mod tests {
             calls: Arc::new(AtomicUsize::new(0)),
             encodes: Arc::new(AtomicUsize::new(0)),
             decodes: Arc::new(AtomicUsize::new(0)),
+            health_calls: Arc::new(AtomicUsize::new(0)),
+            health_hangs: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            peers: Arc::new(Mutex::new(std::collections::HashSet::new())),
         };
         let router = Router::new()
             .route("/v1/segment", post(fake_segment))
@@ -807,7 +941,12 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let task = tokio::spawn(async move {
-            axum::serve(listener, router).await.unwrap();
+            axum::serve(
+                listener,
+                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
         (url, fake, task)
     }
@@ -830,43 +969,178 @@ mod tests {
             .await
             .unwrap()
     }
-    fn expire(remote: &RemoteModels) {
-        let mut state = remote.circuit.lock().unwrap();
-        let generation = match *state {
-            Circuit::Open { generation, .. } => generation,
-            _ => panic!("must be open"),
-        };
-        *state = Circuit::Open {
-            generation,
-            until: Instant::now() - Duration::from_secs(1),
-        };
-    }
     #[tokio::test]
-    async fn success_5xx_breaker_single_probe_and_recovery() {
+    async fn success_5xx_breaker_stays_open_until_health_recovery() {
         let (url, fake, task) = worker().await;
         let (local, local_calls) = local();
-        let remote = Arc::new(RemoteModels::new(&url, TOKEN, local).unwrap());
+        let remote = Arc::new(ready_remote(&url, TOKEN, local).unwrap());
         segment(remote.clone()).await.unwrap();
-        assert_eq!(local_calls.load(Ordering::SeqCst), 0);
         fake.status.store(503, Ordering::SeqCst);
         segment(remote.clone()).await.unwrap();
         segment(remote.clone()).await.unwrap();
         assert_eq!(fake.calls.load(Ordering::SeqCst), 2);
         assert_eq!(local_calls.load(Ordering::SeqCst), 2);
-        expire(&remote);
-        let ticket = remote.ticket().unwrap();
         assert!(remote.ticket().is_err());
-        remote.finish(ticket, true);
-        expire(&remote);
+        let generation = remote.circuit.lock().unwrap().generation();
         fake.status.store(200, Ordering::SeqCst);
+        remote.set_health(generation, remote.probe_health().await);
         segment(remote.clone()).await.unwrap();
-        assert!(matches!(
-            *remote.circuit.lock().unwrap(),
-            Circuit::Closed(_)
-        ));
+        assert!(remote.healthy());
         assert_eq!(local_calls.load(Ordering::SeqCst), 2);
         assert_eq!(fake.calls.load(Ordering::SeqCst), 3);
         task.abort();
+    }
+    #[tokio::test]
+    async fn fresh_tls_connection_survives_800ms_delayed_accept() {
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // Public, test-only certificate/key; no runtime key generation.
+        let certificate = include_bytes!("../tests/fixtures/remote-tls/cert.pem");
+        let key = include_bytes!("../tests/fixtures/remote-tls/key.pem");
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let tls = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from_pem_slice(certificate).unwrap()],
+                PrivateKeyDer::from_pem_slice(key).unwrap(),
+            )
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("https://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_rustls::TlsAcceptor::from(Arc::new(tls))
+                .accept(socket)
+                .await
+                .unwrap();
+            let mut head = Vec::new();
+            loop {
+                head.push(socket.read_u8().await.unwrap());
+                if head.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let head = String::from_utf8(head).unwrap();
+            assert!(head.starts_with("POST /v1/segment HTTP/1.1"));
+            let size: usize = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length: "))
+                .unwrap()
+                .parse()
+                .unwrap();
+            socket.read_exact(&mut vec![0; size]).await.unwrap();
+            let body = wire::encode(&Vec::<Segment>::new()).unwrap();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: {CONTENT_TYPE}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+            socket.write_all(&body).await.unwrap();
+            socket.shutdown().await.unwrap();
+        });
+        let (local, local_calls) = local();
+        let mut remote = ready_remote(&url, TOKEN, local).unwrap();
+        remote.client = RemoteModels::client_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(certificate).unwrap())
+            .build()
+            .unwrap();
+        let started = Instant::now();
+        segment(Arc::new(remote)).await.unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(800));
+        assert_eq!(local_calls.load(Ordering::SeqCst), 0);
+        task.await.unwrap();
+    }
+    async fn wait_health(remote: &RemoteModels, healthy: bool) {
+        tokio::time::timeout(Duration::from_secs(4), async {
+            while remote.healthy() != healthy {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("monitor must update breaker");
+    }
+    #[tokio::test]
+    async fn background_monitor_opens_recovers_and_open_calls_never_contact_worker() {
+        let (url, fake, task) = worker().await;
+        let (local, local_calls) = local();
+        let remote = Arc::new(RemoteModels::new(&url, TOKEN, local).unwrap());
+        assert!(!remote.healthy());
+        segment(remote.clone()).await.unwrap();
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
+        let (stop, stopped) = tokio::sync::watch::channel(false);
+        let monitor = remote.spawn_monitor_with_interval(stopped, Duration::from_millis(50));
+        wait_health(&remote, true).await;
+        segment(remote.clone()).await.unwrap();
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+        fake.health_hangs.store(true, Ordering::SeqCst);
+        wait_health(&remote, false).await;
+        let reached = fake.calls.swap(0, Ordering::SeqCst);
+        assert_eq!(reached, 1);
+        for _ in 0..3 {
+            segment(remote.clone()).await.unwrap();
+        }
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(local_calls.load(Ordering::SeqCst), 4);
+        fake.health_hangs.store(false, Ordering::SeqCst);
+        wait_health(&remote, true).await;
+        segment(remote.clone()).await.unwrap();
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+        stop.send_replace(true);
+        tokio::time::timeout(Duration::from_millis(250), monitor)
+            .await
+            .unwrap()
+            .unwrap();
+        task.abort();
+    }
+    #[tokio::test]
+    async fn health_connection_is_reused_for_inference() {
+        let (url, fake, task) = worker().await;
+        let (local, _) = local();
+        let remote = Arc::new(ready_remote(&url, TOKEN, local).unwrap());
+        assert!(remote.probe_health().await.is_ok());
+        segment(remote.clone()).await.unwrap();
+        assert!(remote.probe_health().await.is_ok());
+        assert_eq!(fake.health_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fake.peers.lock().unwrap().len(),
+            1,
+            "health and inference share one HTTP/1 connection"
+        );
+        task.abort();
+    }
+    #[tokio::test]
+    async fn healthy_monitor_tick_does_not_discard_inflight_user_failure() {
+        let remote = ready_remote("http://127.0.0.1:1", TOKEN, AppState::default()).unwrap();
+        let ticket = remote.ticket().unwrap();
+        remote.set_health(ticket.generation, Ok(()));
+        remote.finish(ticket, Some(FailureReason::new("worker_connect")));
+        assert!(!remote.healthy());
+    }
+    #[tokio::test]
+    async fn monitor_shutdown_cancels_inflight_health() {
+        let (url, fake, task) = worker().await;
+        fake.health_hangs.store(true, Ordering::SeqCst);
+        let remote = Arc::new(RemoteModels::new(&url, TOKEN, AppState::default()).unwrap());
+        let (stop, stopped) = tokio::sync::watch::channel(false);
+        let monitor = remote.spawn_monitor(stopped);
+        while fake.health_calls.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+        stop.send_replace(true);
+        tokio::time::timeout(Duration::from_millis(250), monitor)
+            .await
+            .unwrap()
+            .unwrap();
+        task.abort();
+    }
+    #[tokio::test]
+    async fn stale_health_success_cannot_close_newer_request_failure() {
+        let remote = ready_remote("http://127.0.0.1:1", TOKEN, AppState::default()).unwrap();
+        let generation = remote.circuit.lock().unwrap().generation();
+        remote.finish(
+            remote.ticket().unwrap(),
+            Some(FailureReason::new("worker_connect")),
+        );
+        remote.set_health(generation, Ok(()));
+        assert!(!remote.healthy());
     }
     #[tokio::test]
     async fn transport_failure_uses_local_once_and_missing_local_is_retryable() {
@@ -874,7 +1148,7 @@ mod tests {
         let url = format!("http://{}", listener.local_addr().unwrap());
         drop(listener);
         let (local, calls) = local();
-        let remote = Arc::new(RemoteModels::new(&url, TOKEN, local).unwrap());
+        let remote = Arc::new(ready_remote(&url, TOKEN, local).unwrap());
         segment(remote.clone()).await.unwrap();
         segment(remote.clone()).await.unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -882,7 +1156,7 @@ mod tests {
             *remote.circuit.lock().unwrap(),
             Circuit::Open { .. }
         ));
-        let remote = Arc::new(RemoteModels::new(&url, TOKEN, AppState::default()).unwrap());
+        let remote = Arc::new(ready_remote(&url, TOKEN, AppState::default()).unwrap());
         let error = segment(remote).await.unwrap_err();
         assert!(matches!(
             error,
@@ -894,7 +1168,7 @@ mod tests {
         let (url, fake, task) = worker().await;
         fake.status.store(422, Ordering::SeqCst);
         let (local, calls) = local();
-        let remote = Arc::new(RemoteModels::new(&url, TOKEN, local).unwrap());
+        let remote = Arc::new(ready_remote(&url, TOKEN, local).unwrap());
         let error = segment(remote.clone()).await.unwrap_err();
         assert!(matches!(
             error,
@@ -911,7 +1185,7 @@ mod tests {
     async fn unknown_handle_reencodes_once_and_updates_cached_handle() {
         let (url, fake, task) = worker().await;
         let (local, _) = local();
-        let remote = Arc::new(RemoteModels::new(&url, TOKEN, local).unwrap());
+        let remote = Arc::new(ready_remote(&url, TOKEN, local).unwrap());
         tokio::task::spawn_blocking(move || {
             let encoding = remote.encode(&[1]).unwrap();
             let points = [PointPrompt {
@@ -936,7 +1210,7 @@ mod tests {
         task.abort();
     }
     #[tokio::test]
-    async fn warm_uses_health_without_local_load_and_loads_local_when_down() {
+    async fn warm_reads_breaker_without_health_call_and_loads_local_when_down() {
         let (url, fake, task) = worker().await;
         let (mut local, _) = local();
         local.embedder = None;
@@ -951,14 +1225,18 @@ mod tests {
             },
         ));
         let mut state = local.clone();
-        state.remote_models = Some(Arc::new(RemoteModels::new(&url, TOKEN, local).unwrap()));
+        state.remote_models = Some(Arc::new(ready_remote(&url, TOKEN, local).unwrap()));
         let warm = crate::recognition::warm::warm_models(&state).await.unwrap();
         assert_eq!(
             serde_json::to_value(warm).unwrap()["sam"]["backend"],
             "remote"
         );
         assert_eq!(loads.load(Ordering::SeqCst), 0);
+        assert_eq!(fake.health_calls.load(Ordering::SeqCst), 0);
         fake.status.store(503, Ordering::SeqCst);
+        let remote = state.remote_models.as_ref().unwrap();
+        let generation = remote.circuit.lock().unwrap().generation();
+        remote.set_health(generation, remote.probe_health().await);
         let warm = crate::recognition::warm::warm_models(&state).await.unwrap();
         assert_eq!(
             serde_json::to_value(warm).unwrap()["dinov2"]["backend"],
@@ -969,7 +1247,7 @@ mod tests {
     }
     #[tokio::test]
     async fn cancelled_load_result_is_not_used_for_local_inference() {
-        let remote = RemoteModels::new("http://127.0.0.1:1", TOKEN, AppState::default()).unwrap();
+        let remote = ready_remote("http://127.0.0.1:1", TOKEN, AppState::default()).unwrap();
         let error = tokio::task::spawn_blocking(move || {
             let control =
                 taphoa_recognition::work::WorkControl::new(Instant::now() + Duration::from_secs(1));
@@ -990,11 +1268,11 @@ mod tests {
     async fn stale_success_cannot_close_a_newer_open_circuit() {
         let (url, _, task) = worker().await;
         let (local, _) = local();
-        let remote = RemoteModels::new(&url, TOKEN, local).unwrap();
+        let remote = ready_remote(&url, TOKEN, local).unwrap();
         let old = remote.ticket().unwrap();
         let failed = remote.ticket().unwrap();
-        remote.finish(failed, true);
-        remote.finish(old, false);
+        remote.finish(failed, Some(FailureReason::new("worker_timeout")));
+        remote.finish(old, None);
         assert!(matches!(
             *remote.circuit.lock().unwrap(),
             Circuit::Open { .. }
@@ -1074,7 +1352,7 @@ mod security_tests {
                 let chunks = futures_util::stream::iter(
                     (0..16).map(|_| Ok::<_, std::io::Error>(Bytes::from(vec![b'x'; 1024]))),
                 );
-                // Never completes: bytes() would wait until the 500 ms timeout.
+                // Never completes: bytes() would wait until the 2 s timeout.
                 Body::from_stream(chunks.chain(futures_util::stream::pending()))
             }),
         );
@@ -1083,7 +1361,7 @@ mod security_tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let remote = RemoteModels::new(
+        let remote = ready_remote(
             &url,
             "health-test-token-with-at-least-32-characters",
             AppState::default(),
@@ -1098,14 +1376,11 @@ mod security_tests {
         assert!(response.content_length().is_none());
         drop(response);
         assert!(
-            !tokio::time::timeout(Duration::from_millis(250), remote.healthy())
+            tokio::time::timeout(Duration::from_millis(250), remote.probe_health())
                 .await
                 .expect("must stop at 4 KiB without waiting for the full body")
+                .is_err()
         );
-        assert!(matches!(
-            *remote.circuit.lock().unwrap(),
-            Circuit::Open { .. }
-        ));
         server.abort();
     }
 }
@@ -1153,7 +1428,7 @@ mod ocr_limit_tests {
             ..AppState::default()
         };
         let remote = Arc::new(
-            RemoteModels::new(&url, "receipt-test-token-at-least-32-characters", local).unwrap(),
+            ready_remote(&url, "receipt-test-token-at-least-32-characters", local).unwrap(),
         );
         let copy = remote.clone();
         let error = tokio::task::spawn_blocking(move || copy.read_lines(&[0]))
@@ -1230,7 +1505,7 @@ mod crop_transport_tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let remote = RemoteModels::new(
+        let remote = ready_remote(
             &url,
             "a-crop-transport-token-at-least-32-characters",
             AppState::default(),

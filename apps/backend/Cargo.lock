@@ -4229,6 +4229,7 @@ dependencies = [
  "taphoa-recognition",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "toml",
  "tower",
  "tower-http 0.7.1",
@@ -4245,6 +4246,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "http-body-util",
  "hyper",
  "hyper-util",
  "image",

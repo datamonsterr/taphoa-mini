@@ -9,6 +9,7 @@ license.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 hyper = { version = "1.12.0", features = ["http1", "server"] }
+http-body-util.workspace = true
 hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
 image.workspace = true
 serde.workspace = true

@@ -357,8 +357,9 @@ flowchart TD
   incompatible `EMBED_SIDE` settings from mixing vectors.
   The worker runs one inference at a time with two queued requests, a 10 MiB body limit,
   dimension validation and a 10 s deadline. Before auth, HTTP/1 connections are capped
-  at 32; excess sockets close immediately. Request headers and idle keep-alive each
-  have a 3 s budget; headers/start line are limited to 8 KiB and 32 fields. Native
+  at 32; excess sockets close immediately. Idle keep-alive lasts 120 s by default
+  (`INFERENCE_IDLE_KEEPALIVE_SECS`); once a request head starts, its deadline is 3 s
+  without extension for partial bytes. Headers/start line are limited to 8 KiB and 32 fields. Native
   inference already running at a deadline must finish before its slot is released;
   cancellation checks stop further SAM prompts, embedding batches and OCR steps.
   OCR caps 512 boxes / 16 Mi-pixels of total crops before materialisation, returning
@@ -373,21 +374,27 @@ flowchart TD
   encodings retain tensors and never pin a local session between calls.
   Non-loopback `INFERENCE_URL` requires HTTPS. `INFERENCE_ALLOW_PLAINTEXT=1` is
   only for a transport that is already encrypted, such as a private WireGuard network.
-  Health replies are streamed and stopped at 4 KiB. Remote calls have a 500 ms connect
+  Health replies are streamed and stopped at 4 KiB. Remote calls have a 3 s TCP/TLS connect
   timeout and a 10 s cap per trait call across crop batches/retries, limited by the
   remaining 18 s HTTP request deadline. The deadline also covers local fallback loads
   and inference, and releases HTTP admission on expiry. Cooperative work controls
   prevent further SAM prompts, crop batches and OCR decoder steps after cancellation;
   a native call already running is allowed to finish. Transport failures, timeouts
-  and 5xx responses open a process-wide
-  circuit for 30 s and run that call through the existing lazy CPU holders. During the
-  open period calls go directly local; one half-open probe can close the circuit.
-  A failed or cancelled probe reopens it; stale successes cannot close a newer outage.
+  and 5xx responses open a process-wide circuit and run that call through the existing
+  lazy CPU holders. A background health monitor runs immediately and every 15 s with a
+  2 s timeout, closes the circuit when healthy and opens it when unhealthy. The circuit
+  starts open; user calls go directly local while open and never probe recovery.
+  Generation checks prevent stale observations from overwriting a newer outage.
+  The monitor stops on shutdown. The HTTP/1 client retains one idle connection for 90 s,
+  with TCP keepalive after 30 s; health checks keep the connection warm.
   Worker 4xx responses preserve their status without fallback. Missing local weights
   produce the existing retryable 503. No request is speculatively sent to both backends.
-  Warm checks worker health first and reports `backend` for each family without loading
-  CPU models. Fallback leases release normally, so idle unloading still applies after
-  recovery. Logs include `backend` and fallback `reason`, without credentials/images.
+  Warm reads the monitor's breaker state and reports `backend` for each family without
+  a network probe or loading CPU models when healthy. Fallback leases release normally, so idle unloading still applies after
+  recovery. Remote calls log operation, duration and outcome at debug level; breaker
+  changes log state and reason (timeout, connect error or HTTP status) once at info level.
+  Each worker `/v1/` request logs route, status, bytes received and duration at info level.
+  Fallback logs include `backend` and `reason`, without credentials/images.
   [Installation](../infra/inference-worker/README.md) uses a sandboxed systemd user unit;
   the tunnel is a separate later step. [Measurements and reproduction](specs/recognition-latency.md#inference-worker)
   cover CPU/GPU parity, API latency and failover under resource limits.

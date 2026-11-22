@@ -119,13 +119,30 @@ digests. Bodies are limited to 10 MiB; images to 4096 pixels per edge and decode
 allocation limits. Crop dimensions/lengths and points are checked before inference.
 One operation runs while two wait. Excess work returns `503` with `Retry-After: 1`.
 Before authentication, at most **32** accepted HTTP/1 connections can be served.
-Excess sockets are immediately closed without spawning waiting tasks. Complete request
-headers must arrive within **3 seconds**, including each keep-alive wait; partial bytes
-do not reset the deadline. Start line plus headers are capped at **8192 bytes**, with
+Excess sockets are immediately closed without spawning waiting tasks. Idle keep-alive
+connections may wait **120 seconds** by default (`INFERENCE_IDLE_KEEPALIVE_SECS`, positive
+integer). Once a request head starts, complete headers must arrive within **3 seconds**;
+partial bytes do not reset the deadline. A fresh connection that sends nothing also
+expires after 3 seconds. Start line plus headers are capped at **8192 bytes**, with
 at most 32 headers and a 16 KiB connection buffer. Oversized headers get 431. HTTP/2
-is not accepted on this internal hop. The implementation uses the pinned
+is not accepted on this internal hop. The backend uses non-pipelined HTTP/1.
+The first-byte timer observes new transport reads; a partial pipelined head already
+buffered inside Hyper retains the idle timeout rather than the 3 s header timeout.
+The connection cap still applies. The implementation uses the pinned
 [hyper 1.12.0 builder](https://docs.rs/hyper/1.12.0/hyper/server/conn/http1/struct.Builder.html)
 and [hyper-util 0.1.21 adapter](https://docs.rs/hyper-util/0.1.21/hyper_util/service/struct.TowerToHyperService.html).
+
+| Transport limit                       | Default                                          | Configuration                   |
+| ------------------------------------- | ------------------------------------------------ | ------------------------------- |
+| Accepted connections (including idle) | 32                                               | Fixed                           |
+| Request head                          | 3 s from first bytes (also fresh silent sockets) | Fixed                           |
+| Idle keep-alive                       | 120 s                                            | `INFERENCE_IDLE_KEEPALIVE_SECS` |
+| Start line and headers                | 8192 bytes / 32 fields                           | Fixed                           |
+
+Each `/v1/` request produces one info access log with route, status, actual body bytes
+received and duration in ms. No token or payload is logged. The API logs remote calls
+at debug level with operation, duration and outcome, and breaker state changes once
+at info level with the reason and HTTP status when available.
 
 Each request has a 10 s deadline covering body receipt and queue time. Deadline or
 request cancellation stops SAM before its next prompt, DINOv2 before its next batch,
@@ -154,11 +171,16 @@ or restart; the API retains source bytes and re-encodes/retries once, updating t
 cached handle. A local encoding from fallback is independently cached and re-encoded
 on the worker after recovery. No embeddings or photographs are persisted by the worker.
 
-The backend circuit opens for 30 s after transport failure, timeout or 5xx and sends
-subsequent calls directly to lazy local holders. One probe is admitted after that;
-success closes the circuit, failure/cancellation reopens it. 4xx does not fall back.
-No simultaneous hedged inference is issued. Warm uses the cheap health route when
-ready and otherwise loads local models. The API response includes each family's
+The backend uses a 3 s TCP/TLS connect timeout and preserves the existing 10 s trait-call
+budget capped by the remaining request deadline. Its HTTP/1 pool retains one idle
+connection for 90 s, with TCP keepalive after 30 s. A shutdown-aware background monitor
+checks health immediately and every 15 s with a 2 s timeout, keeping the connection warm.
+The circuit starts open, closes when health succeeds and opens when health fails.
+Transport failure, timeout or 5xx during a user call also opens it and falls back for
+that call. While open, user calls go directly to lazy local holders without a probe;
+only the monitor restores remote service. Stale observations cannot overwrite a newer
+outage. 4xx does not fall back. No simultaneous hedged inference is issued.
+Warm reads the circuit state and otherwise loads local models. The API response includes each family's
 selected `backend`; local sessions unload after `MODEL_IDLE_UNLOAD_SECS` as usual.
 
 ## Service constraints and operation
@@ -212,18 +234,18 @@ All three implementation parts are committed separately (CUDA provider, worker,
 then API fallback plus packaging). The code leaves the existing model files,
 recognition thresholds/results and mobile application unchanged.
 
-| Acceptance item                   | Result and evidence                                                                                                                                                                                                                                                                                                                                                          |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Default CPU-only workspace checks | PASS: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`, 561 passed / 402 existing ignored tests. No GPU variables were set. Clippy exits 0; Cargo reports the existing unused `axum-extra` manifest warning.                                                                                                                                |
-| Formatting / OpenAPI              | PASS: Prettier on every touched Markdown/TS/YAML file; `pnpm lint:api` validates the warm response's `backend` property, with six pre-existing warnings.                                                                                                                                                                                                                     |
-| Fake model/worker tests           | PASS: remote success; refused transport / 5xx local fallback; open circuit and single half-open recovery; stale-success protection; 4xx propagation; one unknown-handle renewal; warm remote and local states; auth missing/wrong/right, 10 MiB body limit, saturated admission 503/Retry-After, invalid dimensions/crops, bounded/expired handles and mask/wire round-trip. |
-| GPU install / startup             | PASS: all eight wheel SHA-256 checks, idempotent rerun; actual worker ready on CUDA using installed libraries; strict provider registration and blocking sync.                                                                                                                                                                                                               |
-| Real CPU/CUDA parity              | PASS: 20 segments; minimum of 64 mask IoUs 0.9999623; crop cosine >=0.99999999998; identical OCR text on three receipts.                                                                                                                                                                                                                                                     |
-| Real API latency                  | PASS: 20 warm calls per endpoint per mode, same release API, CPU-only then CUDA worker under the requested scope limits; table in latency spec.                                                                                                                                                                                                                              |
-| Outage / recovery / unloading     | PASS: statuses 200 throughout; first local call 2088.6 ms; open-circuit call 1578.5 ms; recovered remote 376.7 ms. Logged cold load, breaker reason, recovery and SAM idle unload; warm returns remote without local loads.                                                                                                                                                  |
-| Resources and user sandbox        | PASS: scope enforces 200% CPU / 2 GiB; latency holds, all-model RSS/VRAM, CPU-s per scan and 60 s idle measured. The listed sandbox settings also started real CUDA models in a transient user service and returned ready.                                                                                                                                                   |
-| Security hardening recheck        | PASS: connection admission/header/idle tests; OCR box/area preflight and cancellation; engine supervision/liveness; encrypted URL matrix; oversized chunked health. Final scope: MemoryHigh=infinity, MemoryMax=2G, MemorySwapMax=0, CPUQuota=200%; 1145.6 MiB RSS, zero swap, 1522 MiB VRAM, 20 warm calls per endpoint within 5% of earlier p50.                           |
-| Documentation / packaging / scope | PASS: unit, copy-only installer, operator instructions, architecture and latency report. No tunnel, deploy workflow, Railway command, persistent unit startup, push or PR. All test worker processes/scopes stopped.                                                                                                                                                         |
+| Acceptance item                   | Result and evidence                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default CPU-only workspace checks | PASS: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`, 561 passed / 402 existing ignored tests. No GPU variables were set. Clippy exits 0; Cargo reports the existing unused `axum-extra` manifest warning.                                                                                                                              |
+| Formatting / OpenAPI              | PASS: Prettier on every touched Markdown/TS/YAML file; `pnpm lint:api` validates the warm response's `backend` property, with six pre-existing warnings.                                                                                                                                                                                                                   |
+| Fake model/worker tests           | PASS: remote success; refused transport / 5xx local fallback; open circuit and monitor-driven recovery; stale-success protection; 4xx propagation; one unknown-handle renewal; warm remote and local states; auth missing/wrong/right, 10 MiB body limit, saturated admission 503/Retry-After, invalid dimensions/crops, bounded/expired handles and mask/wire round-trip. |
+| GPU install / startup             | PASS: all eight wheel SHA-256 checks, idempotent rerun; actual worker ready on CUDA using installed libraries; strict provider registration and blocking sync.                                                                                                                                                                                                             |
+| Real CPU/CUDA parity              | PASS: 20 segments; minimum of 64 mask IoUs 0.9999623; crop cosine >=0.99999999998; identical OCR text on three receipts.                                                                                                                                                                                                                                                   |
+| Real API latency                  | PASS: 20 warm calls per endpoint per mode, same release API, CPU-only then CUDA worker under the requested scope limits; table in latency spec.                                                                                                                                                                                                                            |
+| Outage / recovery / unloading     | PASS: statuses 200 throughout; first local call 2088.6 ms; open-circuit call 1578.5 ms; recovered remote 376.7 ms. Logged cold load, breaker reason, recovery and SAM idle unload; warm returns remote without local loads.                                                                                                                                                |
+| Resources and user sandbox        | PASS: scope enforces 200% CPU / 2 GiB; latency holds, all-model RSS/VRAM, CPU-s per scan and 60 s idle measured. The listed sandbox settings also started real CUDA models in a transient user service and returned ready.                                                                                                                                                 |
+| Security hardening recheck        | PASS: connection admission/header/idle tests; OCR box/area preflight and cancellation; engine supervision/liveness; encrypted URL matrix; oversized chunked health. Final scope: MemoryHigh=infinity, MemoryMax=2G, MemorySwapMax=0, CPUQuota=200%; 1145.6 MiB RSS, zero swap, 1522 MiB VRAM, 20 warm calls per endpoint within 5% of earlier p50.                         |
+| Documentation / packaging / scope | PASS: unit, copy-only installer, operator instructions, architecture and latency report. No tunnel, deploy workflow, Railway command, persistent unit startup, push or PR. All test worker processes/scopes stopped.                                                                                                                                                       |
 
 Raw JSON and logs are retained on this machine in
 `/media/storage/cache/g-inference-worker/evidence/`: `g-parity.json`,
@@ -254,8 +276,10 @@ Changed files are grouped as follows:
 
 Open operational limits: results cover fixtures and loopback, not WAN/tunnel
 latency or labelled model accuracy; the host has competing load and swap. A
-blackholed worker can cost 10 s before CPU fallback, which may also be cold. Warm
-honors the same 30 s circuit, so it warms locally during an open interval. The
+worker that fails between health checks can cost the remaining request budget (at
+most 10 s per trait call) before CPU fallback, which may also be cold. Subsequent
+calls go directly local until the monitor confirms recovery. Warm reads that same
+circuit state and warms locally while it is open. The
 GPU arena limit is per session rather than a total VRAM reservation; monitor
 headroom with new workloads. A native call already running at a deadline finishes
 before its slot is released; cooperative checks prevent subsequent work. Token rotation requires coordinated API/worker

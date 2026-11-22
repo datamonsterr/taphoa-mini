@@ -36,7 +36,7 @@ pub async fn warm(State(state): State<AppState>, actor: Actor) -> ApiResult<Json
 
 pub(crate) async fn warm_models(state: &AppState) -> ApiResult<WarmResponse> {
     if let Some(remote) = &state.remote_models
-        && remote.healthy().await
+        && remote.healthy()
     {
         let family = || FamilyTiming {
             timing: fixed_timing(),
