@@ -914,6 +914,17 @@ async fn supplier_display_name_is_in_summary_and_review() {
 async fn cold_ocr_wait_holds_no_database_connection() {
     use std::{sync::Mutex, time::Duration};
     let mut w = World::new().await;
+    // Auth, receipt SQL and the probe share one connection: retaining a lease
+    // across the model wait would prevent the probe from running.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(w.pool().connect_options().as_ref().clone())
+        .await
+        .unwrap();
+    w.state.postgres = Some(pool.clone());
+    w.state.image_repository = Some(Arc::new(taphoa_api::images::PgImageRepository(
+        pool.clone(),
+    )));
     let (release, wait) = std::sync::mpsc::channel();
     let wait = Mutex::new(wait);
     let started = Arc::new(tokio::sync::Notify::new());
@@ -948,13 +959,26 @@ async fn cold_ocr_wait_holds_no_database_connection() {
     tokio::time::timeout(Duration::from_secs(2), started.notified())
         .await
         .unwrap();
-    let pool = w.pool();
-    let snapshot = (pool.num_idle(), pool.size());
+    // SQLx returns dropped connections on a spawned task, including an async
+    // ping. Await actual availability instead of sampling idle/size counters.
+    let probe = tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&pool),
+    )
+    .await;
+    let request_still_waiting = !task.is_finished();
+    // Always release the fake loader before asserting, including probe failures.
     release.send(()).unwrap();
     let response = task.await.unwrap();
+    assert!(
+        request_still_waiting,
+        "OCR must remain blocked during the probe"
+    );
     assert_eq!(
-        snapshot.0, snapshot.1 as usize,
-        "OCR wait must release the transaction connection"
+        probe
+            .expect("database connection must be available while OCR is loading")
+            .unwrap(),
+        1
     );
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
