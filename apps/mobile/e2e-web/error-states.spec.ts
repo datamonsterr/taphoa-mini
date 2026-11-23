@@ -544,7 +544,9 @@ test.describe('offline', () => {
     );
     await button(page, 'Thu nợ').click();
     await page.getByRole('textbox', { name: 'Số tiền thu' }).fill('1000');
-    await goOffline(page);
+    // The form is ready even while Clerk Protect's background probes keep the network busy.
+    await expect(button(page, 'Xác nhận thu nợ')).toBeEnabled();
+    await page.context().setOffline(true);
     await button(page, 'Xác nhận thu nợ').click();
     await expect(
       page.getByText(
@@ -626,7 +628,8 @@ test.describe('offline', () => {
     ).toBeVisible();
     await button(page, 'Xong, xem lại').click();
     await expect(button(page, 'Xác nhận nhập kho')).toBeEnabled();
-    await goOffline(page);
+    // Use the confirmation's readiness, not networkidle (Clerk Protect can keep requests open).
+    await page.context().setOffline(true);
     await button(page, 'Xác nhận nhập kho').click();
     await expect(
       page.getByText(
