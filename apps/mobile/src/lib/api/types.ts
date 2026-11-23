@@ -36,6 +36,7 @@ export type MarginAlert = Schemas['MarginAlert'];
 export type DailyReport = Schemas['DailyReport'];
 export type SummaryBucket = Schemas['SummaryBucket'];
 export type DayClose = Schemas['DayClose'];
+export type TopProduct = Schemas['TopProduct'];
 export type ManualLine = Schemas['ManualLine'];
 export type ManualLineStatus = ManualLine['status'];
 export type ResolveManualLineInput = {

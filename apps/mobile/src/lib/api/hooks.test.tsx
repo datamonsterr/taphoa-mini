@@ -35,6 +35,7 @@ import {
   useMe,
   useMembers,
   usePatchProduct,
+  usePriceHistory,
   usePatchStore,
   useProduct,
   useProducts,
@@ -661,4 +662,25 @@ describe('quick enroll: useSegmentPoints, useCreateProduct references, polling, 
     }>(keys.products.list({ q: 'banh' }));
     expect(cachedInfinite?.pages[0]?.items[0]?.index_status).toBe('ready');
   });
+});
+
+test('price history query fetches the selected product and refreshes after an edit', async () => {
+  const history = jest
+    .spyOn(productsApi, 'listPriceHistory')
+    .mockResolvedValue({ items: [], next_cursor: null });
+  const { wrapper } = setup();
+  const query = await renderHook(() => usePriceHistory(PRODUCT_IDS.coca), {
+    wrapper,
+  });
+  await waitFor(() => expect(query.result.current.isSuccess).toBe(true));
+  expect(history).toHaveBeenCalledWith(PRODUCT_IDS.coca, expect.anything());
+  const patch = await renderHook(() => usePatchProduct(), { wrapper });
+  await act(async () => {
+    await patch.result.current.mutateAsync({
+      id: PRODUCT_IDS.coca,
+      patch: { price: 12000 },
+    });
+  });
+  await waitFor(() => expect(history).toHaveBeenCalledTimes(2));
+  history.mockRestore();
 });

@@ -14,13 +14,17 @@ export const unstable_settings = { anchor: 'inventory' };
  * so a tab change never remounts or flashes.
  */
 export default function ShopLayout() {
-  useLowStockWatcher();
+  const { refreshOnFocus } = useLowStockWatcher();
   usePushRegistration();
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <LowStockBanner />
       <Tabs
         detachInactiveScreens={false}
+        // Tabs stay mounted, so a layout-level useFocusEffect would not see tab
+        // switches; the navigator's focus event also fires when a pushed screen
+        // is popped back to a tab.
+        screenListeners={{ focus: refreshOnFocus }}
         tabBar={(props) => <ShopTabBar {...props} />}
         screenOptions={{
           headerShown: false,

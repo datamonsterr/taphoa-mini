@@ -52,7 +52,11 @@ export const queryPersister = createAsyncStoragePersister({
 export const createAppQueryClient = () =>
   new QueryClient({
     defaultOptions: {
-      queries: { gcTime: CACHE_MAX_AGE_MS, retry: shouldRetryQuery },
+      queries: {
+        staleTime: 60_000,
+        gcTime: CACHE_MAX_AGE_MS,
+        retry: shouldRetryQuery,
+      },
     },
   });
 

@@ -76,6 +76,8 @@ export const keys = {
       [...keys.reports.all(), 'today', date ?? null] as const,
     summary: (period: ReportPeriod, date?: string) =>
       [...keys.reports.all(), 'summary', period, date ?? null] as const,
+    top: (from: string, to: string, limit: number) =>
+      [...keys.reports.all(), 'top-products', from, to, limit] as const,
     dayClose: (date: string) =>
       [...keys.reports.all(), 'day-close', date] as const,
   },

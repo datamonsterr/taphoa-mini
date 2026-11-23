@@ -293,7 +293,7 @@ async fn json_payload_too_large(response: axum::response::Response) -> axum::res
 }
 
 async fn healthz() -> Json<Value> {
-    Json(json!({"status":"ok"}))
+    Json(json!({"status":"ok", "service_version": telemetry::TelemetryConfig::from_env().version}))
 }
 
 async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
@@ -516,7 +516,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(json_body(response).await, json!({"status":"ok"}));
+        let body = json_body(response).await;
+        assert_eq!(body["status"], "ok");
+        assert!(!body["service_version"].as_str().unwrap().is_empty());
     }
     #[tokio::test]
     async fn segment_refuses_anonymous_callers_before_inference() {

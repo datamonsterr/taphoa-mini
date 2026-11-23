@@ -73,16 +73,7 @@ export default defineRailway((ctx) => {
     // Railway's default restart policy is on failure; live leaves the type unset, so only the
     // retry cap is declared (declaring `ON_FAILURE` plans a no-op change).
     deploy: { restartPolicyMaxRetries: 5 },
-    // Only production deploys from GitHub; `test` deploys with `railway up` and has no source.
-    // Declaring it keeps a full plan from clearing the repo link.
-    ...(ctx.isEnvironment('production')
-      ? {
-          source: github('datamonsterr/taphoa-mini', {
-            branch: 'main',
-            checkSuites: true,
-          }),
-        }
-      : {}),
+    // Both environments are deployed by the gated GitHub workflow using `railway up`.
     env: {
       DATABASE_URL: Postgres.env.DATABASE_URL,
       REDIS_URL: Redis.env.REDIS_URL,
