@@ -181,6 +181,130 @@ fn random_vector(rng: &mut Prng) -> Vec<f32> {
 
 #[tokio::test]
 #[ignore = "real Postgres with pgvector required"]
+async fn batch_uses_one_connection_and_matches_original_sql() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use taphoa_api::recognition::pgvector::SEARCH_SQL;
+    use taphoa_api::vector::VectorHit;
+
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let store = new_store(&pool).await;
+    let other = new_store(&pool).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let a = new_product(&pool, store).await;
+    let b = new_product(&pool, store).await;
+    let prototype = new_product(&pool, store).await;
+    let archived = new_product(&pool, store).await;
+    let foreign = new_product(&pool, other).await;
+    for (s, p, model, vector) in [
+        (store, a, MODEL, axis(0)),
+        (store, a, MODEL, axis(1)),
+        (store, b, MODEL, axis(0)),
+        (store, archived, MODEL, axis(0)),
+        (other, foreign, MODEL, axis(0)),
+        (store, b, OTHER_MODEL, axis(2)),
+    ] {
+        index
+            .upsert(s, p, new_image(&pool, s).await, model, vector)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE products SET archived = true WHERE id = $1")
+        .bind(archived)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
+        .bind(store).bind(prototype).bind(MODEL).bind(pgvector::Vector::from(axis(2))).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO product_embeddings (store_id, product_id, image_id, model, embedding, kind) VALUES ($1, $2, $3, $4, $5, 'cutout')")
+        .bind(store).bind(b).bind(new_image(&pool, store).await).bind(MODEL).bind(pgvector::Vector::from(axis(3))).execute(&pool).await.unwrap();
+
+    let checkouts = Arc::new(AtomicUsize::new(0));
+    let counter = checkouts.clone();
+    let single = PgPoolOptions::new()
+        .max_connections(1)
+        .before_acquire(move |_, _| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(true) })
+        })
+        .connect(&std::env::var("DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let batch_index = PgVectorIndex::new(single.clone());
+    // Warm the only connection so every subsequent acquisition visits the hook.
+    drop(single.acquire().await.unwrap());
+    let vectors: Vec<_> = (0..24).map(|i| axis(i % 4)).collect();
+    for count in [0, 1, 24] {
+        let embeddings: Vec<_> = vectors[..count].iter().map(Vec::as_slice).collect();
+        for (s, model) in [
+            (store, MODEL),
+            (store, OTHER_MODEL),
+            (other, MODEL),
+            (Uuid::new_v4(), MODEL),
+        ] {
+            for limit in [0_usize, 1, 3, 10] {
+                let before = checkouts.load(Ordering::SeqCst);
+                let actual = batch_index
+                    .search_batch(s, model, &embeddings, limit)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    checkouts.load(Ordering::SeqCst) - before,
+                    usize::from(count > 0)
+                );
+                assert_eq!(actual.len(), count);
+                for (embedding, hits) in embeddings.iter().zip(actual) {
+                    // Keep an independent oracle: the original SQL, not search(),
+                    // which may delegate to the batch implementation itself.
+                    let rows: Vec<(Uuid, f32)> = sqlx::query_as(SEARCH_SQL)
+                        .bind(pgvector::Vector::from(embedding.to_vec()))
+                        .bind(s)
+                        .bind(model)
+                        .bind((limit * 8).max(32) as i64)
+                        .bind(limit as i64)
+                        .fetch_all(&pool)
+                        .await
+                        .unwrap();
+                    let expected: Vec<_> = rows
+                        .into_iter()
+                        .map(|(product_id, similarity)| VectorHit {
+                            product_id,
+                            similarity,
+                        })
+                        .collect();
+                    assert_eq!(
+                        hits, expected,
+                        "count={count}, limit={limit}, model={model}"
+                    );
+                }
+            }
+        }
+    }
+    // Validate the whole batch before touching the pool, even if a later vector
+    // is invalid. Invalid inputs retain the single-search contract.
+    for invalid in [
+        vec![],
+        vec![0.; DIM],
+        vec![f32::NAN; DIM],
+        vec![f32::INFINITY; DIM],
+        vec![1.; DIM - 1],
+    ] {
+        let before = checkouts.load(Ordering::SeqCst);
+        assert!(
+            batch_index
+                .search_batch(store, MODEL, &[vectors[0].as_slice(), &invalid], 10)
+                .await
+                .is_err()
+        );
+        assert_eq!(checkouts.load(Ordering::SeqCst), before);
+    }
+}
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
 async fn best_per_product_limit_and_store_or_model_isolation() {
     let Some(pool) = pool().await else { return };
     let _tidy = Tidy::start(pool.clone()).await;

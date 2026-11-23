@@ -137,7 +137,8 @@ The problem is real and the solution fits it. Adjustments to the original idea:
 - Training or fine-tuning any model (phase 2).
 - Automatic bank transfer confirmation (phase 2).
 - E-invoice issuance / tax filing integration (phase 3, after regulation review).
-- Multi-store chains, loyalty, customer accounts, delivery.
+- Multi-store chains, loyalty, customer-facing accounts, delivery. (The debt book keeps a customer list for credit sales, see 5.7.)
+- iOS app, iOS push and iOS voice entry points (phase 3).
 - Receipt printing (optional later via Bluetooth printer).
 
 ## 5. Functional requirements
@@ -154,7 +155,7 @@ Priority: **P0** = MVP must, **P1** = MVP should, **P2** = later.
 | C4  | Optional fields: name, unit (chai, gói, lốc, thùng), cost price, barcode (scanned), category.                                                                            | P1       |
 | C5  | Multiple units per product (e.g. 1 chai 10.000đ, 1 lốc 6 chai 55.000đ).                                                                                                  | P1       |
 | C6  | Price list view: grid of photos with large price labels; searchable by name if present.                                                                                  | P0       |
-| C7  | Export/print price list (PDF / image).                                                                                                                                   | P2       |
+| C7  | Export/print price list (PDF / image). Backend only, not in the app (D3).                                                                                                | P2       |
 
 ### 5.2 Checkout (Bán hàng)
 
@@ -168,7 +169,7 @@ Priority: **P0** = MVP must, **P1** = MVP should, **P2** = later.
 | S6  | Pay screen: total in very large digits; buttons "Tiền mặt" (cash) and "Chuyển khoản" (transfer). Cash: optional amount received, shows change. Transfer: VietQR with amount and order memo. | P0       |
 | S7  | Read total aloud in Vietnamese (TTS) — for elders and for the customer.                                                                                                                     | P1       |
 | S8  | Multi-item photo detection: one photo, all items become editable cart lines (phase 1: server-side SAM + embedding match; phase 2: fine-tuned YOLO).                                         | P0       |
-| S9  | Automatic transfer confirmation via bank notification integration.                                                                                                                          | P2       |
+| S9  | Automatic transfer confirmation via bank notification integration. Out of MVP.                                                                                                              | P2       |
 | S10 | Void/refund a completed sale, with reason; logged.                                                                                                                                          | P1       |
 
 ### 5.3 Expenses and purchases (Chi / Nhập hàng)
@@ -184,13 +185,13 @@ Priority: **P0** = MVP must, **P1** = MVP should, **P2** = later.
 
 ### 5.4 Reports (Báo cáo)
 
-| ID  | Requirement                                                                             | Priority |
-| --- | --------------------------------------------------------------------------------------- | -------- |
-| R1  | Today screen: revenue, number of sales, cash vs transfer split, expenses, net.          | P0       |
-| R2  | End-of-day close (chốt sổ): enter counted cash; app shows expected cash and difference. | P0       |
-| R3  | Day/week/month views with simple bar chart of revenue and expenses.                     | P1       |
-| R4  | Top products by revenue and by quantity; gross margin where cost is known.              | P1       |
-| R5  | Export sales/expenses to CSV/Excel for tax declaration.                                 | P1       |
+| ID  | Requirement                                                                                             | Priority |
+| --- | ------------------------------------------------------------------------------------------------------- | -------- |
+| R1  | Today screen: revenue, number of sales, cash vs transfer split, expenses, net.                          | P0       |
+| R2  | End-of-day close (chốt sổ): enter counted cash; app shows expected cash and difference.                 | P0       |
+| R3  | Day/week/month views with simple bar chart of revenue and expenses.                                     | P1       |
+| R4  | Top products by revenue and by quantity; gross margin where cost is known. Shown on the Dashboard (D3). | P1       |
+| R5  | Export sales/expenses to CSV/Excel for tax declaration.                                                 | P1       |
 
 ### 5.5 Family accounts and roles
 
@@ -208,6 +209,29 @@ Priority: **P0** = MVP must, **P1** = MVP should, **P2** = later.
 | T1  | Bank account for VietQR (bank, account number, account name); verified by showing a test QR. | P0       |
 | T2  | Font scale (default large), elder mode (grid-only, larger buttons, TTS on).                  | P0       |
 | T3  | Language: Vietnamese default; English optional.                                              | P1       |
+
+### 5.7 Features built beyond section 5
+
+Owner decision D8 (roadmap 2026-11): these features are built and tested, so they are in MVP
+scope. Details live in the linked specs.
+
+| ID  | Feature                   | Description                                                                                                              | Spec                                        | Priority |
+| --- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- | -------- |
+| B1  | Debt book and customers   | Sell on credit to a named customer, record repayments, see who owes what and since when.                                 | [debt-book](specs/assistant/debt-book.md)   | P1       |
+| B2  | Assistant                 | Chat assistant in Vietnamese that answers questions about the store and proposes actions a member confirms.              | [assistant](specs/assistant/assistant.md)   | P1       |
+| B3  | Voice                     | Speak a sale or a question to get a cart draft; Android entry points only, iOS later.                                    | [voice](specs/voice/voice.md)               | P1       |
+| B4  | Daily digest and push     | One summary of the day per store, sent as a push notification; Android only for now.                                     | [X8 plan](specs/assistant/x8-plan.md)       | P1       |
+| B5  | Stock receipts and OCR    | Photograph a supplier receipt, review the lines, and update stock, cost and expenses; stock levels and low-stock alerts. | [stock-receipts](specs/stock-receipts.md)   | P1       |
+| B6  | Quick enroll              | Enroll a product from 3 to 8 photos with a tap-to-segment cutout, straight from the camera.                              | [quick-enroll](specs/quick-enroll.md)       | P0       |
+| B7  | Offline outbox            | Sales, expenses and catalog edits made offline queue on the phone and sync when online.                                  | [ADR 0009](adr/0009-offline-storage.md)     | P0       |
+| B8  | Landing page and waitlist | Public page where other stores leave an email to join the waitlist.                                                      | [ADR 0010](adr/0010-landing-static-site.md) | P2       |
+
+Scope notes:
+
+- **Not in the app (D3).** The price-list export (C7) and the recognition report exist only on
+  the backend. Top products (R4) is shown on the Dashboard.
+- **Out of MVP.** Automatic transfer confirmation (S9) and the iOS app, including iOS push and
+  iOS voice entry points.
 
 ## 6. Non-functional requirements
 
@@ -300,3 +324,7 @@ Verify current library and API documentation before implementation.
 - **Enrollment:** adding a product to the catalog by photo + price.
 - **Lead:** the family member who owns prices (role in app).
 - **Chốt sổ:** end-of-day close and cash reconciliation.
+
+## 14. Change log
+
+- 2026-11-23: Added section 5.7 (features built beyond section 5 are in MVP scope, D8); marked C7 and the recognition report as backend only (D3); S9 and iOS stay out of MVP.

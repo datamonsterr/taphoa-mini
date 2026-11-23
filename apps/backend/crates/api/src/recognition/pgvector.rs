@@ -6,6 +6,7 @@ use crate::vector::{VectorHit, VectorIndex};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::PgPool;
+use std::sync::LazyLock;
 use uuid::Uuid;
 
 const EMBEDDING_DIM: usize = 384;
@@ -40,6 +41,19 @@ FROM scores
 GROUP BY product_id
 ORDER BY similarity DESC, product_id
 LIMIT $5";
+
+// Reuse the single-vector scoring SQL so overfetch, prototypes, grouping and
+// tie-breaking stay identical. The correlated LATERAL retains its bounded HNSW
+// access path while all detections share one query and one pool connection.
+static BATCH_SEARCH_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT q.ordinality, hit.product_id, hit.similarity
+         FROM unnest($1::vector[]) WITH ORDINALITY AS q(embedding, ordinality)
+         CROSS JOIN LATERAL ({}) AS hit
+         ORDER BY q.ordinality, hit.similarity DESC, hit.product_id",
+        SEARCH_SQL.replace("$1::vector", "q.embedding")
+    )
+});
 
 pub struct PgVectorIndex {
     pool: PgPool,
@@ -104,7 +118,29 @@ impl VectorIndex for PgVectorIndex {
         embedding: &[f32],
         limit: usize,
     ) -> anyhow::Result<Vec<VectorHit>> {
-        validate(embedding)?;
+        Ok(self
+            .search_batch(store_id, model, &[embedding], limit)
+            .await?
+            .pop()
+            .unwrap_or_default())
+    }
+
+    async fn search_batch(
+        &self,
+        store_id: Uuid,
+        model: &str,
+        embeddings: &[&[f32]],
+        limit: usize,
+    ) -> anyhow::Result<Vec<Vec<VectorHit>>> {
+        let mut vectors = Vec::with_capacity(embeddings.len());
+        for embedding in embeddings {
+            validate(embedding)?;
+            vectors.push(Vector::from(embedding.to_vec()));
+        }
+        let mut hits = vec![Vec::new(); embeddings.len()];
+        if embeddings.is_empty() {
+            return Ok(hits);
+        }
         let fetch =
             i64::try_from(limit.saturating_mul(OVERFETCH).max(OVERFETCH_FLOOR)).unwrap_or(i64::MAX);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -113,18 +149,17 @@ impl VectorIndex for PgVectorIndex {
         // iterative index scans to keep walking it until the store's rows are
         // found; without them the candidate list is exhausted on other stores
         // first. These scopes end with the transaction.
-        sqlx::query("SET LOCAL hnsw.iterative_scan = relaxed_order")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL hnsw.ef_search = 100")
-            .execute(&mut *tx)
-            .await?;
         // 20000 is the pgvector default (docs: approximate, larger needs more memory).
-        sqlx::query("SET LOCAL hnsw.max_scan_tuples = 20000")
-            .execute(&mut *tx)
-            .await?;
-        let rows: Vec<(Uuid, f32)> = sqlx::query_as(SEARCH_SQL)
-            .bind(Vector::from(embedding.to_vec()))
+        // Configure all three in one exchange; set_config(..., true) is SET LOCAL.
+        sqlx::query(
+            "SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true),
+                    set_config('hnsw.ef_search', '100', true),
+                    set_config('hnsw.max_scan_tuples', '20000', true)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        let rows: Vec<(i64, Uuid, f32)> = sqlx::query_as(BATCH_SEARCH_SQL.as_str())
+            .bind(vectors)
             .bind(store_id)
             .bind(model)
             .bind(fetch)
@@ -132,13 +167,13 @@ impl VectorIndex for PgVectorIndex {
             .fetch_all(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(rows
-            .into_iter()
-            .map(|(product_id, similarity)| VectorHit {
+        for (ordinality, product_id, similarity) in rows {
+            hits[(ordinality - 1) as usize].push(VectorHit {
                 product_id,
                 similarity,
-            })
-            .collect())
+            });
+        }
+        Ok(hits)
     }
 
     async fn remove_product(&self, store_id: Uuid, product_id: Uuid) -> anyhow::Result<()> {

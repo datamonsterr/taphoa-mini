@@ -1,6 +1,6 @@
 # Golden set and evaluation
 
-Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · Epic: X7
+Status: Done (checked 2026-11-23, roadmap section 2.2) · Merge: [#38](https://github.com/datamonsterr/taphoa-mini/pull/38) · Date: 2026-10-25 · Program: [README](README.md) · Epic: X7
 
 ## Goal
 
