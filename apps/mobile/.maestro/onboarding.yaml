@@ -17,6 +17,11 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: 'Chủ'
 - assertVisible: '1 thành viên'
 - assertVisible: 'Đang dùng: Cô Ba'
+- scrollUntilVisible:
+    element: 'Nâng cao'
+- tapOn: 'Nâng cao'
+- scrollUntilVisible:
+    element: 'Đặt mã PIN'
 - assertVisible: 'Đặt mã PIN'
 - takeScreenshot: onboarding-02-account
 # Only this person is on the phone. Signing out ends their session and shows the sign-in screen.

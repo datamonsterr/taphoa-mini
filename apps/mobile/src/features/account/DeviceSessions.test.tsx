@@ -69,7 +69,10 @@ function crowd(extra: Record<string, PersonScript> = {}) {
 
 const open = async () => {
   await renderWithProviders(<AccountScreen />);
-  return screen.findByRole('header', { name: 'Tạp hóa Cô Ba' });
+  await screen.findByRole('header', { name: 'Tạp hóa Cô Ba' });
+  await fireEvent.press(
+    screen.getByRole('button', { name: /Nâng cao|Advanced/ }),
+  );
 };
 const row = (index: number) => screen.getByTestId(`account-session-${index}`);
 const type = async (digits: string) => {
@@ -523,6 +526,9 @@ describe('after switching', () => {
       qc,
     );
     await screen.findByRole('header', { name: 'Tạp hóa Cô Ba' });
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Nâng cao|Advanced/ }),
+    );
     qc.setQueryData(['private-shop-data'], 'cô Ba secrets');
     useCartStore.getState().add({ productId: 'p', name: 'Milk', price: 10 });
     await fireEvent.press(row(2));
@@ -535,6 +541,9 @@ describe('after switching', () => {
     expect(
       await screen.findByRole('header', { name: 'Tạp hóa Cô Ba' }),
     ).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Nâng cao|Advanced/ }),
+    );
     expect(within(row(2)).getByText('Hiện tại')).toBeOnTheScreen();
   });
 });
@@ -637,14 +646,18 @@ describe('store picker', () => {
 
   test('is hidden with a single store', async () => {
     await open();
-    expect(screen.queryByText('Cửa hàng')).toBeNull();
+    expect(screen.queryByTestId('account-stores')).toBeNull();
     expect(screen.queryByTestId(/^account-store-/)).toBeNull();
   });
 
   test('lists every store of the current person and marks the selected one', async () => {
     const { first, second } = await twoStores();
     await open();
-    expect(screen.getByRole('header', { name: 'Cửa hàng' })).toBeOnTheScreen();
+    expect(
+      within(screen.getByTestId('account-stores')).getByRole('header', {
+        name: 'Cửa hàng',
+      }),
+    ).toBeOnTheScreen();
     const a = screen.getByTestId(`account-store-${first.store.id}`);
     const b = screen.getByTestId(`account-store-${second.store.id}`);
     expect(within(a).getByText('Tạp hóa Cô Ba')).toBeOnTheScreen();
