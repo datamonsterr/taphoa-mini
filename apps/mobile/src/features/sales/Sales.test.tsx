@@ -41,6 +41,29 @@ test('recent sales opens detail and reports, and shows completed and voided stat
   );
   expect(router.replace).toHaveBeenCalledWith('/dashboard');
 });
+test('a long recent-sales list is virtualized and still opens detail', async () => {
+  const base = getMockDb().sales[0];
+  jest.spyOn(ledger, 'listSales').mockResolvedValue({
+    items: Array.from({ length: 150 }, (_, i) => ({
+      ...base,
+      id: `sale-${i}`,
+      code: `HD${String(i).padStart(4, '0')}`,
+      status: 'completed' as const,
+    })),
+    next_cursor: null,
+  });
+  await renderWithProviders(<RecentSalesScreen />);
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'HD0000, Đã thanh toán' }),
+  );
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: '/sale/[id]',
+    params: { id: 'sale-0' },
+  });
+  expect(
+    screen.getAllByRole('button', { name: /^HD\d{4}, / }).length,
+  ).toBeLessThan(150);
+});
 test('recent sales empty and retry states', async () => {
   getMockDb().sales = [];
   jest.spyOn(ledger, 'listSales').mockRejectedValueOnce(new Error('offline'));
