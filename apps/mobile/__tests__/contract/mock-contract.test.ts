@@ -270,6 +270,9 @@ describe('success responses match the documented schema', () => {
       200,
     );
     await call(() => api.listMembers(), 200);
+    const sellerId = getMockDb().members[1]!.id;
+    await call(() => api.updateMember(sellerId, { role: 'lead' }), 200);
+    await call(() => api.removeMember(sellerId), 204);
     await call(
       () =>
         api.createInvite({
@@ -438,7 +441,7 @@ describe('success responses match the documented schema', () => {
       200,
     );
 
-    await call(
+    const expense = await call(
       () =>
         api.createExpense({
           id: newUuid(),
@@ -452,6 +455,11 @@ describe('success responses match the documented schema', () => {
         }),
       201,
     );
+    await call(
+      () => api.updateExpense(expense.data.id, { amount: 410000, note: null }),
+      200,
+    );
+    await call(() => api.deleteExpense(expense.data.id), 204);
     await call(
       () => api.listExpenses({ from: date, to: date, category: 'nhap_hang' }),
       200,
