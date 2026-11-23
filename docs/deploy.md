@@ -609,7 +609,52 @@ per environment (the same id in `test` and `production`), so deleting it removes
 production database too. A redeploy can also move the test volume to the service's region;
 keep the `region` in `.railway/railway.ts` equal to the live one.
 
-### GitHub configuration for the test environment
+### Real-device test build
+
+After this workflow is merged to `main`, start a backend and an APK build with one command
+(replace `main` and `4` as needed; the allowed hold is 1–4 whole hours):
+
+```sh
+gh workflow run test-hold.yml --ref main -f ref=main -f hours=4 -f build_apk=true
+```
+
+Find the hold run with `gh run list --workflow test-hold.yml`, then open it with
+`gh run view <run-id> --web`. Its summary links to Android APK runs; open the matching run
+and use its release link or artifact to download the APK. The hold starts after deployment,
+health checks and seeding; the APK build runs separately. To end the hold early:
+
+```sh
+gh run cancel <run-id>
+```
+
+For a production-backed test APK instead, create a **separate test store in production**;
+its data is real production data. The APK is labelled `production` in its version and summary:
+
+```sh
+gh workflow run android-apk.yml --ref main -f ref=main -f backend=production
+```
+
+The hold job marks ownership before starting services and runs all three teardown steps with
+`always()` after normal completion, failure, or ordinary cancellation. The hold has a four-hour
+maximum and a shorter step timeout than the job timeout to reserve cleanup time. GitHub gives
+cancellation cleanup up to five minutes; forced cancellation, a lost runner, job timeout, or
+Railway/API failure can prevent teardown. Check the run and Railway if cleanup fails. To remove
+leftovers manually, link the Railway CLI to `test`, then run from the repository root:
+
+```sh
+python3 -I scripts/ci/railway_down.py backend test
+python3 -I scripts/ci/railway_service.py down Redis test
+python3 -I scripts/ci/railway_service.py down Postgres test
+```
+
+The next successful deploy normally removes leftovers at its own teardown, but service startup
+itself reuses running deployments and does not clean them. Holds share the `railway-test` concurrency queue with deploy and integration runs, so a
+long hold delays those jobs.
+Preview and test EAS profiles target this temporary test backend; the production profile remains
+on production. The hosted-runner [job limit is six hours](https://docs.github.com/en/actions/reference/limits),
+and [dispatch inputs are limited to 25](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputs).
+
+## GitHub configuration for the test environment
 
 | Kind     | Name                    | Value                                                                          |
 | -------- | ----------------------- | ------------------------------------------------------------------------------ |

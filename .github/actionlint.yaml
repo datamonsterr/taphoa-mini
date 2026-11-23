@@ -1,6 +1,6 @@
 # GitHub supports concurrency.queue; actionlint 1.7.12 predates this field.
 # https://github.com/rhysd/actionlint/issues/657
 paths:
-  '.github/workflows/{deploy,railway-integration}.yml':
+  '.github/workflows/{deploy,railway-integration,test-hold}.yml':
     ignore:
       - '^unexpected key "queue" for "concurrency" section\.'
