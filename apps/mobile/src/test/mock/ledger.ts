@@ -18,6 +18,7 @@ import type {
   SummaryBucket,
   SummaryGranularity,
   SummaryReport,
+  TopProduct,
 } from '@/lib/api/types';
 
 import {
@@ -434,6 +435,43 @@ export function getSummaryReport(
     cursor = addDays(end, 1);
   }
   return { granularity, buckets };
+}
+
+/** Completed sales of the range, grouped by catalog product (loose items have no product). */
+export function getTopProducts(
+  from: string,
+  to: string,
+  sort: 'revenue' | 'quantity',
+  limit: number,
+): TopProduct[] {
+  const span = daysBetween(from, to);
+  if (span < 0) throw badRequest('from must not be after to', { from, to });
+  if (span > 365)
+    throw badRequest('range is limited to 366 days', { from, to });
+  if (limit < 1 || limit > 100)
+    throw badRequest('limit must be 1..100', { field: 'limit' });
+  const byProduct = new Map<string, TopProduct>();
+  for (const s of getMockDb().sales) {
+    if (s.status !== 'completed' || !inRange(s.business_date, from, to))
+      continue;
+    for (const l of s.lines) {
+      if (!l.product_id) continue;
+      const row = byProduct.get(l.product_id) ?? {
+        product_id: l.product_id,
+        name: l.product_name ?? null,
+        quantity: 0,
+        revenue: 0,
+      };
+      row.quantity += l.quantity;
+      row.revenue += l.line_total;
+      byProduct.set(l.product_id, row);
+    }
+  }
+  return [...byProduct.values()]
+    .sort(
+      (a, b) => b[sort] - a[sort] || a.product_id.localeCompare(b.product_id),
+    )
+    .slice(0, limit);
 }
 
 function bucket(start: string, end: string): SummaryBucket {

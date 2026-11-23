@@ -14,6 +14,13 @@ The TypeScript file imports `railway/iac`. Install the SDK from the repository r
 npm install railway
 ```
 
+The production backend has no GitHub source: `Deploy backend` deploys the tested SHA to
+Railway after its test job succeeds, then checks health and the served version. The landing
+service keeps its GitHub trigger. For emergency releases or rollback, run that workflow with
+the desired SHA and `deploy_production` selected; tests still gate promotion. Older commits
+without the health version field can be restored through Railway's deployment rollback.
+See [the deployment guide](../docs/deploy.md#github-production-deployment).
+
 ## Common commands
 
 Create the configuration files:
