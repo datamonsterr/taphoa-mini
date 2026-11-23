@@ -14,12 +14,14 @@ const root = resolve(fileURLToPath(import.meta.url), '../..');
  */
 export const TARGETS = [
   {
+    platform: 'android',
     name: 'android (hbc, raw)',
     dir: 'dist/_expo/static/js/android',
     gzip: false,
     budget: 12_380_000, // measured 10_765_824 after voice V2 and the offline outbox (#87)
   },
   {
+    platform: 'web',
     name: 'web (js, gzip)',
     dir: 'dist-web/_expo/static/js/web',
     gzip: true,
@@ -78,7 +80,10 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  const { rows, ok } = run();
+  const targets = process.argv.includes('--android-only')
+    ? TARGETS.filter((target) => target.platform === 'android')
+    : TARGETS;
+  const { rows, ok } = run(targets);
   console.log(table(rows));
   if (!ok) {
     console.error('Bundle budget exceeded.');

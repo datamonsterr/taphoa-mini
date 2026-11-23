@@ -15,6 +15,7 @@
 #                      tokens through the Clerk Backend API. The suite also reads CLERK_API_URL
 #                      (optional); CLERK_PUBLISHABLE_KEY is for the Playwright specs only.
 #   E2E_SOFT_STRICT   set to 1 to make the soft run (below) blocking too
+#   E2E_SKIP_VOICE    set to 1 where the deployed voice provider is unavailable
 # The suite runs twice: the blocking run covers the contract specs; the soft run covers the
 # latency and free-model specs (tests/latency, recognition-latency, assistant-live), whose
 # budgets and shared free-model quota on Railway fail without a regression. A soft failure only
@@ -50,6 +51,10 @@ if [ -f "$suite/package.json" ]; then
   soft_specs=(tests/latency.test.ts tests/recognition-latency.test.ts tests/assistant-live.test.ts)
   exclude_args=()
   for spec in "${soft_specs[@]}"; do exclude_args+=(--exclude "$spec"); done
+  if [ "${E2E_SKIP_VOICE:-}" = "1" ]; then
+    echo "::notice::Skipping live voice specs because the test environment voice provider is unavailable."
+    exclude_args+=(--exclude tests/voice.test.ts)
+  fi
   (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${exclude_args[@]}")
   if ! (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${soft_specs[@]}"); then
     if [ "${E2E_SOFT_STRICT:-}" = "1" ]; then

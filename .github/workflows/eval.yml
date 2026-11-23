@@ -1,6 +1,6 @@
 name: Eval
 
-# Nightly and on-demand evaluation of the assistant (epic X7) against a live stack inside
+# On-demand evaluation of the assistant (epic X7) against a live stack inside
 # Actions: compose postgres + redis, taphoa-seed --profile eval, the backend built from this
 # ref with ASSISTANT_ALLOW_EVAL_HEADERS=1. The harness checks remaining USD credits for
 # paid models (free-request quota for :free overrides). A full run happens at most once
@@ -20,9 +20,8 @@ name: Eval
 # get their own title so they never count as a full run.
 run-name: eval ${{ (inputs.voice || 'none') != 'none' && format('voice {0}', inputs.voice) || inputs.compare_models && 'compare' || inputs.set || 'full' }}
 
+# The nightly schedule is paused until the full evaluation has enough OpenRouter credit.
 on:
-  schedule:
-    - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
       set:
@@ -129,8 +128,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
-      # Same cache as the backend-binary job in ci.yml: a nightly run on main reuses its build.
-      - uses: actions/cache@v6
+      # Same cache as the backend-binary job in ci.yml: a manual run on main reuses its build.
+      - uses: actions/cache/restore@v6
+        id: backend-cache
         with:
           path: .ci-cache
           key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
@@ -138,6 +138,11 @@ jobs:
             backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build the backend and seed binaries
         run: scripts/ci/build-backend-binary.sh
+      - uses: actions/cache/save@v6
+        if: github.ref == 'refs/heads/main' && steps.backend-cache.outputs.cache-hit != 'true'
+        with:
+          path: .ci-cache
+          key: ${{ steps.backend-cache.outputs.cache-primary-key }}
       # Starts compose postgres + redis, runs `taphoa-seed --profile eval`, starts the backend
       # and waits for /readyz. Appends BACKEND_URL and EVAL_DATABASE_URL to $GITHUB_ENV.
       - name: Start the eval stack
@@ -257,7 +262,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: backend-cache
         with:
           path: .ci-cache
           key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
@@ -265,6 +271,11 @@ jobs:
             backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build the backend and seed binaries
         run: scripts/ci/build-backend-binary.sh
+      - uses: actions/cache/save@v6
+        if: github.ref == 'refs/heads/main' && steps.backend-cache.outputs.cache-hit != 'true'
+        with:
+          path: .ci-cache
+          key: ${{ steps.backend-cache.outputs.cache-primary-key }}
       - name: Start the eval stack
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
