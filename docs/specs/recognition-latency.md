@@ -258,6 +258,9 @@ BACKEND_URL=http://localhost:8080 pnpm --filter @taphoa/e2e exec vitest run \
 BACKEND_URL=https://backend-test-70c2.up.railway.app pnpm --filter @taphoa/e2e test:e2e
 ```
 
+The `test` backend exists only during a "Deploy backend" run; see
+[deploy.md](../deploy.md#railway-test-environment).
+
 ### Hot-endpoint gate follow-up
 
 The full API run failed only `latency.test.ts`: `/v1/store` 205 ms,
