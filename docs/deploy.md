@@ -387,7 +387,11 @@ bucket. The backend, Postgres and Redis deployments are ephemeral. The "Deploy b
 workflow starts Postgres and Redis and waits for their deployments to reach `SUCCESS`, gives
 sockets a five-second readiness margin, then deploys the backend. The existing
 `scripts/ci/wait-healthy.sh` loop checks `/healthz` and `/readyz` (Postgres, Redis and configured
-storage) before seeding and e2e tests. When the `test` job ends, even on failure, it removes the
+storage) before seeding and e2e tests.
+`scripts/ci/latency_check.py` then probes `/healthz` and `/readyz` p95 over one persistent
+connection (warm-up pays for DNS, TCP and TLS), so the budgets measure the endpoint rather than
+trans-Pacific handshakes from the GitHub runner. `/readyz` caches a successful S3 `HeadBucket`
+for 20 s; Postgres and Redis stay live per request. When the `test` job ends, even on failure, it removes the
 backend first, then Redis, then Postgres. Each removal runs even if an earlier removal failed;
 earlier test failures remain failures.
 

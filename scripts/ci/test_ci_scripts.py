@@ -129,6 +129,70 @@ class JobSummary(unittest.TestCase):
         self.assertRegex(out.stdout, r"\d+s")
 
 
+class SoftFailureSummary(unittest.TestCase):
+    LOG = textwrap.dedent(
+        """\
+        stdout | tests/latency.test.ts
+        hot endpoint latency (n=30):
+        /v1/me estimated-server p95=40ms client p95=90ms network baseline p50=50ms budget=200ms
+        /v1/sync/changes estimated-server p95=218ms client p95=270ms network baseline p50=52ms budget=200ms
+        stdout | tests/recognition-latency.test.ts
+        scan latency ms: 1800, 1900, 4100 p90=4100 budget=3000
+         FAIL  tests/recognition-latency.test.ts > recognition latency > creates a multi scan
+        AssertionError: recognition p90 4100ms must be < 3000ms: expected false to be true
+        unrelated noise line
+        """
+    )
+
+    def summarize(self, log, extra_env=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = pathlib.Path(tmp, "soft.log")
+            log_path.write_text(log)
+            summary = pathlib.Path(tmp, "summary.md")
+            out = run(
+                ["python3", "-I", str(HERE / "soft_failure_summary.py"), str(log_path)],
+                env={"GITHUB_STEP_SUMMARY": str(summary), **(extra_env or {})},
+            )
+            return out, summary.read_text() if summary.exists() else ""
+
+    def test_writes_red_entry_with_failing_statistics(self):
+        out, text = self.summarize(self.LOG)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("### :red_circle: Deploy e2e soft group failed", text)
+        self.assertIn("/v1/sync/changes estimated-server p95=218ms", text)
+        self.assertIn("scan latency ms: 1800, 1900, 4100 p90=4100", text)
+        self.assertIn("must be < 3000ms", text)
+        self.assertNotIn("unrelated noise", text)
+
+    def test_prints_to_stdout_without_summary_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = pathlib.Path(tmp, "soft.log")
+            log_path.write_text(self.LOG)
+            out = run(
+                ["python3", "-I", str(HERE / "soft_failure_summary.py"), str(log_path)],
+                env={"GITHUB_STEP_SUMMARY": ""},
+            )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn(":red_circle:", out.stdout)
+
+    def test_missing_or_empty_log_still_reports_red(self):
+        out, text = self.summarize("")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn(":red_circle:", text)
+        self.assertIn("no latency lines captured", text)
+        out = run(
+            ["python3", "-I", str(HERE / "soft_failure_summary.py"), "/nonexistent/soft.log"],
+            env={"GITHUB_STEP_SUMMARY": ""},
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("no latency lines captured", out.stdout)
+
+    def test_caps_the_number_of_lines(self):
+        log = "\n".join(f"/v1/x{i} estimated-server p95={i}ms" for i in range(500))
+        _, text = self.summarize(log)
+        self.assertLess(len(text.splitlines()), 80)
+
+
 class RunE2e(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -196,7 +260,7 @@ class RunE2e(unittest.TestCase):
         self.assertIn("key_set=yes", recorded)
         self.assertNotIn("sk_test_unit_secret", out.stdout + out.stderr)
 
-    def _run_soft_split(self, soft_fails, strict=False):
+    def _run_soft_split(self, soft_fails, strict=False, extra_env=None, soft_output=""):
         """Run with a pnpm stub that fails the soft run (the one without --exclude) on demand."""
         with tempfile.TemporaryDirectory() as tmp:
             suite = pathlib.Path(tmp, "suite")
@@ -210,7 +274,9 @@ class RunE2e(unittest.TestCase):
             stub.write_text(
                 "#!/usr/bin/env bash\n"
                 f'echo "$@" >> {calls}\n'
-                f'case " $* " in *" --exclude "*) exit 0;; *) exit {fail};; esac\n'
+                f'case " $* " in *" --exclude "*) exit 0;; esac\n'
+                f"echo '{soft_output}'\n"
+                f"exit {fail}\n"
             )
             stub.chmod(0o755)
             out = run(
@@ -222,6 +288,7 @@ class RunE2e(unittest.TestCase):
                     "LATENCY_SAMPLES": "3",
                     "E2E_SOFT_STRICT": "1" if strict else "",
                     "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    **(extra_env or {}),
                 },
             )
             return out, calls.read_text().splitlines()
@@ -239,6 +306,28 @@ class RunE2e(unittest.TestCase):
         self.assertIn("tests/voice.test.ts", calls[1])
         self.assertIn("::warning title=Deploy e2e::", out.stdout)
 
+    def test_soft_failure_writes_red_job_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = pathlib.Path(tmp, "summary.md")
+            out, _ = self._run_soft_split(
+                soft_fails=True,
+                extra_env={"GITHUB_STEP_SUMMARY": str(summary)},
+                soft_output="scan latency ms: 1, 2 p90=4100 budget=3000",
+            )
+            text = summary.read_text()
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn(":red_circle:", text)
+        self.assertIn("p90=4100", text)
+
+    def test_soft_pass_writes_no_red_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = pathlib.Path(tmp, "summary.md")
+            out, _ = self._run_soft_split(
+                soft_fails=False, extra_env={"GITHUB_STEP_SUMMARY": str(summary)}
+            )
+            self.assertFalse(summary.exists() and ":red_circle:" in summary.read_text())
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
     def test_soft_failure_blocks_with_e2e_soft_strict(self):
         out, _ = self._run_soft_split(soft_fails=True, strict=True)
         self.assertNotEqual(out.returncode, 0)
@@ -253,6 +342,37 @@ class RunE2e(unittest.TestCase):
             ["python3", "-I", str(HERE / "latency_check.py"), self.url, "/healthz", "5", "5000"],
         )
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+
+class LatencyConnectionReuse(unittest.TestCase):
+    """latency_check.py must keep one connection across warm-up and samples."""
+
+    def test_samples_share_one_connection(self):
+        accepted = []
+
+        class Counting(http.server.ThreadingHTTPServer):
+            def get_request(self):
+                result = super().get_request()
+                accepted.append(result[1])
+                return result
+
+        class KeepAlive(Handler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):  # noqa: N802
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        server = Counting(("127.0.0.1", 0), KeepAlive)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        out = run(["python3", "-I", str(HERE / "latency_check.py"), url, "/healthz", "5", "5000"])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(len(accepted), 1, f"expected 1 connection, got {len(accepted)}")
 
 
 class RailwayEnv(unittest.TestCase):

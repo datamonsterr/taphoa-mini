@@ -33,7 +33,15 @@ export type TurnOptions = {
   fetch?: typeof fetch;
   /** Give up on one turn after this long. Default 90 s. */
   turnTimeoutMs?: number;
+  /** Milliseconds clock for `latency_ms`. Default `performance.now()`; stub runs inject a simulated one. */
+  clock?: () => number;
 };
+
+/**
+ * Clock for stub runs: it never advances, so every turn measures 0 ms
+ * whatever the host's speed or the concurrency.
+ */
+export const frozenClock = (): number => 0;
 
 /** Run ids and dates the backend would silently ignore are refused here. */
 export function assertEvalHeaders(runId: string, today: string): void {
@@ -157,7 +165,8 @@ export async function runTurns(
   ): Promise<number> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const started = performance.now();
+    const now = opts.clock ?? (() => performance.now());
+    const started = now();
     try {
       result.error = await step(controller.signal);
     } catch (e) {
@@ -165,7 +174,7 @@ export async function runTurns(
     } finally {
       clearTimeout(timer);
     }
-    return performance.now() - started;
+    return now() - started;
   }
 
   if (c.kind === 'digest') {

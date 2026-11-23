@@ -139,6 +139,8 @@ pub(crate) fn vector_text(vector: &[f32]) -> String {
     )
 }
 
+// Scoring is defined twice (also `scan_search_products`, migration 1901); the parity test
+// `scan_search_function_matches_search_sql` in tests/recognition_vector.rs pins them.
 const SQL_SEARCH: &str = crate::recognition::pgvector::SEARCH_SQL;
 
 async fn search_sql(
