@@ -14,6 +14,25 @@ export const patchStore = (patch: StorePatch) =>
 export const listMembers = async (): Promise<Member[]> =>
   (await unwrap(getApiClient().raw.GET('/v1/members'))).items;
 
+export const updateMember = (
+  memberId: string,
+  patch: { role?: Role; can_enroll?: boolean },
+): Promise<Member> =>
+  unwrap(
+    getApiClient().raw.PATCH('/v1/members/{memberId}', {
+      params: { path: { memberId } },
+      body: patch,
+    }),
+  );
+
+export const removeMember = async (memberId: string): Promise<void> => {
+  await unwrap(
+    getApiClient().raw.DELETE('/v1/members/{memberId}', {
+      params: { path: { memberId } },
+    }),
+  );
+};
+
 export const createInvite = (input: {
   role?: Role;
   can_enroll?: boolean;

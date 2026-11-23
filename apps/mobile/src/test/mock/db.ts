@@ -20,7 +20,7 @@ import type {
   StorePatch,
 } from '@/lib/api/types';
 
-import { badRequest, conflict, notFound } from './errors';
+import { badRequest, conflict, MockHttpError, notFound } from './errors';
 import {
   buildSeed,
   makeAlert,
@@ -78,6 +78,38 @@ export function patchStore(patch: StorePatch): Store {
   for (const { product } of state.products)
     product.stock_status = stockStatus(product);
   return state.store;
+}
+
+function requireLead() {
+  if (getCurrentMember().role !== 'lead') {
+    throw new MockHttpError(403, 'forbidden', 'only the Lead manages members');
+  }
+}
+
+/** The store keeps at least one active Lead, like the server (409 `last_lead`). */
+function keepLead(member: Member, demote: boolean) {
+  const leads = state.members.filter((m) => m.active && m.role === 'lead');
+  if (demote && member.role === 'lead' && leads.length <= 1) {
+    throw conflict('last_lead', 'store must keep an active Lead');
+  }
+}
+
+export function updateMember(id: string, role: Role): Member {
+  requireLead();
+  const index = state.members.findIndex((m) => m.id === id);
+  if (index < 0) throw notFound('member');
+  const member = state.members[index]!;
+  keepLead(member, role !== 'lead');
+  state.members[index] = { ...member, role };
+  return state.members[index]!;
+}
+
+export function removeMember(id: string): void {
+  requireLead();
+  const member = state.members.find((m) => m.id === id);
+  if (!member) throw notFound('member');
+  keepLead(member, true);
+  state.members = state.members.filter((m) => m.id !== id);
 }
 
 export function createInvite(input: {

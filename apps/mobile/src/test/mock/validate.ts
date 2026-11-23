@@ -2,6 +2,7 @@ import { isDateString } from '@/lib/date';
 import type {
   BankAccount,
   CreateExpenseRequest,
+  Expense,
   CreateProductRequest,
   CreateSaleRequest,
   ProductPatch,
@@ -423,6 +424,37 @@ export function parseCreateExpense(body: unknown): CreateExpenseRequest {
             };
           }),
         }
+      : {}),
+  };
+}
+
+export function parseMemberPatch(body: unknown): { role: Role } {
+  const o = asObject(body);
+  return { role: oneOf(o, 'role', ['lead', 'seller'] as const) };
+}
+
+export function parseExpensePatch(body: unknown): {
+  amount?: number;
+  category?: Expense['category'];
+  note?: string | null;
+} {
+  const o = asObject(body);
+  return {
+    ...(has(o, 'amount')
+      ? { amount: intIn(o, 'amount', 1, 2_000_000_000) }
+      : {}),
+    ...(has(o, 'category')
+      ? {
+          category: oneOf(o, 'category', [
+            'nhap_hang',
+            'dien',
+            'nuoc',
+            'khac',
+          ] as const),
+        }
+      : {}),
+    ...(has(o, 'note')
+      ? { note: o.note === null ? null : text(o, 'note', 500) }
       : {}),
   };
 }

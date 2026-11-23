@@ -51,6 +51,25 @@ export function listSales(
 export const createExpense = (body: CreateExpenseRequest): Promise<Expense> =>
   unwrap(getApiClient().raw.POST('/v1/expenses', { body }));
 
+export const updateExpense = (
+  id: string,
+  patch: { amount?: number; category?: ExpenseCategory; note?: string | null },
+): Promise<Expense> =>
+  unwrap(
+    getApiClient().raw.PATCH('/v1/expenses/{expenseId}', {
+      params: { path: { expenseId: id } },
+      body: patch,
+    }),
+  );
+
+export const deleteExpense = async (id: string): Promise<void> => {
+  await unwrap(
+    getApiClient().raw.DELETE('/v1/expenses/{expenseId}', {
+      params: { path: { expenseId: id } },
+    }),
+  );
+};
+
 export function listExpenses(
   params: DateRange & PageParams & { category?: ExpenseCategory } = {},
 ): Promise<Page<Expense>> {

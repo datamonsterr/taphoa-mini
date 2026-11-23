@@ -272,6 +272,48 @@ function findProductRecordOr400(productId: string) {
   }
 }
 
+export function updateExpense(
+  id: string,
+  patch: {
+    amount?: number;
+    category?: Expense['category'];
+    note?: string | null;
+  },
+): Expense {
+  const db = getMockDb();
+  const index = db.expenses.findIndex((e) => e.id === id);
+  if (index < 0) throw notFound('expense');
+  const current = db.expenses[index]!;
+  if (
+    getCurrentMember().role !== 'lead' &&
+    current.member_id !== getCurrentMember().id
+  ) {
+    throw new MockHttpError(
+      403,
+      'forbidden',
+      'only the Lead edits this expense',
+    );
+  }
+  const next: Expense = {
+    ...current,
+    ...(patch.amount !== undefined ? { amount: patch.amount } : {}),
+    ...(patch.category !== undefined ? { category: patch.category } : {}),
+    ...(patch.note !== undefined ? { note: patch.note } : {}),
+  };
+  db.expenses[index] = next;
+  return next;
+}
+
+export function deleteExpense(id: string): void {
+  const db = getMockDb();
+  if (getCurrentMember().role !== 'lead') {
+    throw new MockHttpError(403, 'forbidden', 'only the Lead deletes expenses');
+  }
+  const index = db.expenses.findIndex((e) => e.id === id);
+  if (index < 0) throw notFound('expense');
+  db.expenses.splice(index, 1);
+}
+
 export function listExpenses(filters: {
   from?: string | null;
   to?: string | null;

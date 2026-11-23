@@ -32,6 +32,8 @@ import {
   paginate,
   parseAccept,
   parseCreateExpense,
+  parseExpensePatch,
+  parseMemberPatch,
   parseCreateProduct,
   parseCreateSale,
   parseDate,
@@ -413,6 +415,25 @@ export const MOCK_ROUTES: MockRoute[] = [
     handler: () => ok({ items: db.getMockDb().members }),
   },
   {
+    method: 'PATCH',
+    path: '/v1/members/{memberId}',
+    handler: async ({ params, request }) =>
+      ok(
+        db.updateMember(
+          params.memberId!,
+          parseMemberPatch(await readJson(request)).role,
+        ),
+      ),
+  },
+  {
+    method: 'DELETE',
+    path: '/v1/members/{memberId}',
+    handler: ({ params }) => {
+      db.removeMember(params.memberId!);
+      return { status: 204 };
+    },
+  },
+  {
     method: 'POST',
     path: '/v1/invites',
     handler: async ({ request }) =>
@@ -539,6 +560,25 @@ export const MOCK_ROUTES: MockRoute[] = [
         parseCreateExpense(await readJson(request)),
       );
       return okOrCreated(result.expense, result.created);
+    },
+  },
+  {
+    method: 'PATCH',
+    path: '/v1/expenses/{expenseId}',
+    handler: async ({ params, request }) =>
+      ok(
+        ledger.updateExpense(
+          params.expenseId!,
+          parseExpensePatch(await readJson(request)),
+        ),
+      ),
+  },
+  {
+    method: 'DELETE',
+    path: '/v1/expenses/{expenseId}',
+    handler: ({ params }) => {
+      ledger.deleteExpense(params.expenseId!);
+      return { status: 204 };
     },
   },
   {
