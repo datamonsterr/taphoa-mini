@@ -616,7 +616,7 @@ keep the `region` in `.railway/railway.ts` equal to the live one.
 | Secret   | `RAILWAY_TOKEN_TEST`    | Railway **project token** for environment `test` (dashboard > Tokens)          |
 | Secret   | `CLERK_SECRET_KEY`      | Clerk Backend API key: seed, e2e helpers and the docker smoke create users     |
 | Secret   | `CLERK_PUBLISHABLE_KEY` | Clerk Frontend API key (public by design); also embedded in web and app builds |
-| Variable | `BACKEND_URL_TEST`      | `https://backend-test-70c2.up.railway.app`                                     |
+| Variable | `BACKEND_URL_TEST`      | `https://backend-test-70c2.up.railway.app` (ephemeral, see above)              |
 | Variable | `LATENCY_P95_MS`        | Optional p95 budget in milliseconds for the e2e latency probes (default 200)   |
 
 Project tokens cannot be minted with the CLI login, so the secret must be created in the
