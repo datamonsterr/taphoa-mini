@@ -12,6 +12,7 @@ import { Dimensions } from 'react-native';
 import { ApiError } from '@/lib/api/errors';
 import * as productsApi from '@/lib/api/products';
 import * as stockApi from '@/lib/api/stock';
+import * as storeApi from '@/lib/api/store';
 import { keys } from '@/lib/api/keys';
 import type { Product } from '@/lib/api/types';
 import { testSession, setTestMembership } from '@/test/session';
@@ -654,4 +655,53 @@ test('product board hierarchy', async () => {
       height: 102,
     });
   }
+});
+
+test('price history lists price changes with member and date', async () => {
+  jest.spyOn(productsApi, 'listPriceHistory').mockResolvedValue({
+    items: [
+      {
+        id: 'change',
+        unit_id: null,
+        field: 'price',
+        old_value: 10000,
+        new_value: 12000,
+        changed_by: 'member-1',
+        changed_at: '2026-10-25T05:30:00Z',
+        source: 'manual',
+      },
+    ],
+    next_cursor: null,
+  });
+  jest
+    .spyOn(require('@/lib/api/store'), 'listMembers')
+    .mockResolvedValue([{ id: 'member-1', display_name: 'Cô Ba' }]);
+  await renderProduct();
+  expect(await screen.findByText('10.000đ → 12.000đ')).toBeOnTheScreen();
+  expect(screen.getByText(/Cô Ba/)).toBeOnTheScreen();
+  expect(screen.getByText(/25\/10\/2026/)).toBeOnTheScreen();
+});
+
+test('price history explains empty and failed loads and can retry', async () => {
+  jest
+    .spyOn(productsApi, 'listPriceHistory')
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValue({ items: [], next_cursor: null });
+  await renderProduct();
+  expect(
+    await screen.findByText('Không tải được lịch sử giá'),
+  ).toBeOnTheScreen();
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Tải lại lịch sử giá' }),
+  );
+  expect(await screen.findByText('Chưa có thay đổi giá')).toBeOnTheScreen();
+});
+
+test('price history shows a loading state', async () => {
+  const release = holdNext(productsApi, 'listPriceHistory');
+  await renderProduct();
+  expect(
+    await screen.findByLabelText('Đang tải lịch sử giá'),
+  ).toBeOnTheScreen();
+  release();
 });

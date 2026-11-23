@@ -102,24 +102,28 @@ test.each([
 );
 test('already a member says so and reloads the account so the store opens', async () => {
   let meCalls = 0;
+  let attemptedJoin = false;
   setApiTransport((async (r: Request) => {
-    if (r.method === 'POST')
+    if (r.method === 'POST') {
+      attemptedJoin = true;
       return Response.json(
         { error: 'already a member', code: 'already_member' },
         { status: 409 },
       );
+    }
     meCalls += 1;
     return Response.json({
       clerk_user_id: 'user_test',
       profile: { display_name: 'Mẹ', email: null },
-      memberships: meCalls > 1 ? [testSession()] : [],
+      memberships: attemptedJoin ? [testSession()] : [],
     });
   }) as typeof fetch);
   await renderWithProviders(<JoinStoreScreen />);
-  await waitFor(() => expect(meCalls).toBe(1));
+  await waitFor(() => expect(meCalls).toBeGreaterThanOrEqual(1));
+  const beforeJoin = meCalls;
   await fireEvent.press(screen.getByTestId('join-store-submit'));
   expect(
     await screen.findByText('Bạn đã là thành viên của cửa hàng này.'),
   ).toBeOnTheScreen();
-  await waitFor(() => expect(meCalls).toBe(2));
+  await waitFor(() => expect(meCalls).toBeGreaterThan(beforeJoin));
 });

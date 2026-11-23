@@ -6,6 +6,7 @@ import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import * as products from './products';
 import { useLookupBarcode } from './hooks';
 import { keys } from './keys';
+import * as online from '@/lib/online';
 
 beforeEach(() => resetMockDb());
 afterEach(() => jest.restoreAllMocks());
@@ -47,5 +48,72 @@ test('UPC-A scans also match an exact leading-zero EAN-13 catalog key', async ()
   });
   await act(async () => {
     expect((await result.current('123456789012'))?.id).toBe(PRODUCT_IDS.coca);
+  });
+});
+
+test('offline scans resolve the synced catalog including unit codes and report unknown codes', async () => {
+  const product = await products.patchProduct(PRODUCT_IDS.coca, {
+    barcode: '0123456789012',
+  });
+  const cached = {
+    ...product,
+    units: [
+      {
+        id: 'unit',
+        name: 'pack',
+        quantity_in_base: 6,
+        price: 60000,
+        barcode: '12345678',
+      },
+    ],
+  };
+  const client = createTestQueryClient();
+  client.setQueryData(keys.catalog(), {
+    cursor: 'synced',
+    products: {
+      [cached.id]: cached,
+      archived: {
+        ...cached,
+        id: 'archived',
+        barcode: '87654321',
+        archived: true,
+      },
+    },
+  });
+  jest.spyOn(online, 'useOnline').mockReturnValue(false);
+  const calls = jest
+    .spyOn(products, 'listProducts')
+    .mockRejectedValue(new Error('offline'));
+  const { result } = await renderHook(() => useLookupBarcode(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  await act(async () => {
+    expect((await result.current('123456789012'))?.id).toBe(cached.id);
+    expect((await result.current('12345678'))?.id).toBe(cached.id);
+    expect(await result.current('87654321')).toBeNull();
+  });
+  expect(calls).not.toHaveBeenCalled();
+});
+
+test('offline lookup prefers the exact code before the UPC alias', async () => {
+  const product = await products.getProduct(PRODUCT_IDS.coca);
+  const client = createTestQueryClient();
+  client.setQueryData(keys.catalog(), {
+    cursor: 'synced',
+    products: {
+      alias: { ...product, id: 'alias', barcode: '0123456789012' },
+      exact: { ...product, id: 'exact', barcode: '123456789012' },
+    },
+  });
+  jest.spyOn(online, 'useOnline').mockReturnValue(false);
+  const { result } = await renderHook(() => useLookupBarcode(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  await act(async () => {
+    expect((await result.current('123456789012'))?.id).toBe('exact');
   });
 });

@@ -1020,6 +1020,44 @@ async fn categories_list_create_authz_duplicates() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn enrolled_barcode_resolves_via_product_list() {
+    let w = world().await;
+    let product = create_product(
+        &w,
+        &w.lead,
+        "Barcode item",
+        10000,
+        "barcode",
+        json!({"barcode": "0123456789012"}),
+    )
+    .await;
+    let found = ok(
+        &w.app,
+        "GET",
+        "/v1/products?barcode=0123456789012&limit=1",
+        "/v1/products",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(found["items"].as_array().unwrap().len(), 1);
+    assert_eq!(found["items"][0]["id"], product["id"]);
+    let missing = ok(
+        &w.app,
+        "GET",
+        "/v1/products?barcode=87654321&limit=1",
+        "/v1/products",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert!(missing["items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn create_product_happy_authz_validation_idempotency_events() {
     let w = world().await;
     let image = upload(&w, &w.lead, "a").await;

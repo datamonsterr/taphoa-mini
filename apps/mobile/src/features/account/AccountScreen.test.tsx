@@ -50,11 +50,12 @@ test('shows an error with retry when the account cannot load', async () => {
     .mockRejectedValueOnce(new Error('boom'));
   await renderWithProviders(<AccountScreen />);
   expect(await screen.findByText('Không tải được tài khoản')).toBeOnTheScreen();
+  const callsBeforeRetry = spy.mock.calls.length;
   await fireEvent.press(screen.getByRole('button', { name: 'Thử lại' }));
   expect(
     await screen.findByRole('header', { name: 'Tạp hóa Cô Ba' }),
   ).toBeOnTheScreen();
-  expect(spy).toHaveBeenCalledTimes(2);
+  expect(spy.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
 });
 
 test('shows a members error without hiding the rest', async () => {

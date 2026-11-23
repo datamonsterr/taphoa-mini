@@ -1,15 +1,23 @@
 //! The eval store ("Tạp hóa Cô Ba") against a real Postgres: fixtures, rerun, reset.
 //! Database tests need `DATABASE_URL` naming a database the suite may write to. The v1 fixture
 //! stores must stay untouched whatever happens to the eval store.
+mod common;
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::process::Command;
 use taphoa_api::seed::eval::{self, EvalOptions, EvalStatus};
+use tower::ServiceExt;
 use uuid::Uuid;
 
 /// Tables with a `store_id`, fingerprinted row by row. `change_log` and `outbox_events` carry
 /// database-generated ids and `scans.catalog_version` points into `change_log`, so those three
 /// are only counted when comparing a reset against the previous seed.
-const CONTENT_TABLES: [&str; 19] = [
+const CONTENT_TABLES: [&str; 21] = [
+    "customers",
+    "debt_entries",
     "members",
     "invites",
     "images",
@@ -176,6 +184,84 @@ async fn eval_store_fixtures_rerun_and_reset() {
         .collect();
     assert_eq!(names, ["Cô Ba", "Bé Na", "Anh Tư"]);
     let eval_ids = [store];
+
+    assert_eq!(
+        scalar(
+            &pool,
+            store,
+            "SELECT count(*) FROM customers WHERE store_id=$1"
+        )
+        .await,
+        4
+    );
+    assert_eq!(
+        scalar(
+            &pool,
+            store,
+            "SELECT count(*) FROM customers WHERE store_id=$1 AND balance > 0"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        scalar(
+            &pool,
+            store,
+            "SELECT coalesce(sum(balance),0)::bigint FROM customers WHERE store_id=$1"
+        )
+        .await,
+        1550000
+    );
+    assert_zero(&pool, store, "debt ledger balances", "SELECT count(*) FROM customers c WHERE c.store_id=$1 AND c.balance <> (SELECT coalesce(sum(e.amount),0) FROM debt_entries e WHERE e.store_id=c.store_id AND e.customer_id=c.id)").await;
+    assert_zero(&pool, store, "running debt balances", "SELECT count(*) FROM (SELECT balance_after, sum(amount) OVER (PARTITION BY customer_id ORDER BY created_at,id) AS computed FROM debt_entries WHERE store_id=$1) e WHERE balance_after<>computed").await;
+    assert_zero(&pool, store, "credit sale links", "SELECT count(*) FROM debt_entries e LEFT JOIN sales s ON s.id=e.sale_id AND s.store_id=e.store_id WHERE e.store_id=$1 AND e.kind='credit_sale' AND (s.id IS NULL OR s.customer_id<>e.customer_id OR s.credit_amount<>e.amount OR s.status<>'completed')").await;
+    assert_eq!(
+        scalar(
+            &pool,
+            store,
+            "SELECT count(*) FROM debt_entries WHERE store_id=$1 AND kind='repayment'"
+        )
+        .await,
+        2
+    );
+
+    let config = taphoa_api::config::Config::from_lookup(|key| match key {
+        "CLERK_ISSUER" => Some(common::clerk::TEST_ISSUER.into()),
+        "TAPHOA_TEST_NOW" => Some("2026-10-20T17:00:00+07:00".into()),
+        _ => std::env::var(key).ok(),
+    })
+    .unwrap();
+    let mut state = taphoa_api::AppState::connect_with_config(&config, None)
+        .await
+        .unwrap();
+    common::clerk::install(&mut state);
+    let user = format!(
+        "seed_{}",
+        reset
+            .members
+            .iter()
+            .find(|m| m.key == "anh-tu")
+            .unwrap()
+            .member_id
+    );
+    let token = common::clerk::clerk_token(&user, "seed-debt-test");
+    let response = taphoa_api::router(state)
+        .oneshot(
+            Request::get("/v1/debts/summary")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let summary: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 1 << 20).await.unwrap()).unwrap();
+    assert_eq!(summary["total_outstanding"], 1_550_000);
+    assert_eq!(summary["customers_with_debt"], 3);
+    assert_eq!(summary["overdue_count"], 2);
+    assert_eq!(summary["overdue_amount"], 1_400_000);
+    assert_eq!(summary["top_debtors"][0]["name"], "Anh Hùng");
 
     // ---- fixtures ----
     let products = scalar(

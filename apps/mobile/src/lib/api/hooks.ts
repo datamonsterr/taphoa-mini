@@ -14,7 +14,7 @@ import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 
 import { newUuid } from '@/lib/uuid';
-import { localProducts } from '@/lib/offline/catalog';
+import { getCatalog, localProducts } from '@/lib/offline/catalog';
 import { useOnline } from '@/lib/online';
 import {
   keepPreviousData,
@@ -37,6 +37,7 @@ import {
   getDayClose,
   getReportSummary,
   getTodayReport,
+  getTopProducts,
   listAlerts,
   listExpenses,
   listSales,
@@ -73,6 +74,7 @@ import {
   getProduct,
   listCategories,
   listProducts,
+  listPriceHistory,
   patchProduct,
   type ListProductsParams,
 } from './products';
@@ -109,6 +111,7 @@ import type {
 } from './types';
 
 const SALES_PAGE_SIZE = 200;
+const REPORT_STALE_TIME_MS = 5 * 60_000;
 
 const invalidate = (qc: QueryClient, ...queryKeys: (readonly unknown[])[]) =>
   Promise.all(queryKeys.map((queryKey) => qc.invalidateQueries({ queryKey })));
@@ -121,7 +124,7 @@ export function useMe(enabled = true) {
     queryKey: keys.me(userId),
     queryFn: getMe,
     enabled: enabled && !!isSignedIn,
-    staleTime: 60_000,
+    staleTime: 0,
     retry: false,
     retryOnMount: false,
   });
@@ -162,7 +165,21 @@ export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
 /** Exact barcode lookup shares product list keys and mutation invalidation. Cached per session. */
 export function useLookupBarcode() {
   const client = useQueryClient();
+  const online = useOnline();
   return async (barcode: string) => {
+    if (!online) {
+      const products = Object.values(getCatalog(client).products);
+      for (const code of barcodeAliases(barcode)) {
+        const product = products.find(
+          (product) =>
+            !product.archived &&
+            (product.barcode === code ||
+              product.units.some((unit) => unit.barcode === code)),
+        );
+        if (product) return product;
+      }
+      return null;
+    }
     for (const code of barcodeAliases(barcode)) {
       const data = await client.fetchInfiniteQuery({
         ...productsQuery({ barcode: code, limit: 1 }),
@@ -198,6 +215,7 @@ export const useAllSales = (
 ) =>
   useQuery({
     queryKey: keys.sales.every(params),
+    staleTime: REPORT_STALE_TIME_MS,
     enabled,
     queryFn: async () => {
       const items: Sale[] = [];
@@ -241,6 +259,7 @@ export const useAlerts = (status: AlertStatus = 'open', enabled = true) =>
 export const useTodayReport = (date?: string) =>
   useQuery({
     queryKey: keys.reports.today(date),
+    staleTime: REPORT_STALE_TIME_MS,
     queryFn: () => getTodayReport(date),
   });
 
@@ -276,16 +295,28 @@ export const useReportSummary = (
 ) =>
   useQuery({
     queryKey: keys.reports.summary(period, date),
+    staleTime: REPORT_STALE_TIME_MS,
     queryFn: () => getReportSummary(summaryRange(period, new Date(date))),
     // The server lists only buckets with activity; the chart needs every day/week/month.
     select: (report) =>
       fillSummaryBuckets(report, summaryRange(period, new Date(date))),
   });
 
+/** Best sellers of a date range; sales invalidate `reports.all()`, so it follows them. */
+export const useTopProducts = (
+  range: { from: string; to: string },
+  limit = 5,
+) =>
+  useQuery({
+    queryKey: keys.reports.top(range.from, range.to, limit),
+    queryFn: () => getTopProducts({ ...range, sort: 'revenue', limit }),
+  });
+
 /** Day close of a business date; `null` when the day is not closed yet (404). */
 export const useDayClose = (date: string) =>
   useQuery({
     queryKey: keys.reports.dayClose(date),
+    staleTime: REPORT_STALE_TIME_MS,
     queryFn: async () => {
       try {
         return await getDayClose(date);
@@ -335,10 +366,25 @@ export const useOpenDigest = (businessDate?: string) => {
 };
 
 /** Cursor lists expose flattened items, like useProducts. */
-export const useStock = (status: StockStatus = 'all') =>
+export const useStock = (
+  status: StockStatus = 'all',
+  options?: { staleTime?: number },
+) =>
   useInfiniteQuery({
     queryKey: keys.stock.list(status),
+    staleTime: options?.staleTime,
     queryFn: ({ pageParam }) => listStock({ status, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
+
+export const usePriceHistory = (productId: string | undefined) =>
+  useInfiniteQuery({
+    queryKey: [...keys.products.all(), 'priceHistory', productId ?? ''],
+    queryFn: ({ pageParam }) =>
+      listPriceHistory(productId!, { cursor: pageParam }),
+    enabled: Boolean(productId),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
     select: (data) => data.pages.flatMap((page) => page.items),

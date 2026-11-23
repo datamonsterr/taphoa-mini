@@ -17,6 +17,7 @@ import {
   getDayClose,
   getSummaryReport,
   listExpenses,
+  getTopProducts,
   listSales,
   putDayClose,
 } from './ledger';
@@ -477,5 +478,40 @@ describe('manual sale lines', () => {
     createSale(req);
     expect(getMockDb().manualLines).toHaveLength(count + 1);
     expect(getMockDb().manualLines.at(-1)!.manual_label).toBeNull();
+  });
+});
+
+describe('getTopProducts', () => {
+  test('ranks catalog products by revenue or quantity and skips loose items', () => {
+    const cheapMany = createSale(
+      sale({
+        total: 10000,
+        lines: [line(PRODUCT_IDS.pepsi, 10, 1000)],
+        payment_method: 'transfer',
+        cash_received: undefined,
+      }),
+    ).sale;
+    createSale(
+      sale({
+        total: 30000,
+        lines: [line(PRODUCT_IDS.coca, 1, 30000), line(null, 1, 0)],
+      }),
+    );
+    const range = { from: today(), to: today() };
+    const byRevenue = getTopProducts(range.from, range.to, 'revenue', 1);
+    expect(byRevenue).toHaveLength(1);
+    const byQuantity = getTopProducts(range.from, range.to, 'quantity', 100);
+    expect(byQuantity[0]!.product_id).toBe(PRODUCT_IDS.pepsi);
+    expect(byQuantity.every((p) => p.product_id)).toBe(true);
+    expect(cheapMany.status).toBe('completed');
+  });
+
+  test('rejects a reversed range and a bad limit', () => {
+    expect(() =>
+      getTopProducts('2026-11-02', '2026-11-01', 'revenue', 5),
+    ).toThrow();
+    expect(() =>
+      getTopProducts('2026-11-01', '2026-11-02', 'revenue', 0),
+    ).toThrow();
   });
 });
