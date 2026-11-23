@@ -45,6 +45,12 @@ adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher || true
 # The result is ignored on purpose; smoke runs again in the suite below.
 maestro test .maestro/smoke.yaml || true
 
+# Measure cold start / time to first paint on the warm emulator (TotalTime).
+adb shell am force-stop "$app_id" || true
+adb shell am start -W -n "$app_id/.MainActivity" >startup-timing.txt || true
+node scripts/startup-timing.mjs startup-timing.txt || true
+adb shell am force-stop "$app_id" || true
+
 # Drop the warm-up frames so the budget only measures the suite.
 adb shell dumpsys gfxinfo "$app_id" reset >/dev/null || true
 

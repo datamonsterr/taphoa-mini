@@ -19,11 +19,12 @@ installOnlineManager();
  * go first (so the delta feed already contains them), then the catalog delta is pulled. Runs on
  * mount, on reconnect and when the app returns to the foreground.
  */
-export function OfflineSync() {
+export function OfflineSync({ start = true }: { start?: boolean } = {}) {
   const qc = useQueryClient();
   const online = useOnline();
 
   useEffect(() => {
+    if (!start) return undefined;
     bindOutboxClient(qc);
     if (!online) return undefined;
     prefetchSaleScreens();
@@ -37,7 +38,7 @@ export function OfflineSync() {
       if (state === 'active') run();
     });
     return () => sub.remove();
-  }, [qc, online]);
+  }, [qc, online, start]);
 
   return null;
 }

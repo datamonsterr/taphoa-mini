@@ -70,9 +70,12 @@ function AnalyticsRegistration({ children }: PropsWithChildren) {
   return children;
 }
 
-export function AnalyticsProvider({ children }: PropsWithChildren) {
+export function AnalyticsProvider({
+  children,
+  start = true,
+}: PropsWithChildren<{ start?: boolean }>) {
   const apiKey = process.env.EXPO_PUBLIC_POSTHOG_KEY;
-  if (!apiKey) return children;
+  if (!apiKey || !start) return children;
   return (
     <AnalyticsSdkProvider
       apiKey={apiKey}

@@ -200,6 +200,33 @@ test('test native builds record every session with masking enabled', async () =>
   await view.unmount();
 });
 
+test('defers PostHog initialization until start is true and delivers queued events', async () => {
+  process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
+  const view = await render(
+    <AnalyticsProvider start={false}>
+      <Text>child</Text>
+    </AnalyticsProvider>,
+  );
+  expect(view.getByText('child')).toBeTruthy();
+  expect(providerProps).not.toHaveBeenCalled();
+
+  // Events captured while not started are queued
+  capture('assistant_opened', { entry: 'button' });
+  expect(posthog.capture).not.toHaveBeenCalled();
+
+  // Once start becomes true, PostHog initializes and receives queued events
+  await view.rerender(
+    <AnalyticsProvider start={true}>
+      <Text>child</Text>
+    </AnalyticsProvider>,
+  );
+  expect(providerProps).toHaveBeenCalled();
+  expect(posthog.capture).toHaveBeenCalledWith('assistant_opened', {
+    entry: 'button',
+  });
+  await view.unmount();
+});
+
 test('provider configures privacy, registers properties and clears sink and bridge on unmount', async () => {
   process.env.EXPO_PUBLIC_POSTHOG_KEY = 'test-key';
   const view = await render(

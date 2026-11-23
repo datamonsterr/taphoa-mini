@@ -4,8 +4,8 @@ import {
   BeVietnamPro_600SemiBold,
   BeVietnamPro_700Bold,
   BeVietnamPro_800ExtraBold,
-  useFonts,
 } from '@expo-google-fonts/be-vietnam-pro';
+import { loadAsync, useFonts } from 'expo-font';
 import { ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { AnalyticsIdentity, AnalyticsSignedOut } from '@/lib/AnalyticsIdentity';
@@ -133,18 +133,26 @@ export default function RootLayout() {
   const [queryClient] = useState(createAppQueryClient);
   const [fontsLoaded, fontError] = useFonts({
     BeVietnamPro_400Regular,
-    BeVietnamPro_500Medium,
     BeVietnamPro_600SemiBold,
-    BeVietnamPro_700Bold,
-    BeVietnamPro_800ExtraBold,
   });
   const ready = fontsLoaded || fontError !== null;
+  const [afterFirstPaint, setAfterFirstPaint] = useState(false);
   const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
   useEffect(() => () => queryClient.clear(), [queryClient]);
 
   useEffect(() => {
-    if (ready) void SplashScreen.hideAsync();
+    if (!ready) return;
+    void SplashScreen.hideAsync();
+    const handle = requestAnimationFrame(() => {
+      setAfterFirstPaint(true);
+      void loadAsync({
+        BeVietnamPro_500Medium,
+        BeVietnamPro_700Bold,
+        BeVietnamPro_800ExtraBold,
+      });
+    });
+    return () => cancelAnimationFrame(handle);
   }, [ready]);
 
   if (!ready) return null;
@@ -164,7 +172,7 @@ export default function RootLayout() {
               publishableKey={publishableKey}
               tokenCache={tokenCache}
             >
-              <AnalyticsProvider>
+              <AnalyticsProvider start={afterFirstPaint}>
                 <StatusBar style="dark" />
                 <AuthGate>
                   {({ signedIn, hasMembership }) => (
@@ -172,7 +180,7 @@ export default function RootLayout() {
                       {hasMembership ? (
                         <>
                           <AnalyticsIdentity />
-                          <OfflineSync />
+                          <OfflineSync start={afterFirstPaint} />
                         </>
                       ) : (
                         <AnalyticsSignedOut />
