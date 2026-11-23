@@ -79,6 +79,27 @@ test.describe('dashboard', () => {
       .toBe(150);
   });
 
+  test('Bán chạy lists the seeded best seller with its quantity and revenue; a row opens the product', async ({
+    page,
+    store,
+  }) => {
+    const { coca } = await seedTradingDay(store.api);
+    const [top] = await Promise.all([
+      waitForApi(page, 'GET', '/v1/reports/top-products'),
+      page.goto('/dashboard'),
+    ]);
+    expect(top.body.items[0]).toMatchObject({
+      product_id: coca.id,
+      quantity: 3,
+      revenue: 30_000,
+    });
+    await expect(page.getByRole('heading', { name: 'Bán chạy' })).toBeVisible();
+    const row = button(page, `${coca.name}, 3 đã bán, ${formatVnd(30_000)}`);
+    await expect(row).toBeVisible();
+    await callApi(page, 'GET', `/v1/products/${coca.id}`, () => row.click());
+    await expect(page).toHaveURL(new RegExp(`/product/${coca.id}`));
+  });
+
   test('week and month chips ask for their own summary and sales and show those figures; Ngày goes back', async ({
     page,
     store,

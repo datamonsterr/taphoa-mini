@@ -37,6 +37,7 @@ import {
   getDayClose,
   getReportSummary,
   getTodayReport,
+  getTopProducts,
   listAlerts,
   listExpenses,
   listSales,
@@ -280,6 +281,16 @@ export const useReportSummary = (
     // The server lists only buckets with activity; the chart needs every day/week/month.
     select: (report) =>
       fillSummaryBuckets(report, summaryRange(period, new Date(date))),
+  });
+
+/** Best sellers of a date range; sales invalidate `reports.all()`, so it follows them. */
+export const useTopProducts = (
+  range: { from: string; to: string },
+  limit = 5,
+) =>
+  useQuery({
+    queryKey: keys.reports.top(range.from, range.to, limit),
+    queryFn: () => getTopProducts({ ...range, sort: 'revenue', limit }),
   });
 
 /** Day close of a business date; `null` when the day is not closed yet (404). */
