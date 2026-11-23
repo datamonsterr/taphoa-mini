@@ -21,6 +21,7 @@ import { BarChart } from './BarChart';
 import { DigestCard } from '@/features/digest/DigestCard';
 import { ShortcutChips } from './ShortcutChips';
 import { StatTiles } from './StatTiles';
+import { TopProductsSection } from './TopProductsSection';
 import { dashboardStrings } from './strings';
 import { useDashboardData } from './useDashboardData';
 import { ExportSheet } from './ExportSheet';
@@ -132,6 +133,7 @@ export function DashboardScreen() {
                 net: t('net'),
               }}
             />
+            <TopProductsSection period={period} />
             <BarChart bars={data.bars} label={t(`chart.${period}`)} />
           </>
         ) : null}

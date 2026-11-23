@@ -230,6 +230,10 @@ Scope notes:
 
 - **Not in the app (D3).** The price-list export (C7) and the recognition report exist only on
   the backend. Top products (R4) is shown on the Dashboard.
+- **Backend only, not in the app (D3).** `GET /v1/exports/price-list`, `GET /v1/reports/recognition`
+  and `GET /v1/day-closes` (the app reads and writes one close at a time through
+  `/v1/day-closes/{businessDate}` and never lists them). They stay, with their tests, and are
+  marked `x-internal: true` in [openapi.yaml](api/openapi.yaml).
 - **Out of MVP.** Automatic transfer confirmation (S9) and the iOS app, including iOS push and
   iOS voice entry points.
 

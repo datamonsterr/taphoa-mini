@@ -614,7 +614,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Printable price list (C7, P2) */
+        /**
+         * Printable price list (C7, P2)
+         * @description Backend only, not in the app (owner decision D3). Kept and tested; no mobile caller.
+         */
         get: operations["exportPriceList"];
         put?: never;
         post?: never;
@@ -1216,7 +1219,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Confirmed-vs-corrected rate (PRD §6 accuracy metric, A1) */
+        /**
+         * Confirmed-vs-corrected rate (PRD §6 accuracy metric, A1)
+         * @description Backend only, not in the app (owner decision D3). Kept and tested; no mobile caller.
+         */
         get: operations["getRecognitionReport"];
         put?: never;
         post?: never;
@@ -1250,7 +1256,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Past end-of-day closes (Lead only) */
+        /**
+         * Past end-of-day closes (Lead only)
+         * @description Backend only, not in the app (owner decision D3). Kept and tested; no mobile caller.
+         */
         get: operations["listDayCloses"];
         put?: never;
         post?: never;

@@ -1035,6 +1035,8 @@ paths:
       tags: [Catalog]
       operationId: exportPriceList
       summary: Printable price list (C7, P2)
+      description: Backend only, not in the app (owner decision D3). Kept and tested; no mobile caller.
+      x-internal: true
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - name: format
@@ -1985,6 +1987,8 @@ paths:
       tags: [Reports]
       operationId: getRecognitionReport
       summary: Confirmed-vs-corrected rate (PRD §6 accuracy metric, A1)
+      description: Backend only, not in the app (owner decision D3). Kept and tested; no mobile caller.
+      x-internal: true
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/FromRequired'
@@ -2028,6 +2032,8 @@ paths:
       tags: [Day close]
       operationId: listDayCloses
       summary: Past end-of-day closes (Lead only)
+      description: Backend only, not in the app (owner decision D3). Kept and tested; no mobile caller.
+      x-internal: true
       parameters:
         - $ref: '#/components/parameters/X-Store-Id'
         - $ref: '#/components/parameters/From'
