@@ -1,47 +1,79 @@
+import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
+import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PressableScale, Text, MoneyText } from '@/components/ui';
 import { useRecentSales } from '@/lib/api/salesActions';
 import { useT } from '@/lib/i18n';
 import { transactionStrings } from '@/features/dashboard/transactionStrings';
-import { Action, BackPill, Page, StatusPill, saleStamp, styles } from './kit';
+import { space } from '@/theme';
+import { Action, BackPill, StatusPill, saleStamp, styles } from './kit';
 
 export function RecentSalesScreen() {
   const t = useT(transactionStrings);
+  const insets = useSafeAreaInsets();
   const sales = useRecentSales();
   const items = sales.data?.pages.flatMap((page) => page.items) ?? [];
   return (
-    <Page>
-      <BackPill
-        label={t('back')}
-        text={t('reports')}
-        onPress={() => router.replace('/dashboard')}
-      />
-      <Text accessibilityRole="header" style={styles.heading}>
-        {t('recent')}
-      </Text>
-      {sales.isPending ? (
-        <Text accessibilityRole="progressbar">{t('loading')}</Text>
-      ) : null}
-      {sales.isError ? (
-        <>
-          <Text accessibilityRole="alert" style={styles.error}>
-            {t('error')}
+    <FlashList
+      testID="recent-sales-list"
+      style={styles.page}
+      data={items}
+      keyExtractor={(sale) => sale.id}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{
+        paddingHorizontal: space[4],
+        paddingTop: insets.top + space[4],
+        paddingBottom: insets.bottom + space[8],
+      }}
+      onEndReached={() => {
+        if (sales.hasNextPage && !sales.isFetchingNextPage)
+          void sales.fetchNextPage();
+      }}
+      onEndReachedThreshold={0.5}
+      ListHeaderComponent={
+        <View style={{ gap: space[4], marginBottom: space[4] }}>
+          <BackPill
+            label={t('back')}
+            text={t('reports')}
+            onPress={() => router.replace('/dashboard')}
+          />
+          <Text accessibilityRole="header" style={styles.heading}>
+            {t('recent')}
           </Text>
-          <Action label={t('retry')} onPress={() => void sales.refetch()} />
-        </>
-      ) : null}
-      {!sales.isPending && !sales.isError && !items.length ? (
-        <Text>{t('empty')}</Text>
-      ) : null}
-      {items.map((sale) => (
+          {sales.isPending ? (
+            <Text accessibilityRole="progressbar">{t('loading')}</Text>
+          ) : null}
+          {sales.isError ? (
+            <>
+              <Text accessibilityRole="alert" style={styles.error}>
+                {t('error')}
+              </Text>
+              <Action label={t('retry')} onPress={() => void sales.refetch()} />
+            </>
+          ) : null}
+        </View>
+      }
+      ListEmptyComponent={
+        !sales.isPending && !sales.isError ? <Text>{t('empty')}</Text> : null
+      }
+      ListFooterComponent={
+        sales.hasNextPage ? (
+          <Action
+            label={t('more')}
+            disabled={sales.isFetchingNextPage}
+            onPress={() => void sales.fetchNextPage()}
+          />
+        ) : null
+      }
+      renderItem={({ item: sale }) => (
         <PressableScale
-          key={sale.id}
           accessibilityRole="button"
           accessibilityLabel={`${sale.code}, ${t(sale.status)}`}
           onPress={() =>
             router.push({ pathname: '/sale/[id]', params: { id: sale.id } })
           }
-          style={styles.card}
+          style={[styles.card, { marginBottom: space[4] }]}
         >
           <Text style={styles.label}>
             {sale.code} · {saleStamp(sale.sold_at)}
@@ -53,14 +85,7 @@ export function RecentSalesScreen() {
             voided={sale.status === 'voided'}
           />
         </PressableScale>
-      ))}
-      {sales.hasNextPage ? (
-        <Action
-          label={t('more')}
-          disabled={sales.isFetchingNextPage}
-          onPress={() => void sales.fetchNextPage()}
-        />
-      ) : null}
-    </Page>
+      )}
+    />
   );
 }

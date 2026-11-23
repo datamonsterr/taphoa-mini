@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,7 +13,7 @@ import {
   TrendingUp,
 } from '@/components/icons';
 import { useCallback, useEffect, type ReactNode } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -106,243 +107,250 @@ export function DigestScreen() {
   const noDigest = t('noDigest');
 
   return (
-    <ScrollView
+    <FlashList
+      testID="digest-list"
       style={styles.screen}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: space[4] + insets.top,
-          paddingBottom: space[8] + insets.bottom,
-        },
-      ]}
-    >
-      <View style={styles.header}>
-        <CircleButton
-          icon={ChevronLeft}
-          accessibilityLabel={backLabel}
-          onPress={goBack}
-        />
-        <View style={styles.headerTitleWrap}>
-          <Text accessibilityRole="header" style={styles.title}>
-            {title}
-          </Text>
-          {stamp ? <Text style={styles.date}>{stamp}</Text> : null}
-        </View>
-        <Icon icon={Sun} color={colors.accent} />
-      </View>
-
-      {isError ? (
-        <View accessibilityRole="alert" style={styles.errorBox}>
-          <Text style={styles.errorText}>{errorText}</Text>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={retryLabel}
-            pressedScale={0.96}
-            onPress={() => void refetch()}
-            style={styles.retryButton}
-          >
-            <Text style={styles.retryText}>{retryLabel}</Text>
-          </PressableScale>
-        </View>
-      ) : isPending ? (
-        <View
-          accessibilityRole="progressbar"
-          accessibilityLabel={loadingLabel}
-          style={styles.loadingContainer}
-        >
-          <ActivityIndicator size="large" color={colors.accent} />
-        </View>
-      ) : digest ? (
-        <View style={styles.body}>
-          <Text style={styles.summaryText}>
-            {summarySegments(digest.summary_vi).map((part, index) => (
-              <Text
-                key={index}
-                style={part.bold ? styles.summaryBold : undefined}
-              >
-                {part.text}
+      data={digest?.restock ?? []}
+      keyExtractor={(item) => item.product_id}
+      contentContainerStyle={{
+        paddingHorizontal: space[4],
+        paddingTop: space[4] + insets.top,
+        paddingBottom: space[8] + insets.bottom,
+      }}
+      ListHeaderComponent={
+        <View style={styles.listHeader}>
+          <View style={styles.header}>
+            <CircleButton
+              icon={ChevronLeft}
+              accessibilityLabel={backLabel}
+              onPress={goBack}
+            />
+            <View style={styles.headerTitleWrap}>
+              <Text accessibilityRole="header" style={styles.title}>
+                {title}
               </Text>
-            ))}
-          </Text>
-
-          <View style={styles.tiles}>
-            <Tile
-              icon={TrendingUp}
-              label={t('revenue')}
-              spoken={formatVnd(digest.sales.revenue)}
-            >
-              <MoneyText
-                amount={digest.sales.revenue}
-                variant="heading"
-                style={styles.tileValue}
-              />
-            </Tile>
-            <Tile
-              icon={ReceiptText}
-              label={t('saleCount')}
-              spoken={fill(t('ordersCount'), {
-                count: digest.sales.sale_count,
-              })}
-            >
-              <Text style={styles.tileValue}>
-                {fill(t('ordersCount'), { count: digest.sales.sale_count })}
-              </Text>
-            </Tile>
-            {digest.sales.gross_profit !== null ? (
-              <Tile
-                icon={DollarSign}
-                label={t('grossProfit')}
-                spoken={formatVnd(digest.sales.gross_profit)}
-                tone="success"
-              >
-                <MoneyText
-                  amount={digest.sales.gross_profit}
-                  variant="heading"
-                  color={colors.success}
-                  style={styles.tileValue}
-                />
-              </Tile>
-            ) : null}
-            {digest.sales.change_pct !== null ? (
-              <Tile
-                icon={digest.sales.change_pct < 0 ? TrendingDown : TrendingUp}
-                label={t('changeVsYesterday')}
-                spoken={changeText(digest.sales.change_pct)}
-                tone={
-                  digest.sales.change_pct > 0
-                    ? 'success'
-                    : digest.sales.change_pct < 0
-                      ? 'danger'
-                      : undefined
-                }
-              >
-                <Text
-                  style={[
-                    styles.tileValue,
-                    digest.sales.change_pct > 0 && styles.positive,
-                    digest.sales.change_pct < 0 && styles.negative,
-                  ]}
-                >
-                  {changeText(digest.sales.change_pct)}
-                </Text>
-              </Tile>
-            ) : null}
+              {stamp ? <Text style={styles.date}>{stamp}</Text> : null}
+            </View>
+            <Icon icon={Sun} color={colors.accent} />
           </View>
 
-          <Text style={styles.sectionTitle}>{t('restockTitle')}</Text>
-          {digest.restock.length === 0 ? (
-            <Text style={styles.emptyText}>{t('restockEmpty')}</Text>
-          ) : (
-            <View style={styles.restockList}>
-              {digest.restock.map((item) => (
-                <View key={item.product_id} style={styles.restockItem}>
-                  {item.image_url ? (
-                    <Image
-                      testID="restock-photo"
-                      source={{ uri: item.image_url }}
-                      style={styles.restockPhoto}
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <View style={styles.restockPhoto} />
-                  )}
-                  <View style={styles.restockInfo}>
-                    <Text style={styles.restockName}>{item.name}</Text>
-                    <Text style={styles.restockQuantity}>
-                      {[
-                        ...(item.stock_quantity != null
-                          ? [
-                              fill(t('stockRemaining'), {
-                                count: item.stock_quantity,
-                              }),
-                            ]
-                          : []),
-                        ...(item.sales_rate
-                          ? [
-                              fill(t('dailyRate'), {
-                                rate: formatDailyRate(
-                                  item.sales_rate,
-                                  language,
-                                ),
-                              }),
-                            ]
-                          : []),
-                      ].join(' · ')}
-                    </Text>
-                  </View>
-                  <Text style={styles.restockChip}>
-                    {quantityLabel(
-                      item.quantity,
-                      catalog.data?.products[item.product_id],
-                    )}
+          {isError ? (
+            <View accessibilityRole="alert" style={styles.errorBox}>
+              <Text style={styles.errorText}>{errorText}</Text>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={retryLabel}
+                pressedScale={0.96}
+                onPress={() => void refetch()}
+                style={styles.retryButton}
+              >
+                <Text style={styles.retryText}>{retryLabel}</Text>
+              </PressableScale>
+            </View>
+          ) : isPending ? (
+            <View
+              accessibilityRole="progressbar"
+              accessibilityLabel={loadingLabel}
+              style={styles.loadingContainer}
+            >
+              <ActivityIndicator size="large" color={colors.accent} />
+            </View>
+          ) : digest ? (
+            <View style={styles.body}>
+              <Text style={styles.summaryText}>
+                {summarySegments(digest.summary_vi).map((part, index) => (
+                  <Text
+                    key={index}
+                    style={part.bold ? styles.summaryBold : undefined}
+                  >
+                    {part.text}
                   </Text>
-                </View>
-              ))}
+                ))}
+              </Text>
+
+              <View style={styles.tiles}>
+                <Tile
+                  icon={TrendingUp}
+                  label={t('revenue')}
+                  spoken={formatVnd(digest.sales.revenue)}
+                >
+                  <MoneyText
+                    amount={digest.sales.revenue}
+                    variant="heading"
+                    style={styles.tileValue}
+                  />
+                </Tile>
+                <Tile
+                  icon={ReceiptText}
+                  label={t('saleCount')}
+                  spoken={fill(t('ordersCount'), {
+                    count: digest.sales.sale_count,
+                  })}
+                >
+                  <Text style={styles.tileValue}>
+                    {fill(t('ordersCount'), { count: digest.sales.sale_count })}
+                  </Text>
+                </Tile>
+                {digest.sales.gross_profit !== null ? (
+                  <Tile
+                    icon={DollarSign}
+                    label={t('grossProfit')}
+                    spoken={formatVnd(digest.sales.gross_profit)}
+                    tone="success"
+                  >
+                    <MoneyText
+                      amount={digest.sales.gross_profit}
+                      variant="heading"
+                      color={colors.success}
+                      style={styles.tileValue}
+                    />
+                  </Tile>
+                ) : null}
+                {digest.sales.change_pct !== null ? (
+                  <Tile
+                    icon={
+                      digest.sales.change_pct < 0 ? TrendingDown : TrendingUp
+                    }
+                    label={t('changeVsYesterday')}
+                    spoken={changeText(digest.sales.change_pct)}
+                    tone={
+                      digest.sales.change_pct > 0
+                        ? 'success'
+                        : digest.sales.change_pct < 0
+                          ? 'danger'
+                          : undefined
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.tileValue,
+                        digest.sales.change_pct > 0 && styles.positive,
+                        digest.sales.change_pct < 0 && styles.negative,
+                      ]}
+                    >
+                      {changeText(digest.sales.change_pct)}
+                    </Text>
+                  </Tile>
+                ) : null}
+              </View>
+
+              <Text style={styles.sectionTitle}>{t('restockTitle')}</Text>
+              {digest.restock.length === 0 ? (
+                <Text style={styles.emptyText}>{t('restockEmpty')}</Text>
+              ) : null}
+            </View>
+          ) : (
+            <View accessibilityRole="alert" style={styles.emptyBox}>
+              <Text style={styles.emptyText}>{noDigest}</Text>
             </View>
           )}
-
-          <View style={styles.chips}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={
-                t('openDrafts') + ', ' + digest.open_drafts.count
-              }
-              pressedScale={0.98}
-              onPress={openDrafts}
-              style={styles.chip}
-            >
-              <Icon icon={ReceiptText} color={colors.ink} />
-              <Text style={styles.chipText} numberOfLines={2}>
-                {fill(t('draftsChip'), { count: digest.open_drafts.count })}
-              </Text>
-            </PressableScale>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={
-                t('overdueDebts') + ', ' + digest.overdue_debts.count
-              }
-              pressedScale={0.98}
-              onPress={openDebts}
-              style={[
-                styles.chip,
-                digest.overdue_debts.count > 0 && styles.chipDanger,
-              ]}
-            >
-              <Icon
-                icon={BookUser}
-                color={
-                  digest.overdue_debts.count > 0 ? colors.danger : colors.ink
-                }
-              />
-              <Text
-                style={[
-                  styles.chipText,
-                  digest.overdue_debts.count > 0 && styles.negative,
-                ]}
-                numberOfLines={2}
-              >
-                {fill(t('overdueChip'), { count: digest.overdue_debts.count })}
-              </Text>
-            </PressableScale>
-          </View>
-
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t('askAssistant')}
-            pressedScale={0.97}
-            onPress={askAssistant}
-            style={styles.primaryButton}
-          >
-            <Icon icon={MessageCircleText} color={colors.onInk} />
-            <Text style={styles.primaryButtonText}>{t('askAssistant')}</Text>
-          </PressableScale>
         </View>
-      ) : (
-        <View accessibilityRole="alert" style={styles.emptyBox}>
-          <Text style={styles.emptyText}>{noDigest}</Text>
+      }
+      renderItem={({ item }) => (
+        <View style={styles.restockItem}>
+          {item.image_url ? (
+            <Image
+              testID="restock-photo"
+              source={{ uri: item.image_url }}
+              style={styles.restockPhoto}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={styles.restockPhoto} />
+          )}
+          <View style={styles.restockInfo}>
+            <Text style={styles.restockName}>{item.name}</Text>
+            <Text style={styles.restockQuantity}>
+              {[
+                ...(item.stock_quantity != null
+                  ? [
+                      fill(t('stockRemaining'), {
+                        count: item.stock_quantity,
+                      }),
+                    ]
+                  : []),
+                ...(item.sales_rate
+                  ? [
+                      fill(t('dailyRate'), {
+                        rate: formatDailyRate(item.sales_rate, language),
+                      }),
+                    ]
+                  : []),
+              ].join(' · ')}
+            </Text>
+          </View>
+          <Text style={styles.restockChip}>
+            {quantityLabel(
+              item.quantity,
+              catalog.data?.products[item.product_id],
+            )}
+          </Text>
         </View>
       )}
-    </ScrollView>
+      ListFooterComponent={
+        digest ? (
+          <View style={styles.listFooter}>
+            <View style={styles.chips}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={
+                  t('openDrafts') + ', ' + digest.open_drafts.count
+                }
+                pressedScale={0.98}
+                onPress={openDrafts}
+                style={styles.chip}
+              >
+                <Icon icon={ReceiptText} color={colors.ink} />
+                <Text style={styles.chipText} numberOfLines={2}>
+                  {fill(t('draftsChip'), { count: digest.open_drafts.count })}
+                </Text>
+              </PressableScale>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={
+                  t('overdueDebts') + ', ' + digest.overdue_debts.count
+                }
+                pressedScale={0.98}
+                onPress={openDebts}
+                style={[
+                  styles.chip,
+                  digest.overdue_debts.count > 0 && styles.chipDanger,
+                ]}
+              >
+                <Icon
+                  icon={BookUser}
+                  color={
+                    digest.overdue_debts.count > 0 ? colors.danger : colors.ink
+                  }
+                />
+                <Text
+                  style={[
+                    styles.chipText,
+                    digest.overdue_debts.count > 0 && styles.negative,
+                  ]}
+                  numberOfLines={2}
+                >
+                  {fill(t('overdueChip'), {
+                    count: digest.overdue_debts.count,
+                  })}
+                </Text>
+              </PressableScale>
+            </View>
+
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('askAssistant')}
+              pressedScale={0.97}
+              onPress={askAssistant}
+              style={styles.primaryButton}
+            >
+              <Icon icon={MessageCircleText} color={colors.onInk} />
+              <Text style={styles.primaryButtonText}>{t('askAssistant')}</Text>
+            </PressableScale>
+          </View>
+        ) : null
+      }
+    />
   );
 }
 
@@ -419,6 +427,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   body: { gap: space[4] },
+  listHeader: { gap: space[4], marginBottom: space[2] },
+  listFooter: { gap: space[4], marginTop: space[4] },
   summaryText: { ...typography.body, color: colors.ink },
   summaryBold: { fontFamily: fontFamily.bold },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: space[3] },
@@ -449,12 +459,12 @@ const styles = StyleSheet.create({
     color: colors.ink,
     marginTop: space[1],
   },
-  restockList: { gap: space[2] },
   restockItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: space[1],
+    marginBottom: space[2],
   },
   restockInfo: {
     flex: 1,
