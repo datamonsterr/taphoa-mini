@@ -21,7 +21,6 @@ use axum::{
     routing::{get, post},
 };
 use chrono::Utc;
-use futures_util::future::join_all;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -539,27 +538,22 @@ async fn create_scan(
         }
         None => pipeline::no_document(),
     };
-    // Concurrent vector searches, then a single metadata query for all hits.
+    // One batched search keeps pool usage independent of detection count, then
+    // a single metadata query loads all hit products.
     let search_wall = Instant::now();
-    let searches = work.detections.iter().map(|detection| {
-        let index = Arc::clone(&vector_index);
-        let embedder = embedder.clone();
-        let embedding = detection.embedding.clone();
-        async move {
-            index
-                .search(
-                    actor.store_id,
-                    embedder.model(),
-                    &embedding,
-                    usize::from(request.top_k),
-                )
-                .await
-        }
-    });
-    let hits: Vec<Vec<VectorHit>> = join_all(searches)
+    let embeddings: Vec<_> = work
+        .detections
+        .iter()
+        .map(|detection| detection.embedding.as_slice())
+        .collect();
+    let hits: Vec<Vec<VectorHit>> = vector_index
+        .search_batch(
+            actor.store_id,
+            embedder.model(),
+            &embeddings,
+            usize::from(request.top_k),
+        )
         .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
         .map_err(|error| {
             crate::error::log_anyhow_error!(error, &error, "vector search failed");
             ApiError::internal()

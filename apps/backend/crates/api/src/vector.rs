@@ -24,6 +24,22 @@ pub trait VectorIndex: Send + Sync {
         embedding: &[f32],
         limit: usize,
     ) -> anyhow::Result<Vec<VectorHit>>;
+    /// One hit list per input vector, in input order. Adapters with a database
+    /// should override this to share one connection and query across the batch.
+    /// The fallback keeps other adapters bounded to one search at a time.
+    async fn search_batch(
+        &self,
+        store_id: Uuid,
+        model: &str,
+        embeddings: &[&[f32]],
+        limit: usize,
+    ) -> anyhow::Result<Vec<Vec<VectorHit>>> {
+        let mut hits = Vec::with_capacity(embeddings.len());
+        for embedding in embeddings {
+            hits.push(self.search(store_id, model, embedding, limit).await?);
+        }
+        Ok(hits)
+    }
     async fn remove_product(&self, store_id: Uuid, product_id: Uuid) -> anyhow::Result<()>;
 }
 // None is an explicitly supplied prototype; Some(image) is a reference.
