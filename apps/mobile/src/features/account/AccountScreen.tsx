@@ -280,7 +280,7 @@ export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const me = useMe();
   const membership = useMembership();
-  const store = useStore();
+  const store = useStore({ live: true });
   const members = useMembers();
   const [sheet, setSheet] = useState<ActiveSheet>(null);
   const [pinSaved, setPinSaved] = useState(false);

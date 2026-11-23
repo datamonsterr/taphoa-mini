@@ -129,7 +129,7 @@ export function PayScreen() {
   const lines = useCartStore(useShallow(selectLines));
   const total = useCartStore(selectTotal);
   const clearCart = useCartStore((s) => s.clear);
-  const store = useStore();
+  const store = useStore({ live: true });
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);

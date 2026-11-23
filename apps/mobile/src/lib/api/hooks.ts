@@ -130,8 +130,16 @@ export function useMe(enabled = true) {
   });
 }
 
-export const useStore = () =>
-  useQuery({ queryKey: keys.store(), queryFn: getStore });
+/**
+ * `live` asks the server on every mount (the pay QR and the account screen must show the bank
+ * account another phone may just have changed); otherwise the default freshness window applies.
+ */
+export const useStore = (options?: { live?: boolean }) =>
+  useQuery({
+    queryKey: keys.store(),
+    queryFn: getStore,
+    refetchOnMount: options?.live ? 'always' : true,
+  });
 
 export const useMembers = () =>
   useQuery({ queryKey: keys.members(), queryFn: listMembers });
@@ -259,7 +267,9 @@ export const useAlerts = (status: AlertStatus = 'open', enabled = true) =>
 export const useTodayReport = (date?: string) =>
   useQuery({
     queryKey: keys.reports.today(date),
-    staleTime: REPORT_STALE_TIME_MS,
+    // Cash and sales can come from another phone or the outbox, which invalidate nothing here:
+    // the figures (and the Chốt sổ expected cash) are read again on every mount.
+    refetchOnMount: 'always',
     queryFn: () => getTodayReport(date),
   });
 
@@ -316,7 +326,8 @@ export const useTopProducts = (
 export const useDayClose = (date: string) =>
   useQuery({
     queryKey: keys.reports.dayClose(date),
-    staleTime: REPORT_STALE_TIME_MS,
+    // A close made on another phone decides whether this one may close again (#202).
+    refetchOnMount: 'always',
     queryFn: async () => {
       try {
         return await getDayClose(date);
