@@ -23,6 +23,7 @@ export type CheckButtonProps = {
   xl?: boolean;
   /** Visible word next to the check (board 15 stop button: "Xong"). */
   label?: string;
+  testID?: string;
 };
 
 export const CheckButton = memo(function CheckButton({
@@ -33,10 +34,12 @@ export const CheckButton = memo(function CheckButton({
   block = false,
   xl = false,
   label,
+  testID,
 }: CheckButtonProps) {
   const elder = useSettingsStore((s) => s.elderMode);
   return (
     <PressableScale
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled }}

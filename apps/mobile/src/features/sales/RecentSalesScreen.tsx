@@ -36,6 +36,7 @@ export function RecentSalesScreen() {
       {items.map((sale) => (
         <PressableScale
           key={sale.id}
+          testID="sale-row"
           accessibilityRole="button"
           accessibilityLabel={`${sale.code}, ${t(sale.status)}`}
           onPress={() =>

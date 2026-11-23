@@ -163,6 +163,7 @@ function CloseBoard() {
             <CheckButton
               variant="ink"
               block
+              testID="close-save"
               accessibilityLabel={t(stale ? 'resave' : 'save')}
               disabled={create.isPending || digits === ''}
               onPress={submit}

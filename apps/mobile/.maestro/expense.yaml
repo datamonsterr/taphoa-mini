@@ -1,0 +1,35 @@
+appId: com.datamonsterr.taphoamini
+---
+# Add an expense from the report: the "+" opens the sheet, 5.000đ in the default category, and the
+# day's expense tile shows it.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Chi phí'
+      OWNER_NAME: 'Cô Ba'
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- extendedWaitUntil:
+    notVisible:
+      id: 'dashboard-skeleton'
+    timeout: 60000
+- tapOn:
+    id: 'dashboard-add-expense'
+- extendedWaitUntil:
+    visible: 'Số tiền chi'
+    timeout: 20000
+- tapOn: '5'
+- tapOn: '000'
+- takeScreenshot: expense-01-sheet
+- tapOn:
+    id: 'expense-save'
+# the sheet closes and the report counts the expense
+- extendedWaitUntil:
+    visible: 'Chi 5.000đ'
+    timeout: 30000
+- takeScreenshot: expense-02-report

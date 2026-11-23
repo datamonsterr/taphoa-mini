@@ -74,6 +74,7 @@ export function DashboardScreen() {
             <Text style={styles.title}>{t(`title.${period}`)}</Text>
           </View>
           <CircleButton
+            testID="dashboard-add-expense"
             icon={Plus}
             accessibilityLabel={t('addExpense')}
             onPress={addExpense}
@@ -145,6 +146,7 @@ export function DashboardScreen() {
 
         {isLead ? (
           <PressableScale
+            testID="dashboard-close-day"
             accessibilityRole="button"
             accessibilityLabel={t('close')}
             pressedScale={0.96}
@@ -158,6 +160,7 @@ export function DashboardScreen() {
 
         <View style={styles.links}>
           <PressableScale
+            testID="dashboard-recent-sales"
             accessibilityRole="button"
             accessibilityLabel={recentLabel}
             pressedScale={0.96}
