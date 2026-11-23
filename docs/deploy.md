@@ -149,6 +149,18 @@ resolve this rejection. Voice warnings retain the HTTP status, router code, limi
 source, and a bounded operational message prefix; unrecognized prose and provider
 raw metadata are redacted because they can contain request content.
 
+The scheduled `eval.yml` workflow checks `GET /api/v1/key` once a day using the
+repository's `OPENROUTER_API_KEY`. It opens one `budget-alert` issue when that
+key's `limit_remaining` falls below the repository variable
+`OPENROUTER_BUDGET_THRESHOLD` (default `$2`), comments on the existing issue on
+subsequent low checks, and comments and closes it after recovery. The alert script
+fails visibly if the API cannot be read; it does not interpret an API error as zero
+credit. If both `limit` and `limit_remaining` are null, the key is unlimited: the
+check prints a notice and does not alert because this endpoint cannot show account
+credit. A live eval refused by its own estimated-budget preflight succeeds with a
+`skipped: budget` annotation, summary, and `run` job output `result` so downstream
+jobs can distinguish it from an evaluation failure.
+
 | Variable                                 | Default / purpose                                                          | Railway management                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `ASSISTANT_MODEL_PROVIDER`               | Backend default `openrouter`; local examples use `scripted`                | Fixed `openrouter`                                                            |
