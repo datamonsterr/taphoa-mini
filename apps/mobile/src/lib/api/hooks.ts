@@ -14,7 +14,7 @@ import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 
 import { newUuid } from '@/lib/uuid';
-import { localProducts } from '@/lib/offline/catalog';
+import { getCatalog, localProducts } from '@/lib/offline/catalog';
 import { useOnline } from '@/lib/online';
 import {
   keepPreviousData,
@@ -162,7 +162,21 @@ export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
 /** Exact barcode lookup shares product list keys and mutation invalidation. Cached per session. */
 export function useLookupBarcode() {
   const client = useQueryClient();
+  const online = useOnline();
   return async (barcode: string) => {
+    if (!online) {
+      const products = Object.values(getCatalog(client).products);
+      for (const code of barcodeAliases(barcode)) {
+        const product = products.find(
+          (product) =>
+            !product.archived &&
+            (product.barcode === code ||
+              product.units.some((unit) => unit.barcode === code)),
+        );
+        if (product) return product;
+      }
+      return null;
+    }
     for (const code of barcodeAliases(barcode)) {
       const data = await client.fetchInfiniteQuery({
         ...productsQuery({ barcode: code, limit: 1 }),

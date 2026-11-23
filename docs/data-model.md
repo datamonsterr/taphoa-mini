@@ -513,6 +513,14 @@ CREATE TABLE price_history (
 CREATE INDEX price_history_product ON price_history (product_id, changed_at DESC);
 ```
 
+Barcode values are stored as entered, including leading zeroes. The two unique indexes each
+cover their own table and include archived products; they do not prevent a product barcode from
+also appearing on a unit, or prevent UPC-A and its leading-zero EAN-13 alias from being stored
+separately. The API filters by exact value, while the mobile scanner tries both UPC-A and the
+corresponding leading-zero EAN-13 spelling. Offline it searches active products and their units
+in the synced catalog snapshot. Mobile accepts 6–20 digits; the API currently checks only the
+maximum length of 64 characters, without validating check digits or normalizing formats.
+
 Nearest-neighbor query (one row per product, best reference wins):
 
 ```sql
