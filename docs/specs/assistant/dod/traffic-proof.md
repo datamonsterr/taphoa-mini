@@ -71,6 +71,7 @@ apps/mobile/e2e-web/fixtures/make-video.sh
 set -a
 source ~/.config/taphoa-mini/secrets.env
 set +a
+# The test backend is ephemeral: ../../../deploy.md#railway-test-environment
 export EXPO_PUBLIC_API_URL=https://backend-test-70c2.up.railway.app
 export EXPO_PUBLIC_ENVIRONMENT=test
 export EXPO_PUBLIC_POSTHOG_KEY="$POSTHOG_PROJECT_TOKEN"
@@ -411,6 +412,7 @@ After reset, with the same private credentials and a web export still targeting
 Railway test:
 
 ```bash
+# The test backend is ephemeral: ../../../deploy.md#railway-test-environment
 export BACKEND_URL=https://backend-test-70c2.up.railway.app
 export EXPO_PUBLIC_API_URL="$BACKEND_URL"
 # Runs just the real-model smoke; CI must be unset because this spec skips in CI.

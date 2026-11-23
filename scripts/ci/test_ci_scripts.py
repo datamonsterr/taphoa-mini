@@ -232,8 +232,11 @@ class RunE2e(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("--exclude tests/latency.test.ts", calls[0])
         self.assertIn("--exclude tests/assistant-live.test.ts", calls[0])
+        self.assertIn("--exclude tests/voice.test.ts", calls[0])
+        self.assertNotIn("--exclude tests/voice-contract.test.ts", calls[0])
         self.assertNotIn("--exclude", calls[1])
         self.assertIn("tests/recognition-latency.test.ts", calls[1])
+        self.assertIn("tests/voice.test.ts", calls[1])
         self.assertIn("::warning title=Deploy e2e::", out.stdout)
 
     def test_soft_failure_blocks_with_e2e_soft_strict(self):

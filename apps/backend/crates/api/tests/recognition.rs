@@ -632,6 +632,66 @@ async fn multi_scan_many_detections_round_trips_unchanged() {
     }
 }
 
+/// Production has a high-latency database connection. Model that occupancy at
+/// checkout so an unbounded fan-out exhausts the acquire budget deterministically,
+/// even when the local database can execute an empty-store search instantly.
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn multi_scan_uses_one_pool_connection_with_slow_checkouts() {
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
+    use taphoa_api::recognition::pgvector::PgVectorIndex;
+
+    let segments = (0..24)
+        .map(|i| segment([(i % 6) as f32 * 64., (i / 6) as f32 * 64., 32., 32.], 0.9))
+        .collect();
+    let (app, mut state, _) = build_state(segments).await.expect("real services required");
+    let (store_id, _, token) = create_store(&app).await;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_millis(500))
+        .before_acquire(|_, _| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Ok(true)
+            })
+        })
+        .connect(&std::env::var("DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    state.postgres = Some(pool.clone());
+    state.vector_index = Some(Arc::new(PgVectorIndex::new(pool.clone())));
+    let app = router(state);
+    let photo = encode_png(image::RgbImage::from_pixel(384, 256, image::Rgb(RED)));
+    let (status, body, _) = post_scan(&app, &token, Some(&photo), &[("mode", "multi")]).await;
+    assert_eq!(status, StatusCode::CREATED, "size-one pool: {body}");
+    Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+    let detections = body["detections"].as_array().unwrap();
+    assert_eq!(detections.len(), 24);
+    for (position, detection) in detections.iter().enumerate() {
+        assert_eq!(detection["match"], "unknown");
+        assert_eq!(detection["candidates"], json!([]));
+        assert_eq!(
+            detection["bbox"][0].as_f64().unwrap(),
+            ((position % 6) * 64) as f64
+        );
+        assert_eq!(
+            detection["bbox"][1].as_f64().unwrap(),
+            ((position / 6) * 64) as f64
+        );
+    }
+    assert!(body["timings_ms"]["search"].as_i64().unwrap() >= 50);
+    let (status, fetched) = get_scan(&app, &token, body["id"].as_str().unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "{fetched}");
+    assert_eq!(fetched["timings_ms"], body["timings_ms"]);
+    sqlx::query("DELETE FROM stores WHERE id = $1")
+        .bind(store_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 #[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
 async fn get_scan_and_cross_store_404() {

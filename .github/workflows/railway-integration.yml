@@ -8,28 +8,26 @@ name: Railway integration
 on:
   workflow_dispatch:
 
+concurrency:
+  group: railway-test
+  queue: max
+
 permissions:
   contents: read
-  actions: read
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
 
 jobs:
-  # One owning job holds the shared FIFO through both groups and their teardown.
   test:
     runs-on: ubuntu-latest
-    # Up to 60 minutes in the FIFO, 55 for tests, plus setup and teardown.
-    timeout-minutes: 130
+    # Queueing happens before the runner starts. Leave room for setup and teardown.
+    timeout-minutes: 70
     env:
       IT_DB_MAX_AGE_HOURS: '2'
     steps:
       - uses: actions/checkout@v7
-      - name: Wait for older runs using the test environment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/ci/wait_turn.py deploy.yml test railway-integration.yml:test
       - name: Check for Railway test credentials
         id: railway
         env:
