@@ -20,7 +20,7 @@ def parse_threshold(value):
 
 
 def classify(remaining, threshold):
-    return "low" if remaining < threshold else "recovered"
+    return "low" if remaining is not None and remaining < threshold else "recovered"
 
 
 def fetch_remaining(api_key, opener=urllib.request.urlopen):
@@ -35,13 +35,29 @@ def fetch_remaining(api_key, opener=urllib.request.urlopen):
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise RuntimeError("OpenRouter key balance request failed") from exc
     try:
-        remaining = payload["data"]["limit_remaining"]
-        amount = float(remaining)
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError("OpenRouter key response has no numeric limit_remaining") from exc
-    if not math.isfinite(amount) or amount < 0:
+        data = payload["data"]
+    except (KeyError, TypeError) as exc:
+        raise RuntimeError("OpenRouter key response is missing data") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("OpenRouter key response data is malformed")
+    try:
+        limit = data["limit"]
+        remaining = data["limit_remaining"]
+    except KeyError as exc:
+        raise RuntimeError("OpenRouter key response is missing limit or limit_remaining") from exc
+    if limit is None:
+        if remaining is None:
+            return None
+        raise RuntimeError("OpenRouter key response has a limit_remaining without a limit")
+    if isinstance(limit, bool) or not isinstance(limit, (int, float)):
+        raise RuntimeError("OpenRouter key response has non-numeric limit")
+    if not math.isfinite(limit) or limit < 0:
+        raise RuntimeError("OpenRouter key response has invalid limit")
+    if isinstance(remaining, bool) or not isinstance(remaining, (int, float)):
+        raise RuntimeError("OpenRouter key response has non-numeric limit_remaining")
+    if not math.isfinite(remaining) or remaining < 0:
         raise RuntimeError("OpenRouter key response has invalid limit_remaining")
-    return amount
+    return float(remaining)
 
 
 def gh(*args):
@@ -53,11 +69,11 @@ def gh(*args):
 
 def maintain_issue(state, remaining, threshold, repo):
     issues = json.loads(gh("issue", "list", "--repo", repo, "--label", "budget-alert", "--state", "open", "--json", "number", "--limit", "100"))
-    message = (
-        f"OpenRouter key limit remaining: **${remaining:.4f}**; alert threshold: **${threshold:.2f}**. "
-        "This key is shared by the assistant and voice features. Check OpenRouter billing/key limits and restore headroom."
-    )
     if state == "low":
+        message = (
+            f"OpenRouter key limit remaining: **${remaining:.4f}**; alert threshold: **${threshold:.2f}**. "
+            "This key is shared by the assistant and voice features. Check OpenRouter billing/key limits and restore headroom."
+        )
         if issues:
             gh("issue", "comment", str(issues[0]["number"]), "--repo", repo, "--body", message)
         else:
@@ -66,7 +82,11 @@ def maintain_issue(state, remaining, threshold, repo):
     else:
         for issue in issues:
             number = str(issue["number"])
-            gh("issue", "comment", number, "--repo", repo, "--body", f"OpenRouter key limit recovered: **${remaining:.4f}** remaining (threshold ${threshold:.2f}). Closing this alert.")
+            if remaining is None:
+                recovery = "OpenRouter key is unlimited (`limit` and `limit_remaining` are null); account credit is not visible through this endpoint. Closing this alert."
+            else:
+                recovery = f"OpenRouter key limit recovered: **${remaining:.4f}** remaining (threshold ${threshold:.2f}). Closing this alert."
+            gh("issue", "comment", number, "--repo", repo, "--body", recovery)
             gh("issue", "close", number, "--repo", repo)
 
 
@@ -82,7 +102,10 @@ def main():
         if not repo:
             raise RuntimeError("GITHUB_REPOSITORY is required")
         maintain_issue(state, remaining, threshold, repo)
-        print(f"{state}: ${remaining:.4f} remaining; threshold ${threshold:.2f}")
+        if remaining is None:
+            print("::notice::OpenRouter key is unlimited; account credit is not visible through this endpoint.")
+        else:
+            print(f"{state}: ${remaining:.4f} remaining; threshold ${threshold:.2f}")
     except (RuntimeError, ValueError) as exc:
         print(f"::error::{exc}", file=sys.stderr)
         return 1

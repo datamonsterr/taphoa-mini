@@ -155,6 +155,8 @@ key's `limit_remaining` falls below the repository variable
 `OPENROUTER_BUDGET_THRESHOLD` (default `$2`), comments on the existing issue on
 subsequent low checks, and comments and closes it after recovery. The alert script
 fails visibly if the API cannot be read; it does not interpret an API error as zero
+credit. If both `limit` and `limit_remaining` are null, the key is unlimited: the
+check prints a notice and does not alert because this endpoint cannot show account
 credit. A live eval refused by its own estimated-budget preflight succeeds with a
 `skipped: budget` annotation, summary, and `run` job output `result` so downstream
 jobs can distinguish it from an evaluation failure.
