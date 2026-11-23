@@ -481,3 +481,16 @@ test('has the opt-in voice switch below the language row, and no system rows wit
   expect(screen.queryByTestId('voice-bubble-row')).toBeNull();
   expect(screen.queryByTestId('voice-tile-row')).toBeNull();
 });
+
+test('the account switch shows the onboarding answer and can change it', async () => {
+  useSettingsStore.getState().setElderMode(true);
+  await open();
+  const sw = () =>
+    screen.getByRole('switch', { name: 'Chế độ người lớn tuổi' });
+  expect(sw()).toBeChecked();
+  await fireEvent.press(sw());
+  expect(useSettingsStore.getState()).toMatchObject({
+    elderMode: false,
+    elderAsked: true,
+  });
+});

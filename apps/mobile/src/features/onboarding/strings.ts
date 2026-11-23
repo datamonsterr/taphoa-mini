@@ -28,6 +28,7 @@ export const strings: Dict = {
     'join.submit': 'Tham gia',
     'join.tokenError': 'Nhập mã mời',
     'join.displayNameError': 'Nhập tên của bạn (tối đa 40 ký tự)',
+    'elder.hint': 'Chữ to, dễ dùng',
     submitting: 'Đang xử lý',
     'error.network': 'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.',
     'error.invalid': 'Thông tin chưa hợp lệ.',
@@ -68,6 +69,7 @@ export const strings: Dict = {
     'join.submit': 'Join',
     'join.tokenError': 'Enter the invite code',
     'join.displayNameError': 'Enter your name (40 characters max)',
+    'elder.hint': 'Big text, easy to use',
     submitting: 'Working',
     'error.network':
       'Cannot reach the server. Check the network and try again.',

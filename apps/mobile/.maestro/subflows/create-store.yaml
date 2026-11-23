@@ -3,6 +3,8 @@ appId: com.datamonsterr.taphoamini
 # From the welcome screen (signed in with sign-in.yaml, no store yet): create a store through the
 # real backend (POST /v1/stores, name + display name only) and land on the camera. Every run
 # makes a store of its own, so flows never see each other's data.
+# The one-time elder-mode question is preselected ON (which would open Kho), so this subflow
+# switches it OFF explicitly (tap its row) to keep opening on the camera.
 # Input: STORE_NAME, OWNER_NAME.
 - extendedWaitUntil:
     visible:
@@ -16,8 +18,16 @@ appId: com.datamonsterr.taphoamini
 - tapOn:
     id: 'create-display-name'
 - inputText: ${OWNER_NAME}
-# Enter submits the form (the display-name field's onSubmitEditing).
-- pressKey: Enter
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: 'onboarding-elder-choice'
+- tapOn: 'Chữ to, dễ dùng'
+- scrollUntilVisible:
+    element:
+      id: 'create-store-submit'
+- tapOn:
+    id: 'create-store-submit'
 - extendedWaitUntil:
     visible: 'Chụp'
     timeout: 60000

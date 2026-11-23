@@ -1,10 +1,12 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/lib/api/errors';
 import * as storeApi from '@/lib/api/store';
 import { CreateStoreScreen } from './CreateStoreScreen';
 import { renderWithProviders } from '@/test/render';
 import { setApiTransport } from '@/lib/api/client';
 import { testSession } from '@/test/session';
+import { initialSettings, useSettingsStore } from '@/stores/settings';
 import { useCurrentStore } from '@/stores/currentStore';
 
 jest.mock('expo-router', () => ({
@@ -154,4 +156,92 @@ test('a network failure keeps the create draft', async () => {
       'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.',
     ),
   ).toBeOnTheScreen();
+});
+
+describe('elder mode choice (X6)', () => {
+  beforeEach(() => useSettingsStore.setState(initialSettings));
+  const elderSwitch = () =>
+    screen.getByRole('switch', { name: 'Chế độ người lớn tuổi' });
+
+  test('is asked before submitting, preselected ON, with a 48 dp target', async () => {
+    await renderWithProviders(<CreateStoreScreen />);
+    expect(await screen.findByTestId('create-store-name')).toBeOnTheScreen();
+    expect(elderSwitch()).toBeChecked();
+    expect(screen.getByText('Chữ to, dễ dùng')).toBeOnTheScreen();
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId('onboarding-elder-choice').props.style,
+      ).minHeight,
+    ).toBeGreaterThanOrEqual(48);
+  });
+
+  test('submitting stores the preselected ON answer and marks it asked', async () => {
+    jest.spyOn(storeApi, 'createStore').mockResolvedValue(testSession());
+    await renderWithProviders(<CreateStoreScreen />);
+    await fireEvent.changeText(
+      await screen.findByTestId('create-store-name'),
+      'Tạp hóa',
+    );
+    await fireEvent.changeText(screen.getByTestId('create-display-name'), 'Mẹ');
+    await fireEvent.press(screen.getByTestId('create-store-submit'));
+    await waitFor(() =>
+      expect(useSettingsStore.getState()).toMatchObject({
+        elderMode: true,
+        elderAsked: true,
+      }),
+    );
+  });
+
+  test('switching it OFF is what gets stored', async () => {
+    jest.spyOn(storeApi, 'createStore').mockResolvedValue(testSession());
+    await renderWithProviders(<CreateStoreScreen />);
+    await fireEvent(elderSwitch(), 'valueChange', false);
+    expect(elderSwitch()).not.toBeChecked();
+    await fireEvent.changeText(
+      await screen.findByTestId('create-store-name'),
+      'Tạp hóa',
+    );
+    await fireEvent.changeText(screen.getByTestId('create-display-name'), 'Mẹ');
+    await fireEvent.press(screen.getByTestId('create-store-submit'));
+    await waitFor(() =>
+      expect(useSettingsStore.getState()).toMatchObject({
+        elderMode: false,
+        elderAsked: true,
+      }),
+    );
+  });
+
+  test('nothing is stored while the form is invalid or the request fails', async () => {
+    jest.spyOn(storeApi, 'createStore').mockRejectedValue(new Error('x'));
+    await renderWithProviders(<CreateStoreScreen />);
+    await fireEvent.changeText(
+      await screen.findByTestId('create-store-name'),
+      'Tạp hóa',
+    );
+    await fireEvent.changeText(screen.getByTestId('create-display-name'), 'Mẹ');
+    await fireEvent.press(screen.getByTestId('create-store-submit'));
+    expect(useSettingsStore.getState().elderAsked).toBe(false);
+  });
+
+  test('is not asked again once answered, and a stored answer is untouched', async () => {
+    useSettingsStore.getState().setElderMode(false);
+    jest.spyOn(storeApi, 'createStore').mockResolvedValue(testSession());
+    await renderWithProviders(<CreateStoreScreen />);
+    expect(
+      screen.queryByRole('switch', { name: 'Chế độ người lớn tuổi' }),
+    ).toBeNull();
+    await fireEvent.changeText(
+      await screen.findByTestId('create-store-name'),
+      'Tạp hóa',
+    );
+    await fireEvent.changeText(screen.getByTestId('create-display-name'), 'Mẹ');
+    await fireEvent.press(screen.getByTestId('create-store-submit'));
+    await waitFor(() =>
+      expect(useCurrentStore.getState().storeIds.user_test).toBeDefined(),
+    );
+    expect(useSettingsStore.getState()).toMatchObject({
+      elderMode: false,
+      elderAsked: true,
+    });
+  });
 });

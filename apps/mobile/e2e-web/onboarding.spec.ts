@@ -22,6 +22,9 @@ import {
 const field = (page: Page, label: string) =>
   page.getByRole('textbox', { name: label, exact: true });
 const byId = (page: Page, id: string) => page.getByTestId(id);
+/** The one-time elder-mode question on the create/join forms: preselected ON. */
+const elderChoice = (page: Page) =>
+  page.getByRole('switch', { name: 'Chế độ người lớn tuổi' });
 const codeScreen = (page: Page) => byId(page, 'auth-code-screen');
 
 /** Clerk's Frontend API limits sign-ins per IP; the app shows this when it answers 429. */
@@ -132,6 +135,8 @@ test.describe('sign-in screens', () => {
 
     await field(page, 'Tên cửa hàng').fill('Tạp hóa Cô Ba');
     await field(page, 'Tên của bạn').fill('Cô Ba');
+    // asked once, before submitting, preselected ON: the default is kept here
+    await expect(elderChoice(page)).toBeChecked();
     const created = await callApi(page, 'POST', '/v1/stores', () =>
       byId(page, 'create-store-submit').click(),
     );
@@ -148,7 +153,11 @@ test.describe('sign-in screens', () => {
       display_name: 'Cô Ba',
       role: 'lead',
     });
-    await expect(shopHome(page)).toBeVisible();
+    // elder mode ON starts at Kho with the camera held back
+    await expect(
+      page.getByRole('tab', { name: 'Kho', exact: true }),
+    ).toBeVisible();
+    await expect(shopHome(page)).toHaveCount(0);
 
     // the store the server holds is the one the account screen shows, asked for by id
     const [me, store, members] = await Promise.all([
@@ -168,6 +177,8 @@ test.describe('sign-in screens', () => {
     expect(members.body.items).toHaveLength(1);
     await expect(page.getByLabel('1 thành viên')).toBeVisible();
     await expect(page.getByText('Chủ', { exact: true })).toBeVisible();
+    // the account switch shows the onboarding answer
+    await expect(elderChoice(page)).toBeChecked();
   });
 
   test('a brand-new email signs up with code 424242 and reaches the welcome screen', async ({
@@ -309,6 +320,10 @@ test.describe('invites', () => {
       await byId(page, 'onboarding-join').click();
       await expect(field(page, 'Mã mời')).toHaveValue(token);
       await field(page, 'Tên của bạn').fill('Bé Út');
+      // preselected ON; this person picks OFF so the shop opens on the camera
+      await expect(elderChoice(page)).toBeChecked();
+      await elderChoice(page).click();
+      await expect(elderChoice(page)).not.toBeChecked();
       const joined = await callApi(page, 'POST', '/v1/auth/join', () =>
         byId(page, 'join-store-submit').click(),
       );
