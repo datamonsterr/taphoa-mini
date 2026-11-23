@@ -12,22 +12,19 @@ appId: com.datamonsterr.taphoamini
     timeout: 30000
 - tapOn:
     id: 'onboarding-create'
+# Before any typing, so the keyboard is not in the way.
+- scrollUntilVisible:
+    element:
+      id: 'onboarding-elder-choice'
+- tapOn: 'Chữ to, dễ dùng'
 - tapOn:
     id: 'create-store-name'
 - inputText: ${STORE_NAME}
 - tapOn:
     id: 'create-display-name'
 - inputText: ${OWNER_NAME}
-- hideKeyboard
-- scrollUntilVisible:
-    element:
-      id: 'onboarding-elder-choice'
-- tapOn: 'Chữ to, dễ dùng'
-- scrollUntilVisible:
-    element:
-      id: 'create-store-submit'
-- tapOn:
-    id: 'create-store-submit'
+# Enter submits the form (the display-name field's onSubmitEditing).
+- pressKey: Enter
 - extendedWaitUntil:
     visible: 'Chụp'
     timeout: 60000
