@@ -91,6 +91,7 @@ appId: com.datamonsterr.taphoamini
     file: subflows/create-store.yaml
     env:
       STORE_NAME: 'Tiem B Maestro'
+      ELDER_ASKED: 'true'
       OWNER_NAME: 'Chu B'
 - runFlow: subflows/open-account.yaml
 - extendedWaitUntil:
