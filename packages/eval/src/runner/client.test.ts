@@ -3,7 +3,12 @@ import { FakeOracle } from '../oracle/provider.ts';
 import { mkCase } from '../test-helpers.ts';
 import type { AuthProvider } from './auth.ts';
 import { StubAuth } from './auth.ts';
-import { DEFAULT_TODAY, runTurns, type TurnOptions } from './client.ts';
+import {
+  DEFAULT_TODAY,
+  frozenClock,
+  runTurns,
+  type TurnOptions,
+} from './client.ts';
 import {
   startStubAssistant,
   type ReplyPlan,
@@ -31,6 +36,21 @@ function opts(over: Partial<TurnOptions> = {}): TurnOptions {
     ...over,
   };
 }
+
+describe('runTurns clock', () => {
+  it('measures latency with the injected clock', async () => {
+    await start({ reply: () => ({ text: 'ok' }) });
+    let t = 0;
+    const turn = await runTurns(opts({ clock: () => (t += 60_000) }), mkCase());
+    expect(turn.latency_ms).toBe(60_000);
+  });
+
+  it('frozenClock gives 0 ms', async () => {
+    await start({ reply: () => ({ text: 'ok', delayMs: 20 }) });
+    const turn = await runTurns(opts({ clock: frozenClock }), mkCase());
+    expect(turn.latency_ms).toBe(0);
+  });
+});
 
 describe('runTurns', () => {
   it('creates a thread, sends the message and collects the turn', async () => {
