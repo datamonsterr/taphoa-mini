@@ -168,13 +168,13 @@ IaC keeps their existing values. Eval headers must never be enabled in productio
 Feedback is stored even without survey configuration; creating PostHog surveys is
 a separate setup step.
 
-The deployed assistant contract suite is `packages/e2e/tests/assistant.test.ts`.
-Run it on Railway `test` with `BACKEND_URL` set. It sends at most four live
-messages (up to six model calls each, at most 24 calls), asserts response structure,
-and visibly skips remaining live checks when the shared daily quota is exhausted.
-Set `E2E_ASSISTANT_LIVE=0` to run only deterministic endpoint checks against a local
-backend. Live checks expect real OpenRouter model IDs and are for the controller to run
-on `test`.
+The deploy e2e runner blocks on deterministic contracts, including assistant
+`tests/assistant.test.ts` and voice `tests/voice-contract.test.ts`. It runs
+`tests/assistant-live.test.ts`, `tests/voice.test.ts`, and the latency suites in a
+separate non-blocking group; failures appear as a workflow warning. Voice clips use
+paid OpenRouter calls, and assistant live checks depend on model availability and
+quota. Set `E2E_SOFT_STRICT=1` to make that group block for an explicit run. The
+manual voice evaluation in `eval.yml` remains independent of this grouping.
 
 ## Telemetry
 
