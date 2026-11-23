@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { decideLatency, latencySampleCount, percentile } from './latency.js';
+import {
+  HOT_QUANTILE,
+  RECOGNITION_QUANTILE,
+  decideLatency,
+  latencySampleCount,
+  percentile,
+} from './latency.js';
 
 describe('latency decisions', () => {
   it('ignores one slow recognition sample out of twelve at p90', () => {
@@ -94,5 +100,25 @@ describe('latencySampleCount', () => {
     for (const value of ['0', '-1', '1.5', '', 'NaN', 'Infinity']) {
       expect(() => latencySampleCount(value, 12)).toThrow(RangeError);
     }
+  });
+});
+
+describe('spec quantiles', () => {
+  const twelve = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 5000];
+
+  it('recognition gate is p90, which drops one outlier at 12 runs', () => {
+    expect(RECOGNITION_QUANTILE).toBe(0.9);
+    expect(percentile(twelve, RECOGNITION_QUANTILE)).toBe(11);
+  });
+
+  it('hot-endpoint gate is p95, which at 12 runs is the maximum', () => {
+    expect(HOT_QUANTILE).toBe(0.95);
+    expect(percentile(twelve, HOT_QUANTILE)).toBe(5000);
+  });
+
+  it('decideLatency defaults to the hot-endpoint quantile', () => {
+    expect(decideLatency(twelve, { budgetMs: 200 }).quantile).toBe(
+      HOT_QUANTILE,
+    );
   });
 });
