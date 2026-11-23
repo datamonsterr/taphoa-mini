@@ -19,7 +19,7 @@
 # The suite runs twice: the blocking run covers the contract specs; the soft run covers the
 # latency and live-model specs (tests/latency, recognition-latency, assistant-live, voice), whose
 # budgets and shared free-model quota on Railway fail without a regression. A soft failure only
-# emits a warning (exit 0) unless E2E_SOFT_STRICT=1.
+# emits a warning and a red entry in the job summary (exit 0) unless E2E_SOFT_STRICT=1.
 # When the suite exists it runs through pnpm (`pnpm --filter @taphoa/e2e test:e2e`); until then a
 # notice is emitted and a smoke check plus latency probe runs so the pipeline stays meaningful.
 set -euo pipefail
@@ -56,7 +56,9 @@ if [ -f "$suite/package.json" ]; then
     exclude_args+=(--exclude tests/voice.test.ts)
   fi
   (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${exclude_args[@]}")
-  if ! (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${soft_specs[@]}"); then
+  soft_log="$(mktemp)"
+  if ! (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${soft_specs[@]}") 2>&1 | tee "$soft_log"; then
+    python3 -I "$here/soft_failure_summary.py" "$soft_log" || true
     if [ "${E2E_SOFT_STRICT:-}" = "1" ]; then
       echo "::error title=Deploy e2e::latency or live-model specs failed (E2E_SOFT_STRICT=1)"
       exit 1
