@@ -25,6 +25,17 @@ on:
         default: false
         type: boolean
 
+# Serialize owners of the shared Railway test services before assigning runners.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository)) &&
+        'railway-test' || format('deploy-skipped-{0}', github.run_id) }}
+  queue: max
+
 permissions:
   contents: read
 
@@ -41,8 +52,6 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # No concurrency group: GitHub keeps one pending run per group and cancels older pending ones,
-    # which kept cancelling branch validations. `wait_turn.py` queues runs FIFO by run id instead.
     permissions:
       contents: read
       actions: read
@@ -59,10 +68,6 @@ jobs:
       - name: Record checked out commit
         id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Wait for older runs using the test environment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/ci/wait_turn.py deploy.yml test railway-integration.yml:test
       - name: Skip superseded main revisions
         id: revision
         env:
@@ -166,6 +171,8 @@ jobs:
         env:
           BACKEND_URL: ${{ vars.BACKEND_URL_TEST }}
           LATENCY_P95_MS: ${{ vars.LATENCY_P95_MS || '200' }}
+          # The Railway test voice provider currently returns voice_unavailable.
+          E2E_SKIP_VOICE: '1'
           # The e2e helpers create Clerk users and session tokens; run-e2e.sh fails fast without it.
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}

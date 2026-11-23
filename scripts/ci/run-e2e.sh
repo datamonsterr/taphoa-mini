@@ -15,8 +15,9 @@
 #                      tokens through the Clerk Backend API. The suite also reads CLERK_API_URL
 #                      (optional); CLERK_PUBLISHABLE_KEY is for the Playwright specs only.
 #   E2E_SOFT_STRICT   set to 1 to make the soft run (below) blocking too
+#   E2E_SKIP_VOICE    set to 1 where the deployed voice provider is unavailable
 # The suite runs twice: the blocking run covers the contract specs; the soft run covers the
-# latency and free-model specs (tests/latency, recognition-latency, assistant-live), whose
+# latency and live-model specs (tests/latency, recognition-latency, assistant-live, voice), whose
 # budgets and shared free-model quota on Railway fail without a regression. A soft failure only
 # emits a warning (exit 0) unless E2E_SOFT_STRICT=1.
 # When the suite exists it runs through pnpm (`pnpm --filter @taphoa/e2e test:e2e`); until then a
@@ -47,16 +48,20 @@ if [ -f "$suite/package.json" ]; then
   script="$(node -e 'const s=require(process.argv[1]).scripts||{};console.log(s["test:e2e"]?"test:e2e":"test")' "$suite/package.json")"
   # No `--` before the vitest flags: pnpm would pass it on and vitest would read what follows
   # as file filters.
-  soft_specs=(tests/latency.test.ts tests/recognition-latency.test.ts tests/assistant-live.test.ts)
+  soft_specs=(tests/latency.test.ts tests/recognition-latency.test.ts tests/assistant-live.test.ts tests/voice.test.ts)
   exclude_args=()
   for spec in "${soft_specs[@]}"; do exclude_args+=(--exclude "$spec"); done
+  if [ "${E2E_SKIP_VOICE:-}" = "1" ]; then
+    echo "::notice::Skipping live voice specs because the test environment voice provider is unavailable."
+    exclude_args+=(--exclude tests/voice.test.ts)
+  fi
   (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${exclude_args[@]}")
   if ! (cd "$repo" && pnpm --filter @taphoa/e2e run "$script" "${soft_specs[@]}"); then
     if [ "${E2E_SOFT_STRICT:-}" = "1" ]; then
-      echo "::error title=Deploy e2e::latency or free-model specs failed (E2E_SOFT_STRICT=1)"
+      echo "::error title=Deploy e2e::latency or live-model specs failed (E2E_SOFT_STRICT=1)"
       exit 1
     fi
-    echo "::warning title=Deploy e2e::latency or free-model specs failed on the test environment (non-blocking); see the job summary"
+    echo "::warning title=Deploy e2e::latency or live-model specs failed on the test environment (non-blocking); see this step’s log"
   fi
 else
   echo "::notice::packages/e2e not present yet; running smoke and latency probes only."

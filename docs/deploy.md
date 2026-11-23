@@ -149,6 +149,18 @@ resolve this rejection. Voice warnings retain the HTTP status, router code, limi
 source, and a bounded operational message prefix; unrecognized prose and provider
 raw metadata are redacted because they can contain request content.
 
+The scheduled `eval.yml` workflow checks `GET /api/v1/key` once a day using the
+repository's `OPENROUTER_API_KEY`. It opens one `budget-alert` issue when that
+key's `limit_remaining` falls below the repository variable
+`OPENROUTER_BUDGET_THRESHOLD` (default `$2`), comments on the existing issue on
+subsequent low checks, and comments and closes it after recovery. The alert script
+fails visibly if the API cannot be read; it does not interpret an API error as zero
+credit. If both `limit` and `limit_remaining` are null, the key is unlimited: the
+check prints a notice and does not alert because this endpoint cannot show account
+credit. A live eval refused by its own estimated-budget preflight succeeds with a
+`skipped: budget` annotation, summary, and `run` job output `result` so downstream
+jobs can distinguish it from an evaluation failure.
+
 | Variable                                 | Default / purpose                                                          | Railway management                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `ASSISTANT_MODEL_PROVIDER`               | Backend default `openrouter`; local examples use `scripted`                | Fixed `openrouter`                                                            |
@@ -168,13 +180,13 @@ IaC keeps their existing values. Eval headers must never be enabled in productio
 Feedback is stored even without survey configuration; creating PostHog surveys is
 a separate setup step.
 
-The deployed assistant contract suite is `packages/e2e/tests/assistant.test.ts`.
-Run it on Railway `test` with `BACKEND_URL` set. It sends at most four live
-messages (up to six model calls each, at most 24 calls), asserts response structure,
-and visibly skips remaining live checks when the shared daily quota is exhausted.
-Set `E2E_ASSISTANT_LIVE=0` to run only deterministic endpoint checks against a local
-backend. Live checks expect real OpenRouter model IDs and are for the controller to run
-on `test`.
+The deploy e2e runner blocks on deterministic contracts, including assistant
+`tests/assistant.test.ts` and voice `tests/voice-contract.test.ts`. It runs
+`tests/assistant-live.test.ts`, `tests/voice.test.ts`, and the latency suites in a
+separate non-blocking group; failures appear as a workflow warning. Voice clips use
+paid OpenRouter calls, and assistant live checks depend on model availability and
+quota. Set `E2E_SOFT_STRICT=1` to make that group block for an explicit run. The
+manual voice evaluation in `eval.yml` remains independent of this grouping.
 
 ## Telemetry
 
@@ -387,10 +399,9 @@ dispatch `gh workflow run deploy.yml -f ref=<branch> -f keep_test_backend=true`.
 keeps the dependencies too. The next workflow may use and stop these services, so finish
 manual debugging before another run starts.
 
-Both workflows use `scripts/ci/wait_turn.py deploy.yml test railway-integration.yml:test` to
-queue by run id across workflows. Ownership lasts through the entire `test` job, including
-teardown. A run cancelled or timed out while waiting never starts or stops services. Coordinate
-manual CLI work with these runs; a CLI session does not hold that queue.
+Both workflows use the `railway-test` concurrency group. GitHub queues runs before assigning a
+runner, and each admitted workflow holds the group through teardown. Coordinate manual CLI work
+with these runs because a CLI session does not hold that queue.
 
 For debugging, from a linked Railway project with a test-scoped token, start the dependencies
 by hand (the helper waits for a new deployment's `SUCCESS`, or leaves an existing `SUCCESS`
@@ -572,14 +583,14 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
 3. `workflow_dispatch` validates the specified `ref`; select `deploy_production` to promote
    that same resolved commit after the test job passes. Leave it unchecked for validation only.
 
-Deploys are serialized per environment. Production uses the `deploy-railway-production`
-concurrency group. The `test` job uses no group: GitHub keeps one pending run per group and
-cancels older pending runs, which kept cancelling branch validations. Instead its first step,
-`scripts/ci/wait_turn.py`, waits until no `Deploy backend` run with a smaller run id still has its
-`test` job queued or running (a FIFO queue; older runs never wait on newer ones).
-`.github/workflows/railway-integration.yml`
-runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
-(manual, nightly 20:17 UTC and on backend changes to `main`) via
+Deploys share the `railway-test` workflow concurrency group with the manual Railway
+integration workflow. The queue can hold up to 100 pending runs. Production also uses the
+`deploy-railway-production` job group. The deploy test skips the live voice suite while the
+Railway test provider returns `voice_unavailable`. Set the test voice provider up and remove
+`E2E_SKIP_VOICE` to restore that coverage.
+
+`.github/workflows/railway-integration.yml` runs the `#[ignore]` integration tests on demand
+against the real `test` Postgres, Redis and bucket via
 `scripts/ci/with-railway-test-services.sh`: a throwaway database
 `it_<epoch>_<run>_<attempt>_<pid>` is created and dropped per run, Redis logical database
 15 is flushed afterwards, and the bucket is shared and append-only. Before creating a database,
@@ -617,7 +628,7 @@ keep the `region` in `.railway/railway.ts` equal to the live one.
 | Secret   | `RAILWAY_TOKEN_TEST`    | Railway **project token** for environment `test` (dashboard > Tokens)          |
 | Secret   | `CLERK_SECRET_KEY`      | Clerk Backend API key: seed, e2e helpers and the docker smoke create users     |
 | Secret   | `CLERK_PUBLISHABLE_KEY` | Clerk Frontend API key (public by design); also embedded in web and app builds |
-| Variable | `BACKEND_URL_TEST`      | `https://backend-test-70c2.up.railway.app`                                     |
+| Variable | `BACKEND_URL_TEST`      | `https://backend-test-70c2.up.railway.app` (ephemeral, see above)              |
 | Variable | `LATENCY_P95_MS`        | Optional p95 budget in milliseconds for the e2e latency probes (default 200)   |
 
 Project tokens cannot be minted with the CLI login, so the secret must be created in the

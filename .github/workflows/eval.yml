@@ -1,6 +1,6 @@
 name: Eval
 
-# Nightly and on-demand evaluation of the assistant (epic X7) against a live stack inside
+# On-demand evaluation of the assistant (epic X7) against a live stack inside
 # Actions: compose postgres + redis, taphoa-seed --profile eval, the backend built from this
 # ref with ASSISTANT_ALLOW_EVAL_HEADERS=1. The harness checks remaining USD credits for
 # paid models (free-request quota for :free overrides). A full run happens at most once
@@ -20,9 +20,8 @@ name: Eval
 # get their own title so they never count as a full run.
 run-name: eval ${{ (inputs.voice || 'none') != 'none' && format('voice {0}', inputs.voice) || inputs.compare_models && 'compare' || inputs.set || 'full' }}
 
+# The nightly schedule is paused until the full evaluation has enough OpenRouter credit.
 on:
-  schedule:
-    - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
       set:
@@ -56,6 +55,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Daily warning before the shared OpenRouter key runs out. The script fails loudly on API errors.
+  budget-alert:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check OpenRouter key budget and update alert issue
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_BUDGET_THRESHOLD: ${{ vars.OPENROUTER_BUDGET_THRESHOLD || '2' }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 -I scripts/ci/openrouter_budget.py
+      - name: Summary
+        if: always()
+        run: echo "Daily OpenRouter balance check completed. See the step output or error annotation above." >> "$GITHUB_STEP_SUMMARY"
+
   # Skips the run when it would waste quota or cannot work yet; see scripts/ci/eval_guard.py.
   guard:
     runs-on: ubuntu-latest
@@ -104,11 +124,13 @@ jobs:
       contents: read
     outputs:
       results: ${{ steps.collect.outputs.results }}
+      result: ${{ steps.execute.outputs.result }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
-      # Same cache as the backend-binary job in ci.yml: a nightly run on main reuses its build.
-      - uses: actions/cache@v6
+      # Same cache as the backend-binary job in ci.yml: a manual run on main reuses its build.
+      - uses: actions/cache/restore@v6
+        id: backend-cache
         with:
           path: .ci-cache
           key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
@@ -116,6 +138,11 @@ jobs:
             backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build the backend and seed binaries
         run: scripts/ci/build-backend-binary.sh
+      - uses: actions/cache/save@v6
+        if: github.ref == 'refs/heads/main' && steps.backend-cache.outputs.cache-hit != 'true'
+        with:
+          path: .ci-cache
+          key: ${{ steps.backend-cache.outputs.cache-primary-key }}
       # Starts compose postgres + redis, runs `taphoa-seed --profile eval`, starts the backend
       # and waits for /readyz. Appends BACKEND_URL and EVAL_DATABASE_URL to $GITHUB_ENV.
       - name: Start the eval stack
@@ -137,6 +164,7 @@ jobs:
       # harness mints the Clerk tokens itself from CLERK_SECRET_KEY. It takes its output
       # directory relative to packages/eval, so pass an absolute one.
       - name: Run the evaluation
+        id: execute
         env:
           OPENROUTER_EVAL_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -156,7 +184,27 @@ jobs:
             if [ -n "$RUN_MODEL" ]; then args+=(--model "$RUN_MODEL"); fi
             if [ "$FORCE" = true ]; then args+=(--force); fi
           fi
-          pnpm --filter @taphoa/eval run "$command" -- "${args[@]}"
+          set +e
+          pnpm --filter @taphoa/eval run "$command" -- "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/eval.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The harness exits non-zero for a preflight credit refusal. Keep real eval failures fatal.
+          if grep -Eq 'OpenRouter credits too low|credits too low' "$RUNNER_TEMP/eval.log"; then
+            echo "result=skipped: budget" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Assistant eval::skipped: budget; the shared OpenRouter balance is below this run's estimate"
+            {
+              echo "### Assistant eval"
+              echo
+              echo "**skipped: budget** — OpenRouter balance is below the evaluation's estimated budget."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "result=failure" >> "$GITHUB_OUTPUT"
+          exit "$rc"
       # New and changed files of packages/eval/results (the checkout already holds the old ones).
       - name: Collect the results of this run
         id: collect
@@ -214,7 +262,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
+        id: backend-cache
         with:
           path: .ci-cache
           key: backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
@@ -222,6 +271,11 @@ jobs:
             backend-bin-${{ hashFiles('apps/backend/Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build the backend and seed binaries
         run: scripts/ci/build-backend-binary.sh
+      - uses: actions/cache/save@v6
+        if: github.ref == 'refs/heads/main' && steps.backend-cache.outputs.cache-hit != 'true'
+        with:
+          path: .ci-cache
+          key: ${{ steps.backend-cache.outputs.cache-primary-key }}
       - name: Start the eval stack
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

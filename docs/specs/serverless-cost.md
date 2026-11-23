@@ -63,7 +63,8 @@ whatever the result. A `workflow_dispatch` input keeps it for manual measurement
 Acceptance:
 
 - After a workflow run, `railway deployment list -s backend -e test` shows no running
-  deployment, and `https://backend-test-70c2.up.railway.app/healthz` does not answer 200.
+  deployment, and `https://backend-test-70c2.up.railway.app/healthz` does not answer 200 (the `test`
+  environment is ephemeral, see [deploy.md](../deploy.md#railway-test-environment)).
 - The `production` job still runs only after a green `test` job.
 - `docs/deploy.md` says that preview app builds reach the `test` backend only while a workflow
   run holds it, and how to keep it up.

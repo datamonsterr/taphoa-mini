@@ -4,7 +4,7 @@
 #   with-railway-test-services.sh <command> [args...]
 # Needs RAILWAY_TOKEN (project token for `test`) or a linked CLI, plus psql on PATH.
 # The caller starts services and owns their lifecycle through cleanup (the two
-# workflows share wait_turn.py). This helper only owns its database and Redis db.
+# workflows share the railway-test concurrency group). This helper only owns its database and Redis db.
 # Isolation: a throwaway database `it_<epoch>_<run>_<attempt>_<pid>` on the shared Postgres (dropped on exit)
 # and Redis logical database IT_REDIS_DB (default 15, flushed on exit). The bucket is shared and append-only;
 # tests must use unique object keys.
