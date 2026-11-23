@@ -692,11 +692,13 @@ serde types live in `taphoa_recognition::wire`.
 
 Before transport, crops use exactly the local embedder's Catmull–Rom square resize
 to `EMBED_SIDE`; the worker preserves already-sized RGB pixels. Batches contain at
-most eight crops, at most 1,204,360 bytes at side 224, safely below the 10 MiB wire
-limit. Full-size crops no longer need the oversized-PNG escape path. On the actual
+most 64 crops (the worker's limit) and at most 4 MiB of request body: 64 crops at side
+112, 27 at side 224 (4,064,696 bytes), safely below the 10 MiB wire limit. A 20-crop scan is one
+worker call; the worker runs one inference at a time with three request slots, so
+batches are sent sequentially, not in parallel. Full-size crops no longer need the oversized-PNG escape path. On the actual
 `shelf-1600.jpg` scan (20 crops, side 112), total binary embedding request bodies
-fell from **12,720,521 bytes** to **752,984 bytes** across three batches (**94.1%**
-smaller). This excludes HTTP headers and the unchanged segmentation photo request.
+fell from **12,720,521 bytes** to **752,968 bytes** in a single request (**94.1%**
+smaller; it was three batches of at most eight crops before the limit was raised). This excludes HTTP headers and the unchanged segmentation photo request.
 Tensor parity is tested exactly at every accepted side (56..224, step 14).
 
 Every `/v1/` operation requires a bearer token of at least 32 characters, compared

@@ -288,6 +288,46 @@ impl Backoff {
     }
 }
 
+/// The wire envelope of an event, shared by `emit` and writers that fold the outbox insert
+/// into a larger statement. `cursor` is added by `emit` when the event has a change.
+pub(crate) fn envelope(event: &Event, id: String, occurred_at: DateTime<Utc>) -> Value {
+    json!({
+        "id": id, "type": event.typ, "version": event.version,
+        "store_id": event.store_id,
+        "occurred_at": occurred_at.with_timezone(&crate::time::STORE_TZ).to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
+        "actor": event.actor.as_ref().map(|(member_id, session_id)| json!({"member_id":member_id,"session_id":session_id})),
+        "data": event.data,
+    })
+}
+
+/// The one definition of how an outbox row is written *inside a larger single statement*
+/// (the scan path folds it into its own CTE chain to save network round trips; `emit` stays
+/// the way for everything else). Returns the CTEs `locked` and `event` for the caller's
+/// `WITH` list; `event` returns the new `id`, and the caller must select from it (for
+/// `pg_notify`) so the statement keeps it.
+///
+/// Same rules as `emit`: the store row is locked first (`FOR NO KEY UPDATE`) and the outbox
+/// id is allocated from rows of `locked`, so allocation follows the lock and id order equals
+/// commit order (pinned by tests/emit_order.rs and the scan test in tests/recognition.rs).
+/// The id, `created_at` and `occurred_at` come from the database (`now()`, the transaction
+/// start, formatted in the store's UTC+7 zone like `envelope`). `payload` is an
+/// `envelope(.., "", ..)` value whose `id` and `occurred_at` the SQL overwrites. Arguments
+/// are SQL expressions, normally `$n` placeholders.
+pub(crate) fn outbox_ctes(store_id: &str, typ: &str, payload: &str) -> String {
+    format!(
+        "locked AS (SELECT id FROM stores WHERE id = {store_id} FOR NO KEY UPDATE), \
+         event AS ( \
+             INSERT INTO outbox_events (id, store_id, type, payload, created_at) OVERRIDING SYSTEM VALUE \
+             SELECT n.id, {store_id}, {typ}, \
+                    {payload}::jsonb || jsonb_build_object( \
+                        'id', 'evt_' || lpad(n.id::text, 15, '0'), \
+                        'occurred_at', to_char(now() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') || '+07:00'), \
+                    now() \
+             FROM (SELECT nextval(pg_get_serial_sequence('outbox_events', 'id')) AS id FROM locked) n \
+             RETURNING id)"
+    )
+}
+
 /// Call with `&mut *tx` from a caller-owned transaction. Does not commit.
 /// PostgreSQL delivers the notification only when that transaction commits.
 ///
@@ -312,13 +352,7 @@ pub async fn emit(tx: &mut sqlx::PgConnection, event: Event) -> Result<EmittedEv
     // the envelope in the same transaction before any relay can observe it.
     let (id, occurred_at): (i64, DateTime<Utc>) = sqlx::query_as("INSERT INTO outbox_events (store_id, type, payload) VALUES ($1,$2,'{}'::jsonb) RETURNING id, created_at")
         .bind(event.store_id).bind(event.typ).fetch_one(&mut *tx).await?;
-    let mut payload = json!({
-        "id": format!("evt_{id:015}"), "type": event.typ, "version": event.version,
-        "store_id": event.store_id,
-        "occurred_at": occurred_at.with_timezone(&crate::time::STORE_TZ).to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-        "actor": event.actor.map(|(member_id, session_id)| json!({"member_id":member_id,"session_id":session_id})),
-        "data": event.data,
-    });
+    let mut payload = envelope(&event, format!("evt_{id:015}"), occurred_at);
     if let Some(seq) = seq {
         payload["cursor"] = json!(URL_SAFE_NO_PAD.encode(seq.to_be_bytes()));
     }

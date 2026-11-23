@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createStore } from '../src/helpers.js';
-import { decideLatency, latencySampleCount } from '../src/latency.js';
+import {
+  RECOGNITION_QUANTILE,
+  decideLatency,
+  latencySampleCount,
+} from '../src/latency.js';
 import { form, post, postRetrying } from '../src/recognition-http.js';
 
 // Budget specs run apart from the recognition contracts: Railway's inference latency is noisy,
@@ -8,7 +12,7 @@ import { form, post, postRetrying } from '../src/recognition-http.js';
 const LATENCY_BUDGET_MS = Number(process.env.RECOGNITION_BUDGET_MS ?? 3000);
 const RUNS = latencySampleCount(process.env.RECOGNITION_RUNS, 12);
 // Nearest-rank p90 excludes one outlier at n=12; p95 would still select the max.
-const QUANTILE = 0.9;
+const QUANTILE = RECOGNITION_QUANTILE;
 // Allow twelve successful requests plus busy-slot retries, independently of the budget.
 const TEST_TIMEOUT_MS = RUNS * 15_000 + 30_000;
 
@@ -96,7 +100,7 @@ describe('recognition latency', () => {
       );
       expect(
         decision.passes,
-        `recognition p90 ${decision.adjustedMs}ms must be < ${LATENCY_BUDGET_MS}ms`,
+        `segment p90 ${decision.adjustedMs}ms must be < ${LATENCY_BUDGET_MS}ms`,
       ).toBe(true);
       expect(segments.length).toBeGreaterThanOrEqual(5);
       for (const segment of segments) {
