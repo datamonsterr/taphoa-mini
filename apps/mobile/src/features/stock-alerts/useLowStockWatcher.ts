@@ -1,15 +1,22 @@
-import { onlineManager } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { onlineManager, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect } from 'react';
 import { AppState } from 'react-native';
 
 import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 
+import { keys } from '@/lib/api/keys';
+
 import { useLowStockItems } from './useLowStockItems';
 
-/** Mount once in the shop layout. */
+/**
+ * Mount once in the shop layout. Returns `refreshOnFocus`: call it when a shop
+ * screen gains focus. It refetches only stale lists (see LOW_STOCK_STALE_MS),
+ * so it is the cross-device catch-up path without any timer.
+ */
 export function useLowStockWatcher() {
   const { low, out, items } = useLowStockItems();
   const reconcile = useLowStockAlerts((s) => s.reconcile);
+  const queryClient = useQueryClient();
   const { refetch: refetchLow } = low;
   const { refetch: refetchOut } = out;
 
@@ -64,4 +71,13 @@ export function useLowStockWatcher() {
       subscription.remove();
     };
   }, [refetchLow, refetchOut]);
+
+  const refreshOnFocus = useCallback(() => {
+    for (const status of ['low', 'out'] as const)
+      void queryClient.refetchQueries({
+        queryKey: keys.stock.list(status),
+        stale: true,
+      });
+  }, [queryClient]);
+  return { refreshOnFocus };
 }

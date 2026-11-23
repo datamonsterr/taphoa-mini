@@ -335,9 +335,13 @@ export const useOpenDigest = (businessDate?: string) => {
 };
 
 /** Cursor lists expose flattened items, like useProducts. */
-export const useStock = (status: StockStatus = 'all') =>
+export const useStock = (
+  status: StockStatus = 'all',
+  options?: { staleTime?: number },
+) =>
   useInfiniteQuery({
     queryKey: keys.stock.list(status),
+    staleTime: options?.staleTime,
     queryFn: ({ pageParam }) => listStock({ status, cursor: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
