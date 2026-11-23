@@ -16,7 +16,7 @@ levels of ordinary products from here.
 - **Never production.** The binary exits non-zero when `RAILWAY_ENVIRONMENT_NAME=production`.
 - **Windows.** 60 business dates, `2026-08-22` (Saturday) to `2026-10-20`. Weekends run about 30 %
   busier than weekdays. Regular opening hours are 06:30 to 21:30.
-- **Schema gap.** This branch has no supplier table and no customer or debt tables (see
+- **Schema gap.** This branch has no supplier table (see
   [Not built](#not-built)). A receipt's supplier is `receipts.supplier` (migration
   `0803_receipt_supplier.sql`), the display name, for example `Đại lý Hưng Thịnh`, set on every
   receipt including the draft. The first line of `receipts.ocr_text` still carries the same name
@@ -528,11 +528,23 @@ first day close done (2026-08-22 is closed).
 | U21 setup              | checklist state                                           |
 | Injection / permission | canaries, Bé Na (seller) without Lead data                |
 
+## Customers and debts
+
+Opening balances are recorded as adjustments before subsequent credit sales and repayments.
+The following are balances at the pinned time; aging uses the oldest unpaid debt date.
+
+| Customer       | Opening debt | Later activity                                     |   Balance | Oldest unpaid date |
+| -------------- | -----------: | -------------------------------------------------- | --------: | ------------------ |
+| Chị Lan        |    500,000 ₫ | 100,000 ₫ credit sale and 100,000 ₫ cash repayment | 500,000 ₫ | 2026-10-01         |
+| Anh Hùng       |    900,000 ₫ | None; note contains `CANARY-NOTE-5519`             | 900,000 ₫ | 2026-09-20         |
+| Bác Tư bán rau |    150,000 ₫ | None                                               | 150,000 ₫ | 2026-10-18         |
+| Cô Mai         |    100,000 ₫ | 100,000 ₫ transfer repayment                       |       0 ₫ | None               |
+
+The credit sale and both repayments occur on 2026-10-20, after the last closed day.
+The overdue customers at the pinned time are Chị Lan and Anh Hùng.
+
 ## Not built
 
-- **Customers and debts (U23, X5).** The tables do not exist on this branch. Task T7 adds the
-  fixtures when X5 lands: the hook is the `TODO(X5)` comment in `insert_all`
-  (`apps/backend/crates/api/src/seed/eval/insert.rs`).
 - **Clerk identity (X1).** Store, member (PIN and `clerk_user_id`) and invite inserts live in one
   function, `insert_identity`; sales reference members by id and leave `clerk_session_id` NULL.
 - Stock changes are not emitted as outbox events (the ledger rows are enough); sale, expense,
