@@ -36,6 +36,24 @@ export const getProduct = (productId: string): Promise<Product> =>
     }),
   );
 
+export type PriceChange =
+  import('@taphoa/api-client').components['schemas']['PriceChange'];
+
+export const listPriceHistory = async (
+  productId: string,
+  params: { cursor?: string | null } = {},
+): Promise<Page<PriceChange>> => {
+  const page = await unwrap(
+    getApiClient().raw.GET('/v1/products/{productId}/price-history', {
+      params: {
+        path: { productId },
+        query: params.cursor ? { cursor: params.cursor } : {},
+      },
+    }),
+  );
+  return { items: page.items ?? [], next_cursor: page.next_cursor ?? null };
+};
+
 export const createProduct = (body: CreateProductRequest): Promise<Product> =>
   unwrap(getApiClient().raw.POST('/v1/products', { body }));
 
