@@ -294,11 +294,14 @@ export function updateExpense(
       'only the Lead edits this expense',
     );
   }
+  const { note: _old, ...rest } = current;
+  const note =
+    patch.note === undefined ? current.note : (patch.note ?? undefined);
   const next: Expense = {
-    ...current,
+    ...rest,
     ...(patch.amount !== undefined ? { amount: patch.amount } : {}),
     ...(patch.category !== undefined ? { category: patch.category } : {}),
-    ...(patch.note !== undefined ? { note: patch.note } : {}),
+    ...(note !== undefined ? { note } : {}),
   };
   db.expenses[index] = next;
   return next;
