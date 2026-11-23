@@ -109,6 +109,7 @@ import type {
 } from './types';
 
 const SALES_PAGE_SIZE = 200;
+const REPORT_STALE_TIME_MS = 5 * 60_000;
 
 const invalidate = (qc: QueryClient, ...queryKeys: (readonly unknown[])[]) =>
   Promise.all(queryKeys.map((queryKey) => qc.invalidateQueries({ queryKey })));
@@ -121,7 +122,7 @@ export function useMe(enabled = true) {
     queryKey: keys.me(userId),
     queryFn: getMe,
     enabled: enabled && !!isSignedIn,
-    staleTime: 60_000,
+    staleTime: 0,
     retry: false,
     retryOnMount: false,
   });
@@ -198,6 +199,7 @@ export const useAllSales = (
 ) =>
   useQuery({
     queryKey: keys.sales.every(params),
+    staleTime: REPORT_STALE_TIME_MS,
     enabled,
     queryFn: async () => {
       const items: Sale[] = [];
@@ -241,6 +243,7 @@ export const useAlerts = (status: AlertStatus = 'open', enabled = true) =>
 export const useTodayReport = (date?: string) =>
   useQuery({
     queryKey: keys.reports.today(date),
+    staleTime: REPORT_STALE_TIME_MS,
     queryFn: () => getTodayReport(date),
   });
 
@@ -276,6 +279,7 @@ export const useReportSummary = (
 ) =>
   useQuery({
     queryKey: keys.reports.summary(period, date),
+    staleTime: REPORT_STALE_TIME_MS,
     queryFn: () => getReportSummary(summaryRange(period, new Date(date))),
     // The server lists only buckets with activity; the chart needs every day/week/month.
     select: (report) =>
@@ -286,6 +290,7 @@ export const useReportSummary = (
 export const useDayClose = (date: string) =>
   useQuery({
     queryKey: keys.reports.dayClose(date),
+    staleTime: REPORT_STALE_TIME_MS,
     queryFn: async () => {
       try {
         return await getDayClose(date);
