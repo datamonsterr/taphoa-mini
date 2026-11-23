@@ -288,6 +288,18 @@ impl Backoff {
     }
 }
 
+/// The wire envelope of an event, shared by `emit` and writers that fold the outbox insert
+/// into a larger statement. `cursor` is added by `emit` when the event has a change.
+pub(crate) fn envelope(event: &Event, id: String, occurred_at: DateTime<Utc>) -> Value {
+    json!({
+        "id": id, "type": event.typ, "version": event.version,
+        "store_id": event.store_id,
+        "occurred_at": occurred_at.with_timezone(&crate::time::STORE_TZ).to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
+        "actor": event.actor.as_ref().map(|(member_id, session_id)| json!({"member_id":member_id,"session_id":session_id})),
+        "data": event.data,
+    })
+}
+
 /// Call with `&mut *tx` from a caller-owned transaction. Does not commit.
 /// PostgreSQL delivers the notification only when that transaction commits.
 ///
@@ -312,13 +324,7 @@ pub async fn emit(tx: &mut sqlx::PgConnection, event: Event) -> Result<EmittedEv
     // the envelope in the same transaction before any relay can observe it.
     let (id, occurred_at): (i64, DateTime<Utc>) = sqlx::query_as("INSERT INTO outbox_events (store_id, type, payload) VALUES ($1,$2,'{}'::jsonb) RETURNING id, created_at")
         .bind(event.store_id).bind(event.typ).fetch_one(&mut *tx).await?;
-    let mut payload = json!({
-        "id": format!("evt_{id:015}"), "type": event.typ, "version": event.version,
-        "store_id": event.store_id,
-        "occurred_at": occurred_at.with_timezone(&crate::time::STORE_TZ).to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-        "actor": event.actor.map(|(member_id, session_id)| json!({"member_id":member_id,"session_id":session_id})),
-        "data": event.data,
-    });
+    let mut payload = envelope(&event, format!("evt_{id:015}"), occurred_at);
     if let Some(seq) = seq {
         payload["cursor"] = json!(URL_SAFE_NO_PAD.encode(seq.to_be_bytes()));
     }

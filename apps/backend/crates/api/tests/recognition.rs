@@ -1363,3 +1363,136 @@ async fn scan_succeeds_when_optional_ocr_family_fails_to_load() {
         json!({"detected":false,"score":0.0,"text_lines":0,"line_boxes":[]})
     );
 }
+
+/// Scan on a proxied size-one pool, so every network exchange with Postgres is counted.
+/// Returns the exchanges of the second (warm-statement) scan.
+async fn counted_scan(detections: usize) -> Vec<String> {
+    use sqlx::postgres::PgPoolOptions;
+    use taphoa_api::{images::PgImageRepository, recognition::pgvector::PgVectorIndex};
+
+    let segments = (0..detections)
+        .map(|i| segment([(i % 6) as f32 * 64., (i / 6) as f32 * 64., 32., 32.], 0.9))
+        .collect();
+    let (app, mut state, _) = build_state(segments).await.expect("real services required");
+    let (store_id, _, token) = create_store(&app).await;
+    let (counter, options) =
+        common::pg_counter::PgCounter::start(&std::env::var("DATABASE_URL").unwrap()).await;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .connect_with(options)
+        .await
+        .unwrap();
+    state.postgres = Some(pool.clone());
+    state.vector_index = Some(Arc::new(PgVectorIndex::new(pool.clone())));
+    state.image_repository = Some(Arc::new(PgImageRepository(pool.clone())));
+    let app = router(state);
+    let photo = encode_png(image::RgbImage::from_pixel(384, 256, image::Rgb(RED)));
+    // The first scan fills the connection's prepared-statement cache; a cold statement
+    // costs an extra describe exchange once per connection.
+    let (status, body, _) = post_scan(&app, &token, Some(&photo), &[("mode", "multi")]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    counter.reset();
+    let (status, body, _) = post_scan(&app, &token, Some(&photo), &[("mode", "multi")]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["detections"].as_array().unwrap().len(), detections);
+    let exchanges = counter.exchanges();
+    eprintln!(
+        "{detections} detections: {} exchanges\n{}",
+        exchanges.len(),
+        exchanges
+            .iter()
+            .enumerate()
+            .map(|(i, sql)| format!(
+                "  {i:>2}: {}",
+                sql.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(110)
+                    .collect::<String>()
+            ))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    sqlx::query("DELETE FROM stores WHERE id = $1")
+        .bind(store_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    exchanges
+}
+
+/// Each exchange costs one network round trip (~170 ms to the production database), so the
+/// scan path must use a small constant number of them whatever the detection count.
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_database_round_trips_are_constant_and_bounded() {
+    let few = counted_scan(3).await;
+    let many = counted_scan(24).await;
+    let statements = |all: &[String]| all.iter().filter(|sql| *sql != "<ping>").count();
+    assert_eq!(
+        statements(&few),
+        statements(&many),
+        "exchange count must not depend on the detection count"
+    );
+    let searches = |sql: &&String| sql.contains("scan_search_products");
+    // Search: one statement, with no BEGIN, SET or COMMIT around it.
+    assert_eq!(many.iter().filter(searches).count(), 1);
+    assert!(!many.iter().any(|sql| sql.contains("hnsw.")), "{many:#?}");
+    assert!(
+        !many.iter().any(|sql| sql == "BEGIN" || sql == "COMMIT"),
+        "{many:#?}"
+    );
+    // Persist: images, scan, detections and the outbox event are one atomic statement.
+    let persist = |sql: &&String| sql.contains("INTO scans");
+    assert_eq!(many.iter().filter(persist).count(), 1);
+    // Session lookup, original image row, search, persist.
+    assert!(statements(&many) <= 4, "{many:#?}");
+}
+
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_completed_event_has_the_standard_envelope() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let pool = state.postgres.clone().unwrap();
+    let (store_id, member_id, token) = create_store(&app).await;
+    let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let (id, payload, published): (i64, Value, bool) = sqlx::query_as(
+        "SELECT id, payload, published_at IS NOT NULL FROM outbox_events \
+         WHERE store_id = $1 AND type = 'scan.completed'",
+    )
+    .bind(store_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let _ = published;
+    assert_eq!(payload["id"], format!("evt_{id:015}"));
+    assert_eq!(payload["type"], "scan.completed");
+    assert_eq!(payload["version"], 1);
+    assert_eq!(payload["store_id"], store_id.to_string());
+    assert_eq!(payload["actor"]["member_id"], member_id.to_string());
+    assert!(payload["actor"]["session_id"].is_string());
+    let occurred_at = payload["occurred_at"].as_str().unwrap();
+    assert!(
+        occurred_at.ends_with("+07:00") && occurred_at.len() == 29,
+        "{occurred_at}"
+    );
+    assert!(payload.get("cursor").is_none());
+    assert_eq!(payload["data"]["scan_id"], body["id"]);
+    assert_eq!(
+        payload["data"]["detections"],
+        body["detections"].as_array().unwrap().len()
+    );
+    assert_eq!(payload["data"]["mode"], "multi");
+    assert_eq!(payload["data"]["purpose"], "checkout");
+    assert_eq!(payload["data"]["model"], "colour@1");
+    sqlx::query("DELETE FROM stores WHERE id = $1")
+        .bind(store_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}

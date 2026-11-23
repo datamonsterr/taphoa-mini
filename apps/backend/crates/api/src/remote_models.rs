@@ -569,6 +569,17 @@ pub fn api_error(error: RemoteError) -> ApiError {
         error
     }
 }
+/// The worker accepts at most 64 crops per `/v1/embed-crops` request. Keep the request body
+/// at or below 4 MiB (the wire limit is 10 MiB): 64 crops at the default side of 112, 27 at
+/// the maximum side of 224. The worker runs one inference at a time and queues three
+/// requests, so sending chunks in parallel would only occupy its queue; fewer, larger
+/// requests save network round trips instead.
+const MAX_CROPS_PER_REQUEST: usize = 64;
+const CROP_REQUEST_BUDGET: usize = 4 * 1024 * 1024;
+fn crops_per_request(side: u32) -> usize {
+    let crop_bytes = (side as usize).pow(2) * 3 + 16;
+    (CROP_REQUEST_BUDGET / crop_bytes).clamp(1, MAX_CROPS_PER_REQUEST)
+}
 fn embedding_request(crops: &[image::RgbImage], side: u32) -> CropsRequest {
     CropsRequest {
         crops: crops
@@ -636,9 +647,10 @@ impl Embedder for RemoteModels {
             "embed-crops",
             || {
                 let mut vectors = Vec::with_capacity(crops.len());
-                // At side <= 224, eight RGB crops plus wire framing are < 1.21 MiB.
                 // Resize before transport with the very same local tensor preprocessing.
-                for batch in crops.chunks(8) {
+                // Each request is a sequential worker round trip, so use as few as the
+                // worker limits allow (see `crops_per_request`).
+                for batch in crops.chunks(crops_per_request(self.side)) {
                     vectors.extend(
                         self.embeddings("embed-crops", &embedding_request(batch, self.side))?,
                     );
@@ -1470,7 +1482,7 @@ mod crop_transport_tests {
         }
     }
     #[tokio::test]
-    async fn large_crops_reach_worker_as_small_batches() {
+    async fn large_crops_reach_worker_in_bounded_batches() {
         use axum::{Router, body::Bytes, http::header, routing::post};
         use std::sync::atomic::{AtomicUsize, Ordering};
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1481,8 +1493,8 @@ mod crop_transport_tests {
                 let seen = seen.clone();
                 async move {
                     let request: CropsRequest = wire::decode(&bytes).unwrap();
-                    assert!(request.crops.len() <= 8);
                     let side = request.crops[0].width;
+                    assert!(request.crops.len() <= crops_per_request(side));
                     for crop in &request.crops {
                         assert_eq!((crop.width, crop.height), (side, side));
                         assert!(side <= 224);
@@ -1529,8 +1541,72 @@ mod crop_transport_tests {
             .unwrap()
             .unwrap();
         assert_eq!(result.len(), 9);
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        // Nine crops at the default side fit one request; oversized originals are resized.
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
         server.abort();
+    }
+    #[tokio::test]
+    async fn a_twenty_detection_scan_embeds_in_one_worker_call() {
+        use axum::{Router, body::Bytes, http::header, routing::post};
+        let sizes = Arc::new(Mutex::new(Vec::new()));
+        let seen = sizes.clone();
+        let app = Router::new()
+            .route(
+                "/v1/embed-crops",
+                post(move |bytes: Bytes| {
+                    let seen = seen.clone();
+                    async move {
+                        let request: CropsRequest = wire::decode(&bytes).unwrap();
+                        seen.lock().unwrap().push(request.crops.len());
+                        (
+                            [(header::CONTENT_TYPE, CONTENT_TYPE)],
+                            wire::encode(&EmbeddingResponse {
+                                model: "dinov2-vits14-onnx@1/112".into(),
+                                dim: 384,
+                                vectors: vec![vec![1. / (384f32).sqrt(); 384]; request.crops.len()],
+                            })
+                            .unwrap(),
+                        )
+                    }
+                }),
+            )
+            .layer(axum::extract::DefaultBodyLimit::max(BODY_LIMIT));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let remote = ready_remote(
+            &url,
+            "a-crop-transport-token-at-least-32-characters",
+            AppState::default(),
+        )
+        .unwrap();
+        assert_eq!(remote.side, 112);
+        let remote = Arc::new(remote);
+        for (count, expected) in [(20usize, vec![20usize]), (130, vec![64, 64, 2])] {
+            sizes.lock().unwrap().clear();
+            let remote = remote.clone();
+            let crops = vec![image::RgbImage::new(40, 40); count];
+            let vectors = tokio::task::spawn_blocking(move || remote.embed_crops(&crops))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(vectors.len(), count);
+            assert_eq!(*sizes.lock().unwrap(), expected);
+        }
+        server.abort();
+    }
+    #[test]
+    fn crop_batches_are_few_and_fit_the_worker_and_wire_limits() {
+        // A 20-detection scan is one worker round trip at the default side.
+        assert_eq!(crops_per_request(112), 64);
+        assert_eq!(crops_per_request(224), 27);
+        for side in (56..=224).step_by(14) {
+            let per_request = crops_per_request(side);
+            assert!((1..=64).contains(&per_request));
+            assert!(per_request * (side as usize).pow(2) * 3 + 8 + 16 * per_request < BODY_LIMIT);
+        }
     }
     #[test]
     fn oversized_crop_and_maximum_batches_fit_the_wire_limit() {
