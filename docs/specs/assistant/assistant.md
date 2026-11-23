@@ -1,6 +1,6 @@
 # Assistant: use cases, tools, API and UI
 
-Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · ADR
+Status: Done (checked 2026-11-23, roadmap section 2.2) · Merge: [#39](https://github.com/datamonsterr/taphoa-mini/pull/39) (backend), [#37](https://github.com/datamonsterr/taphoa-mini/pull/37) (mobile) · Date: 2026-10-25 · Program: [README](README.md) · ADR
 [0005](../../adr/0005-assistant-in-backend.md)
 
 ## Use cases

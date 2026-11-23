@@ -1,0 +1,117 @@
+name: Real-device test backend
+
+# Manual only: path filters do not apply to workflow_dispatch.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to deploy and build
+        type: string
+        required: true
+        default: main
+      hours:
+        description: Hours to hold the backend (1 to 4)
+        type: string
+        required: true
+        default: '4'
+      build_apk:
+        description: Start an Android APK build
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: write
+
+# Deploy, integration and hold runs share this queue without cancelling one another.
+concurrency:
+  group: railway-test
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate duration and configuration
+        env:
+          HOURS: ${{ inputs.hours }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+          BACKEND_URL: ${{ vars.BACKEND_URL_TEST }}
+        run: |
+          [[ "$HOURS" =~ ^[1-4]$ ]] || { echo '::error::hours must be an integer from 1 to 4'; exit 1; }
+          test -n "$RAILWAY_TOKEN" && test -n "$BACKEND_URL" || { echo '::error::Missing RAILWAY_TOKEN_TEST or BACKEND_URL_TEST'; exit 1; }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.71.0
+      - name: Start test services
+        id: services
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: |
+          echo 'started=true' >> "$GITHUB_OUTPUT"
+          python3 -I scripts/ci/railway_service.py up Postgres test
+          python3 -I scripts/ci/railway_service.py up Redis test
+          sleep 5
+      - name: Deploy backend
+        timeout-minutes: 35
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: |
+          railway variable set --service backend --environment test --skip-deploys "SERVICE_VERSION=$(git rev-parse HEAD)" || echo '::warning::Could not set SERVICE_VERSION'
+          python3 -I scripts/ci/railway_deploy.py backend test
+      - name: Verify backend
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL_TEST }}
+        run: scripts/ci/wait-healthy.sh "$BACKEND_URL"
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: test
+      - name: Seed test database
+        timeout-minutes: 30
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: scripts/ci/seed-test.sh
+      - name: Start APK build
+        if: inputs.build_apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          gh workflow run android-apk.yml --ref main -f backend=test -f ref="$sha"
+          echo "APK build dispatched for $sha. Find its download on the [Android APK runs]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/android-apk.yml) page." >> "$GITHUB_STEP_SUMMARY"
+      - name: Hold backend
+        timeout-minutes: 245
+        env:
+          HOURS: ${{ inputs.hours }}
+        run: |
+          echo "Backend available at ${{ vars.BACKEND_URL_TEST }} for up to $HOURS hours. Cancel this run to tear down early." >> "$GITHUB_STEP_SUMMARY"
+          sleep "$((HOURS * 3600))"
+      - name: Remove test backend
+        if: always() && steps.services.outputs.started == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: python3 -I scripts/ci/railway_down.py backend test
+      - name: Remove test Redis
+        if: always() && steps.services.outputs.started == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: python3 -I scripts/ci/railway_service.py down Redis test
+      - name: Remove test Postgres
+        if: always() && steps.services.outputs.started == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_TEST }}
+        run: python3 -I scripts/ci/railway_service.py down Postgres test
