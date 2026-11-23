@@ -1,3 +1,4 @@
+import { onlineManager } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
@@ -5,9 +6,7 @@ import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 
 import { useLowStockItems } from './useLowStockItems';
 
-const POLL_INTERVAL = 5 * 60 * 1000;
-
-/** Mount once in the shop layout; polling supplements future stock.low SSE events. */
+/** Mount once in the shop layout. */
 export function useLowStockWatcher() {
   const { low, out, items } = useLowStockItems();
   const reconcile = useLowStockAlerts((s) => s.reconcile);
@@ -48,30 +47,20 @@ export function useLowStockWatcher() {
 
   useEffect(() => {
     let state = AppState.currentState;
-    let timer: ReturnType<typeof setInterval> | undefined;
     const refetch = () => {
       void refetchLow();
       void refetchOut();
     };
-    const start = () => {
-      timer = setInterval(refetch, POLL_INTERVAL);
-    };
-    const stop = () => {
-      clearInterval(timer);
-      timer = undefined;
-    };
-    if (state === 'active') start();
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === state) return;
       state = next;
-      stop();
-      if (next === 'active') {
-        refetch();
-        start();
-      }
+      if (next === 'active') refetch();
+    });
+    const unsubscribe = onlineManager.subscribe((online) => {
+      if (online) refetch();
     });
     return () => {
-      stop();
+      unsubscribe();
       subscription.remove();
     };
   }, [refetchLow, refetchOut]);

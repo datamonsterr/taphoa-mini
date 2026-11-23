@@ -1,4 +1,4 @@
-import { QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
@@ -114,7 +114,7 @@ test('includes out stock and low-to-out does not re-alert a dismissed product', 
   expect(useLowStockAlerts.getState().alerts).toHaveLength(0);
 });
 
-test('foreground refetches both filters, polls every five minutes only while active, cleans up', async () => {
+test('foreground refetches both filters without periodic polling and cleans up', async () => {
   jest.useFakeTimers();
   const spy = jest
     .spyOn(stockApi, 'listStock')
@@ -123,18 +123,35 @@ test('foreground refetches both filters, polls every five minutes only while act
   const hook = await renderHook(useLowStockWatcher, { wrapper });
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   await act(() => jest.advanceTimersByTime(5 * 60 * 1000));
-  expect(spy).toHaveBeenCalledTimes(4);
+  expect(spy).toHaveBeenCalledTimes(2);
   await act(() => changeState('background'));
   await act(() => jest.advanceTimersByTime(10 * 60 * 1000));
+  expect(spy).toHaveBeenCalledTimes(2);
+  await act(() => changeState('active'));
   expect(spy).toHaveBeenCalledTimes(4);
   await act(() => changeState('active'));
-  expect(spy).toHaveBeenCalledTimes(6);
-  await act(() => changeState('active'));
-  expect(spy).toHaveBeenCalledTimes(6);
+  expect(spy).toHaveBeenCalledTimes(4);
   await hook.unmount();
   expect(remove).toHaveBeenCalledTimes(1);
   await act(() => jest.advanceTimersByTime(5 * 60 * 1000));
-  expect(spy).toHaveBeenCalledTimes(6);
+  expect(spy).toHaveBeenCalledTimes(4);
+});
+
+test('reconnect refreshes both filters even when cached data is fresh', async () => {
+  const spy = jest
+    .spyOn(stockApi, 'listStock')
+    .mockResolvedValue({ items: [], next_cursor: null });
+  const { wrapper, queryClient } = setup();
+  queryClient.setDefaultOptions({
+    queries: { staleTime: Infinity, retry: false, gcTime: Infinity },
+  });
+  onlineManager.setOnline(false);
+  await renderHook(useLowStockWatcher, { wrapper });
+  await act(async () => onlineManager.setOnline(true));
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  await act(async () => onlineManager.setOnline(false));
+  await act(async () => onlineManager.setOnline(true));
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(4));
 });
 
 test('a failed or incomplete result does not count missing products as recovered', async () => {
