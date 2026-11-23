@@ -73,6 +73,7 @@ import {
   getProduct,
   listCategories,
   listProducts,
+  listPriceHistory,
   patchProduct,
   type ListProductsParams,
 } from './products';
@@ -339,6 +340,17 @@ export const useStock = (status: StockStatus = 'all') =>
   useInfiniteQuery({
     queryKey: keys.stock.list(status),
     queryFn: ({ pageParam }) => listStock({ status, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
+
+export const usePriceHistory = (productId: string | undefined) =>
+  useInfiniteQuery({
+    queryKey: [...keys.products.all(), 'priceHistory', productId ?? ''],
+    queryFn: ({ pageParam }) =>
+      listPriceHistory(productId!, { cursor: pageParam }),
+    enabled: Boolean(productId),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
     select: (data) => data.pages.flatMap((page) => page.items),

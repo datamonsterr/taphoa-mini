@@ -29,6 +29,7 @@ import { barcodeConflict } from '@/features/enroll/barcodeConflict';
 import { AdjustStockSheet } from './AdjustStockSheet';
 import { EditPriceSheet } from './EditPriceSheet';
 import { StockMovements } from './StockMovements';
+import { PriceHistory } from './PriceHistory';
 import { ProductStock } from './ProductStock';
 import { PhotoCarousel } from './PhotoCarousel';
 import { UnitsRow } from './UnitsEditor';
@@ -213,6 +214,7 @@ export function ProductScreen() {
           onAdjust={() => setAdjusting(true)}
         />
         <StockMovements productId={product.id} />
+        <PriceHistory productId={product.id} />
       </>
     );
   } else if (isError) {

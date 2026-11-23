@@ -204,6 +204,10 @@ test.describe('product', () => {
       page.getByText(text, { exact: true }).filter({ visible: true });
     await expectPriceShown(shown, patch.body.price);
     await expect(shown(formatVnd(10_000))).toHaveCount(0);
+    await expect(
+      page.getByRole('heading', { name: 'Lịch sử giá' }),
+    ).toBeVisible();
+    await expect(page.getByText('10.000đ → 12.000đ')).toBeVisible();
 
     await button(page, 'Quay lại').click();
     await expect(button(page, tileName(patch.body))).toBeVisible();
