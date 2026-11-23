@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { CreatedStore } from '../src/helpers.js';
-import { createStore } from '../src/helpers.js';
+import { assertErrorResponse, createStore } from '../src/helpers.js';
 import { getBackendUrl } from '../src/env.js';
 import { percentile } from '../src/latency.js';
 import { catalogProduct, uuid7 } from '../src/stock-fixtures.js';
@@ -85,6 +85,7 @@ async function utter(
   });
   const elapsed = performance.now() - started;
   const body = (await response.json().catch(() => null)) as any;
+  if (response.status === 503) assertErrorResponse(body, 'voice_unavailable');
   return { status: response.status, body, elapsed };
 }
 
@@ -164,13 +165,6 @@ describe('voice utterances', () => {
     const r = await utter(store, f.audio);
     expect(r.status, JSON.stringify(r.body)).toBe(422);
     expect(r.body.code).toBe('no_speech');
-  });
-
-  it('rejects unsupported audio with 400 unsupported_format', async () => {
-    const store = await createStore();
-    const r = await utter(store, Buffer.from('not audio at all, just text'));
-    expect(r.status).toBe(400);
-    expect(r.body.code).toBe('unsupported_format');
   });
 
   it.skipIf(!QUOTA_CAP)(

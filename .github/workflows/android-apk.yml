@@ -13,6 +13,10 @@ name: Android APK
 on:
   workflow_dispatch:
     inputs:
+      ref:
+        description: Branch, tag or SHA to build
+        type: string
+        default: main
       backend:
         description: Backend the app talks to
         type: choice
@@ -37,6 +41,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
         with:
           version: 11.5.0
@@ -51,6 +58,16 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6
       - run: pnpm install --frozen-lockfile
+
+      - name: Describe build target
+        env:
+          BACKEND: ${{ inputs.backend }}
+        run: |
+          echo "## Android test build: $BACKEND backend" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BACKEND" = production ]; then
+            echo "This APK uses production data. Create a separate test store there." >> "$GITHUB_STEP_SUMMARY"
+            echo "Download the taphoa-mini-production-apk artifact from this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # Same URLs as the preview and production profiles in apps/mobile/eas.json.
       - name: Pick backend
@@ -71,6 +88,7 @@ jobs:
           BACKEND: ${{ inputs.backend }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
+          GITHUB_SHA=$(git rev-parse HEAD)
           base="$(jq -r .expo.version apps/mobile/app.json)"
           name="${base}-${BACKEND}.${RUN_NUMBER}+${GITHUB_SHA::7}"
           {
@@ -122,6 +140,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RELEASES: ${{ github.server_url }}/${{ github.repository }}/releases/download
         run: |
+          GITHUB_SHA=$(git rev-parse HEAD)
           tag="apk-test-${RUN_NUMBER}"
           apk_url="${RELEASES}/${tag}/${APK_NAME}"
           # Outside the pnpm workspace, so npm resolves the pinned package on its own.
