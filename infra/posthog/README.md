@@ -322,6 +322,9 @@ POSTHOG_REPLAY_SMOKE=1 \
 pnpm --filter @taphoa/mobile test:e2e:web replay.spec.ts --project chromium --workers 1
 ```
 
+The `test` backend exists only during a "Deploy backend" run; see
+[deploy.md](../../docs/deploy.md#railway-test-environment).
+
 This signs nobody in, submits no form, and never opens the assistant. It interacts with
 the sign-in input for more than 10 seconds, verifies successful snapshot ingestion, masked
 input values, blocked media canaries, and an `environment=test` product event with the

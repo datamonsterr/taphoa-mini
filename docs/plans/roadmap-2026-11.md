@@ -13,16 +13,16 @@ _(inferred)_ rest on grep evidence only and need a second look before work start
 
 ### 1.1 What changed since the 2026-11-21 notes
 
-| 2026-11-21 note                                    | Now                                                                                                                                                                                                                   |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| About 12 open Dependabot PRs                       | None open. #335, #339, #341, #342, #344, #346, #347, #348 merged; #340, #343, #345 landed through #360.                                                                                                               |
-| CI jobs queue for a self-hosted runner             | No workflow hard-codes `self-hosted`. Zero runners are registered. `CI_HEAVY_RUNNER` and `CI_ANDROID_RUNNER` are optional repo variables with an `ubuntu-latest` fallback, and neither is set.                        |
-| Test Postgres crashed                              | Superseded. The `test` environment is ephemeral since #349 and #359: Postgres, Redis and the backend exist only during a deploy run. `backend-test-70c2` answers 404 "Application not found" between runs, by design. |
-| #343 fails typecheck, #346 to #348 fail model-test | Fixed (#360, and the cargo bumps merged).                                                                                                                                                                             |
-| Production `/healthz` ok                           | Still ok. `/readyz` returns `{"status":"ok","storage":"ok"}`.                                                                                                                                                         |
-| Draft PR #301                                      | Still open, now conflicting.                                                                                                                                                                                          |
-| Owner issues #47, #48, #49, #52, #59, #60, #138    | All still open.                                                                                                                                                                                                       |
-| Design gaps #316, #320                             | Fix PRs merged (#327, #330, #332). Issues stay open until a re-capture confirms them.                                                                                                                                 |
+| 2026-11-21 note                                    | Now                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| About 12 open Dependabot PRs                       | None open. #335, #339, #341, #342, #344, #346, #347, #348 merged; #340, #343, #345 landed through #360.                                                                                                                                                                    |
+| CI jobs queue for a self-hosted runner             | No workflow hard-codes `self-hosted`. Zero runners are registered. `CI_HEAVY_RUNNER` and `CI_ANDROID_RUNNER` are optional repo variables with an `ubuntu-latest` fallback, and neither is set.                                                                             |
+| Test Postgres crashed                              | Superseded. The `test` environment is ephemeral since #349 and #359 ([deploy.md](../deploy.md#railway-test-environment)): Postgres, Redis and the backend exist only during a deploy run. `backend-test-70c2` answers 404 "Application not found" between runs, by design. |
+| #343 fails typecheck, #346 to #348 fail model-test | Fixed (#360, and the cargo bumps merged).                                                                                                                                                                                                                                  |
+| Production `/healthz` ok                           | Still ok. `/readyz` returns `{"status":"ok","storage":"ok"}`.                                                                                                                                                                                                              |
+| Draft PR #301                                      | Still open, now conflicting.                                                                                                                                                                                                                                               |
+| Owner issues #47, #48, #49, #52, #59, #60, #138    | All still open.                                                                                                                                                                                                                                                            |
+| Design gaps #316, #320                             | Fix PRs merged (#327, #330, #332). Issues stay open until a re-capture confirms them.                                                                                                                                                                                      |
 
 ### 1.2 Blockers found
 
@@ -44,7 +44,7 @@ _(inferred)_ rest on grep evidence only and need a second look before work start
 5. **Android E2E `voice-bubble` flow fails** in 3 of the last 4 runs (44996180593, 44994559724,
    44983319187): `Assertion is false: "Ô cài đặt nhanh" is visible`, also on retry.
 6. **Preview and test APKs point at a backend that is usually down.** `apps/mobile/eas.json`
-   (`preview`, `test`) and `android-apk.yml` default to `backend-test-70c2`. This blocks the
+   (`preview`, `test`) and `android-apk.yml` default to `backend-test-70c2` (ephemeral, see [deploy.md](../deploy.md#railway-test-environment)). This blocks the
    real-device checks in #60 and #138 unless a deploy run is held open with `keep_test_backend`.
 7. **PR #301** (hybrid capture, +12,622 / -1,540, 223 files, 71 commits) conflicts with `main`;
    `expo-go` and `rust-integration (2/2)` are red; three acceptance gates are unmeasured.
