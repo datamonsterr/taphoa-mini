@@ -575,7 +575,6 @@ pub(crate) async fn persist_scan(
     let scan_id = Uuid::new_v4();
     let match_class = detections.first().map_or(MatchClass::Unknown, |d| d.class);
     let latency_ms = timings_ms["total"].as_u64().unwrap_or(wall_time_ms);
-    let occurred_at = Utc::now();
     let event = crate::events::Event {
         store_id: actor.store_id,
         actor: Some(actor.event_actor()),
@@ -584,7 +583,7 @@ pub(crate) async fn persist_scan(
         data: json!({"scan_id":scan_id,"mode":mode.as_str(),"detections":detections.len(),"timings":timings_ms,"model":embedder_model,"purpose":purpose.as_str(),"match_class":match_class,"latency_ms":latency_ms}),
         change: None,
     };
-    let payload = crate::events::envelope(&event, String::new(), occurred_at);
+    let payload = crate::events::envelope(&event, String::new(), DateTime::<Utc>::UNIX_EPOCH);
     // Detached thumbnail rows: bucket objects were written before this statement and are
     // cleaned up by the handler when it fails.
     let n = detections.len();
@@ -616,8 +615,9 @@ pub(crate) async fn persist_scan(
         .iter()
         .map(|d| serde_json::to_value(&d.candidates).unwrap_or_else(|_| json!([])))
         .collect();
-    let (created_at, catalog_version): (DateTime<Utc>, i64) = sqlx::query_as(
-        "WITH locked AS (SELECT id FROM stores WHERE id = $1 FOR NO KEY UPDATE), \
+    // `$10` is the envelope; `id` and `occurred_at` are filled in by the database.
+    let sql = format!(
+        "WITH {}, \
          crops AS ( \
              INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose, uploaded_by) \
              SELECT id, $1, object_key, 'image/jpeg', byte_size, 'crop', $3 \
@@ -632,44 +632,39 @@ pub(crate) async fn persist_scan(
              SELECT id, $1, $2, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates \
              FROM UNNEST($14::uuid[], $15::smallint[], $16::real[], $17::real[], $18::real[], $19::real[], \
                          $20::real[], $21::integer[], $11::uuid[], $22::vector[], $23::text[], $24::jsonb[]) \
-             AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates)), \
-         event AS ( \
-             INSERT INTO outbox_events (id, store_id, type, payload, created_at) OVERRIDING SYSTEM VALUE \
-             SELECT n.id, $1, 'scan.completed', \
-                    $10::jsonb || jsonb_build_object('id', 'evt_' || lpad(n.id::text, 15, '0')), $25 \
-             FROM locked CROSS JOIN LATERAL ( \
-                 SELECT nextval(pg_get_serial_sequence('outbox_events', 'id')) AS id) n \
-             RETURNING id) \
+             AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates)) \
          SELECT scan.created_at, scan.catalog_version \
          FROM scan, (SELECT count(pg_notify('outbox', event.id::text)) FROM event) AS notified",
-    )
-    .bind(actor.store_id)
-    .bind(scan_id)
-    .bind(actor.member_id)
-    .bind(image_id)
-    .bind(mode.as_str())
-    .bind(purpose.as_str())
-    .bind(SCAN_SEGMENTER)
-    .bind(&embedder_model)
-    .bind(&timings_ms)
-    .bind(&payload)
-    .bind(&crop_ids)
-    .bind(&crop_keys)
-    .bind(&byte_sizes)
-    .bind(&ids)
-    .bind(&positions)
-    .bind(coordinate(0))
-    .bind(coordinate(1))
-    .bind(coordinate(2))
-    .bind(coordinate(3))
-    .bind(&scores)
-    .bind(&areas)
-    .bind(&embeddings)
-    .bind(&classes)
-    .bind(&candidates)
-    .bind(occurred_at)
-    .fetch_one(pool)
-    .await?;
+        crate::events::outbox_ctes("$1", "'scan.completed'", "$10")
+    );
+    let (created_at, catalog_version): (DateTime<Utc>, i64) =
+        sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(actor.store_id)
+            .bind(scan_id)
+            .bind(actor.member_id)
+            .bind(image_id)
+            .bind(mode.as_str())
+            .bind(purpose.as_str())
+            .bind(SCAN_SEGMENTER)
+            .bind(&embedder_model)
+            .bind(&timings_ms)
+            .bind(&payload)
+            .bind(&crop_ids)
+            .bind(&crop_keys)
+            .bind(&byte_sizes)
+            .bind(&ids)
+            .bind(&positions)
+            .bind(coordinate(0))
+            .bind(coordinate(1))
+            .bind(coordinate(2))
+            .bind(coordinate(3))
+            .bind(&scores)
+            .bind(&areas)
+            .bind(&embeddings)
+            .bind(&classes)
+            .bind(&candidates)
+            .fetch_one(pool)
+            .await?;
     Ok((scan_id, created_at, catalog_version))
 }
 

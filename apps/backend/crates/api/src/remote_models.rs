@@ -1494,7 +1494,6 @@ mod crop_transport_tests {
                 async move {
                     let request: CropsRequest = wire::decode(&bytes).unwrap();
                     let side = request.crops[0].width;
-                    assert!(request.crops.len() <= crops_per_request(side));
                     for crop in &request.crops {
                         assert_eq!((crop.width, crop.height), (side, side));
                         assert!(side <= 224);
@@ -1584,7 +1583,12 @@ mod crop_transport_tests {
         .unwrap();
         assert_eq!(remote.side, 112);
         let remote = Arc::new(remote);
-        for (count, expected) in [(20usize, vec![20usize]), (130, vec![64, 64, 2])] {
+        for (count, expected) in [
+            (20usize, vec![20usize]),
+            (64, vec![64]),
+            (65, vec![64, 1]),
+            (130, vec![64, 64, 2]),
+        ] {
             sizes.lock().unwrap().clear();
             let remote = remote.clone();
             let crops = vec![image::RgbImage::new(40, 40); count];
@@ -1605,7 +1609,19 @@ mod crop_transport_tests {
         for side in (56..=224).step_by(14) {
             let per_request = crops_per_request(side);
             assert!((1..=64).contains(&per_request));
-            assert!(per_request * (side as usize).pow(2) * 3 + 8 + 16 * per_request < BODY_LIMIT);
+            // Real encoded request of a full batch, and of one crop more than fits.
+            let crop = image::RgbImage::new(300, 200);
+            let full = wire::encode(&embedding_request(&vec![crop.clone(); per_request], side))
+                .unwrap()
+                .len();
+            assert!(full < 4 * 1024 * 1024, "side {side}: {full} bytes");
+            assert!(full < BODY_LIMIT);
+            if per_request < 64 {
+                let over = wire::encode(&embedding_request(&vec![crop; per_request + 1], side))
+                    .unwrap()
+                    .len();
+                assert!(over > 4 * 1024 * 1024, "side {side}");
+            }
         }
     }
     #[test]

@@ -18,6 +18,8 @@ const OVERFETCH_FLOOR: usize = 32;
 /// bounded reference CTE retains the HNSW access path; prototypes are few per
 /// store and scored directly. No kind filter: crop and cutout both contribute.
 /// Parameters: query vector, store, model, reference overfetch, product limit.
+/// Scans use the same scoring through `scan_search_products` (migration 1901); the parity
+/// test `scan_search_function_matches_search_sql` in tests/recognition_vector.rs pins both.
 pub const SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
     SELECT e.product_id, e.embedding <=> $1::vector AS distance
     FROM product_embeddings e

@@ -300,6 +300,34 @@ pub(crate) fn envelope(event: &Event, id: String, occurred_at: DateTime<Utc>) ->
     })
 }
 
+/// The one definition of how an outbox row is written *inside a larger single statement*
+/// (the scan path folds it into its own CTE chain to save network round trips; `emit` stays
+/// the way for everything else). Returns the CTEs `locked` and `event` for the caller's
+/// `WITH` list; `event` returns the new `id`, and the caller must select from it (for
+/// `pg_notify`) so the statement keeps it.
+///
+/// Same rules as `emit`: the store row is locked first (`FOR NO KEY UPDATE`) and the outbox
+/// id is allocated from rows of `locked`, so allocation follows the lock and id order equals
+/// commit order (pinned by tests/emit_order.rs and the scan test in tests/recognition.rs).
+/// The id, `created_at` and `occurred_at` come from the database (`now()`, the transaction
+/// start, formatted in the store's UTC+7 zone like `envelope`). `payload` is an
+/// `envelope(.., "", ..)` value whose `id` and `occurred_at` the SQL overwrites. Arguments
+/// are SQL expressions, normally `$n` placeholders.
+pub(crate) fn outbox_ctes(store_id: &str, typ: &str, payload: &str) -> String {
+    format!(
+        "locked AS (SELECT id FROM stores WHERE id = {store_id} FOR NO KEY UPDATE), \
+         event AS ( \
+             INSERT INTO outbox_events (id, store_id, type, payload, created_at) OVERRIDING SYSTEM VALUE \
+             SELECT n.id, {store_id}, {typ}, \
+                    {payload}::jsonb || jsonb_build_object( \
+                        'id', 'evt_' || lpad(n.id::text, 15, '0'), \
+                        'occurred_at', to_char(now() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') || '+07:00'), \
+                    now() \
+             FROM (SELECT nextval(pg_get_serial_sequence('outbox_events', 'id')) AS id FROM locked) n \
+             RETURNING id)"
+    )
+}
+
 /// Call with `&mut *tx` from a caller-owned transaction. Does not commit.
 /// PostgreSQL delivers the notification only when that transaction commits.
 ///

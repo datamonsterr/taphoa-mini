@@ -1,9 +1,12 @@
--- Product search for scans (same scoring as `recognition::pgvector::SEARCH_SQL`) with the
+-- Product search for scans: the same scoring and ordering as `recognition::pgvector::SEARCH_SQL`
+-- (ORDER BY names the rounded real output column, so near-ties fall to product_id). The
+-- parity test in tests/recognition_vector.rs pins the two definitions together.
+-- It also carries the
 -- HNSW iterative-scan settings attached to the function. A function-level SET applies for
 -- the duration of the call, so a scan searches in one statement instead of BEGIN + SET LOCAL
 -- + query + COMMIT, which is four network round trips to a remote database.
 -- Parameters: query vector, store, model, reference overfetch, product limit.
-CREATE FUNCTION scan_search_products(query vector, p_store uuid, p_model text, p_fetch bigint, p_limit bigint)
+CREATE OR REPLACE FUNCTION scan_search_products(query vector, p_store uuid, p_model text, p_fetch bigint, p_limit bigint)
 RETURNS TABLE (product_id uuid, similarity real)
 LANGUAGE sql STABLE
 SET hnsw.iterative_scan = 'relaxed_order'
@@ -30,6 +33,6 @@ WITH nearest AS MATERIALIZED (
 SELECT s.product_id, max(s.similarity)::real AS similarity
 FROM scores s
 GROUP BY s.product_id
-ORDER BY max(s.similarity) DESC, s.product_id
+ORDER BY similarity DESC, product_id
 LIMIT p_limit
 $$;

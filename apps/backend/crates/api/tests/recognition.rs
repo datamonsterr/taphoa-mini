@@ -1461,15 +1461,14 @@ async fn scan_completed_event_has_the_standard_envelope() {
     let (store_id, member_id, token) = create_store(&app).await;
     let (status, body, _) = post_scan(&app, &token, Some(&draw_photo()), &[]).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
-    let (id, payload, published): (i64, Value, bool) = sqlx::query_as(
-        "SELECT id, payload, published_at IS NOT NULL FROM outbox_events \
+    let (id, payload, created_at): (i64, Value, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+        "SELECT id, payload, created_at FROM outbox_events \
          WHERE store_id = $1 AND type = 'scan.completed'",
     )
     .bind(store_id)
     .fetch_one(&pool)
     .await
     .unwrap();
-    let _ = published;
     assert_eq!(payload["id"], format!("evt_{id:015}"));
     assert_eq!(payload["type"], "scan.completed");
     assert_eq!(payload["version"], 1);
@@ -1481,7 +1480,41 @@ async fn scan_completed_event_has_the_standard_envelope() {
         occurred_at.ends_with("+07:00") && occurred_at.len() == 29,
         "{occurred_at}"
     );
+    // `occurred_at` is the database clock, formatted exactly as `events::emit` formats it.
+    assert_eq!(
+        occurred_at,
+        created_at
+            .with_timezone(&taphoa_api::time::STORE_TZ)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, false)
+    );
     assert!(payload.get("cursor").is_none());
+    // Same envelope shape as a row written by `emit`.
+    let mut tx = pool.begin().await.unwrap();
+    let emitted = taphoa_api::events::emit(
+        &mut tx,
+        taphoa_api::events::Event {
+            store_id,
+            actor: Some((member_id, "sess".into())),
+            typ: "scan.completed",
+            version: 1,
+            data: json!({}),
+            change: None,
+        },
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let keys = |value: &Value| {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(keys(&payload), keys(&emitted.payload));
+    assert_eq!(keys(&payload["actor"]), keys(&emitted.payload["actor"]));
+    assert!(emitted.id > id);
     assert_eq!(payload["data"]["scan_id"], body["id"]);
     assert_eq!(
         payload["data"]["detections"],
@@ -1490,6 +1523,59 @@ async fn scan_completed_event_has_the_standard_envelope() {
     assert_eq!(payload["data"]["mode"], "multi");
     assert_eq!(payload["data"]["purpose"], "checkout");
     assert_eq!(payload["data"]["model"], "colour@1");
+    sqlx::query("DELETE FROM stores WHERE id = $1")
+        .bind(store_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
+/// Outbox ids are allocated after the store lock (tests/emit_order.rs): a scan persisted
+/// while another transaction holds the store lock must wait for it and get a larger id.
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn scan_persist_waits_for_the_store_lock_and_allocates_its_outbox_id_after_it() {
+    let Some((app, state, _)) = build_state(scan_segments()).await else {
+        return;
+    };
+    let pool = state.postgres.clone().unwrap();
+    let (store_id, member_id, token) = create_store(&app).await;
+    let mut holder = pool.begin().await.unwrap();
+    let held = taphoa_api::events::emit(
+        &mut holder,
+        taphoa_api::events::Event {
+            store_id,
+            actor: Some((member_id, "sess".into())),
+            typ: "store.changed",
+            version: 1,
+            data: json!({"fields":["held"]}),
+            change: Some(("store", store_id, "upsert")),
+        },
+    )
+    .await
+    .unwrap();
+    let scan_app = app.clone();
+    let scan_token = token.clone();
+    let scan =
+        tokio::spawn(
+            async move { post_scan(&scan_app, &scan_token, Some(&draw_photo()), &[]).await },
+        );
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    assert!(!scan.is_finished(), "persist must block on the store lock");
+    holder.commit().await.unwrap();
+    let (status, body, _) = tokio::time::timeout(std::time::Duration::from_secs(10), scan)
+        .await
+        .expect("scan proceeds after the lock holder commits")
+        .unwrap();
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let scan_event: i64 = sqlx::query_scalar(
+        "SELECT id FROM outbox_events WHERE store_id = $1 AND type = 'scan.completed'",
+    )
+    .bind(store_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(scan_event > held.id, "{scan_event} must follow {}", held.id);
     sqlx::query("DELETE FROM stores WHERE id = $1")
         .bind(store_id)
         .execute(&pool)
