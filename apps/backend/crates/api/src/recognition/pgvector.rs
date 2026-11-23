@@ -6,7 +6,6 @@ use crate::vector::{VectorHit, VectorIndex};
 use async_trait::async_trait;
 use pgvector::Vector;
 use sqlx::PgPool;
-use std::sync::LazyLock;
 use uuid::Uuid;
 
 const EMBEDDING_DIM: usize = 384;
@@ -19,6 +18,8 @@ const OVERFETCH_FLOOR: usize = 32;
 /// bounded reference CTE retains the HNSW access path; prototypes are few per
 /// store and scored directly. No kind filter: crop and cutout both contribute.
 /// Parameters: query vector, store, model, reference overfetch, product limit.
+/// Scans use the same scoring through `scan_search_products` (migration 1901); the parity
+/// test `scan_search_function_matches_search_sql` in tests/recognition_vector.rs pins both.
 pub const SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
     SELECT e.product_id, e.embedding <=> $1::vector AS distance
     FROM product_embeddings e
@@ -42,18 +43,14 @@ GROUP BY product_id
 ORDER BY similarity DESC, product_id
 LIMIT $5";
 
-// Reuse the single-vector scoring SQL so overfetch, prototypes, grouping and
-// tie-breaking stay identical. The correlated LATERAL retains its bounded HNSW
-// access path while all detections share one query and one pool connection.
-static BATCH_SEARCH_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT q.ordinality, hit.product_id, hit.similarity
-         FROM unnest($1::vector[]) WITH ORDINALITY AS q(embedding, ordinality)
-         CROSS JOIN LATERAL ({}) AS hit
-         ORDER BY q.ordinality, hit.similarity DESC, hit.product_id",
-        SEARCH_SQL.replace("$1::vector", "q.embedding")
-    )
-});
+// One statement, one exchange: the scoring lives in `scan_search_products` (migration
+// 1901, same SQL as `SEARCH_SQL`), whose function-level SET supplies the HNSW iterative
+// scan settings that a transaction with SET LOCAL would otherwise need. The correlated
+// LATERAL keeps the bounded HNSW access path; all detections share one pool connection.
+const BATCH_SEARCH_SQL: &str = "SELECT q.ordinality, hit.product_id, hit.similarity
+     FROM unnest($1::vector[]) WITH ORDINALITY AS q(embedding, ordinality)
+     CROSS JOIN LATERAL scan_search_products(q.embedding, $2, $3, $4, $5) AS hit
+     ORDER BY q.ordinality, hit.similarity DESC, hit.product_id";
 
 pub struct PgVectorIndex {
     pool: PgPool,
@@ -144,29 +141,14 @@ impl VectorIndex for PgVectorIndex {
         let fetch =
             i64::try_from(limit.saturating_mul(OVERFETCH).max(OVERFETCH_FLOOR)).unwrap_or(i64::MAX);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        let mut tx = self.pool.begin().await?;
-        // The HNSW index has no store partition, so filtered searches need
-        // iterative index scans to keep walking it until the store's rows are
-        // found; without them the candidate list is exhausted on other stores
-        // first. These scopes end with the transaction.
-        // 20000 is the pgvector default (docs: approximate, larger needs more memory).
-        // Configure all three in one exchange; set_config(..., true) is SET LOCAL.
-        sqlx::query(
-            "SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true),
-                    set_config('hnsw.ef_search', '100', true),
-                    set_config('hnsw.max_scan_tuples', '20000', true)",
-        )
-        .execute(&mut *tx)
-        .await?;
-        let rows: Vec<(i64, Uuid, f32)> = sqlx::query_as(BATCH_SEARCH_SQL.as_str())
+        let rows: Vec<(i64, Uuid, f32)> = sqlx::query_as(BATCH_SEARCH_SQL)
             .bind(vectors)
             .bind(store_id)
             .bind(model)
             .bind(fetch)
             .bind(limit)
-            .fetch_all(&mut *tx)
+            .fetch_all(&self.pool)
             .await?;
-        tx.commit().await?;
         for (ordinality, product_id, similarity) in rows {
             hits[(ordinality - 1) as usize].push(VectorHit {
                 product_id,

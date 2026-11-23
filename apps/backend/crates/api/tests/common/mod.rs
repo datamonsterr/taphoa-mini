@@ -90,5 +90,6 @@ impl Contract {
     }
 }
 pub mod clerk;
+pub mod pg_counter;
 pub mod voice;
 pub mod world;
