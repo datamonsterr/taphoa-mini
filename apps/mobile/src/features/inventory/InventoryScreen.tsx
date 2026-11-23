@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list';
 import { Search, X } from '@/components/icons';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 
@@ -26,7 +26,9 @@ import { fill, useT } from '@/lib/i18n';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
 import { colors, radius, size, space, typography } from '@/theme';
 
-import { StockSegment } from '@/features/stock/StockSegment';
+import { StockScreen } from '@/features/stock/StockScreen';
+import { StockSegment, type KhoSegment } from '@/features/stock/StockSegment';
+import { parseStockStatus } from '@/features/stock/stockHref';
 
 import { strings } from './strings';
 import { useDebouncedValue } from './useDebouncedValue';
@@ -218,8 +220,15 @@ const GridCartPill = memo(function GridCartPill() {
   );
 });
 
+/** Kho tab: Sản phẩm / Tồn kho are switched in place through the URL params, never pushed. */
 export function InventoryScreen() {
   const t = useT(strings);
+  const params = useLocalSearchParams<{ segment?: string; status?: string }>();
+  const segment: KhoSegment = params.segment === 'stock' ? 'stock' : 'products';
+  const selectSegment = useCallback(
+    (next: KhoSegment) => router.setParams({ segment: next }),
+    [],
+  );
   const insets = useSafeAreaInsets();
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -298,7 +307,7 @@ export function InventoryScreen() {
     <View style={[styles.screen, { paddingTop: insets.top + space[2] }]}>
       <Handle />
       <View style={styles.header}>
-        {searching ? (
+        {searching && segment === 'products' ? (
           <SearchField
             value={query}
             onChangeText={setQuery}
@@ -309,17 +318,27 @@ export function InventoryScreen() {
             <Text accessibilityRole="header" style={styles.title}>
               {t('title')}
             </Text>
-            <CircleButton
-              icon={Search}
-              accessibilityLabel={t('search')}
-              onPress={openSearch}
-            />
+            {segment === 'products' ? (
+              <CircleButton
+                icon={Search}
+                accessibilityLabel={t('search')}
+                onPress={openSearch}
+              />
+            ) : null}
           </>
         )}
       </View>
-      <StockSegment selected="products" />
-      <View style={styles.body}>{body}</View>
-      <GridCartPill />
+      <StockSegment selected={segment} onSelect={selectSegment} />
+      {segment === 'stock' ? (
+        <View style={styles.body}>
+          <StockScreen status={parseStockStatus(params.status)} />
+        </View>
+      ) : (
+        <>
+          <View style={styles.body}>{body}</View>
+          <GridCartPill />
+        </>
+      )}
     </View>
   );
 }

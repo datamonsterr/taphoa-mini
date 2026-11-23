@@ -29,7 +29,9 @@ test('stays hidden without alerts; announces a new product and opens stock', asy
   const message = 'Sắp hết hàng: Coca-Cola lon (3 còn lại)';
   expect(screen.getByRole('alert', { name: message })).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('button', { name: message }));
-  expect(router.push).toHaveBeenCalledWith('/stock');
+  expect(router.push).toHaveBeenCalledWith(
+    '/inventory?segment=stock&status=low',
+  );
 });
 
 test('summarizes several products and dismiss clears every visible alert', async () => {
