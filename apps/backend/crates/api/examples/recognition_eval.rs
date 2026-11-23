@@ -2,6 +2,7 @@
 mod generic;
 #[path = "recognition_eval/transforms.rs"]
 mod transforms;
+#[path = "recognition_eval/v2.rs"]
 mod v2;
 
 use image::{RgbImage, imageops::FilterType};
