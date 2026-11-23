@@ -103,16 +103,16 @@ so the Postgres image must ship pgvector.
 
 ## Deploy and verify
 
-From the repository root, deploy to the linked production backend:
+Production backend releases go through the GitHub workflow described below. To inspect a
+deployment from the repository root:
 
 ```sh
 railway link --project <project-id> --environment production --service backend --json
-railway up --service backend --ci
 railway deployment list --service backend --environment production --json
 railway logs --service backend --environment production --lines 100 --json
 ```
 
-`--ci` streams build logs; check the submitted deployment's ID and terminal
+Check the submitted deployment's ID and terminal
 `SUCCESS` status, then check `/readyz` through a configured Railway domain.
 `--detach` only confirms upload/queueing. Never infer a healthy release solely
 from an upload exit code. Failed readiness usually means missing references,
@@ -569,8 +569,8 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
    Both steps get `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY` from GitHub secrets, and
    `run-e2e.sh` fails fast when the suite exists and `CLERK_SECRET_KEY` is empty.
 2. Only when that passes: deploy `production` and smoke it as described below.
-3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
-   epic branches can be validated before merge.
+3. `workflow_dispatch` validates the specified `ref`; select `deploy_production` to promote
+   that same resolved commit after the test job passes. Leave it unchecked for validation only.
 
 Deploys are serialized per environment. Production uses the `deploy-railway-production`
 concurrency group. The `test` job uses no group: GitHub keeps one pending run per group and
@@ -623,7 +623,7 @@ keep the `region` in `.railway/railway.ts` equal to the live one.
 Project tokens cannot be minted with the CLI login, so the secret must be created in the
 Railway dashboard (Project settings > Tokens, environment `test`) and added with
 `gh secret set RAILWAY_TOKEN_TEST`. Until it exists the test deploy, e2e and Railway
-integration steps are skipped with a notice and production deploys behave as before.
+integration steps are skipped with a notice and production is not deployed.
 
 ## GitHub production deployment
 
@@ -636,20 +636,25 @@ environment context in a clean checkout; the service is selected explicitly.
 requires a successful **push** run from this repository. It checks out the exact
 validated SHA, skips a superseded main revision, installs CLI 5.71.0, and runs
 `scripts/ci/railway_deploy.py backend` in the `production` job, which `needs` the `test`
-job (deploy, seed, e2e). Production deploys are serialized. Turn off
-Railway's independent GitHub autodeploy trigger for backend so it cannot bypass
-the CI gate. Infrastructure changes go through `railway config plan/apply`, not this workflow.
+job (deploy, seed, e2e). Production deploys are serialized. The backend has no GitHub
+source in Railway; the landing service retains its own GitHub trigger. Infrastructure
+changes go through `railway config plan/apply`, not this workflow.
 
-`RAILWAY_TOKEN` is optional for a green pipeline: when the secret is empty or missing,
-the workflow emits a `::notice::` and skips the Railway CLI install, `railway up` and
-the smoke test, so `main` stays green before the secret exists.
+Missing test credentials prevent promotion; missing production credentials fail the job.
 
 **Post-deploy smoke.** The repository **variable** `BACKEND_URL` is set to
 `https://backend-production-5f5c.up.railway.app` (no trailing path). After `railway up`,
 the workflow runs `curl` against `$BACKEND_URL/healthz` and `$BACKEND_URL/readyz`, expecting
 HTTP 200, retrying every 10 seconds for up to 30 attempts per endpoint. The job fails if
-either never answers 200. Without `BACKEND_URL` this step is skipped with a notice.
+either never answers 200, if `BACKEND_URL` is missing, or if the served `service_version`
+from `/healthz` does not equal the tested commit SHA.
 Set it under Settings > Secrets and variables > Actions > Variables.
+
+For an emergency release or rollback, run **Deploy backend** via GitHub Actions, enter the
+desired commit SHA as `ref`, and select `deploy_production`. The test deployment and e2e
+suite still must pass. The commit must expose `service_version` in `/healthz`; for older
+revisions use Railway's deployment rollback in the backend's Deployments tab instead.
+Check readiness and the running version after a Railway rollback.
 
 No GitHub job runs EAS, so **EXPO_TOKEN is not required** in GitHub. Configure EAS
 account authorization/GitHub linkage in Expo when enabling the existing native
