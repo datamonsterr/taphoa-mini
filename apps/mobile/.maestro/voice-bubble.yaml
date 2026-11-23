@@ -20,13 +20,17 @@ appId: com.datamonsterr.taphoamini
     element:
       id: 'voice-bubble-row'
 - assertVisible: 'Nút nói nhanh'
-- extendedWaitUntil:
-    visible: 'Ô cài đặt nhanh'
-    timeout: 15000
+# The bubble row can be visible at the bottom while the tile row is still off-screen.
+- scrollUntilVisible:
+    element:
+      id: 'voice-tile-row'
+    centerElement: true
+- assertVisible: 'Ô cài đặt nhanh'
 # 1. the explainer comes before any Settings jump; "Để sau" closes it
 - scrollUntilVisible:
     element:
       id: 'voice-bubble-switch'
+    direction: UP
     centerElement: true
 - tapOn:
     id: 'voice-bubble-switch'

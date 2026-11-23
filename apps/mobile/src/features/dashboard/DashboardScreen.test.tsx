@@ -22,6 +22,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { colors } from '@/theme';
 
 import { DashboardScreen } from './DashboardScreen';
+import { currentRange } from './useDashboardData';
 
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), replace: jest.fn() },
@@ -109,6 +110,20 @@ test('shows the seeded totals for today', async () => {
   expect(screen.queryByTestId('dashboard-skeleton')).toBeNull();
   expect(screen.getByRole('header', { name: 'Báo cáo' })).toBeOnTheScreen();
   expect(screen.getByText('Hôm nay')).toBeOnTheScreen();
+});
+
+test('shows the best sellers of the period under the totals, for a Lead', async () => {
+  await renderWithProviders(<DashboardScreen />);
+  await ready();
+  expect(
+    await screen.findByRole('header', { name: 'Bán chạy' }),
+  ).toBeOnTheScreen();
+  const [first] = await ledger.getTopProducts({
+    ...currentRange('day'),
+    sort: 'revenue',
+    limit: 5,
+  });
+  expect(await screen.findByText(first!.name!)).toBeOnTheScreen();
 });
 
 test('draws 7 day bars labelled with weekdays', async () => {

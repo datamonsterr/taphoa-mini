@@ -14,6 +14,7 @@ import type {
   Sale,
   SummaryGranularity,
   SummaryReport,
+  TopProduct,
 } from './types';
 
 type DateRange = { from?: string; to?: string };
@@ -124,6 +125,21 @@ export const getReportSummary = (params: {
       params: { query: params },
     }),
   );
+
+/** Best sellers of a business-date range, ranked server-side. */
+export const getTopProducts = async (params: {
+  from: string;
+  to: string;
+  sort?: 'revenue' | 'quantity';
+  limit?: number;
+}): Promise<TopProduct[]> =>
+  (
+    await unwrap(
+      getApiClient().raw.GET('/v1/reports/top-products', {
+        params: { query: params },
+      }),
+    )
+  ).items;
 
 export const getDayClose = (businessDate: string): Promise<DayClose> =>
   unwrap(

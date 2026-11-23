@@ -662,6 +662,23 @@ export const MOCK_ROUTES: MockRoute[] = [
   },
   {
     method: 'GET',
+    path: '/v1/reports/top-products',
+    handler: ({ query }) => {
+      const sort = query.get('sort') ?? 'revenue';
+      if (sort !== 'revenue' && sort !== 'quantity')
+        throw badRequest('sort must be revenue or quantity', { field: 'sort' });
+      return ok({
+        items: ledger.getTopProducts(
+          requireDate(query, 'from'),
+          requireDate(query, 'to'),
+          sort,
+          Number(query.get('limit') ?? 20),
+        ),
+      });
+    },
+  },
+  {
+    method: 'GET',
     path: '/v1/day-closes/{businessDate}',
     handler: ({ params }) =>
       ok(ledger.getDayClose(parseDate(params.businessDate!, 'businessDate'))),

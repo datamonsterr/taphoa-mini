@@ -481,6 +481,13 @@ describe('success responses match the documented schema', () => {
         200,
       );
     }
+    for (const sort of ['revenue', 'quantity'] as const) {
+      const top = await call(
+        () => api.getTopProducts({ from: date, to: date, sort, limit: 3 }),
+        200,
+      );
+      expect(top.data.length).toBeGreaterThan(0);
+    }
     await call(() => api.getDayClose('2000-01-01'), 404);
     const close = await call(
       () =>
@@ -580,6 +587,10 @@ describe('error responses match the Error schema', () => {
     );
     await call(
       () => api.getReportSummary({ from: '2026-10-23', to: '2026-10-01' }),
+      400,
+    );
+    await call(
+      () => api.getTopProducts({ from: '2026-10-23', to: '2026-10-01' }),
       400,
     );
     await call(() => api.patchStore({ margin_threshold_pct: 500 }), 400);
