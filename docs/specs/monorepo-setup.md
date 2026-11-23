@@ -28,10 +28,9 @@ No product features yet. Every layer must build, test and run.
 | CI                   | GitHub Actions. Heavy jobs use `ubuntu-latest` by default. `CI_HEAVY_RUNNER` selects CPU jobs and `CI_ANDROID_RUNNER` selects Android jobs; deploy to Railway from `main` with `RAILWAY_TOKEN`.                                                        |
 | Git hooks            | lefthook: `pre-commit` format check on staged files, `commit-msg` Conventional Commits (commitlint), `pre-push` lint + typecheck + unit tests.                                                                                                         |
 
-To select the former Namespace CPU runner, set the repository variable with
-`gh variable set CI_HEAVY_RUNNER --body namespace-profile-datamonster01`. Set
-`CI_ANDROID_RUNNER` to `namespace-profile-linux-xl` to select the former Android runner.
-Unset either variable to use the free GitHub-hosted `ubuntu-latest` default.
+Heavy CI workloads default to `ubuntu-latest`. The `CI_HEAVY_RUNNER` and `CI_ANDROID_RUNNER`
+repository variables can select compatible standard GitHub-hosted Linux runners. Android emulator
+jobs require x86-64 KVM support.
 
 ## Layout
 
