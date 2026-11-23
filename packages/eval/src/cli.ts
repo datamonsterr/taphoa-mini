@@ -44,7 +44,11 @@ import {
   StubAuth,
   type AuthProvider,
 } from './runner/auth.ts';
-import { assertEvalHeaders, DEFAULT_TODAY } from './runner/client.ts';
+import {
+  assertEvalHeaders,
+  DEFAULT_TODAY,
+  frozenClock,
+} from './runner/client.ts';
 import { loadFixtureCases } from './runner/fixtures.ts';
 import {
   CaseLoadError,
@@ -425,6 +429,8 @@ function runOptions(
     concurrency: p.concurrency,
     gitSha: deps.gitSha ?? gitSha(env),
     log,
+    // Stub latency is simulated so results do not depend on host speed.
+    ...(p.stub ? { clock: frozenClock } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
     ...(deps.retryDelayMs !== undefined

@@ -9,7 +9,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { main } from './cli.ts';
 import { mkCase, mkFullSet } from './test-helpers.ts';
 
 const cli = fileURLToPath(new URL('./cli.ts', import.meta.url));
@@ -53,6 +54,26 @@ function runWithEnv(extra: Record<string, string>, ...args: string[]) {
     env: cleanEnv(extra),
   });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+/** Runs `main` in this process (no subprocess start-up cost); same clean env as `run`. */
+async function runInProcess(...args: string[]) {
+  const out: string[] = [];
+  const err: string[] = [];
+  // Usage errors go straight to console.error.
+  const spy = vi
+    .spyOn(console, 'error')
+    .mockImplementation((...a: unknown[]) => void err.push(a.join(' ')));
+  let status: number;
+  try {
+    status = await main(args, cleanEnv(), {
+      log: (line) => out.push(line),
+      warn: (line) => err.push(line),
+    });
+  } finally {
+    spy.mockRestore();
+  }
+  return { status, stdout: out.join('\n'), stderr: err.join('\n') };
 }
 
 describe('cli validate', () => {
@@ -158,8 +179,8 @@ describe('cli usage', () => {
 describe('cli dry runs against the stub assistant', () => {
   const resultFiles = () => readdirSync(dir).filter((f) => f.endsWith('.md'));
 
-  it('smoke --stub exits 0 and writes a results file', () => {
-    const r = run('smoke', '--stub', '--out', dir);
+  it('smoke --stub exits 0 and writes a results file', async () => {
+    const r = await runInProcess('smoke', '--stub', '--out', dir);
     expect(r.stderr).toBe('');
     expect(r.status).toBe(0);
     const files = resultFiles();
@@ -171,23 +192,30 @@ describe('cli dry runs against the stub assistant', () => {
     expect(r.stdout).toContain(files[0]!);
   });
 
-  it('ignores the lone -- that pnpm passes on', () => {
-    const r = run('smoke', '--', '--stub', '--out', dir);
+  it('ignores the lone -- that pnpm passes on', async () => {
+    const r = await runInProcess('smoke', '--', '--stub', '--out', dir);
     expect(r.status).toBe(0);
     expect(resultFiles()).toHaveLength(1);
   });
 
-  it('smoke --bad-stub exits 1 and still writes a results file', () => {
-    const r = run('smoke', '--bad-stub', '--out', dir);
+  it('smoke --bad-stub exits 1 and still writes a results file', async () => {
+    const r = await runInProcess('smoke', '--bad-stub', '--out', dir);
     expect(r.status).toBe(1);
     expect(resultFiles()).toHaveLength(1);
     expect(r.stdout).toContain('FAIL');
   });
 
-  it('uses the fixture cases when the golden directory is empty', () => {
+  it('uses the fixture cases when the golden directory is empty', async () => {
     const golden = mkdtempSync(join(tmpdir(), 'golden-empty-'));
     try {
-      const r = run('smoke', '--stub', '--dir', golden, '--out', dir);
+      const r = await runInProcess(
+        'smoke',
+        '--stub',
+        '--dir',
+        golden,
+        '--out',
+        dir,
+      );
       expect(r.status).toBe(0);
       expect(r.stdout).toContain('fixtures');
     } finally {
@@ -195,11 +223,18 @@ describe('cli dry runs against the stub assistant', () => {
     }
   });
 
-  it('fails fast on invalid golden cases', () => {
+  it('fails fast on invalid golden cases', async () => {
     writeFileSync(join(dir, 'U1.jsonl'), '{not json\n');
     const out = mkdtempSync(join(tmpdir(), 'out-'));
     try {
-      const r = run('smoke', '--stub', '--dir', dir, '--out', out);
+      const r = await runInProcess(
+        'smoke',
+        '--stub',
+        '--dir',
+        dir,
+        '--out',
+        out,
+      );
       expect(r.status).toBe(1);
       expect(r.stdout + r.stderr).toContain('U1.jsonl:1: invalid JSON');
       expect(readdirSync(out)).toEqual([]);
@@ -208,24 +243,40 @@ describe('cli dry runs against the stub assistant', () => {
     }
   });
 
-  it('full --stub refuses a second run the same day unless --force', () => {
-    expect(run('full', '--stub', '--out', dir).status).toBe(0);
-    const again = run('full', '--stub', '--out', dir);
+  it('full --stub refuses a second run the same day unless --force', async () => {
+    expect((await runInProcess('full', '--stub', '--out', dir)).status).toBe(0);
+    const again = await runInProcess('full', '--stub', '--out', dir);
     expect(again.status).toBe(1);
     expect(again.stderr).toContain('--force');
-    expect(run('full', '--stub', '--force', '--out', dir).status).toBe(0);
+    expect(
+      (await runInProcess('full', '--stub', '--force', '--out', dir)).status,
+    ).toBe(0);
   });
 
-  it('filters with --ids and --tags', () => {
-    const byId = run('smoke', '--stub', '--ids', 'U1-04,OT-01', '--out', dir);
+  it('filters with --ids and --tags', async () => {
+    const byId = await runInProcess(
+      'smoke',
+      '--stub',
+      '--ids',
+      'U1-04,OT-01',
+      '--out',
+      dir,
+    );
     expect(byId.status).toBe(0);
     expect(resultFiles()[0]).toMatch(/-partial\.md$/);
-    const byTag = run('smoke', '--stub', '--tags', 'permission', '--out', dir);
+    const byTag = await runInProcess(
+      'smoke',
+      '--stub',
+      '--tags',
+      'permission',
+      '--out',
+      dir,
+    );
     expect(byTag.status).toBe(0);
   });
 
-  it('accepts --no-judge, --no-posthog and --concurrency', () => {
-    const r = run(
+  it('accepts --no-judge, --no-posthog and --concurrency', async () => {
+    const r = await runInProcess(
       'smoke',
       '--stub',
       '--no-judge',
@@ -238,14 +289,14 @@ describe('cli dry runs against the stub assistant', () => {
     expect(r.status).toBe(0);
   });
 
-  it('requires a token for --posthog', () => {
-    const r = run('smoke', '--stub', '--posthog', '--out', dir);
+  it('requires a token for --posthog', async () => {
+    const r = await runInProcess('smoke', '--stub', '--posthog', '--out', dir);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('POSTHOG_PROJECT_TOKEN');
   });
 
-  it('compare --stub ranks the models and writes model-choice.md', () => {
-    const r = run(
+  it('compare --stub ranks the models and writes model-choice.md', async () => {
+    const r = await runInProcess(
       'compare',
       '--stub',
       '--models',
@@ -260,8 +311,30 @@ describe('cli dry runs against the stub assistant', () => {
     expect(r.stdout).toContain('model-choice.md');
   });
 
-  it('compare --bad-stub exits 1 because no model passes', () => {
-    const r = run(
+  it('compare --stub ranks the same on a slow host (stub latency is simulated, not wall-clock)', async () => {
+    // A loaded machine: every wall-clock read jumps 60 s.
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (t += 60_000));
+    try {
+      const r = await runInProcess(
+        'compare',
+        '--stub',
+        '--models',
+        'a/one:free,b/two:free',
+        '--out',
+        dir,
+      );
+      expect(r.status).toBe(0);
+      expect(readFileSync(join(dir, 'model-choice.md'), 'utf8')).toContain(
+        'Winner: a/one:free',
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('compare --bad-stub exits 1 because no model passes', async () => {
+    const r = await runInProcess(
       'compare',
       '--bad-stub',
       '--models',
