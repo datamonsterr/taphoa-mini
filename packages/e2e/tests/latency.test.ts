@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createStore } from '../src/helpers.js';
 import {
+  HOT_QUANTILE,
   decideLatency,
   latencySampleCount,
   percentile,
@@ -60,6 +61,7 @@ describe('hot endpoint latency', () => {
       }
       const decision = decideLatency(samples, {
         budgetMs: BUDGET_MS,
+        quantile: HOT_QUANTILE,
         baselineMs: percentile(baselineSamples, 0.5),
       });
       const diagnostic = `${path} estimated-server p95=${Math.round(decision.adjustedMs)}ms client p95=${Math.round(decision.clientMs)}ms network baseline p50=${Math.round(decision.baselineMs)}ms budget=${BUDGET_MS}ms`;

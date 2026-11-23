@@ -1,3 +1,8 @@
+/** Hot-endpoint gate (roadmap 2.3): client p95 < 200 ms. */
+export const HOT_QUANTILE = 0.95;
+/** Recognition gate (docs/specs/recognition-latency.md): nearest-rank p90 of 12 runs. */
+export const RECOGNITION_QUANTILE = 0.9;
+
 /** Nearest-rank percentile, with a quantile in [0, 1]. Does not mutate samples. */
 export function percentile(
   samples: readonly number[],
@@ -23,7 +28,7 @@ export function decideLatency(
   samples: readonly number[],
   {
     budgetMs,
-    quantile = 0.95,
+    quantile = HOT_QUANTILE,
     baselineMs = 0,
   }: { budgetMs: number; quantile?: number; baselineMs?: number },
 ) {
