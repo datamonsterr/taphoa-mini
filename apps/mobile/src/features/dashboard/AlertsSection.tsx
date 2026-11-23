@@ -8,7 +8,15 @@ import { useAlerts, useManualLines, type ManualLine } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useIsLead } from '@/features/auth/useMembership';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
 
 import { dashboardStrings } from './strings';
@@ -261,7 +269,7 @@ const styles = StyleSheet.create({
   },
   retryText: {
     fontFamily: fontFamily.semibold,
-    fontSize: 17,
+    fontSize: fontSize[17],
     color: colors.ink,
   },
 });

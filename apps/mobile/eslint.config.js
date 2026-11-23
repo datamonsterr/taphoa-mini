@@ -46,6 +46,20 @@ module.exports = defineConfig([
     },
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/theme/**', 'src/**/*.test.{ts,tsx}', 'src/test/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "Property[key.name='fontSize'] > Literal[raw=/^[0-9.]/]",
+          message:
+            'No numeric fontSize literals. Use typography.* or fontSize[n] from @/theme.',
+        },
+      ],
+    },
+  },
+  {
     files: ['scripts/**/*.mjs'],
     languageOptions: {
       globals: { Buffer: 'readonly', process: 'readonly', console: 'readonly' },

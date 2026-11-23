@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
 import { formatVnd } from '@/lib/format';
-import { camera, colors, radius } from '@/theme';
+import { camera, colors, fontSize, radius } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props =
@@ -97,9 +97,13 @@ const styles = StyleSheet.create({
   },
   text: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     lineHeight: 22,
     fontVariant: ['tabular-nums'],
   },
-  unknownText: { fontSize: 20, lineHeight: 24, color: colors.warning },
+  unknownText: {
+    fontSize: fontSize[20],
+    lineHeight: 24,
+    color: colors.warning,
+  },
 });

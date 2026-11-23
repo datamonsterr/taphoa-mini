@@ -46,7 +46,15 @@ import { useSettingsStore } from '@/stores/settings';
 import { selectLines, selectTotal, useCartStore } from '@/stores/cart';
 import { cartLineKey, type CartLine } from '@/stores/cart';
 import { UnitChooser } from '@/features/checkout/UnitChooser';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { applyKey } from '@/components/ui/keypad';
 import { DebtSheet } from '../debts/DebtSheet';
@@ -637,7 +645,7 @@ const styles = StyleSheet.create({
   },
   customerInitial: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 24,
     color: colors.accent,
   },
@@ -737,7 +745,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.ink },
   chipText: {
     fontFamily: fontFamily.semibold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 26,
     color: colors.ink,
     fontVariant: ['tabular-nums'],
@@ -753,7 +761,7 @@ const styles = StyleSheet.create({
   },
   change: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 40,
+    fontSize: fontSize[40],
     lineHeight: 46,
     color: colors.success,
     fontVariant: ['tabular-nums'],
@@ -780,14 +788,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     textAlign: 'center',
     fontFamily: fontFamily.bold,
-    fontSize: 13,
+    fontSize: fontSize[13],
     lineHeight: 24,
     color: colors.onInk,
     backgroundColor: colors.ink,
   },
   itemPrice: {
     fontFamily: fontFamily.bold,
-    fontSize: 15,
+    fontSize: fontSize[15],
     lineHeight: 20,
     color: colors.ink,
     fontVariant: ['tabular-nums'],

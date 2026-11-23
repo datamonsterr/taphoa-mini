@@ -9,6 +9,7 @@ import { t as translate, useT } from '@/lib/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import {
   colors,
+  fontSize,
   radius,
   scaleText,
   size,
@@ -127,7 +128,7 @@ export const Composer = memo(function Composer({
             }}
             style={[
               styles.input,
-              scaleText({ fontSize: 17, lineHeight: 24 }, scale),
+              scaleText({ fontSize: fontSize[17], lineHeight: 24 }, scale),
             ]}
           />
           {pending ? (

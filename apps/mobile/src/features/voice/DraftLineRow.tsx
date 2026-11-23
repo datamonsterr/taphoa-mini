@@ -12,7 +12,14 @@ import {
   type StepperLabels,
 } from '@/components/ui';
 import { fill, useLabels, useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 
 import { LineThumb } from '../checkout/LineThumb';
 import type { DraftLine } from './draft';
@@ -233,7 +240,7 @@ const styles = StyleSheet.create({
   badgeMute: { backgroundColor: colors.inkMuted },
   badgeMark: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 14,
+    fontSize: fontSize[14],
     lineHeight: 18,
     color: colors.onInk,
   },

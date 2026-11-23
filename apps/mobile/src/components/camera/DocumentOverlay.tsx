@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui/ScaledText';
 import type { ScanDocument } from '@/lib/api';
 import { mapBox, type BBox, type Size } from '@/lib/bbox';
-import { colors, radius, space } from '@/theme';
+import { colors, fontSize, radius, space } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 export function DocumentOverlay({
@@ -75,13 +75,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[3],
     paddingVertical: space[1],
     fontFamily: fontFamily.bold,
-    fontSize: 14,
+    fontSize: fontSize[14],
     lineHeight: 20,
   },
   hint: {
     color: colors.cameraMuted,
     textAlign: 'center',
-    fontSize: 15,
+    fontSize: fontSize[15],
     lineHeight: 20,
     marginTop: space[2],
   },

@@ -3,7 +3,7 @@ import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
-import { camera, colors, radius, size, space } from '@/theme';
+import { camera, colors, fontSize, radius, size, space } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props = {
@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: fontFamily.semibold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     lineHeight: 24,
     textAlign: 'center',
     color: camera.white,
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: fontFamily.bold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     color: colors.onAccent,
   },
 });
