@@ -387,10 +387,9 @@ dispatch `gh workflow run deploy.yml -f ref=<branch> -f keep_test_backend=true`.
 keeps the dependencies too. The next workflow may use and stop these services, so finish
 manual debugging before another run starts.
 
-Both workflows use `scripts/ci/wait_turn.py deploy.yml test railway-integration.yml:test` to
-queue by run id across workflows. Ownership lasts through the entire `test` job, including
-teardown. A run cancelled or timed out while waiting never starts or stops services. Coordinate
-manual CLI work with these runs; a CLI session does not hold that queue.
+Both workflows use the `railway-test` concurrency group. GitHub queues runs before assigning a
+runner, and each admitted workflow holds the group through teardown. Coordinate manual CLI work
+with these runs because a CLI session does not hold that queue.
 
 For debugging, from a linked Railway project with a test-scoped token, start the dependencies
 by hand (the helper waits for a new deployment's `SUCCESS`, or leaves an existing `SUCCESS`
@@ -572,14 +571,14 @@ success) and prints a job timing table. The Docker image in CI is a thin wrapper
 3. `workflow_dispatch` with a `ref` input runs step 1 for any branch or SHA and stops, so
    epic branches can be validated before merge.
 
-Deploys are serialized per environment. Production uses the `deploy-railway-production`
-concurrency group. The `test` job uses no group: GitHub keeps one pending run per group and
-cancels older pending runs, which kept cancelling branch validations. Instead its first step,
-`scripts/ci/wait_turn.py`, waits until no `Deploy backend` run with a smaller run id still has its
-`test` job queued or running (a FIFO queue; older runs never wait on newer ones).
-`.github/workflows/railway-integration.yml`
-runs the `#[ignore]` integration tests against the real `test` Postgres, Redis and bucket
-(manual, nightly 20:17 UTC and on backend changes to `main`) via
+Deploys share the `railway-test` workflow concurrency group with the manual Railway
+integration workflow. The queue can hold up to 100 pending runs. Production also uses the
+`deploy-railway-production` job group. The deploy test skips the live voice suite while the
+Railway test provider returns `voice_unavailable`. Set the test voice provider up and remove
+`E2E_SKIP_VOICE` to restore that coverage.
+
+`.github/workflows/railway-integration.yml` runs the `#[ignore]` integration tests on demand
+against the real `test` Postgres, Redis and bucket via
 `scripts/ci/with-railway-test-services.sh`: a throwaway database
 `it_<epoch>_<run>_<attempt>_<pid>` is created and dropped per run, Redis logical database
 15 is flushed afterwards, and the bucket is shared and append-only. Before creating a database,
