@@ -1,6 +1,6 @@
 # Debt book (sổ nợ)
 
-Status: Accepted · Date: 2026-10-25 · Program: [README](README.md) · Epic: X5
+Status: Done (checked 2026-11-23, roadmap section 2.2) · Merge: [#32](https://github.com/datamonsterr/taphoa-mini/pull/32), [#42](https://github.com/datamonsterr/taphoa-mini/pull/42), [#100](https://github.com/datamonsterr/taphoa-mini/pull/100) · Date: 2026-10-25 · Program: [README](README.md) · Epic: X5
 
 ## Goal
 

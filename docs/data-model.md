@@ -7,9 +7,9 @@ This document is the contract for everything stored or emitted: the Postgres sch
 (server system of record), the SQLite schema on the phone, the object storage layout,
 domain events, and the lifecycle of each stateful record.
 
-Implemented today: migration `0001_init.sql` (`vector` extension, `stores(id, name, created_at)`).
-The `images` table is accepted in the [object storage spec](specs/object-storage.md).
-Everything else is a proposal that later migrations implement.
+Implemented today: migrations `0001` to `1801` under `apps/backend/migrations`. Sections 3.1 to
+3.9 are the original design; sections 3.10 to 3.16 list the tables added later, copied from the
+migration SQL (2026-11-23). The `sessions` table from `0004` was dropped by `0701`.
 
 ## 1. Conventions
 
@@ -862,6 +862,351 @@ CREATE INDEX outbox_unpublished ON outbox_events (id) WHERE published_at IS NULL
 | Invites                            | 30 days after expiry                                      |
 | change_log                         | Newest per entity; others 30 days                         |
 | outbox_events                      | 7 days after publish                                      |
+
+### 3.10 Sync compaction floor
+
+Owner: sync and events (epic E6, [plan](specs/e6-sync-events-plan.md)). Migration
+`0401_sync_events.sql`. One row per store records the lowest `change_log.seq` still kept after
+compaction (§3.8); a pull cursor below `floor_seq` gets `410` and the phone pulls a snapshot.
+The migration also adds the `outbox_published_at` and `change_log_created` indexes for retention.
+
+```sql
+CREATE TABLE change_log_floor (
+    store_id  UUID PRIMARY KEY REFERENCES stores ON DELETE CASCADE,
+    floor_seq BIGINT NOT NULL
+);
+```
+
+### 3.11 Idempotency ledgers for stock and receipts
+
+Owner: stock receipts ([spec](specs/stock-receipts.md)). Migrations
+`0602_stock_adjustment_requests.sql` and `0603_receipt_requests.sql`. Both store a hashed
+`Idempotency-Key` per store so a replay returns the first result. Keys are hashed to keep
+index sizes bounded.
+
+```sql
+-- Relation: stock_movements (§3.6b). One row per accepted stock adjustment key.
+CREATE TABLE stock_adjustment_requests (
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    key_hash BYTEA NOT NULL CHECK (octet_length(key_hash) = 32),
+    product_id UUID NOT NULL REFERENCES products ON DELETE CASCADE,
+    request_hash BYTEA NOT NULL,
+    movement_id UUID NOT NULL REFERENCES stock_movements ON DELETE CASCADE,
+    PRIMARY KEY (store_id, key_hash)
+);
+
+-- Relation: receipts (§3.6b). Independent of receipt status and OCR availability.
+CREATE TABLE receipt_requests (
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    operation TEXT NOT NULL CHECK (operation IN ('create', 'confirm')),
+    key_hash BYTEA NOT NULL CHECK (octet_length(key_hash) = 32),
+    request_hash BYTEA NOT NULL CHECK (octet_length(request_hash) = 32),
+    receipt_id UUID NOT NULL REFERENCES receipts ON DELETE CASCADE,
+    PRIMARY KEY (store_id, operation, key_hash)
+);
+```
+
+### 3.12 Assistant
+
+Owner: assistant (epics X3 and X8, [spec](specs/assistant/assistant.md), program
+[README](specs/assistant/README.md)). Migrations `0801_assistant.sql`,
+`0802_assistant_next_steps.sql`, `0804_assistant_span_ids.sql`, `1002_assistant_digests.sql`.
+A thread belongs to one member; every query is scoped by `store_id` and `member_id`.
+
+| Table                    | Purpose                                                              | Relations                                                |
+| ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------- |
+| `assistant_threads`      | One chat thread of one member                                        | `stores`, `members`                                      |
+| `assistant_messages`     | User and assistant messages, tool calls, cards, token counts         | `assistant_threads`, `stores`                            |
+| `assistant_actions`      | Action the assistant proposes; a member confirms or rejects it       | thread, message, `members` (`proposed_by`, `decided_by`) |
+| `assistant_feedback`     | Thumbs up or down per message and member                             | `assistant_messages`, `members`, `stores`                |
+| `assistant_digests`      | Daily digest per store and business date (daily digest and push, X8) | `stores`                                                 |
+| `assistant_digest_reads` | Which member has read which digest                                   | `assistant_digests`, `members`                           |
+
+```sql
+CREATE TABLE assistant_threads (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id   UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    member_id  UUID NOT NULL REFERENCES members ON DELETE CASCADE,
+    title      TEXT,
+    context    JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX assistant_threads_member ON assistant_threads (store_id, member_id, updated_at DESC, id DESC);
+
+CREATE TABLE assistant_messages (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    thread_id     UUID NOT NULL REFERENCES assistant_threads ON DELETE CASCADE,
+    store_id      UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    role          TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content       TEXT NOT NULL,
+    attachments   JSONB NOT NULL DEFAULT '[]',
+    -- Summaries shown to clients: [{call_id, tool, ok, summary_vi}].
+    tool_calls    JSONB NOT NULL DEFAULT '[]',
+    -- Internal model tool calls and tool results, replayed to rebuild the model context.
+    transcript    JSONB NOT NULL DEFAULT '[]',
+    cards         JSONB NOT NULL DEFAULT '[]',
+    model         TEXT,
+    input_tokens  INT,
+    output_tokens INT,
+    trace_id      TEXT,
+    status        TEXT NOT NULL DEFAULT 'complete' CHECK (status IN ('streaming', 'complete', 'failed')),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    span_id       TEXT                                       -- added by 0804
+);
+CREATE INDEX assistant_messages_thread ON assistant_messages (store_id, thread_id, created_at, id);
+
+CREATE TABLE assistant_actions (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id             UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    thread_id            UUID NOT NULL REFERENCES assistant_threads ON DELETE CASCADE,
+    message_id           UUID NOT NULL REFERENCES assistant_messages ON DELETE CASCADE,
+    kind                 TEXT NOT NULL,
+    payload              JSONB NOT NULL,
+    summary_vi           TEXT NOT NULL,
+    status               TEXT NOT NULL DEFAULT 'proposed'
+                         CHECK (status IN ('proposed', 'executing', 'done', 'failed', 'rejected', 'expired')),
+    proposed_by          UUID NOT NULL REFERENCES members ON DELETE CASCADE,
+    decided_by           UUID REFERENCES members ON DELETE SET NULL,
+    decided_at           TIMESTAMPTZ,
+    -- SHA-256 of the confirm Idempotency-Key, so a replay can be told from a second decision.
+    idempotency_key_hash BYTEA,
+    result               JSONB,
+    error                JSONB,
+    trace_id             TEXT,
+    expires_at           TIMESTAMPTZ NOT NULL,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    span_id              TEXT                                -- added by 0804
+);
+CREATE INDEX assistant_actions_thread ON assistant_actions (store_id, thread_id, created_at);
+
+CREATE TABLE assistant_feedback (
+    message_id UUID NOT NULL REFERENCES assistant_messages ON DELETE CASCADE,
+    member_id  UUID NOT NULL REFERENCES members ON DELETE CASCADE,
+    store_id   UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    rating     TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+    comment    TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (message_id, member_id)
+);
+CREATE INDEX assistant_feedback_store ON assistant_feedback (store_id, member_id);
+
+CREATE TABLE assistant_digests (
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    business_date DATE NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source TEXT NOT NULL CHECK (source IN ('model', 'template')),
+    model TEXT,
+    summary_vi TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    pushed_at TIMESTAMPTZ,
+    PRIMARY KEY (store_id, business_date)
+);
+
+CREATE TABLE assistant_digest_reads (
+    store_id UUID NOT NULL,
+    business_date DATE NOT NULL,
+    member_id UUID NOT NULL REFERENCES members ON DELETE CASCADE,
+    read_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (store_id, business_date, member_id),
+    FOREIGN KEY (store_id, business_date) REFERENCES assistant_digests ON DELETE CASCADE
+);
+CREATE INDEX assistant_digest_reads_member_idx ON assistant_digest_reads (member_id);
+CREATE INDEX assistant_digests_model_generated_idx ON assistant_digests (generated_at) WHERE source = 'model';
+```
+
+`0802` adds the `receipts_store_status_confirmed` index on `receipts` (§3.6b) for the
+assistant's draft lookup, and `0803` adds `receipts.supplier TEXT` (1 to 120 characters,
+`NULL` for older receipts).
+
+### 3.13 Debt book and customers
+
+Owner: debt book (epic X5, [spec](specs/assistant/debt-book.md)). Migration
+`0901_debt_book.sql`. `customers.balance` is the signed running debt in VND, and the customer
+row serializes ledger writers. `debt_entries` is the append-only ledger; `sales` gains
+`customer_id` and `credit_amount` and accepts `payment_method = 'credit'`.
+
+```sql
+CREATE TABLE customers (
+    id UUID PRIMARY KEY,
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 80),
+    phone TEXT CHECK (char_length(phone) <= 20),
+    note TEXT CHECK (char_length(note) <= 200),
+    credit_limit BIGINT CHECK (credit_limit >= 0),
+    balance BIGINT NOT NULL DEFAULT 0,
+    oldest_debt_date DATE,
+    archived_at TIMESTAMPTZ,
+    request_hash BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (store_id, id)
+);
+CREATE INDEX customers_store_name ON customers (store_id, lower(name));
+CREATE INDEX customers_store_oldest_debt ON customers (store_id, oldest_debt_date) WHERE balance > 0;
+-- 1101: credit customer match uses the unaccent trigram index, as products do.
+CREATE INDEX customers_name_trgm ON customers USING gin (immutable_unaccent(lower(name)) gin_trgm_ops);
+
+CREATE TABLE debt_entries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    customer_id UUID NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('credit_sale', 'repayment', 'adjustment', 'void')),
+    amount BIGINT NOT NULL,
+    balance_after BIGINT NOT NULL,
+    sale_id UUID REFERENCES sales,
+    method TEXT CHECK (method IN ('cash', 'transfer')),
+    reason TEXT CHECK (char_length(reason) BETWEEN 1 AND 200),
+    member_id UUID NOT NULL REFERENCES members,
+    business_date DATE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    key_hash BYTEA,
+    request_hash BYTEA,
+    FOREIGN KEY (store_id, customer_id) REFERENCES customers (store_id, id) ON DELETE CASCADE,
+    CHECK ((kind = 'credit_sale' AND amount > 0)
+        OR (kind IN ('void', 'repayment') AND amount < 0)
+        OR (kind = 'adjustment' AND amount <> 0))
+);
+CREATE INDEX debt_entries_store_customer_created ON debt_entries (store_id, customer_id, created_at);
+CREATE UNIQUE INDEX debt_entries_store_key ON debt_entries (store_id, key_hash) WHERE key_hash IS NOT NULL;
+-- A sale has at most one credit_sale entry and one void entry.
+CREATE UNIQUE INDEX debt_entries_sale_kind ON debt_entries (sale_id, kind) WHERE sale_id IS NOT NULL;
+-- Day close sums repayments by business date.
+CREATE INDEX debt_entries_store_date ON debt_entries (store_id, business_date);
+
+-- Added to sales (§3.5) by 0901
+ALTER TABLE sales ADD COLUMN customer_id UUID;
+ALTER TABLE sales ADD CONSTRAINT sales_customer_fk FOREIGN KEY (store_id, customer_id) REFERENCES customers (store_id, id);
+ALTER TABLE sales ADD COLUMN credit_amount BIGINT NOT NULL DEFAULT 0;
+-- payment_method CHECK is now ('cash', 'transfer', 'credit')
+```
+
+### 3.14 Devices, push and sessions
+
+Owner: daily digest and push (epic X8, [plan](specs/assistant/x8-plan.md)) and Clerk identity
+([spec](specs/assistant/auth-clerk.md)). Migrations `1001_devices.sql` and
+`1201_session_pin_state.sql`. The local `sessions` table from `0004_identity.sql` was dropped
+by `0701_clerk_identity.sql`; `session_pin_state` is the only per-session table.
+
+| Table               | Purpose                                                                 | Relations                       |
+| ------------------- | ----------------------------------------------------------------------- | ------------------------------- |
+| `devices`           | Expo push token per phone, with platform, app version and language      | `stores`, `members`             |
+| `push_tickets`      | Expo push ticket and receipt status per token and business date         | `stores`; no FK on `token`      |
+| `session_pin_state` | Server-side PIN lock of a Clerk session on a shared phone (no store FK) | none; keyed by Clerk session id |
+
+```sql
+CREATE TABLE devices (
+    token TEXT PRIMARY KEY,
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    member_id UUID NOT NULL REFERENCES members ON DELETE CASCADE,
+    platform TEXT NOT NULL CHECK (platform IN ('android', 'ios')),
+    app_version TEXT NOT NULL CHECK (length(app_version) > 0),
+    language TEXT NOT NULL CHECK (language IN ('vi', 'en')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX devices_store_member_idx ON devices (store_id, member_id);
+
+-- Tokens intentionally have no FK: ticket history survives device unregistration.
+CREATE TABLE push_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    business_date DATE NOT NULL,
+    ticket_id TEXT,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'error', 'pending_receipt', 'receipt_ok', 'receipt_error')),
+    error_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    checked_at TIMESTAMPTZ
+);
+CREATE INDEX push_tickets_status_created_idx ON push_tickets (status, created_at);
+CREATE INDEX push_tickets_store_date_idx ON push_tickets (store_id, business_date);
+
+-- locked is set by POST /v1/me/pin/lock and cleared by POST /v1/me/pin/verify.
+-- touched_at slides with use; an unlocked session idle for too long is locked again.
+CREATE TABLE session_pin_state (
+    session_id    TEXT PRIMARY KEY,
+    clerk_user_id TEXT NOT NULL,
+    locked        BOOLEAN NOT NULL DEFAULT false,
+    touched_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX session_pin_state_touched_idx ON session_pin_state (touched_at);
+```
+
+### 3.15 Voice
+
+Owner: voice (epics V0 to V6, [spec](specs/voice/voice.md), program
+[README](specs/voice/README.md)). Migrations `1101_voice.sql`, `1501_voice_donations.sql`,
+`1502_voice_donation_retries.sql`. Audio bytes are never stored in these tables. `1101` also
+widens `sale_lines.source` to include `'voice'`.
+
+| Table              | Purpose                                                                  | Relations                      |
+| ------------------ | ------------------------------------------------------------------------ | ------------------------------ |
+| `voice_utterances` | Utterance log: transcript, parse, draft and outcome                      | `stores`, `members` (`member`) |
+| `voice_aliases`    | Learned phrase to product aliases; lookups use rows with `hits >= 2`     | `stores`, `products`           |
+| `voice_donations`  | Deletion ledger for donated audio; survives store and utterance deletion | none, by design                |
+
+```sql
+CREATE TABLE voice_utterances (
+    id          UUID PRIMARY KEY,
+    store_id    UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    member      UUID NOT NULL REFERENCES members,
+    mode        TEXT NOT NULL CHECK (mode IN ('sale', 'transcribe')),
+    language    TEXT NOT NULL DEFAULT 'vi',
+    entry       TEXT,
+    intent      TEXT NOT NULL CHECK (intent IN ('sale', 'chat', 'none')),
+    transcript  TEXT NOT NULL,
+    parsed      JSONB,
+    draft       JSONB,
+    model       TEXT NOT NULL,
+    stt_fallback BOOLEAN NOT NULL DEFAULT false,
+    latency_ms  INT NOT NULL,
+    outcome     TEXT CHECK (outcome IN ('confirmed', 'edited', 'abandoned')),
+    stage       TEXT CHECK (stage IN ('listening', 'draft', 'pay')),
+    sale_id     UUID,
+    corrections JSONB,
+    outcome_at  TIMESTAMPTZ,
+    learned_at  TIMESTAMPTZ,
+    donated     BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX voice_utterances_store_created ON voice_utterances (store_id, created_at DESC);
+CREATE INDEX voice_utterances_created ON voice_utterances (created_at) WHERE NOT donated;
+
+-- `hits` counts agreeing corrections of one phrase.
+CREATE TABLE voice_aliases (
+    store_id   UUID NOT NULL REFERENCES stores ON DELETE CASCADE,
+    phrase     TEXT NOT NULL,
+    product_id UUID NOT NULL REFERENCES products ON DELETE CASCADE,
+    hits       INT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (store_id, phrase)
+);
+
+CREATE TABLE voice_donations (
+    utterance_id UUID PRIMARY KEY,
+    store_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,                    -- added by 1502
+    last_error TEXT,                                        -- added by 1502
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now()      -- added by 1502
+);
+CREATE INDEX voice_donations_created ON voice_donations (created_at);
+CREATE INDEX voice_donations_due ON voice_donations (created_at, next_attempt_at);
+```
+
+### 3.16 Landing waitlist
+
+Owner: landing and waitlist ([ADR 0010](adr/0010-landing-static-site.md)). Migration
+`1401_waitlist.sql`. Public sign-ups from the landing page; no store, no relations.
+
+```sql
+CREATE TABLE waitlist_signups (
+    email text PRIMARY KEY,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+```
 
 ## 4. Phone storage
 
