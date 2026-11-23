@@ -526,7 +526,7 @@ pub(crate) async fn render_scan(
     })
 }
 
-/// Persists thumbnail `images` rows, the scan and all detections atomically.
+/// Detection rows persisted with the scan.
 /// Crop bytes were already written to the bucket; keys come prepared.
 pub(crate) struct PersistDetection {
     pub id: Uuid,
@@ -551,11 +551,13 @@ pub(crate) struct ScanDraft {
 }
 
 /// Returns `(scan id, created_at, catalog_version)`.
-/// Always executes three persistence INSERTs (images, scans, detections), even
-/// for an empty scan. Event/outbox statements and BEGIN/COMMIT are unchanged.
-/// The count follows from the three unconditional queries outside row loops;
-/// SQLx has no per-function query counter, so we do not add production metering
-/// or require pg_stat_statements in the integration-test database.
+///
+/// One statement and therefore one network exchange, whatever the detection count: crop
+/// `images` rows, the scan, every detection and the `scan.completed` outbox event commit
+/// atomically (a single statement is its own transaction; foreign keys are checked when
+/// it ends). The store row lock comes first and the outbox id is allocated after it, which
+/// is the ordering rule of `events::emit`; the envelope is the shared `events::envelope`
+/// with only the identity-column id filled in by the database.
 pub(crate) async fn persist_scan(
     pool: &PgPool,
     actor: &Actor,
@@ -570,114 +572,100 @@ pub(crate) async fn persist_scan(
         wall_time_ms,
         timings_ms,
     } = draft;
-    let mut tx = pool.begin().await?;
-    // Detached thumbnail rows: bucket objects were written before this
-    // transaction and are cleaned up by the handler when it aborts.
+    let scan_id = Uuid::new_v4();
+    let match_class = detections.first().map_or(MatchClass::Unknown, |d| d.class);
+    let latency_ms = timings_ms["total"].as_u64().unwrap_or(wall_time_ms);
+    let event = crate::events::Event {
+        store_id: actor.store_id,
+        actor: Some(actor.event_actor()),
+        typ: "scan.completed",
+        version: 1,
+        data: json!({"scan_id":scan_id,"mode":mode.as_str(),"detections":detections.len(),"timings":timings_ms,"model":embedder_model,"purpose":purpose.as_str(),"match_class":match_class,"latency_ms":latency_ms}),
+        change: None,
+    };
+    let payload = crate::events::envelope(&event, String::new(), DateTime::<Utc>::UNIX_EPOCH);
+    // Detached thumbnail rows: bucket objects were written before this statement and are
+    // cleaned up by the handler when it fails.
+    let n = detections.len();
     let crop_ids: Vec<Uuid> = detections.iter().map(|_| Uuid::new_v4()).collect();
     let crop_keys: Vec<&str> = detections.iter().map(|d| d.crop_key.as_str()).collect();
     let byte_sizes: Vec<i64> = detections
         .iter()
         .map(|d| d.thumbnail_bytes as i64)
         .collect();
-    sqlx::query(
-        "INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose, uploaded_by) \
-         SELECT id, $2, object_key, 'image/jpeg', byte_size, 'crop', $5 \
-         FROM UNNEST($1::uuid[], $3::text[], $4::bigint[]) AS crops(id, object_key, byte_size)",
-    )
-    .bind(&crop_ids)
-    .bind(actor.store_id)
-    .bind(&crop_keys)
-    .bind(&byte_sizes)
-    .bind(actor.member_id)
-    .execute(&mut *tx)
-    .await?;
-    let (scan_id, created_at, catalog_version): (Uuid, DateTime<Utc>, i64) = sqlx::query_as(
-        "INSERT INTO scans (store_id, image_id, member_id, mode, purpose, segmenter, embedder, catalog_version, timings) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, \
-             (SELECT COALESCE(max(seq), 0) FROM change_log WHERE store_id = $1), $8) \
-         RETURNING id, created_at, catalog_version",
-    )
-    .bind(actor.store_id)
-    .bind(image_id)
-    .bind(actor.member_id)
-    .bind(mode.as_str())
-    .bind(purpose.as_str())
-    .bind(SCAN_SEGMENTER)
-    .bind(&embedder_model)
-    .bind(&timings_ms)
-    .fetch_one(&mut *tx)
-    .await?;
-    write_detections(&mut tx, actor, scan_id, detections, &crop_ids).await?;
-    let match_class = detections.first().map_or(MatchClass::Unknown, |d| d.class);
-    let latency_ms = timings_ms["total"].as_u64().unwrap_or(wall_time_ms);
-    crate::events::emit(&mut tx, crate::events::Event { store_id:actor.store_id, actor:Some(actor.event_actor()),typ:"scan.completed",version:1,data:json!({"scan_id":scan_id,"mode":mode.as_str(),"detections":detections.len(),"timings":timings_ms,"model":embedder_model,"purpose":purpose.as_str(),"match_class":match_class,"latency_ms":latency_ms}),change:None }).await?;
-    tx.commit().await?;
+    let ids: Vec<Uuid> = detections.iter().map(|d| d.id).collect();
+    let positions: Vec<i16> = (0..n).map(|position| position as i16).collect();
+    // SQLx 0.9 supports one-dimensional arrays, not Vec<Vec<f32>>. Bind bbox coordinates
+    // separately and reconstruct each real[4] in the SELECT.
+    let coordinate =
+        |index: usize| -> Vec<f32> { detections.iter().map(|d| d.bbox[index]).collect() };
+    let scores: Vec<f32> = detections.iter().map(|d| d.score).collect();
+    let areas: Vec<i32> = detections
+        .iter()
+        .map(|d| d.area.min(i32::MAX as u32) as i32)
+        .collect();
+    // pgvector 0.4.2 implements PgHasArrayType for Vector; SQLx 0.9 also supports
+    // Option<T> array elements, so native vector[] preserves NULL for non-384 adapters.
+    let embeddings: Vec<Option<pgvector::Vector>> = detections
+        .iter()
+        .map(|d| (d.embedding.len() == 384).then(|| pgvector::Vector::from(d.embedding.clone())))
+        .collect();
+    let classes: Vec<String> = detections.iter().map(|d| d.class.to_string()).collect();
+    let candidates: Vec<serde_json::Value> = detections
+        .iter()
+        .map(|d| serde_json::to_value(&d.candidates).unwrap_or_else(|_| json!([])))
+        .collect();
+    // `$10` is the envelope; `id` and `occurred_at` are filled in by the database.
+    let sql = format!(
+        "WITH {}, \
+         crops AS ( \
+             INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose, uploaded_by) \
+             SELECT id, $1, object_key, 'image/jpeg', byte_size, 'crop', $3 \
+             FROM UNNEST($11::uuid[], $12::text[], $13::bigint[]) AS crops(id, object_key, byte_size)), \
+         scan AS ( \
+             INSERT INTO scans (id, store_id, image_id, member_id, mode, purpose, segmenter, embedder, catalog_version, timings) \
+             VALUES ($2, $1, $4, $3, $5, $6, $7, $8, \
+                 (SELECT COALESCE(max(seq), 0) FROM change_log WHERE store_id = $1), $9) \
+             RETURNING created_at, catalog_version), \
+         detected AS ( \
+             INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates) \
+             SELECT id, $1, $2, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates \
+             FROM UNNEST($14::uuid[], $15::smallint[], $16::real[], $17::real[], $18::real[], $19::real[], \
+                         $20::real[], $21::integer[], $11::uuid[], $22::vector[], $23::text[], $24::jsonb[]) \
+             AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates)) \
+         SELECT scan.created_at, scan.catalog_version \
+         FROM scan, (SELECT count(pg_notify('outbox', event.id::text)) FROM event) AS notified",
+        crate::events::outbox_ctes("$1", "'scan.completed'", "$10")
+    );
+    let (created_at, catalog_version): (DateTime<Utc>, i64) =
+        sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(actor.store_id)
+            .bind(scan_id)
+            .bind(actor.member_id)
+            .bind(image_id)
+            .bind(mode.as_str())
+            .bind(purpose.as_str())
+            .bind(SCAN_SEGMENTER)
+            .bind(&embedder_model)
+            .bind(&timings_ms)
+            .bind(&payload)
+            .bind(&crop_ids)
+            .bind(&crop_keys)
+            .bind(&byte_sizes)
+            .bind(&ids)
+            .bind(&positions)
+            .bind(coordinate(0))
+            .bind(coordinate(1))
+            .bind(coordinate(2))
+            .bind(coordinate(3))
+            .bind(&scores)
+            .bind(&areas)
+            .bind(&embeddings)
+            .bind(&classes)
+            .bind(&candidates)
+            .fetch_one(pool)
+            .await?;
     Ok((scan_id, created_at, catalog_version))
-}
-
-async fn write_detections(
-    tx: &mut sqlx::PgConnection,
-    actor: &Actor,
-    scan_id: Uuid,
-    detections: &[PersistDetection],
-    crop_ids: &[Uuid],
-) -> Result<(), sqlx::Error> {
-    let mut ids = Vec::with_capacity(detections.len());
-    let mut positions = Vec::with_capacity(detections.len());
-    // SQLx 0.9 supports one-dimensional arrays, not Vec<Vec<f32>>. Bind
-    // bbox coordinates separately and reconstruct each real[4] in the SELECT.
-    let mut xs = Vec::with_capacity(detections.len());
-    let mut ys = Vec::with_capacity(detections.len());
-    let mut widths = Vec::with_capacity(detections.len());
-    let mut heights = Vec::with_capacity(detections.len());
-    let mut scores = Vec::with_capacity(detections.len());
-    let mut areas = Vec::with_capacity(detections.len());
-    let mut embeddings = Vec::with_capacity(detections.len());
-    let mut classes = Vec::with_capacity(detections.len());
-    let mut candidates = Vec::with_capacity(detections.len());
-    for (position, detection) in detections.iter().enumerate() {
-        ids.push(detection.id);
-        positions.push(position as i16);
-        xs.push(detection.bbox[0]);
-        ys.push(detection.bbox[1]);
-        widths.push(detection.bbox[2]);
-        heights.push(detection.bbox[3]);
-        scores.push(detection.score);
-        areas.push(detection.area.min(i32::MAX as u32) as i32);
-        // pgvector 0.4.2 implements PgHasArrayType for Vector; SQLx 0.9
-        // also supports Option<T> array elements, so native vector[] preserves
-        // NULL for non-384 adapters without a text serialization/cast fallback.
-        embeddings.push(
-            (detection.embedding.len() == 384)
-                .then(|| pgvector::Vector::from(detection.embedding.clone())),
-        );
-        classes.push(detection.class.to_string());
-        candidates.push(serde_json::to_value(&detection.candidates).unwrap_or_else(|_| json!([])));
-    }
-    sqlx::query(
-        "INSERT INTO detections (id, store_id, scan_id, position, bbox, score, area, crop_image_id, embedding, match, candidates) \
-         SELECT id, $2, $3, position, ARRAY[x, y, width, height], score, area, crop_id, embedding, match, candidates \
-         FROM UNNEST($1::uuid[], $4::smallint[], $5::real[], $6::real[], $7::real[], $8::real[], \
-                     $9::real[], $10::integer[], $11::uuid[], $12::vector[], $13::text[], $14::jsonb[]) \
-         AS batch(id, position, x, y, width, height, score, area, crop_id, embedding, match, candidates)",
-    )
-    .bind(&ids)
-    .bind(actor.store_id)
-    .bind(scan_id)
-    .bind(&positions)
-    .bind(&xs)
-    .bind(&ys)
-    .bind(&widths)
-    .bind(&heights)
-    .bind(&scores)
-    .bind(&areas)
-    .bind(crop_ids)
-    .bind(&embeddings)
-    .bind(&classes)
-    .bind(&candidates)
-    .execute(&mut *tx)
-    .await?;
-    Ok(())
 }
 
 /// One scan row of the actor's store, or `None` to keep ownership invisible.
