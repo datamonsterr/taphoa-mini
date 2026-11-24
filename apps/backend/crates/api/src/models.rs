@@ -45,19 +45,36 @@ impl LazyModels {
             }
             _ => anyhow::bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
         };
-        let (embedder_path, model_name) = if config.embedder_name == "siglip2" {
-            (config.siglip2_model.as_ref(), "siglip2")
+        let (embedder_path, model_name, path_var) = if config.embedder_name == "siglip2" {
+            (
+                config.siglip2_model.as_deref(),
+                "siglip2",
+                "SIGLIP2_MODEL_PATH",
+            )
         } else {
-            (config.dino_model.as_ref(), "dinov2")
+            (config.dino_model.as_deref(), "dinov2", "DINO_MODEL_PATH")
         };
-        let dino = embedder_path.filter(|path| path.exists()).map(|_| {
-            let config = config.clone();
-            ModelHolder::new(model_name, idle, move || {
-                config
-                    .embedder()?
-                    .ok_or_else(|| anyhow::anyhow!("embedder weights absent"))
-            })
-        });
+        let dino = match (config.embedder_name.as_str(), embedder_path) {
+            ("mock", _) => None,
+            ("siglip2", None) => {
+                anyhow::bail!("selected embedder 'siglip2' requires SIGLIP2_MODEL_PATH to be set");
+            }
+            (_, Some(path)) if !path.exists() => {
+                anyhow::bail!(
+                    "selected embedder '{model_name}' model file not found ({path_var}={}): file does not exist",
+                    path.display()
+                );
+            }
+            (_, Some(_)) => {
+                let config = config.clone();
+                Some(ModelHolder::new(model_name, idle, move || {
+                    config
+                        .embedder()?
+                        .ok_or_else(|| anyhow::anyhow!("embedder weights absent"))
+                }))
+            }
+            _ => None,
+        };
         let ocr = match (
             &config.ocr_det,
             &config.ocr_encoder,
@@ -203,6 +220,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use std::path::PathBuf;
     use tower::ServiceExt;
 
     #[tokio::test]
@@ -320,5 +338,60 @@ mod tests {
         let siglip_models = LazyModels::from_config(&siglip_config).unwrap();
         let siglip_holder = siglip_models.dino.expect("embedder holder configured");
         assert_eq!(siglip_holder.family(), "siglip2");
+    }
+
+    #[tokio::test]
+    async fn startup_fails_with_clear_error_when_selected_embedder_model_is_missing() {
+        let missing = PathBuf::from("/nonexistent/model/siglip2.onnx");
+
+        // 1. SigLIP2 selected, file missing
+        let siglip_missing_config = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://local.clerk.accounts.dev".into()),
+            "EMBEDDER" => Some("siglip2".into()),
+            "SIGLIP2_MODEL_PATH" => Some(missing.to_string_lossy().into()),
+            _ => None,
+        })
+        .unwrap();
+        let err = LazyModels::from_config(&siglip_missing_config)
+            .err()
+            .expect("startup must fail on missing siglip2 model file");
+        assert!(
+            err.to_string()
+                .contains("selected embedder 'siglip2' model file not found"),
+            "unexpected error message: {err}"
+        );
+
+        // 2. SigLIP2 selected, path unset
+        let siglip_unset_config = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://local.clerk.accounts.dev".into()),
+            "EMBEDDER" => Some("siglip2".into()),
+            _ => None,
+        })
+        .unwrap();
+        let err2 = LazyModels::from_config(&siglip_unset_config)
+            .err()
+            .expect("startup must fail when siglip2 path unset");
+        assert!(
+            err2.to_string()
+                .contains("selected embedder 'siglip2' requires SIGLIP2_MODEL_PATH to be set"),
+            "unexpected error message: {err2}"
+        );
+
+        // 3. DINOv2 selected, file missing
+        let dino_missing_config = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://local.clerk.accounts.dev".into()),
+            "EMBEDDER" => Some("dinov2".into()),
+            "DINO_MODEL_PATH" => Some(missing.to_string_lossy().into()),
+            _ => None,
+        })
+        .unwrap();
+        let err3 = LazyModels::from_config(&dino_missing_config)
+            .err()
+            .expect("startup must fail on missing dinov2 model file");
+        assert!(
+            err3.to_string()
+                .contains("selected embedder 'dinov2' model file not found"),
+            "unexpected error message: {err3}"
+        );
     }
 }

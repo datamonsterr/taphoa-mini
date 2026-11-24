@@ -62,8 +62,14 @@ pub const SEARCH_SQL_768: &str = "WITH nearest AS MATERIALIZED (
     SELECT product_id, distance FROM ranked WHERE rank <= 3
     ORDER BY distance, product_id LIMIT $6
 ), scores AS (
-    SELECT product_id, sum(1 - distance) / 3 AS similarity
-    FROM votes GROUP BY product_id
+    SELECT v.product_id,
+           sum(1 - v.distance) / LEAST(3, GREATEST(1, (
+               SELECT count(*)
+               FROM product_embeddings pe
+               WHERE pe.store_id = $2 AND pe.product_id = v.product_id
+                 AND pe.model = $3 AND pe.embedding_768 IS NOT NULL
+           ))) AS similarity
+    FROM votes v GROUP BY v.product_id
     UNION ALL
     SELECT proto.product_id, 1 - (proto.embedding_768 <=> $1::vector) AS similarity
     FROM product_prototypes proto
@@ -154,6 +160,9 @@ impl VectorIndex for PgVectorIndex {
             let limit = i64::try_from(limit).unwrap_or(i64::MAX);
             let mut tx = self.pool.begin().await?;
             sqlx::query("SET LOCAL hnsw.ef_search = 100")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("SET LOCAL hnsw.iterative_scan = relaxed_order")
                 .execute(&mut *tx)
                 .await?;
             sqlx::query("SET LOCAL hnsw.max_scan_tuples = 20000")

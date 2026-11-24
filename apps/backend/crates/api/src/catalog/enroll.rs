@@ -150,6 +150,9 @@ async fn search_sql(
         sqlx::query("SET LOCAL hnsw.ef_search = 100")
             .execute(&mut *tx)
             .await?;
+        sqlx::query("SET LOCAL hnsw.iterative_scan = relaxed_order")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("SET LOCAL hnsw.max_scan_tuples = 20000")
             .execute(&mut *tx)
             .await?;

@@ -1328,13 +1328,11 @@ async fn duplicate_check_with_768_uses_configured_threshold() {
     let w = world_from(router(state.clone()), state).await;
 
     let img1 = upload(&w, &w.lead, "same-bottle-768").await;
-    let img2 = upload(&w, &w.lead, "same-bottle-768").await;
-    let img3 = upload(&w, &w.lead, "same-bottle-768").await;
     let existing_body = json!({
         "id": Uuid::now_v7(),
         "name": "Aquafina 500ml",
         "price": 5000,
-        "image_ids": [img1, img2, img3],
+        "image_ids": [img1],
         "force_new": true,
     });
     let existing = ok(

@@ -1208,3 +1208,86 @@ async fn wide_vectors_roundtrip_vote_fallback_and_isolate_models() {
         .bind(store).bind(model).fetch_one(&pool).await.unwrap();
     assert_eq!(wide, 3);
 }
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn single_reference_768_scores_above_threshold_without_artificial_penalty() {
+    let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+
+    let mut v = vec![0.; 768];
+    v[0] = 1.;
+    // Enrolling just ONE reference image (not 3)
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].product_id, product);
+    // With 1 stored view, divisor is 1: score is > 0.999, NOT penalized to 0.333
+    assert!(
+        hits[0].similarity > 0.999,
+        "single-image similarity {} should be > 0.999 (above 0.82 match threshold)",
+        hits[0].similarity
+    );
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn iterative_scan_finds_matches_despite_many_competing_rows_from_other_stores() {
+    let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let other_store = new_store(&pool).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+
+    let mut v = vec![0.; 768];
+    v[0] = 1.;
+
+    // Target store has 1 reference
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+
+    // Competing store has 150 products with the exact same vector, crowding the HNSW neighborhood
+    for _ in 0..150 {
+        let competing = new_product(&pool, other_store).await;
+        index
+            .upsert(
+                other_store,
+                competing,
+                new_image(&pool, other_store).await,
+                model,
+                v.clone(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // iterative_scan = relaxed_order ensures the HNSW traversal continues past competing store tuples
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 1, "target store product must be found");
+    assert_eq!(hits[0].product_id, product);
+    assert!(hits[0].similarity > 0.999);
+}

@@ -40,9 +40,13 @@ pub fn voting_scores(
             .then_with(|| a.product_id.cmp(&b.product_id))
     };
     references.sort_by(order);
+    let mut total_refs = HashMap::<Uuid, usize>::new();
+    for hit in &references {
+        *total_refs.entry(hit.product_id).or_default() += 1;
+    }
     references.truncate(fetch);
     let mut counts = HashMap::<Uuid, usize>::new();
-    let mut scores = HashMap::<Uuid, f32>::new();
+    let mut sums = HashMap::<Uuid, f32>::new();
     let mut votes = 0;
     for hit in references {
         let count = counts.entry(hit.product_id).or_default();
@@ -54,7 +58,16 @@ pub fn voting_scores(
         }
         *count += 1;
         votes += 1;
-        *scores.entry(hit.product_id).or_default() += hit.similarity / VOTES_PER_PRODUCT as f32;
+        *sums.entry(hit.product_id).or_default() += hit.similarity;
+    }
+    let mut scores = HashMap::<Uuid, f32>::new();
+    for (product_id, sum) in sums {
+        let divisor = total_refs
+            .get(&product_id)
+            .copied()
+            .unwrap_or(1)
+            .clamp(1, VOTES_PER_PRODUCT);
+        scores.insert(product_id, sum / divisor as f32);
     }
     for hit in prototypes {
         scores.entry(hit.product_id).or_insert(hit.similarity);
@@ -446,9 +459,9 @@ mod tests {
         let hits = index.search(store, "m", &query, 3).await.unwrap();
         assert_eq!(
             hits.iter().map(|h| h.product_id).collect::<Vec<_>>(),
-            vec![supported, fallback, singleton]
+            vec![singleton, supported, fallback]
         );
-        for (hit, expected) in hits.iter().zip([0.90, 0.82, 1. / 3.]) {
+        for (hit, expected) in hits.iter().zip([1.0, 0.90, 0.82]) {
             assert!((hit.similarity - expected).abs() < 1e-6);
         }
     }
