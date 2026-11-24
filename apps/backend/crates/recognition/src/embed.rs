@@ -1,4 +1,4 @@
-use crate::crop::{EMBED_SIDE, l2_normalize, normalize_into};
+use crate::crop::{EMBED_SIDE, IMAGENET_MEAN, IMAGENET_STD, l2_normalize, normalize_with_stats};
 use image::RgbImage;
 use ort::{
     session::{Session, builder::GraphOptimizationLevel},
@@ -18,6 +18,72 @@ pub enum EmbedError {
     #[error("embedding failed: {0}")]
     Inference(String),
 }
+
+fn inference(error: impl std::fmt::Display) -> EmbedError {
+    EmbedError::Inference(error.to_string())
+}
+
+/// Output contract of a pinned ONNX export. Pooling is explicit: SigLIP2's learned
+/// pooler is not interchangeable with its first patch token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pooling {
+    Cls,
+    Pooled,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ModelSpec {
+    pub side: u32,
+    pub mean: [f32; 3],
+    pub std: [f32; 3],
+    pub output: &'static str,
+    pub pooling: Pooling,
+    pub dim: usize,
+    pub letterbox: bool,
+    identity: &'static str,
+}
+
+impl ModelSpec {
+    pub const fn siglip2() -> Self {
+        Self {
+            side: 224,
+            mean: [0.5; 3],
+            std: [0.5; 3],
+            output: "output",
+            pooling: Pooling::Pooled,
+            dim: 768,
+            letterbox: true,
+            identity: "siglip2-b16-224-onnx@1",
+        }
+    }
+
+    pub fn dinov2(side: u32) -> Result<Self, EmbedError> {
+        if !(56..=EMBED_SIDE).contains(&side) || !side.is_multiple_of(14) {
+            return Err(inference(
+                "DINOv2 side must be a multiple of 14 within 56..=224",
+            ));
+        }
+        Ok(Self {
+            side,
+            mean: IMAGENET_MEAN,
+            std: IMAGENET_STD,
+            output: "last_hidden_state",
+            pooling: Pooling::Cls,
+            dim: 384,
+            letterbox: false,
+            identity: "dinov2-vits14-onnx@1",
+        })
+    }
+
+    pub fn model_id(&self) -> String {
+        if self.letterbox {
+            format!("{}/lb{}", self.identity, self.side)
+        } else {
+            format!("{}/{}", self.identity, self.side)
+        }
+    }
+}
+
 /// Adapters return finite, L2-normalized vectors of exactly `dim()` elements.
 pub trait Embedder: Send + Sync {
     fn model(&self) -> &str;
@@ -64,24 +130,19 @@ pub trait Embedder: Send + Sync {
     }
 }
 
-fn inference(error: impl std::fmt::Display) -> EmbedError {
-    EmbedError::Inference(error.to_string())
-}
-
-/// DINOv2 ViT-S/14 (HF `transformers` ONNX export): `pixel_values` [B,3,S,S] in,
-/// `last_hidden_state` [B, 1 + (S/14)^2, 384] out; token 0 (CLS) is the embedding.
-pub struct DinoEmbedder {
+/// Both production encoders share preprocessing, batching, inference and normalization.
+pub struct OnnxEmbedder {
     session: Mutex<Session>,
     model: String,
     batch: usize,
-    side: u32,
+    spec: ModelSpec,
 }
 
-impl DinoEmbedder {
+/// Compatibility name for callers explicitly requesting the DINOv2 model.
+pub type DinoEmbedder = OnnxEmbedder;
+
+impl OnnxEmbedder {
     pub const DIM: usize = 384;
-    /// Input side in pixels (multiple of 14). 224 costs ~87 ms per crop on 4 cores, 112 about
-    /// 20 ms; the 3 s scan budget needs the small side. Override with `EMBED_SIDE` after
-    /// measuring accuracy on the A1 test set.
     pub const DEFAULT_SIDE: u32 = 112;
 
     pub fn load(model: &Path, threads: usize) -> Result<Self, EmbedError> {
@@ -93,8 +154,15 @@ impl DinoEmbedder {
         Self::load_with_side(model, threads, side)
     }
 
-    /// `side` must be a multiple of 14; smaller inputs trade accuracy for speed.
     pub fn load_with_side(model: &Path, threads: usize, side: u32) -> Result<Self, EmbedError> {
+        Self::load_with_spec(model, threads, ModelSpec::dinov2(side)?)
+    }
+
+    pub fn load_with_spec(
+        model: &Path,
+        threads: usize,
+        spec: ModelSpec,
+    ) -> Result<Self, EmbedError> {
         let environment = crate::ort_environment().map_err(inference)?;
         let threads = if threads > 0 {
             threads
@@ -118,22 +186,20 @@ impl DinoEmbedder {
             .map_err(inference)?;
         Ok(Self {
             session: Mutex::new(session),
-            // Vectors from different input sides are not comparable, so the side is part of
-            // the model id that product_embeddings are filtered by.
-            model: format!("dinov2-vits14-onnx@1/{side}"),
+            model: spec.model_id(),
             batch: 8,
-            side,
+            spec,
         })
     }
 }
 
-impl Embedder for DinoEmbedder {
+impl Embedder for OnnxEmbedder {
     fn model(&self) -> &str {
         &self.model
     }
 
     fn dim(&self) -> usize {
-        Self::DIM
+        self.spec.dim
     }
 
     fn embed(&self, image: &[u8]) -> Result<Vec<f32>, EmbedError> {
@@ -148,6 +214,7 @@ impl Embedder for DinoEmbedder {
     fn embed_crops(&self, crops: &[RgbImage]) -> Result<Vec<Vec<f32>>, EmbedError> {
         self.embed_crops_controlled(crops, None)
     }
+
     fn embed_crops_with_control(
         &self,
         crops: &[RgbImage],
@@ -155,6 +222,7 @@ impl Embedder for DinoEmbedder {
     ) -> Result<Vec<Vec<f32>>, EmbedError> {
         self.embed_crops_controlled(crops, Some(control))
     }
+
     fn embed_with_control(
         &self,
         bytes: &[u8],
@@ -169,14 +237,16 @@ impl Embedder for DinoEmbedder {
             .ok_or_else(|| inference("missing embedding"))
     }
 }
-impl DinoEmbedder {
+
+impl OnnxEmbedder {
     fn embed_crops_controlled(
         &self,
         crops: &[RgbImage],
         control: Option<&crate::work::WorkControl>,
     ) -> Result<Vec<Vec<f32>>, EmbedError> {
-        let side = self.side as usize;
-        let dim = Self::DIM;
+        let spec = self.spec;
+        let side = spec.side as usize;
+        let dim = spec.dim;
         let mut out = Vec::with_capacity(crops.len());
         let mut session = self
             .session
@@ -186,18 +256,27 @@ impl DinoEmbedder {
             crate::work::checkpoint(control)?;
             let mut input = vec![0.0_f32; chunk.len() * 3 * side * side];
             for (crop, slot) in chunk.iter().zip(input.chunks_mut(3 * side * side)) {
-                normalize_into(crop, slot, self.side);
+                if crop.width() == 0 || crop.height() == 0 {
+                    return Err(EmbedError::InvalidImage("empty crop".into()));
+                }
+                if spec.letterbox {
+                    normalize_with_stats(crop, slot, spec.side, spec.mean, spec.std);
+                } else {
+                    crate::crop::normalize_into(crop, slot, spec.side);
+                }
             }
             let outputs = session
                 .run(ort::inputs![
                     "pixel_values" => Tensor::from_array(([chunk.len(), 3, side, side], input)).map_err(inference)?
                 ])
                 .map_err(inference)?;
-            // A [B, dim] output (pooler_output) is accepted as-is.
-            let (shape, data) = outputs[0].try_extract_tensor::<f32>().map_err(inference)?;
-            let tokens = match shape.len() {
-                2 if shape[1] == dim as i64 => 1,
-                3 if shape[2] == dim as i64 && shape[1] >= 1 => shape[1] as usize,
+            let output = outputs
+                .get(spec.output)
+                .ok_or_else(|| inference(format!("missing output {}", spec.output)))?;
+            let (shape, data) = output.try_extract_tensor::<f32>().map_err(inference)?;
+            let tokens = match (spec.pooling, shape.len()) {
+                (Pooling::Pooled, 2) if shape[1] == dim as i64 => 1,
+                (Pooling::Cls, 3) if shape[2] == dim as i64 && shape[1] >= 1 => shape[1] as usize,
                 _ => return Err(inference(format!("unexpected embedding shape {shape:?}"))),
             };
             if shape[0] != chunk.len() as i64 {
@@ -205,6 +284,9 @@ impl DinoEmbedder {
             }
             for sample in data.chunks_exact(tokens * dim) {
                 let mut v = sample[..dim].to_vec();
+                if !v.iter().all(|x| x.is_finite()) || !v.iter().any(|x| *x != 0.) {
+                    return Err(inference("model returned non-finite or zero embedding"));
+                }
                 l2_normalize(&mut v);
                 out.push(v);
             }
@@ -245,6 +327,24 @@ impl Embedder for MockEmbedder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn production_model_specs_have_distinct_preprocessing_output_and_identity() {
+        let siglip = ModelSpec::siglip2();
+        assert_eq!(siglip.side, 224);
+        assert_eq!(siglip.mean, [0.5; 3]);
+        assert_eq!(siglip.std, [0.5; 3]);
+        assert_eq!(siglip.dim, 768);
+        assert_eq!(siglip.output, "output");
+        assert_eq!(siglip.pooling, Pooling::Pooled);
+        assert_eq!(siglip.model_id(), "siglip2-b16-224-onnx@1/lb224");
+        let dino = ModelSpec::dinov2(112).unwrap();
+        assert_eq!(dino.dim, 384);
+        assert_eq!(dino.pooling, Pooling::Cls);
+        assert_eq!(dino.model_id(), "dinov2-vits14-onnx@1/112");
+        assert!(ModelSpec::dinov2(113).is_err());
+        assert!(ModelSpec::dinov2(0).is_err());
+    }
+
     #[test]
     fn deterministic_different_and_normalized() {
         let mock = MockEmbedder;

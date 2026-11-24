@@ -2,6 +2,84 @@ use async_trait::async_trait;
 use std::{collections::HashMap, sync::RwLock};
 use uuid::Uuid;
 
+pub const VOTES_PER_PRODUCT: usize = 3;
+pub const DEFAULT_EMBED_KNN: usize = 20;
+pub const KNN_OVERFETCH: usize = 8;
+pub const KNN_OVERFETCH_FLOOR: usize = 32;
+pub const MAX_PRODUCT_REFERENCE_VECTORS: usize = 8 * 2 * 7;
+
+pub fn embed_knn() -> usize {
+    std::env::var("EMBED_KNN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|n: &usize| *n > 0)
+        .unwrap_or(DEFAULT_EMBED_KNN)
+}
+
+pub fn search_limits(limit: usize, knn: usize) -> (usize, usize) {
+    let votes = knn.max(limit.saturating_mul(VOTES_PER_PRODUCT));
+    (
+        votes
+            .saturating_mul(KNN_OVERFETCH)
+            .max(limit.saturating_mul(MAX_PRODUCT_REFERENCE_VECTORS))
+            .max(KNN_OVERFETCH_FLOOR),
+        votes,
+    )
+}
+
+/// Capped per-product voting over reference hits, with prototype fallback.
+pub fn voting_scores(
+    mut references: Vec<VectorHit>,
+    prototypes: Vec<VectorHit>,
+    limit: usize,
+) -> Vec<VectorHit> {
+    let (fetch, budget) = search_limits(limit, embed_knn());
+    let order = |a: &VectorHit, b: &VectorHit| {
+        b.similarity
+            .total_cmp(&a.similarity)
+            .then_with(|| a.product_id.cmp(&b.product_id))
+    };
+    references.sort_by(order);
+    references.truncate(fetch);
+    let mut counts = HashMap::<Uuid, usize>::new();
+    let mut scores = HashMap::<Uuid, f32>::new();
+    let mut votes = 0;
+    for hit in references {
+        let count = counts.entry(hit.product_id).or_default();
+        if *count == VOTES_PER_PRODUCT {
+            continue;
+        }
+        if votes == budget {
+            break;
+        }
+        *count += 1;
+        votes += 1;
+        *scores.entry(hit.product_id).or_default() += hit.similarity / VOTES_PER_PRODUCT as f32;
+    }
+    for hit in prototypes {
+        scores.entry(hit.product_id).or_insert(hit.similarity);
+    }
+    let mut hits: Vec<_> = scores
+        .into_iter()
+        .map(|(product_id, similarity)| VectorHit {
+            product_id,
+            similarity,
+        })
+        .collect();
+    hits.sort_by(order);
+    hits.truncate(limit);
+    hits
+}
+
+/// SQL identifiers are selected only from this fixed allow-list, never from environment input.
+pub fn embedding_column(dim: usize) -> anyhow::Result<&'static str> {
+    match dim {
+        384 => Ok("embedding"),
+        768 => Ok("embedding_768"),
+        _ => anyhow::bail!("unsupported embedding dimension {dim}; expected 384 or 768"),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VectorHit {
     pub product_id: Uuid,
@@ -121,6 +199,36 @@ impl VectorIndex for InMemoryVectorIndex {
             .entries
             .read()
             .map_err(|_| anyhow::anyhow!("vector index lock poisoned"))?;
+        if embedding.len() == 768 {
+            let mut references = Vec::new();
+            let mut prototypes = Vec::new();
+            for ((store, product, image, m), vector) in entries.iter() {
+                if *store != store_id || m != model {
+                    continue;
+                }
+                anyhow::ensure!(
+                    vector.len() == embedding.len(),
+                    "model embedding dimension mismatch"
+                );
+                let dot = embedding
+                    .iter()
+                    .zip(vector)
+                    .map(|(&a, &b)| f64::from(a) * f64::from(b))
+                    .sum::<f64>();
+                let similarity = (dot / (query_norm * norm(vector)?)).clamp(-1., 1.) as f32;
+                let hit = VectorHit {
+                    product_id: *product,
+                    similarity,
+                };
+                if image.is_some() {
+                    references.push(hit);
+                } else {
+                    prototypes.push(hit);
+                }
+            }
+            return Ok(voting_scores(references, prototypes, limit));
+        }
+
         let mut best: HashMap<Uuid, f32> = HashMap::new();
         for ((store, product, _, m), vector) in entries.iter() {
             if *store != store_id || m != model {
@@ -237,5 +345,111 @@ mod tests {
         index.upsert(id, id, id, "m", vec![1., 0.]).await.unwrap();
         assert!(index.upsert(id, id, id, "m", vec![1.]).await.is_err());
         assert!(index.search(id, "m", &[1.], 1).await.is_err());
+    }
+
+    #[test]
+    fn overfetch_reserves_capacity_for_distinct_augmented_products() {
+        let (fetch, votes) = search_limits(5, DEFAULT_EMBED_KNN);
+        assert!(fetch >= 5 * 112);
+        assert_eq!(votes, 20);
+        assert_eq!(search_limits(10, 7).1, 30);
+    }
+
+    #[test]
+    fn embedding_column_maps_dimensions_or_rejects() {
+        assert_eq!(embedding_column(384).unwrap(), "embedding");
+        assert_eq!(embedding_column(768).unwrap(), "embedding_768");
+        assert!(embedding_column(512).is_err());
+        assert!(embedding_column(0).is_err());
+    }
+
+    #[test]
+    fn voting_caps_votes_and_falls_back_to_prototypes() {
+        let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let hit = |product_id, similarity| VectorHit {
+            product_id,
+            similarity,
+        };
+        let refs = vec![hit(a, 0.9), hit(a, 0.9), hit(a, 0.9), hit(a, 0.9)];
+        let out = voting_scores(refs, vec![hit(b, 0.4)], 5);
+        assert_eq!(out[0].product_id, a);
+        assert!((out[0].similarity - 0.9).abs() < 1e-6);
+        assert_eq!(out[1].product_id, b);
+    }
+
+    #[tokio::test]
+    async fn default_path_384_preserves_current_max_similarity_results() {
+        let index = InMemoryVectorIndex::default();
+        let store = Uuid::new_v4();
+        let p = Uuid::new_v4();
+        let mut v1 = vec![0.0_f32; 384];
+        let mut v2 = vec![0.0_f32; 384];
+        v1[0] = 1.0;
+        v2[0] = 0.8;
+        index
+            .upsert(store, p, Uuid::new_v4(), "m", v1.clone())
+            .await
+            .unwrap();
+        index
+            .upsert(store, p, Uuid::new_v4(), "m", v2.clone())
+            .await
+            .unwrap();
+
+        let mut query = vec![0.0_f32; 384];
+        query[0] = 1.0;
+        let hits = index.search(store, "m", &query, 5).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].product_id, p);
+        // Under current/default 384 path, max similarity is 1.0 (NOT divided by 3)
+        assert_eq!(hits[0].similarity, 1.0);
+    }
+
+    #[tokio::test]
+    async fn voting_rewards_three_hits_and_prototype_fallback_on_768_vectors() {
+        let index = InMemoryVectorIndex::default();
+        let (store, supported, singleton, fallback) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        for score in [0.91_f32, 0.90, 0.89, 0.10] {
+            let mut v = vec![0.0_f32; 768];
+            v[0] = score;
+            v[1] = (1. - score * score).sqrt();
+            index
+                .upsert(store, supported, Uuid::new_v4(), "m", v)
+                .await
+                .unwrap();
+        }
+        let mut v_single = vec![0.0_f32; 768];
+        v_single[0] = 1.0;
+        index
+            .upsert(store, singleton, Uuid::new_v4(), "m", v_single.clone())
+            .await
+            .unwrap();
+
+        index
+            .upsert_prototype(store, supported, "m", v_single.clone())
+            .unwrap();
+        index
+            .upsert_prototype(store, singleton, "m", v_single.clone())
+            .unwrap();
+
+        let mut v_fb = vec![0.0_f32; 768];
+        v_fb[0] = 0.82;
+        v_fb[1] = (1. - 0.82_f32.powi(2)).sqrt();
+        index.upsert_prototype(store, fallback, "m", v_fb).unwrap();
+
+        let mut query = vec![0.0_f32; 768];
+        query[0] = 1.0;
+        let hits = index.search(store, "m", &query, 3).await.unwrap();
+        assert_eq!(
+            hits.iter().map(|h| h.product_id).collect::<Vec<_>>(),
+            vec![supported, fallback, singleton]
+        );
+        for (hit, expected) in hits.iter().zip([0.90, 0.82, 1. / 3.]) {
+            assert!((hit.similarity - expected).abs() < 1e-6);
+        }
     }
 }

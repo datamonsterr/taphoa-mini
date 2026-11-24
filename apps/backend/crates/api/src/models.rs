@@ -45,18 +45,19 @@ impl LazyModels {
             }
             _ => anyhow::bail!("set both SAM_ENCODER_PATH and SAM_DECODER_PATH, or neither"),
         };
-        let dino = config
-            .dino_model
-            .as_ref()
-            .filter(|path| path.exists())
-            .map(|_| {
-                let config = config.clone();
-                ModelHolder::new("dinov2", idle, move || {
-                    config
-                        .embedder()?
-                        .ok_or_else(|| anyhow::anyhow!("DINOv2 weights absent"))
-                })
-            });
+        let (embedder_path, model_name) = if config.embedder_name == "siglip2" {
+            (config.siglip2_model.as_ref(), "siglip2")
+        } else {
+            (config.dino_model.as_ref(), "dinov2")
+        };
+        let dino = embedder_path.filter(|path| path.exists()).map(|_| {
+            let config = config.clone();
+            ModelHolder::new(model_name, idle, move || {
+                config
+                    .embedder()?
+                    .ok_or_else(|| anyhow::anyhow!("embedder weights absent"))
+            })
+        });
         let ocr = match (
             &config.ocr_det,
             &config.ocr_encoder,
@@ -291,5 +292,33 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), status);
         }
+    }
+
+    #[tokio::test]
+    async fn optional_siglip2_model_is_not_loaded_by_default() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+
+        let default_config = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://local.clerk.accounts.dev".into()),
+            "DINO_MODEL_PATH" => Some(file.into()),
+            "SIGLIP2_MODEL_PATH" => Some(file.into()),
+            _ => None,
+        })
+        .unwrap();
+        let default_models = LazyModels::from_config(&default_config).unwrap();
+        let default_holder = default_models.dino.expect("embedder holder configured");
+        assert_eq!(default_holder.family(), "dinov2");
+
+        let siglip_config = Config::from_lookup(|name| match name {
+            "CLERK_ISSUER" => Some("https://local.clerk.accounts.dev".into()),
+            "EMBEDDER" => Some("siglip2".into()),
+            "DINO_MODEL_PATH" => Some(file.into()),
+            "SIGLIP2_MODEL_PATH" => Some(file.into()),
+            _ => None,
+        })
+        .unwrap();
+        let siglip_models = LazyModels::from_config(&siglip_config).unwrap();
+        let siglip_holder = siglip_models.dino.expect("embedder holder configured");
+        assert_eq!(siglip_holder.family(), "siglip2");
     }
 }

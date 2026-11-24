@@ -1019,3 +1019,114 @@ async fn scan_search_function_matches_search_sql() {
         }
     }
 }
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn default_path_384_parity_against_legacy_search_sql() {
+    use taphoa_api::recognition::pgvector::SEARCH_SQL;
+
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let store = new_store(&pool).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let query = axis(0);
+
+    let p1 = new_product(&pool, store).await;
+    let p2 = new_product(&pool, store).await;
+
+    index
+        .upsert(store, p1, new_image(&pool, store).await, MODEL, axis(0))
+        .await
+        .unwrap();
+    index
+        .upsert(store, p2, new_image(&pool, store).await, MODEL, axis(1))
+        .await
+        .unwrap();
+
+    let search_hits = index.search(store, MODEL, &query, 5).await.unwrap();
+    let sql_rows: Vec<(Uuid, f32)> = sqlx::query_as(SEARCH_SQL)
+        .bind(pgvector::Vector::from(query.clone()))
+        .bind(store)
+        .bind(MODEL)
+        .bind(32_i64)
+        .bind(5_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(search_hits.len(), sql_rows.len());
+    for (hit, (prod, sim)) in search_hits.iter().zip(sql_rows) {
+        assert_eq!(hit.product_id, prod);
+        assert_eq!(hit.similarity, sim);
+    }
+    assert_eq!(search_hits[0].similarity, 1.0);
+}
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn wide_vectors_roundtrip_vote_fallback_and_isolate_models() {
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let fallback = new_product(&pool, store).await;
+    let other_store = new_store(&pool).await;
+    let foreign = new_product(&pool, other_store).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+    let mut v = vec![0.; 768];
+    v[767] = 1.;
+    for _ in 0..3 {
+        index
+            .upsert(
+                store,
+                product,
+                new_image(&pool, store).await,
+                model,
+                v.clone(),
+            )
+            .await
+            .unwrap();
+    }
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            MODEL,
+            axis(0),
+        )
+        .await
+        .unwrap();
+    index
+        .upsert(
+            other_store,
+            foreign,
+            new_image(&pool, other_store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_prototypes (store_id,product_id,model,embedding_768,reference_count) VALUES ($1,$2,$3,$4,1)")
+        .bind(store).bind(fallback).bind(model).bind(pgvector::Vector::from(v.clone())).execute(&pool).await.unwrap();
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(
+        hits.iter()
+            .all(|h| h.similarity > 0.999 && [product, fallback].contains(&h.product_id))
+    );
+    assert!(
+        index
+            .search(store, "another-wide-model", &v, 5)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let rollback = index.search(store, MODEL, &axis(0), 5).await.unwrap();
+    assert_eq!(rollback.len(), 1);
+    assert_eq!(rollback[0].product_id, product);
+    let wide: i64 = sqlx::query_scalar("SELECT count(*) FROM product_embeddings WHERE store_id=$1 AND model=$2 AND embedding IS NULL AND vector_dims(embedding_768)=768")
+        .bind(store).bind(model).fetch_one(&pool).await.unwrap();
+    assert_eq!(wide, 3);
+}
