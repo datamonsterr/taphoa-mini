@@ -230,14 +230,14 @@ test.describe('sign-in screens', () => {
 
     // the right one opens the shop of the existing membership: no onboarding
     await field(page, 'Mã xác nhận 6 chữ số').fill(TEST_CODE);
-    await submitUntil(page, byId(page, 'auth-verify-code'), shopHome(page));
     const [me] = await Promise.all([
       waitForApi(page, 'GET', '/v1/me'),
-      openShop(page, '/account'),
+      submitUntil(page, byId(page, 'auth-verify-code'), shopHome(page)),
     ]);
     expect(me.body.memberships.map((m: any) => m.store.id)).toEqual([
       store.session.store.id,
     ]);
+    await page.getByRole('tab', { name: 'Tài khoản', exact: true }).click();
 
     // "Đăng xuất" signs this session out: back to sign-in, and the shop stays closed
     await button(page, 'Đăng xuất').click();
