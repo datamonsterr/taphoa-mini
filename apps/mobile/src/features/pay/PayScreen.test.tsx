@@ -32,7 +32,11 @@ const mockRouter = {
   dismissAll: jest.fn(),
   canDismiss: jest.fn(() => true),
 };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+let mockParams: Record<string, string | undefined> = {};
+jest.mock('expo-router', () => ({
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => mockParams,
+}));
 jest.mock('react-native-qrcode-svg', () => {
   const { Text } = require('react-native');
   return {
@@ -57,6 +61,7 @@ beforeEach(() => {
   onlineManager.setOnline(true);
   jest.clearAllMocks();
   jest.restoreAllMocks();
+  mockParams = {};
   mockRouter.canDismiss.mockReturnValue(true);
   resetMockDb();
   useCartStore.setState({ lines: [] });
@@ -590,5 +595,44 @@ describe('PayScreen spoken total', () => {
         ),
       { timeout: 2000 },
     );
+  });
+});
+
+describe('PayScreen method preselection (X5)', () => {
+  it('preselects cash when method=cash param is passed', async () => {
+    mockParams = { method: 'cash' };
+    await renderWithProviders(<PayScreen />);
+    expect(
+      screen.getByRole('radio', { name: 'Tiền mặt' }).props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    expect(screen.getByLabelText('Tiền thối')).toBeOnTheScreen();
+  });
+
+  it('preselects credit when method=credit param is passed', async () => {
+    mockParams = { method: 'credit' };
+    await renderWithProviders(<PayScreen />);
+    expect(
+      screen.getByRole('radio', { name: 'Ghi nợ' }).props.accessibilityState,
+    ).toMatchObject({ checked: true });
+  });
+
+  it('defaults to transfer when no method param is passed', async () => {
+    mockParams = {};
+    await renderWithProviders(<PayScreen />);
+    expect(
+      screen.getByRole('radio', { name: 'Chuyển khoản' }).props
+        .accessibilityState,
+    ).toMatchObject({ checked: true });
+  });
+});
+
+describe('PayScreen empty cart safety (X5)', () => {
+  it('disables confirmation and prevents recording a sale when cart is empty', async () => {
+    useCartStore.setState({ lines: [] });
+    await renderWithProviders(<PayScreen />);
+    const confirm = screen.getByRole('button', { name: 'Đã nhận tiền' });
+    expect(confirm.props.accessibilityState).toMatchObject({ disabled: true });
+    await fireEvent.press(confirm);
+    expect(await pendingItems()).toHaveLength(0);
   });
 });

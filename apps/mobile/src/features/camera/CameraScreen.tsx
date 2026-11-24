@@ -598,6 +598,7 @@ export function CameraScreen() {
   );
 
   const onAdd = useCallback(() => {
+    const isCartEmpty = useCartStore.getState().lines.length === 0;
     if (barcodeResult?.product) {
       const product = barcodeResult.product;
       addLine({
@@ -610,13 +611,32 @@ export function CameraScreen() {
       setBarcodeResult(null);
     } else {
       if (!scan) return;
-      for (const line of toCartLines(scan, selected, chosen, fallbackName))
-        addLine(line);
+      const linesToAdd = toCartLines(scan, selected, chosen, fallbackName);
+      for (const line of linesToAdd) addLine(line);
       added();
+      const isSingleConfirmedScan =
+        isCartEmpty &&
+        linesToAdd.length === 1 &&
+        scan.detections.length === 1 &&
+        scan.detections[0].match === 'matched' &&
+        !isLowMatch(scan.detections[0]) &&
+        Object.keys(chosen).length === 0;
+      if (isSingleConfirmedScan) {
+        router.push({ pathname: '/pay', params: { method: 'cash' } });
+      }
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setAddCount((n) => n + 1);
-  }, [barcodeResult, scan, selected, chosen, fallbackName, addLine, added]);
+  }, [
+    barcodeResult,
+    scan,
+    selected,
+    chosen,
+    fallbackName,
+    addLine,
+    added,
+    router,
+  ]);
 
   const openCart = useCallback(() => router.push('/cart'), [router]);
   const openShop = useCallback(() => router.push('/inventory'), [router]);

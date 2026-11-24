@@ -10,6 +10,7 @@ import {
   openShop,
   scanAndAdd,
   seedScannableProduct,
+  shoot,
   shutter,
   test,
   waitForApi,
@@ -188,10 +189,10 @@ test.describe('checkout and payment', () => {
       `Giỏ hàng: 2 món, ${formatVnd(total)}`,
     );
     await cartPill(page).click();
-    await button(page, 'Hiện mã QR thanh toán').click();
+    await button(page, 'Tiền mặt').click();
     await expect(page).toHaveURL(/\/pay/);
 
-    await page.getByRole('radio', { name: 'Tiền mặt' }).click();
+    await expect(page.getByRole('radio', { name: 'Tiền mặt' })).toBeChecked();
     await expect(page.getByRole('img', { name: /Mã VietQR/ })).toHaveCount(0);
     const change = page.getByLabel('Tiền thối');
     await expect(change).toHaveText('0đ');
@@ -248,5 +249,40 @@ test.describe('checkout and payment', () => {
     // cash still works
     await page.getByRole('radio', { name: 'Tiền mặt' }).click();
     await expect(button(page, 'Đã nhận tiền')).toBeEnabled();
+  });
+
+  test('one-item cash sale in 3 taps after shutter (X5)', async ({
+    page,
+    store,
+  }) => {
+    const coca = await seedScannableProduct(store.api, COCA);
+    await openCamera(page);
+
+    // Tap 1 after shutter: + adds single confirmed item and opens Pay directly with cash
+    const scan = await shoot(page);
+    await addButton(page).click();
+    await expect(page).toHaveURL(/\/pay/);
+    await expect(page.getByRole('radio', { name: 'Tiền mặt' })).toBeChecked();
+    await expect(page.getByText(coca.name)).toBeVisible();
+
+    // Tap 2: quick cash note
+    await button(page, '100.000').click();
+    await expect(page.getByLabel('Tiền thối')).toHaveText(
+      formatVnd(100_000 - coca.price),
+    );
+
+    // Tap 3: confirm received
+    const sale = await callApi(page, 'POST', '/v1/sales', () =>
+      button(page, 'Đã nhận tiền').click(),
+    );
+    expect(sale.status).toBe(201);
+    expect(sale.requestBody).toMatchObject({
+      payment_method: 'cash',
+      total: coca.price,
+      cash_received: 100_000,
+      lines: [{ product_id: coca.id, quantity: 1, unit_price: coca.price }],
+    });
+    await expect(page.getByLabel('Đã nhận tiền xong')).toBeVisible();
+    await expect(button(page, 'Giỏ hàng trống')).toBeVisible();
   });
 });

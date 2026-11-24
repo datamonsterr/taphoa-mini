@@ -998,6 +998,15 @@ export async function scanAndAdd(
     `${product.name} ${formatVnd(product.price)}, xem món khác`,
   );
   await addButton(page).click();
+  // X5: a single confirmed scan with empty cart opens Pay directly with cash.
+  // When Pay opens, return to camera so callers have the item in the cart on the live camera.
+  const back = page.getByRole('button', { name: 'Quay lại giỏ hàng' });
+  await Promise.race([
+    back.waitFor({ state: 'visible', timeout: 3000 }).then(async () => {
+      await back.click();
+    }),
+    shutter(page).waitFor({ state: 'visible', timeout: 3000 }),
+  ]).catch(() => {});
   await expect(shutter(page)).toBeVisible();
   return scan;
 }

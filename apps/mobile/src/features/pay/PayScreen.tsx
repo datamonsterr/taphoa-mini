@@ -1,6 +1,6 @@
 import { CustomerPicker } from '../debts/CustomerPicker';
 import { debtStrings } from '../debts/strings';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
   BookText,
@@ -153,7 +153,12 @@ export function PayScreen() {
     !/^\d*$/.test(paidText) ||
     !Number.isSafeInteger(paidNow) ||
     paidNow > total;
-  const [method, setMethod] = useState<PayMethod>('transfer');
+  const { method: paramMethod } = useLocalSearchParams<{ method?: string }>();
+  const initialMethod: PayMethod =
+    paramMethod === 'cash' || paramMethod === 'credit'
+      ? paramMethod
+      : 'transfer';
+  const [method, setMethod] = useState<PayMethod>(initialMethod);
   const [tendered, setTendered] = useState<number | null>(null);
   const [done, setDone] = useState(false);
   const [saleId] = useState(newUuid);
@@ -225,6 +230,7 @@ export function PayScreen() {
   }, [done, leave]);
 
   const received = useCallback(() => {
+    if (lines.length === 0) return;
     const scanIds = [
       ...new Set(lines.flatMap((l) => (l.scanId ? [l.scanId] : []))),
     ];

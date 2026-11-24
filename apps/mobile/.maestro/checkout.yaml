@@ -14,24 +14,24 @@ appId: com.datamonsterr.taphoamini
     env:
       PRODUCT_NAME: 'Kẹo dừa'
 # cart: the product enrolled and added itself
+# Tap count: 4 taps total to complete cash checkout from the cart (down from 5)
+# Tap 1: Open cart
 - tapOn: 'Giỏ hàng:.*'
-- extendedWaitUntil:
-    visible: 'Hiện mã QR thanh toán'
-    timeout: 20000
-- assertVisible: 'Kẹo dừa'
-- takeScreenshot: checkout-01-cart
-- tapOn: 'Hiện mã QR thanh toán'
-# pay in cash: 100.000 handed over for 15.000 -> 85.000 back
 - extendedWaitUntil:
     visible: 'Tiền mặt'
     timeout: 20000
+- assertVisible: 'Kẹo dừa'
+- takeScreenshot: checkout-01-cart
+# Tap 2: Select cash payment directly in cart (preselects cash in pay sheet, skipping QR step)
 - tapOn: 'Tiền mặt'
-- tapOn: '100.000'
+# Tap 3: Hand over 100.000 for 15.000 -> 85.000 change
 - extendedWaitUntil:
     visible: 'Tiền thối'
     timeout: 20000
+- tapOn: '100.000'
 - assertVisible: '85.000đ'
 - takeScreenshot: checkout-02-pay-cash
+# Tap 4: Confirm received cash
 - tapOn: 'Đã nhận tiền'
 # back at the camera with an empty cart
 - extendedWaitUntil:

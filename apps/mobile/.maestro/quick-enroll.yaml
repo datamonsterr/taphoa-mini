@@ -62,13 +62,10 @@ appId: com.datamonsterr.taphoamini
     visible: 'Thêm vào giỏ'
     timeout: 30000
 - assertVisible: '.*17.000đ.*'
+# X5: With an empty cart and a single confirmed scan, + opens Pay directly with cash preselected
 - tapOn: 'Thêm vào giỏ'
 - extendedWaitUntil:
-    visible: 'Giỏ hàng: 1 món, 17.000đ'
-    timeout: 20000
-- tapOn: 'Giỏ hàng:.*'
-- extendedWaitUntil:
-    visible: 'Hiện mã QR thanh toán'
+    visible: 'Tiền mặt'
     timeout: 20000
 - assertVisible: 'Banh nhanh E2E'
 - assertVisible: '17.000đ'

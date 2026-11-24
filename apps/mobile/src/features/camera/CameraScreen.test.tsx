@@ -512,6 +512,43 @@ describe('single item', () => {
     ).toBeOnTheScreen();
   });
 
+  it('X5: single confirmed scan with empty cart adds item and opens Pay directly with cash', async () => {
+    useCartStore.setState({ lines: [] });
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    // Default top-1 candidate is selected; no manual candidate correction
+    await fireEvent.press(screen.getByRole('button', { name: 'Thêm vào giỏ' }));
+
+    expect(useCartStore.getState().lines).toHaveLength(1);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/pay',
+      params: { method: 'cash' },
+    });
+  });
+
+  it('X5: non-empty cart keeps Cart on camera without navigating to Pay directly', async () => {
+    useCartStore.setState({
+      lines: [
+        {
+          productId: 'existing',
+          name: 'Existing',
+          price: 5000,
+          qty: 1,
+          manual: false,
+        },
+      ],
+    });
+    mockPush.mockClear();
+    await renderWithProviders(<CameraScreen />);
+    await capture();
+    await fireEvent.press(screen.getByRole('button', { name: 'Thêm vào giỏ' }));
+
+    expect(useCartStore.getState().lines).toHaveLength(2);
+    expect(mockPush).not.toHaveBeenCalledWith(
+      expect.objectContaining({ pathname: '/pay' }),
+    );
+  });
+
   it('retake (shutter) and the frozen photo both return to the live camera', async () => {
     await renderWithProviders(<CameraScreen />);
     await capture();
