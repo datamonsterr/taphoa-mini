@@ -44,3 +44,41 @@ test('on reconnect it sends unsent writes first, then pulls the catalog delta', 
   // the sale screens are fetched while online (web chunks), once the network is up
   expect(mockPrefetch).toHaveBeenCalledTimes(1);
 });
+
+test('does not start syncing while start is false, and starts after start becomes true', async () => {
+  const order: string[] = [];
+  setApiTransport((async (input: Request) => {
+    order.push(new URL(input.url).pathname);
+    return new Response(
+      JSON.stringify({ changes: [], cursor: 'c1', has_more: false }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch);
+  resetOutbox();
+  const qc = createTestQueryClient();
+  onlineManager.setOnline(false);
+  await enqueue({ kind: 'order-start-test', payload: 1, key: 'k2' });
+  registerOutboxHandler('order-start-test', {
+    send: async (_payload, key) => {
+      order.push(`send ${key}`);
+    },
+  });
+  onlineManager.setOnline(true);
+
+  const view = await render(
+    <QueryClientProvider client={qc}>
+      <OfflineSync start={false} />
+    </QueryClientProvider>,
+  );
+  expect(order).toEqual([]);
+
+  await view.rerender(
+    <QueryClientProvider client={qc}>
+      <OfflineSync start={true} />
+    </QueryClientProvider>,
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(order).toEqual(['send k2', '/v1/sync/changes']);
+});
