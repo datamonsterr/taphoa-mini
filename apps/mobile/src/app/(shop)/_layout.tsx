@@ -4,6 +4,9 @@ import { View } from 'react-native';
 import { ShopTabBar } from '@/features/inventory/ShopTabBar';
 import { LowStockBanner } from '@/features/stock-alerts/LowStockBanner';
 import { useLowStockWatcher } from '@/features/stock-alerts/useLowStockWatcher';
+import { currentStoreId } from '@/lib/api/clerkBridge';
+import { useStoreEvents } from '@/lib/api/useStoreEvents';
+import { useCurrentStore } from '@/stores/currentStore';
 import { usePushRegistration } from '@/lib/notifications';
 import { colors } from '@/theme';
 
@@ -15,6 +18,9 @@ export const unstable_settings = { anchor: 'inventory' };
  */
 export default function ShopLayout() {
   const { refreshOnFocus } = useLowStockWatcher();
+  // Subscribe to store selection so switching stores tears down the old stream.
+  useCurrentStore((state) => state.storeIds);
+  useStoreEvents(currentStoreId());
   usePushRegistration();
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>

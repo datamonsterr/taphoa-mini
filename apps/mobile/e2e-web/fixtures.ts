@@ -418,6 +418,38 @@ const benignFailure = (error: string | undefined) =>
 const CLIENT_ERROR_LOG =
   /^Failed to load resource: the server responded with a status of 4\d\d/;
 
+// Track script loads from before sign-in so goOffline can wait for Clerk's lazy chunks
+// without waiting for long-lived fetches (including /v1/events).
+const scriptLoads = new WeakMap<
+  Page,
+  { pending: Set<Request>; changedAt: number }
+>();
+function trackScriptLoads(page: Page) {
+  const state = { pending: new Set<Request>(), changedAt: Date.now() };
+  scriptLoads.set(page, state);
+  page.on('request', (request) => {
+    if (request.resourceType() !== 'script') return;
+    state.pending.add(request);
+    state.changedAt = Date.now();
+  });
+  const finish = (request: Request) => {
+    if (state.pending.delete(request)) state.changedAt = Date.now();
+  };
+  page.on('requestfinished', finish);
+  page.on('requestfailed', finish);
+}
+
+const isEventStream = (url: string) => {
+  try {
+    return (
+      new URL(url).origin === new URL(API_URL).origin &&
+      new URL(url).pathname === '/v1/events'
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const test = base.extend<Fixtures & Options>({
   signedIn: [true, { option: true }],
   // Set up first, torn down last: the browser contexts are closed before their users go.
@@ -457,6 +489,7 @@ export const test = base.extend<Fixtures & Options>({
   // way a phone does after the sign-in screens; nothing is written to storage by hand.
   page: [
     async ({ page, signedIn, storeFactory }, use) => {
+      trackScriptLoads(page);
       if (signedIn) {
         const { user, api } = await storeFactory();
         await signInAs(page, user, api);
@@ -474,7 +507,10 @@ export const test = base.extend<Fixtures & Options>({
         problems.push(`pageerror: ${error.message}`),
       );
       page.on('requestfailed', (request) => {
-        if (!benignFailure(request.failure()?.errorText))
+        if (
+          !isEventStream(request.url()) &&
+          !benignFailure(request.failure()?.errorText)
+        )
           problems.push(
             `requestfailed: ${request.url().slice(0, 120)} ${request.failure()?.errorText}`,
           );
@@ -483,7 +519,11 @@ export const test = base.extend<Fixtures & Options>({
         // The browser logs every 4xx answer; a spec that provokes one asserts the status itself.
         if (
           message.type() === 'error' &&
-          !CLIENT_ERROR_LOG.test(message.text())
+          !CLIENT_ERROR_LOG.test(message.text()) &&
+          !(
+            isEventStream(message.location().url) &&
+            /Failed to load resource: net::ERR_/.test(message.text())
+          )
         )
           problems.push(`console.error: ${message.text()}`);
       });
@@ -589,7 +629,8 @@ function isCall(
 ): boolean {
   const request = response.request();
   if (request.method() !== method) return false;
-  if (!response.url().startsWith(API_URL)) return false;
+  if (!response.url().startsWith(API_URL) || isEventStream(response.url()))
+    return false;
   return matches(pattern, new URL(response.url()).pathname);
 }
 
@@ -764,11 +805,18 @@ export async function openShopLoading<T = any>(
 // ---- camera ------------------------------------------------------------------------------
 
 /**
- * Cuts the network after the page settled: Clerk loads its UI chunks from its CDN a moment after
- * the app is up, and a chunk that fails to load offline is a console error the guard rejects.
+ * Wait for script downloads to settle: Clerk loads UI chunks after sign-in, but streaming
+ * fetches and Clerk background requests can remain open indefinitely.
  */
 export async function goOffline(page: Page) {
-  await page.waitForLoadState('networkidle');
+  const scripts = scriptLoads.get(page);
+  if (!scripts) throw new Error('Script tracking must start before navigation');
+  await expect
+    .poll(
+      () => scripts.pending.size === 0 && Date.now() - scripts.changedAt >= 500,
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   await page.context().setOffline(true);
 }
 
