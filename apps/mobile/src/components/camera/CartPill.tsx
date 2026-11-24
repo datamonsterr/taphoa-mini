@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '@/components/ui/Icon';
 import { formatVnd } from '@/lib/format';
 import { useSettingsStore } from '@/stores/settings';
-import { camera, colors, radius, size, space } from '@/theme';
+import { camera, colors, fontSize, radius, size, space } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props = {
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
     backgroundColor: camera.glass,
   },
   elderPill: { height: size.tapXl },
-  elderTotal: { fontSize: 24 },
+  elderTotal: { fontSize: fontSize[24] },
   cart: {
     width: 32,
     height: 32,
@@ -101,20 +101,20 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontFamily: fontFamily.bold,
-    fontSize: 12,
+    fontSize: fontSize[12],
     lineHeight: 20,
     color: colors.onAccent,
     fontVariant: ['tabular-nums'],
   },
   zero: {
     fontFamily: fontFamily.bold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     color: colors.cameraMuted,
     fontVariant: ['tabular-nums'],
   },
   total: {
     fontFamily: fontFamily.bold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     color: camera.white,
     fontVariant: ['tabular-nums'],
   },

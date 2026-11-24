@@ -364,3 +364,21 @@ test('passes business_date from search params to useDigest', async () => {
   expect(await screen.findByText('Thứ ba, 20/10 · 14:00')).toBeOnTheScreen();
   expect(getSpy).toHaveBeenCalledWith('2026-10-20', true);
 });
+
+test('a long restock list is virtualized while header and footer stay reachable', async () => {
+  jest.spyOn(digestApi, 'getDigest').mockResolvedValue({
+    ...fullDigest,
+    restock: Array.from({ length: 150 }, (_, i) => ({
+      ...fullDigest.restock[0],
+      product_id: `p-${i}`,
+      name: `Mặt hàng ${i}`,
+    })),
+  });
+  await renderWithProviders(<DigestScreen />);
+  expect(await screen.findByText('Mặt hàng 0')).toBeOnTheScreen();
+  expect(screen.getAllByText(/^Mặt hàng \d+$/).length).toBeLessThan(150);
+  expect(
+    screen.getByRole('header', { name: 'Tóm tắt sáng nay' }),
+  ).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: /Hỏi trợ lý/ })).toBeOnTheScreen();
+});

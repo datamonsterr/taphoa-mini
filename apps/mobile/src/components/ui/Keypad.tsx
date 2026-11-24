@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { Text } from './ScaledText';
 
-import { colors, radius, space, typography } from '@/theme';
+import { colors, fontSize, radius, space, typography } from '@/theme';
 
 import { Icon } from './Icon';
 import { KEYPAD_LAYOUT } from './keypad';
@@ -116,9 +116,9 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.4 },
   digit: {
     ...typography.heading,
-    fontSize: 28,
+    fontSize: fontSize[28],
     lineHeight: 34,
     color: colors.ink,
   },
-  wide: { fontSize: 22, lineHeight: 28 },
+  wide: { fontSize: fontSize[22], lineHeight: 28 },
 });

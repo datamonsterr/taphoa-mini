@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n';
 import { StockBadge } from './StockBadge';
 
 import { formatVnd } from '@/lib/format';
-import { colors, radius, size, space, typography } from '@/theme';
+import { colors, fontSize, radius, size, space, typography } from '@/theme';
 
 import { useSettingsStore } from '@/stores/settings';
 
@@ -135,8 +135,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
   },
   addElder: { width: size.tapXl, height: size.tapXl },
-  nameElder: { fontSize: 22, lineHeight: 28 },
-  priceElder: { fontSize: 30, lineHeight: 36 },
+  nameElder: { fontSize: fontSize[22], lineHeight: 28 },
+  priceElder: { fontSize: fontSize[30], lineHeight: 36 },
   photo: {
     aspectRatio: 1,
     alignItems: 'center',

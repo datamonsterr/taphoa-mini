@@ -1,18 +1,26 @@
-import { router } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { PressableScale, Text } from '@/components/ui';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, radius, size, space, typography } from '@/theme';
 
 import { strings } from './strings';
 
-export function StockSegment({ selected }: { selected: 'products' | 'stock' }) {
+export type KhoSegment = 'products' | 'stock';
+
+/** Sản phẩm / Tồn kho switch of the Kho tab; selecting never navigates by itself. */
+export function StockSegment({
+  selected,
+  onSelect,
+}: {
+  selected: KhoSegment;
+  onSelect: (segment: KhoSegment) => void;
+}) {
   const t = useT(strings);
   return (
     <View
       accessibilityRole="radiogroup"
-      accessibilityLabel={t('stock')}
+      accessibilityLabel={t('segments')}
       style={styles.segment}
     >
       {(['products', 'stock'] as const).map((item) => (
@@ -22,9 +30,7 @@ export function StockSegment({ selected }: { selected: 'products' | 'stock' }) {
           accessibilityLabel={t(item)}
           accessibilityState={{ checked: selected === item }}
           onPress={() => {
-            if (selected === item) return;
-            if (item === 'stock') router.push('/stock');
-            else router.replace('/inventory');
+            if (selected !== item) onSelect(item);
           }}
           style={[styles.option, selected === item && styles.selected]}
         >
@@ -48,8 +54,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   option: {
-    minHeight: 56,
-    paddingHorizontal: 20,
+    minHeight: size.tapMin,
+    paddingHorizontal: space[6],
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,

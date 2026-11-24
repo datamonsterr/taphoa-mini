@@ -24,7 +24,7 @@ import { useIsLead } from '@/features/auth/useMembership';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
-import { colors, radius, size, space, typography } from '@/theme';
+import { colors, fontSize, radius, size, space, typography } from '@/theme';
 
 import { dismissSheet } from '../dashboard/dismiss';
 import {
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   spacer: { flex: 1 },
-  expectedAmount: { fontSize: 24, lineHeight: 30 },
+  expectedAmount: { fontSize: fontSize[24], lineHeight: 30 },
   countedRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -5,7 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { strings } from '@/features/stock/strings';
 import type { Product } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 
 import { Icon } from './Icon';
 import { Text } from './ScaledText';
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
   /** Board chip: 15/20 at weight 600, the count only. The status is the colour, the icon and the label. */
   text: {
     fontFamily: fontFamily.semibold,
-    fontSize: 15,
+    fontSize: fontSize[15],
     lineHeight: 20,
     fontVariant: ['tabular-nums'],
   },

@@ -8,6 +8,31 @@ export const fontFamily = {
   extrabold: 'BeVietnamPro_800ExtraBold',
 } as const;
 
+/**
+ * Font-size scale in dp, keyed by value. The only place numeric font sizes are
+ * allowed (ESLint `no-restricted-syntax` enforces it); reach for a variant in
+ * `typography` first, then `fontSize[n]` for one-off sizes.
+ */
+export const fontSize = {
+  12: 12,
+  13: 13,
+  14: 14,
+  15: 15,
+  16: 16,
+  17: 17,
+  18: 18,
+  20: 20,
+  22: 22,
+  24: 24,
+  28: 28,
+  30: 30,
+  32: 32,
+  34: 34,
+  40: 40,
+  48: 48,
+  56: 56,
+} as const;
+
 export type TextVariant =
   'total' | 'price' | 'title' | 'heading' | 'body' | 'label' | 'caption';
 

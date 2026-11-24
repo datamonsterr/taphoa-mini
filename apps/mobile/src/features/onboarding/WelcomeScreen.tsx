@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { ScaledText } from '@/components/ui';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 
 import { useCurrentSessionSignOut } from '@/features/auth/useCurrentSessionSignOut';
 
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
   },
   tagText: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 24,
     color: colors.ink,
     fontVariant: ['tabular-nums'],

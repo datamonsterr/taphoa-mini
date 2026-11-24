@@ -14,7 +14,15 @@ import {
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
 import { useCanEnroll, useIsLead } from '@/features/auth/useMembership';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
 import { BarChart } from './BarChart';
@@ -171,6 +179,15 @@ export function DashboardScreen() {
           </PressableScale>
           <PressableScale
             accessibilityRole="button"
+            accessibilityLabel={t('recentExpenses')}
+            pressedScale={0.96}
+            onPress={() => router.push('/expenses')}
+            style={styles.link}
+          >
+            <Text style={styles.linkText}>{t('recentExpenses')}</Text>
+          </PressableScale>
+          <PressableScale
+            accessibilityRole="button"
             accessibilityLabel={exportLabel}
             pressedScale={0.96}
             onPress={() => setExporting(true)}
@@ -248,7 +265,7 @@ const styles = StyleSheet.create({
   },
   closeText: {
     fontFamily: fontFamily.semibold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     lineHeight: 24,
     color: colors.onInk,
   },

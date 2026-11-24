@@ -481,3 +481,78 @@ test('has the opt-in voice switch below the language row, and no system rows wit
   expect(screen.queryByTestId('voice-bubble-row')).toBeNull();
   expect(screen.queryByTestId('voice-tile-row')).toBeNull();
 });
+
+test('the account switch shows the onboarding answer and can change it', async () => {
+  useSettingsStore.getState().setElderMode(true);
+  await open();
+  const sw = () =>
+    screen.getByRole('switch', { name: 'Chế độ người lớn tuổi' });
+  expect(sw()).toBeChecked();
+  await fireEvent.press(sw());
+  expect(useSettingsStore.getState()).toMatchObject({
+    elderMode: false,
+    elderAsked: true,
+  });
+});
+
+test('lead can confirm a member role change and removal', async () => {
+  await open();
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Đổi vai trò Bà nội' }),
+  );
+  expect(screen.getByText('Đổi vai trò Bà nội thành Chủ?')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Hủy' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Xóa Bà nội' }));
+  expect(screen.getByText('Xóa Bà nội khỏi cửa hàng?')).toBeOnTheScreen();
+});
+
+test('sellers cannot see member management actions', async () => {
+  const session = testSession();
+  setTestMembership({
+    ...session,
+    member: { ...session.member, role: 'seller' },
+  });
+  await open();
+  expect(
+    screen.queryByRole('button', { name: 'Đổi vai trò Bà nội' }),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Xóa Bà nội' })).toBeNull();
+});
+
+test('lead changes a member role after confirming', async () => {
+  await open();
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Đổi vai trò Bà nội' }),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'Đồng ý' }));
+  expect(await screen.findByLabelText('Bà nội, Chủ')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Đồng ý' })).toBeNull();
+});
+
+test('lead removes a member after confirming', async () => {
+  await open();
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Xóa Bà nội' }),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'Đồng ý' }));
+  expect(await screen.findByLabelText('2 thành viên')).toBeOnTheScreen();
+  expect(screen.queryByLabelText('Bà nội, Người bán')).toBeNull();
+});
+
+test('the last Lead cannot be demoted or removed: plain Vietnamese refusal', async () => {
+  await open();
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Đổi vai trò Cô Ba' }),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'Đồng ý' }));
+  expect(
+    await screen.findByText('Cửa hàng phải còn ít nhất một Chủ.'),
+  ).toBeOnTheScreen();
+  expect(screen.getByLabelText('Cô Ba, Chủ')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Xóa Cô Ba' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Đồng ý' }));
+  expect(
+    await screen.findByText('Cửa hàng phải còn ít nhất một Chủ.'),
+  ).toBeOnTheScreen();
+  expect(screen.getByLabelText('3 thành viên')).toBeOnTheScreen();
+});

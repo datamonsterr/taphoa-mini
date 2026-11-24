@@ -5,10 +5,10 @@ Usage: railway_deploy.py <service> [environment]
 `railway up --ci` never returns when Railway marks the upload SKIPPED (no change against the
 running deployment), which held the deploy concurrency group until the job timeout. This script
 uploads with `--detach`, then polls `railway deployment list` for the new deployment. If an
-upload is SKIPPED and no deployment is running, it redeploys the service's current source and
-polls that deployment too. SUCCESS and SKIPPED with a running deployment exit 0, FAILED / CRASHED
-/ REMOVED print the build log and exit 1, and no terminal status within RAILWAY_DEPLOY_TIMEOUT
-seconds (default 1800) exits 1.
+upload is SKIPPED, it redeploys the service so pending environment variables (like SERVICE_VERSION
+set with --skip-deploys) take effect, and polls that redeployment too. SUCCESS exits 0, FAILED /
+CRASHED / REMOVED print the build log and exit 1, and no terminal status within
+RAILWAY_DEPLOY_TIMEOUT seconds (default 1800) exits 1.
 """
 
 import json
@@ -57,7 +57,7 @@ def main(argv):
         print(f"::error::railway up failed with exit code {upload.returncode}", file=sys.stderr)
         return upload.returncode
 
-    def poll(deployment_id, known, skipped_without_running_is_error=False):
+    def poll(deployment_id, known, skipped_is_error=False):
         deadline = time.monotonic() + timeout
         status = "UNKNOWN"
         while time.monotonic() < deadline:
@@ -66,9 +66,9 @@ def main(argv):
                 status = matches[0][1]
                 if status in OK:
                     if status == "SKIPPED":
-                        if skipped_without_running_is_error:
+                        if skipped_is_error:
                             print(
-                                f"::error::Redeployment {deployment_id} SKIPPED with no running deployment",
+                                f"::error::Redeployment {deployment_id} SKIPPED",
                                 file=sys.stderr,
                             )
                             return 1
@@ -93,12 +93,7 @@ def main(argv):
     result = poll(None, known)
     if result != "skipped":
         return result
-    print("::notice::Upload SKIPPED; checking for a running deployment.")
-    running = deployments(service, environment, limit=200)
-    if any(deployment_id in known and status == "SUCCESS" for deployment_id, status in running):
-        print("::notice::Deployment SKIPPED: the running deployment already matches.")
-        return 0
-
+    print("::notice::Upload SKIPPED; redeploying to apply pending configuration.")
     known = {deployment_id for deployment_id, _ in deployments(service, environment, limit=200)}
     redeploy = subprocess.run(
         ["railway", "redeploy", *scope(service, environment), "--yes", "--json"],
@@ -118,7 +113,7 @@ def main(argv):
         deployment_id = None
     if not deployment_id:
         deployment_id = next((i for i, _ in deployments(service, environment) if i not in known), None)
-    return poll(deployment_id, known, skipped_without_running_is_error=True)
+    return poll(deployment_id, known, skipped_is_error=True)
 
 
 if __name__ == "__main__":

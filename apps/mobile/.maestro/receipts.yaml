@@ -86,8 +86,8 @@ appId: com.datamonsterr.taphoamini
     visible: ${output.receipt.product}
     timeout: 30000
 - takeScreenshot: receipts-03-stock
-# Verify the durable quantity through GET /v1/stock as well as opening the stock
-# screen. Android accessibility groups the row's badge with its product button.
+# Verify the durable quantity through GET /v1/stock as well as opening the Tồn kho segment of the Kho tab
+# (no route push). Android accessibility groups the row's badge with its product button.
 - runScript:
     file: subflows/receipt-seed.js
     env:

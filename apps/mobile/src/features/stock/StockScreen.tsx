@@ -2,31 +2,44 @@ import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { ChevronDown, ChevronLeft, TriangleAlert } from '@/components/icons';
+import { ChevronDown, TriangleAlert } from '@/components/icons';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
+import { Icon, PressableScale, Text } from '@/components/ui';
 import { StockBadge } from '@/components/ui/StockBadge';
 import { useStock } from '@/lib/api/hooks';
 import type { StockStatus } from '@/lib/api/stock';
 import { assistantHref } from '@/features/assistant/route';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
 import { fill, useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, radius, size, space, typography } from '@/theme';
 import { useSettingsStore } from '@/stores/settings';
 
-import { StockSegment } from './StockSegment';
 import { formatDailyRate, strings } from './strings';
 
 const FILTERS = ['all', 'low', 'out', 'ok'] as const;
 
-export function StockScreen() {
+/** Above the 64 dp floating shop bar (16 dp inset), like the product grid. */
+const BAR_CLEARANCE = space[4] + size.tapLg + space[3];
+
+/** Tồn kho segment of the Kho tab; `status` is the filter requested by the URL. */
+export function StockScreen({
+  status: requested = 'all',
+}: {
+  status?: StockStatus;
+}) {
   const t = useT(strings);
   const language = useSettingsStore((state) => state.language);
   const insets = useSafeAreaInsets();
-  const [status, setStatus] = useState<StockStatus>('all');
+  const [status, setStatus] = useState<StockStatus>(requested);
+  const [seen, setSeen] = useState(requested);
+  // An alert link can change the filter while the tab is already mounted.
+  if (seen !== requested) {
+    setSeen(requested);
+    setStatus(requested);
+  }
   const [filterOpen, setFilterOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const stock = useStock(status);
@@ -41,13 +54,8 @@ export function StockScreen() {
     }
   };
   return (
-    <View style={[styles.screen, { paddingTop: insets.top + space[4] }]}>
+    <View style={styles.screen}>
       <View style={styles.header}>
-        <CircleButton
-          icon={ChevronLeft}
-          accessibilityLabel={t('back')}
-          onPress={() => router.replace('/inventory')}
-        />
         <Text accessibilityRole="header" style={styles.title}>
           {t('stock')}
         </Text>
@@ -98,7 +106,6 @@ export function StockScreen() {
           ) : null}
         </View>
       </View>
-      <StockSegment selected="stock" />
       {stock.isError || (!stock.data && stock.fetchStatus === 'paused') ? (
         <View
           testID={stock.isError ? 'stock-error' : 'stock-offline'}
@@ -189,7 +196,10 @@ export function StockScreen() {
       {lowItems.length > 0 ? (
         <View
           testID="stock-summary"
-          style={[styles.summary, { marginBottom: insets.bottom }]}
+          style={[
+            styles.summary,
+            { marginBottom: insets.bottom + BAR_CLEARANCE },
+          ]}
         >
           <Icon icon={TriangleAlert} color={colors.warning} />
           <Text style={styles.summaryText}>
@@ -221,7 +231,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     gap: space[4],
-    paddingBottom: space[4],
     backgroundColor: colors.surface,
   },
   header: {
@@ -231,7 +240,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     zIndex: 2,
   },
-  title: { ...typography.title, color: colors.ink, flex: 1 },
+  title: { ...typography.label, color: colors.ink, flex: 1 },
   filterContainer: { position: 'relative' },
   select: {
     minHeight: 48,
@@ -270,7 +279,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.ink },
   chipTextOn: { color: colors.onInk },
   label: { ...typography.label, color: colors.ink },
-  content: { paddingHorizontal: space[4] },
+  content: { paddingHorizontal: space[4], paddingBottom: BAR_CLEARANCE },
   row: {
     flexDirection: 'row',
     gap: space[3],

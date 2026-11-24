@@ -28,6 +28,28 @@ describe('product analytics', () => {
     expect(sink.capture).not.toHaveBeenCalled();
   });
 
+  test('events captured before init are delivered after', () => {
+    capture('assistant_opened', { entry: 'button' });
+    capture('signed_in', { method: 'google' });
+
+    const sink = { capture: jest.fn() };
+    setAnalyticsSink(sink);
+
+    expect(sink.capture).toHaveBeenCalledTimes(2);
+    expect(sink.capture).toHaveBeenNthCalledWith(1, 'assistant_opened', {
+      entry: 'button',
+    });
+    expect(sink.capture).toHaveBeenNthCalledWith(2, 'signed_in', {
+      method: 'google',
+    });
+
+    capture('signed_out', { method: 'email_code' });
+    expect(sink.capture).toHaveBeenCalledTimes(3);
+    expect(sink.capture).toHaveBeenNthCalledWith(3, 'signed_out', {
+      method: 'email_code',
+    });
+  });
+
   test('drops sink errors', () => {
     setAnalyticsSink({
       capture: () => {

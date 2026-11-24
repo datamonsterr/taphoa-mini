@@ -46,7 +46,9 @@ test('shows at most five low/out items, quantity and status color; opens all sto
   expect(screen.getByText('Món 4')).toBeOnTheScreen();
   expect(screen.queryByText('Món 5')).toBeNull();
   await fireEvent.press(screen.getByRole('button', { name: 'Xem tất cả' }));
-  expect(router.push).toHaveBeenCalledWith('/stock');
+  expect(router.push).toHaveBeenCalledWith(
+    '/inventory?segment=stock&status=low',
+  );
 });
 
 test('stock alerts remain visible to Sellers without querying Lead-only margin alerts', async () => {

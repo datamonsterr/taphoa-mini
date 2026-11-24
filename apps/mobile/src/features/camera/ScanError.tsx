@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
 import { Icon } from '@/components/ui/Icon';
-import { camera, colors, radius, size, space } from '@/theme';
+import { camera, colors, fontSize, radius, size, space } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props = {
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   message: {
     flex: 1,
     fontFamily: fontFamily.semibold,
-    fontSize: 16,
+    fontSize: fontSize[16],
     color: camera.white,
   },
   retry: {

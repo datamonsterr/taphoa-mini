@@ -24,7 +24,15 @@ import { useMembership } from '@/features/auth/useMembership';
 import { clockTime } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { dayMonth } from '../close/difference';
 import { AdjustmentSheet } from './AdjustmentSheet';
@@ -418,7 +426,7 @@ const styles = StyleSheet.create({
   balance: { alignItems: 'center', gap: space[2] },
   balanceAmount: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 48,
+    fontSize: fontSize[48],
     lineHeight: 52,
     letterSpacing: -1,
     color: colors.ink,
@@ -469,7 +477,7 @@ const styles = StyleSheet.create({
   },
   ledgerAmount: {
     fontFamily: fontFamily.bold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 26,
     flexShrink: 0,
     fontVariant: ['tabular-nums'],

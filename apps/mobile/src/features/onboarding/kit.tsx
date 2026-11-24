@@ -22,6 +22,7 @@ import { useT } from '@/lib/i18n';
 import {
   colors,
   fontFamily,
+  fontSize,
   radius,
   scaleText,
   size,
@@ -177,7 +178,7 @@ export function Field({
         returnKeyType="done"
         style={[
           styles.input,
-          scaleText({ fontSize: 18 }, scale),
+          scaleText({ fontSize: fontSize[18] }, scale),
           error ? styles.invalid : null,
         ]}
         placeholderTextColor={colors.inkMuted}
@@ -227,7 +228,7 @@ export function PillField({
         autoCorrect={false}
         onSubmitEditing={onSubmitEditing}
         returnKeyType="done"
-        style={[styles.pillInput, scaleText({ fontSize: 18 }, scale)]}
+        style={[styles.pillInput, scaleText({ fontSize: fontSize[18] }, scale)]}
       />
     </View>
   );
@@ -371,7 +372,7 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   buttonXl: { minHeight: size.tapXl },
-  labelXl: { fontSize: 20, lineHeight: 26 },
+  labelXl: { fontSize: fontSize[20], lineHeight: 26 },
   buttonGhost: { alignSelf: 'center', backgroundColor: 'transparent' },
   ghostText: { color: colors.inkMuted },
   buttonPrimary: { backgroundColor: colors.ink },

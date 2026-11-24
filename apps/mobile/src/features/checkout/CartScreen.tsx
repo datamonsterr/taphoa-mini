@@ -31,6 +31,7 @@ import type { CartLine } from '@/stores/cart';
 import {
   colors,
   fontFamily,
+  fontSize,
   radius,
   shadows,
   space,
@@ -222,7 +223,7 @@ const styles = StyleSheet.create({
   linePrice: {
     flexShrink: 0,
     fontFamily: fontFamily.bold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 26,
   },
   empty: {
@@ -244,5 +245,5 @@ const styles = StyleSheet.create({
     ...shadows.float,
   },
   totalSum: { flex: 1 },
-  totalText: { fontSize: 34, lineHeight: 38, letterSpacing: -0.5 },
+  totalText: { fontSize: fontSize[34], lineHeight: 38, letterSpacing: -0.5 },
 });

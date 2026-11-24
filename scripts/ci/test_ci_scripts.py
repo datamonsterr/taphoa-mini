@@ -344,6 +344,37 @@ class RunE2e(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
 
+class LatencyConnectionReuse(unittest.TestCase):
+    """latency_check.py must keep one connection across warm-up and samples."""
+
+    def test_samples_share_one_connection(self):
+        accepted = []
+
+        class Counting(http.server.ThreadingHTTPServer):
+            def get_request(self):
+                result = super().get_request()
+                accepted.append(result[1])
+                return result
+
+        class KeepAlive(Handler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):  # noqa: N802
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        server = Counting(("127.0.0.1", 0), KeepAlive)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        out = run(["python3", "-I", str(HERE / "latency_check.py"), url, "/healthz", "5", "5000"])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(len(accepted), 1, f"expected 1 connection, got {len(accepted)}")
+
+
 class RailwayEnv(unittest.TestCase):
     def test_build_env_uses_public_proxies_and_bucket(self):
         import importlib.util
@@ -503,17 +534,23 @@ class RailwayDeploy(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("new SUCCESS", out.stdout)
 
-    def test_skipped_with_running_success_does_not_redeploy(self):
-        out = self.deploy("SKIPPED", FAKE_REDEPLOY_EXIT="9")
+    def test_skipped_with_running_deployment_redeploys_to_success(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY="DEPLOYING,SUCCESS")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("SKIPPED", out.stdout)
-        self.assertNotIn("redeploy", out.stdout + out.stderr)
+        self.assertIn("redeployed SUCCESS", out.stdout)
 
-    def test_skipped_with_old_success_beyond_ten_does_not_redeploy(self):
-        out = self.deploy("SKIPPED", FAKE_LONG_HISTORY="1", FAKE_REDEPLOY_EXIT="9")
+    def test_skipped_with_old_success_beyond_ten_redeploys_to_success(self):
+        out = self.deploy("SKIPPED", FAKE_LONG_HISTORY="1", FAKE_REDEPLOY="DEPLOYING,SUCCESS")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("SKIPPED", out.stdout)
-        self.assertNotIn("redeploy", out.stdout + out.stderr)
+        self.assertIn("redeployed SUCCESS", out.stdout)
+
+    def test_skipped_with_running_deployment_redeploy_failure_exits_nonzero(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY="DEPLOYING,FAILED")
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+
+    def test_skipped_with_running_deployment_redeploy_command_failure_exits_nonzero(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY_EXIT="7")
+        self.assertEqual(out.returncode, 7, out.stdout + out.stderr)
 
     def test_skipped_without_running_redeploys_to_success(self):
         out = self.deploy("SKIPPED", FAKE_NO_RUNNING="1", FAKE_REDEPLOY="DEPLOYING,SUCCESS")

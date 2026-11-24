@@ -390,6 +390,24 @@ jobs:
           path: apps/mobile/gfxinfo.txt
           if-no-files-found: warn
 
+      # Startup timing output (time to first paint from am start -W).
+      - name: Upload startup timing
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-timing-${{ matrix.shard }}
+          path: |
+            apps/mobile/startup-timing.txt
+            apps/mobile/startup-timing.md
+          if-no-files-found: warn
+
+      - name: Record startup timing in job summary
+        if: always()
+        run: |
+          if [ -f apps/mobile/startup-timing.md ]; then
+            cat apps/mobile/startup-timing.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # The flows sign up through the app and never delete their users; the Clerk development
       # instance is capped at 100 users. Best effort: the deploy workflow sweeps stragglers.
       - name: Delete this shard's Clerk users

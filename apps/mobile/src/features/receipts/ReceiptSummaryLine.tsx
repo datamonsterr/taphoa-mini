@@ -11,7 +11,7 @@ import { Icon, PressableScale, Text } from '@/components/ui';
 import { useProduct } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 import { strings } from './strings';
 
 export type SummaryLine = {
@@ -145,10 +145,14 @@ const styles = StyleSheet.create({
   photoWarn: { backgroundColor: colors.surface },
   image: { width: '100%', height: '100%' },
   body: { flex: 1, minWidth: 0, gap: 2, alignItems: 'flex-start' },
-  name: { fontFamily: fontFamily.semibold, fontSize: 18, lineHeight: 24 },
+  name: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize[18],
+    lineHeight: 24,
+  },
   amounts: {
     fontFamily: fontFamily.medium,
-    fontSize: 13,
+    fontSize: fontSize[13],
     lineHeight: 16,
     color: colors.inkMuted,
     fontVariant: ['tabular-nums'],
@@ -165,10 +169,14 @@ const styles = StyleSheet.create({
   },
   badgeOk: { backgroundColor: colors.successSoft },
   badgeWarn: { backgroundColor: colors.warningSoft },
-  badgeText: { fontFamily: fontFamily.semibold, fontSize: 12, lineHeight: 16 },
+  badgeText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize[12],
+    lineHeight: 16,
+  },
   total: {
     fontFamily: fontFamily.bold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 26,
     flexShrink: 1,
     maxWidth: 120,

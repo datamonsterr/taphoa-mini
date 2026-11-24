@@ -96,6 +96,8 @@ pub struct AppState {
     pub vector_index: Option<Arc<dyn vector::VectorIndex>>,
     pub recognition: RecognitionConfig,
     pub storage: Option<Arc<dyn storage::ObjectStore>>,
+    /// Short-lived memo of a successful bucket check, so `/readyz` skips S3 on most calls.
+    pub storage_ready: StorageReadiness,
     pub image_repository: Option<Arc<dyn images::ImageRepository>>,
     pub image_url_ttl: Duration,
     pub assistant: assistant::AssistantState,
@@ -105,6 +107,38 @@ pub struct AppState {
     /// Best-effort preview detection must never consume scan/enrollment admission.
     pub probe_slots: Arc<Semaphore>,
 }
+/// How long a successful `HeadBucket` stays trusted by `/readyz`. Postgres and Redis are
+/// always probed live; only the slow, rarely-changing S3 check is memoized.
+const STORAGE_READY_TTL: Duration = Duration::from_secs(20);
+
+/// Remembers when the bucket last answered. Failures and timeouts are never recorded, so an
+/// outage is reported on the very next call and recovery is seen immediately.
+#[derive(Clone)]
+pub struct StorageReadiness {
+    ttl: Duration,
+    last_ok: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+}
+impl StorageReadiness {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            ttl,
+            last_ok: Arc::default(),
+        }
+    }
+    fn is_fresh(&self) -> bool {
+        let last = *self.last_ok.lock().unwrap_or_else(|e| e.into_inner());
+        last.is_some_and(|at| at.elapsed() < self.ttl)
+    }
+    fn record_ok(&self) {
+        *self.last_ok.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+    }
+}
+impl Default for StorageReadiness {
+    fn default() -> Self {
+        Self::new(STORAGE_READY_TTL)
+    }
+}
+
 impl Default for AppState {
     fn default() -> Self {
         Self {
@@ -137,6 +171,7 @@ impl Default for AppState {
             vector_index: None,
             recognition: RecognitionConfig::default(),
             storage: None,
+            storage_ready: StorageReadiness::default(),
             image_repository: None,
             image_url_ttl: Duration::from_secs(900),
             assistant: assistant::AssistantState::default(),
@@ -321,10 +356,17 @@ async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     };
     let storage = async {
         match &state.storage {
-            Some(storage) => matches!(
-                tokio::time::timeout(Duration::from_secs(2), storage.head_bucket()).await,
-                Ok(Ok(()))
-            ),
+            Some(_) if state.storage_ready.is_fresh() => true,
+            Some(storage) => {
+                let ok = matches!(
+                    tokio::time::timeout(Duration::from_secs(2), storage.head_bucket()).await,
+                    Ok(Ok(()))
+                );
+                if ok {
+                    state.storage_ready.record_ok();
+                }
+                ok
+            }
             None => true,
         }
     };
@@ -567,5 +609,85 @@ mod tests {
             json_body(response).await["dependencies"],
             json!(["postgres", "redis"])
         );
+    }
+
+    struct CountingStore {
+        calls: std::sync::atomic::AtomicUsize,
+        fail_first: usize,
+    }
+    #[async_trait::async_trait]
+    impl storage::ObjectStore for CountingStore {
+        async fn put(&self, _: &str, _: &str, _: Vec<u8>) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn delete(&self, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn head_bucket(&self) -> anyhow::Result<()> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n < self.fail_first {
+                anyhow::bail!("down")
+            }
+            Ok(())
+        }
+        async fn presign_get(&self, _: &str, _: Duration) -> anyhow::Result<storage::SignedUrl> {
+            anyhow::bail!("unused")
+        }
+    }
+
+    async fn storage_status(app: &Router) -> StatusCode {
+        // postgres/redis are absent, so readyz is always 503; the body names what failed.
+        let response = app
+            .clone()
+            .oneshot(Request::get("/readyz").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = json_body(response).await;
+        if body["storage"] == "ok" {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    }
+
+    fn storage_app(ttl: Duration, fail_first: usize) -> (Router, Arc<CountingStore>) {
+        let store = Arc::new(CountingStore {
+            calls: Default::default(),
+            fail_first,
+        });
+        let state = AppState {
+            storage: Some(store.clone()),
+            storage_ready: StorageReadiness::new(ttl),
+            ..AppState::default()
+        };
+        (router(state), store)
+    }
+
+    #[tokio::test]
+    async fn successful_storage_check_is_cached_within_ttl() {
+        let (app, store) = storage_app(Duration::from_secs(60), 0);
+        for _ in 0..3 {
+            assert_eq!(storage_status(&app).await, StatusCode::OK);
+        }
+        assert_eq!(store.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn storage_check_reruns_after_ttl() {
+        let (app, store) = storage_app(Duration::ZERO, 0);
+        for _ in 0..3 {
+            assert_eq!(storage_status(&app).await, StatusCode::OK);
+        }
+        assert_eq!(store.calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn failed_storage_check_is_never_cached() {
+        let (app, store) = storage_app(Duration::from_secs(60), 2);
+        assert_eq!(storage_status(&app).await, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(storage_status(&app).await, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(storage_status(&app).await, StatusCode::OK);
+        assert_eq!(storage_status(&app).await, StatusCode::OK);
+        assert_eq!(store.calls.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 }

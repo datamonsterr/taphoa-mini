@@ -5,7 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from './ScaledText';
 
 import { formatVnd } from '@/lib/format';
-import { colors, fontFamily, radius } from '@/theme';
+import { colors, fontFamily, fontSize, radius } from '@/theme';
 
 import { Icon } from './Icon';
 
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 28,
     fontVariant: ['tabular-nums'],
   },
