@@ -488,6 +488,8 @@ jobs:
         with:
           name: mobile-${{ matrix.target }}-export
           path: ${{ matrix.target == 'web' && 'apps/mobile/dist-web' || 'apps/mobile/dist/_expo/static/js' }}
+          # Expo web assets live under assets/__node_modules/.pnpm.
+          include-hidden-files: ${{ matrix.target == 'web' }}
           compression-level: 0
           retention-days: 1
       - name: Summary

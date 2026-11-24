@@ -156,7 +156,9 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
   const receipt = created.body;
   expect(receipt.status).toBe('draft');
   expect(receipt.lines).toHaveLength(fixture.lines.length);
-  await expect(page).toHaveURL(new RegExp(`/receipt/${receipt.id}$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/receipts\\?receiptId=${receipt.id}$`),
+  );
   await expect(
     page.getByRole('heading', { name: 'Kiểm tra hóa đơn' }),
   ).toBeVisible();

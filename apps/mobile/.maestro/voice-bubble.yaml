@@ -17,6 +17,10 @@ appId: com.datamonsterr.taphoamini
       OWNER_NAME: 'Cô Tư'
 - runFlow: subflows/open-account.yaml
 - scrollUntilVisible:
+    element: 'Nâng cao'
+    centerElement: true
+- tapOn: 'Nâng cao'
+- scrollUntilVisible:
     element:
       id: 'voice-bubble-row'
 - assertVisible: 'Nút nói nhanh'

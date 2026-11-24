@@ -265,6 +265,7 @@ test.describe('the PIN of this member (U3)', () => {
     page,
   }) => {
     await openShop(page, '/account');
+    await button(page, 'Nâng cao').click();
     const row = page.getByTestId('voice-donate-row');
     await row.scrollIntoViewIfNeeded();
     await expect(row.getByText('Góp giọng nói để cải thiện')).toBeVisible();
@@ -288,6 +289,7 @@ test.describe('the PIN of this member (U3)', () => {
         (m: any) => m.id === store.session.member.id,
       ).has_pin,
     ).toBe(false);
+    await button(page, 'Nâng cao').click();
     await button(page, 'Đặt mã PIN').click();
     const sheet = page.getByTestId('sheet-panel');
     await expect(

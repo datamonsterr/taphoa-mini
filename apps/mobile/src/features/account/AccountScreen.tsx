@@ -11,7 +11,7 @@ import {
 } from '@/components/icons';
 import { useAuth, useSessionList } from '@clerk/expo';
 import { useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -284,8 +284,13 @@ export function AccountScreen() {
   const membership = useMembership();
   const store = useStore({ live: true });
   const members = useMembers();
+  const activeMembers = useMemo(
+    () => members.data?.filter((m) => m.active),
+    [members.data],
+  );
   const [sheet, setSheet] = useState<ActiveSheet>(null);
   const [pinSaved, setPinSaved] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
   const router = useRouter();
   const { userId, sessionId } = useAuth();
   const { sessions } = useSessionList();
@@ -420,6 +425,9 @@ export function AccountScreen() {
           {fill(t('acting'), { name: membership.member.display_name })}
         </ScaledText>
 
+        <ScaledText variant="label" accessibilityRole="header">
+          {t('group.store')}
+        </ScaledText>
         {me.data.memberships.length > 1 ? (
           <StorePicker
             memberships={me.data.memberships}
@@ -430,18 +438,18 @@ export function AccountScreen() {
         ) : null}
 
         <MemberRow
-          members={members.data}
+          members={activeMembers}
           failed={members.isError}
           roleLabel={roleLabel}
           countLabel={fill(t('members.count'), {
-            n: members.data?.length ?? 0,
+            n: activeMembers?.length ?? 0,
           })}
           errorLabel={t('members.error')}
           inviteLabel={isLead ? t('invite.open') : null}
           onInvite={openInvite}
         />
         {isLead ? (
-          <MemberActions members={members.data} roleLabel={roleLabel} />
+          <MemberActions members={activeMembers} roleLabel={roleLabel} />
         ) : null}
 
         <PressableScale
@@ -467,29 +475,48 @@ export function AccountScreen() {
         {isLead ? (
           <StockThresholdRow value={store.data.low_stock_threshold} />
         ) : null}
+        <ScaledText variant="label" accessibilityRole="header">
+          {t('group.accessibility')}
+        </ScaledText>
         <ElderRow />
         <SpeakRow />
         <TextSizeRow />
         <LanguageRow />
-        <PinRow hasPin={membership.member.has_pin} onPress={openSetPin} />
-        {pinSaved ? (
-          <ScaledText
-            accessibilityRole="alert"
-            variant="caption"
-            style={styles.saved}
-          >
-            {t('pin.saved')}
-          </ScaledText>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('group.advanced')}
+          accessibilityState={{ expanded: advanced }}
+          onPress={() => setAdvanced(!advanced)}
+          style={styles.groupToggle}
+        >
+          <ScaledText variant="label">{t('group.advanced')}</ScaledText>
+          <View style={advanced ? styles.chevronExpanded : undefined}>
+            <Icon icon={ChevronRight} color={colors.inkMuted} />
+          </View>
+        </PressableScale>
+        {advanced ? (
+          <>
+            <PinRow hasPin={membership.member.has_pin} onPress={openSetPin} />
+            {pinSaved ? (
+              <ScaledText
+                accessibilityRole="alert"
+                variant="caption"
+                style={styles.saved}
+              >
+                {t('pin.saved')}
+              </ScaledText>
+            ) : null}
+            <DeviceSessions
+              sessions={signedInSessions(sessions)}
+              currentId={sessionId ?? null}
+              busy={switcher.busy}
+              error={switcher.target ? null : switcher.error}
+              onSwitch={switcher.begin}
+              onAdd={addPerson}
+            />
+            <VoiceSetupSection />
+          </>
         ) : null}
-        <DeviceSessions
-          sessions={signedInSessions(sessions)}
-          currentId={sessionId ?? null}
-          busy={switcher.busy}
-          error={switcher.target ? null : switcher.error}
-          onSwitch={switcher.begin}
-          onAdd={addPerson}
-        />
-        <VoiceSetupSection />
         <SignOutRow />
       </ScrollView>
 
@@ -518,6 +545,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: space[4], gap: space[4] },
   grow: { flex: 1, minWidth: 0 },
+  chevronExpanded: { transform: [{ rotate: '90deg' }] },
+  groupToggle: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   identity: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
   storeAvatar: {
     width: 72,
