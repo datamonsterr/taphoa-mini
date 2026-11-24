@@ -17,7 +17,9 @@ export function Action({
   onPress,
   disabled = false,
   danger = false,
+  testID,
 }: {
+  testID?: string;
   label: string;
   onPress: () => void;
   disabled?: boolean;
@@ -25,6 +27,7 @@ export function Action({
 }) {
   return (
     <PressableScale
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}

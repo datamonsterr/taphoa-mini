@@ -1,0 +1,82 @@
+appId: com.datamonsterr.taphoamini
+---
+# Sell one product in cash, then void the sale from the report's recent sales (owner voids any sale).
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Hủy đơn'
+      OWNER_NAME: 'Cô Ba'
+- runFlow:
+    file: subflows/enroll-product.yaml
+    env:
+      PRODUCT_NAME: 'Kẹo dừa'
+- tapOn: 'Giỏ hàng:.*'
+- extendedWaitUntil:
+    visible: 'Hiện mã QR thanh toán'
+    timeout: 20000
+- tapOn: 'Hiện mã QR thanh toán'
+- extendedWaitUntil:
+    visible: 'Tiền mặt'
+    timeout: 20000
+- tapOn: 'Tiền mặt'
+- tapOn: '100.000'
+- extendedWaitUntil:
+    visible: 'Tiền thối'
+    timeout: 20000
+- tapOn: 'Đã nhận tiền'
+- extendedWaitUntil:
+    visible: 'Giỏ hàng trống'
+    timeout: 30000
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- extendedWaitUntil:
+    visible: 'Doanh thu 15.000đ, 1 đơn'
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: 'dashboard-recent-sales'
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    centerElement: true
+- tapOn:
+    id: 'dashboard-recent-sales'
+- extendedWaitUntil:
+    visible:
+      id: 'sale-row'
+    timeout: 30000
+- tapOn:
+    id: 'sale-row'
+- extendedWaitUntil:
+    visible:
+      id: 'void-reason'
+    timeout: 30000
+- tapOn:
+    id: 'void-reason'
+- inputText: 'Khách trả hàng'
+# The on-screen keyboard covers the void button and swallows the tap. Back only closes the
+# keyboard here (a page, not a sheet).
+- pressKey: Back
+- scrollUntilVisible:
+    element:
+      id: 'void-sale'
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: void-01-reason
+- tapOn:
+    id: 'void-sale'
+- extendedWaitUntil:
+    visible: 'Hủy đơn này?'
+    timeout: 20000
+- tapOn:
+    id: 'void-confirm'
+# the detail shows the void and its reason
+- extendedWaitUntil:
+    visible: 'Đã hủy · Khách trả hàng'
+    timeout: 30000
+- takeScreenshot: void-02-voided
