@@ -16,14 +16,16 @@ a{color:inherit;text-decoration:none}
 </style>
 </helmet>
 <div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; padding: 16px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); display: flex; flex-direction: column; gap: 16px">
-  <div style="display: flex; align-items: center; gap: 12px">
-    <a href="Inventory.dc.html" class="th-ib" aria-label="Quay lại kho"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
-    <h1 class="title" style="margin: 0; flex: 1">Tồn kho</h1>
-  <select aria-label="Lọc tồn kho" style="flex: none; height: 48px; max-width: 150px; padding: 0 16px; border: 0; border-radius: 9999px; background: var(--surface-soft); color: var(--ink); font: 600 17px/24px var(--font-sans); cursor: pointer"><option>Tất cả</option><option selected="">Sắp hết</option><option>Hết hàng</option><option>Còn hàng</option></select></div>
+  <h1 class="title" style="margin: 0">Kho</h1>
 
-  <div role="radiogroup" aria-label="Sản phẩm hoặc tồn kho" style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--surface-soft); align-self: flex-start">
+  <div role="radiogroup" aria-label="Sản phẩm hoặc tồn kho" data-note="Segment of /inventory?segment=stock; switching never pushes a route" style="display: flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--surface-soft); align-self: flex-start">
     <a href="Inventory.dc.html" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" style="min-height: 48px; background: transparent">Sản phẩm</a>
     <span class="th-chip" role="radio" aria-checked="true" aria-pressed="true" style="min-height: 48px">Tồn kho</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px">
+    <h2 class="label" style="margin: 0; flex: 1">Tồn kho</h2>
+    <select aria-label="Lọc tồn kho" style="flex: none; height: 48px; max-width: 150px; padding: 0 16px; border: 0; border-radius: 9999px; background: var(--surface-soft); color: var(--ink); font: 600 17px/24px var(--font-sans); cursor: pointer"><option>Tất cả</option><option selected="">Sắp hết</option><option>Hết hàng</option><option>Còn hàng</option></select>
   </div>
 
   

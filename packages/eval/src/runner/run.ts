@@ -100,6 +100,8 @@ export type RunEvalOptions = {
   runId?: string;
   fetch?: typeof fetch;
   turnTimeoutMs?: number;
+  /** Latency clock, see `TurnOptions.clock`. */
+  clock?: () => number;
   log?: (line: string) => void;
 };
 
@@ -250,6 +252,7 @@ export async function runEval(opts: RunEvalOptions): Promise<RunSummary> {
     ...(opts.model ? { model: opts.model } : {}),
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
     ...(opts.turnTimeoutMs ? { turnTimeoutMs: opts.turnTimeoutMs } : {}),
+    ...(opts.clock ? { clock: opts.clock } : {}),
   };
 
   const results: (CaseResult | undefined)[] = new Array(live.length);

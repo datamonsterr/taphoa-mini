@@ -65,6 +65,7 @@ function NavigationTree({
         />
         <Stack.Screen name="product/[id]" />
         <Stack.Screen name="sales" />
+        <Stack.Screen name="expenses" />
         <Stack.Screen name="sale/[id]" />
         <Stack.Screen name="stock" />
         <Stack.Screen name="receipt/[id]" />

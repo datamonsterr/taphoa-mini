@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { Text } from './ScaledText';
 
-import { colors, fontFamily, radius } from '@/theme';
+import { colors, fontFamily, fontSize, radius } from '@/theme';
 
 import { PressableScale } from './PressableScale';
 
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.ink },
   text: {
     fontFamily: fontFamily.semibold,
-    fontSize: 17,
+    fontSize: fontSize[17],
     lineHeight: 22,
     color: colors.ink,
   },

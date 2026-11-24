@@ -29,7 +29,14 @@ import type { ExpenseCategory } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useLabels, useT } from '@/lib/i18n';
 import { newUuid } from '@/lib/uuid';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 
 import { dismissSheet } from '../dashboard/dismiss';
 import { BillCamera } from './BillCamera';
@@ -264,7 +271,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.ink },
   chipText: {
     fontFamily: fontFamily.semibold,
-    fontSize: 15,
+    fontSize: fontSize[15],
     lineHeight: 20,
     color: colors.ink,
   },

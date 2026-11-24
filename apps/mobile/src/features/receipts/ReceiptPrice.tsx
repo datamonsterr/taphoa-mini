@@ -3,7 +3,14 @@ import { StyleSheet, View } from 'react-native';
 import { applyKey, Icon, Keypad, PressableScale, Text } from '@/components/ui';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 import { strings } from './strings';
 
 export function ReceiptPricePill({
@@ -98,7 +105,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: colors.surface,
   },
-  pillText: { fontFamily: fontFamily.bold, fontSize: 17, lineHeight: 22 },
+  pillText: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize[17],
+    lineHeight: 22,
+  },
   unknown: { backgroundColor: colors.warningSoft },
   editing: { borderWidth: 3, borderColor: colors.accent },
   panel: {

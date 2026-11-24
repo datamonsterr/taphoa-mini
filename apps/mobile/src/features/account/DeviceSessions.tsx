@@ -18,7 +18,7 @@ import {
 import { fetchSessionMe } from '@/features/auth/sessionApi';
 import { useMe } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 
 import { fill, strings } from './strings';
 import { initialOf } from './utils';
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
   },
   initial: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     lineHeight: 22,
     color: colors.accent,
   },

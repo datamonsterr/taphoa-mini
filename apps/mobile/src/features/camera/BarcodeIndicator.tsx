@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui';
 import type { Product } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import { colors, space, typography } from '@/theme';
+import { colors, fontSize, space, typography } from '@/theme';
 
 export function BarcodeIndicator({
   code,
@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
   name: { ...typography.label, color: colors.ink },
   price: {
     ...typography.price,
-    fontSize: 32,
+    fontSize: fontSize[32],
     lineHeight: 38,
     color: colors.ink,
   },

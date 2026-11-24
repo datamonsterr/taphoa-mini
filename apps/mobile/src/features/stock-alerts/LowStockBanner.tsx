@@ -1,9 +1,10 @@
-import { router, type Href } from 'expo-router';
+import { router } from 'expo-router';
 import { TriangleAlert, X } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
+import { stockHref } from '@/features/stock/stockHref';
 import { fill, useT } from '@/lib/i18n';
 import { useLowStockAlerts } from '@/stores/lowStockAlerts';
 import { colors, radius, size, space, typography } from '@/theme';
@@ -33,13 +34,13 @@ export function LowStockBanner() {
           accessibilityLabel={message}
           accessibilityHint={t('openStock')}
           accessibilityLiveRegion="polite"
-          onAccessibilityTap={() => router.push('/stock' as Href)}
+          onAccessibilityTap={() => router.push(stockHref('low'))}
           style={styles.message}
         >
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={message}
-            onPress={() => router.push('/stock' as Href)}
+            onPress={() => router.push(stockHref('low'))}
             style={styles.link}
           >
             <Icon icon={TriangleAlert} color={colors.warning} />

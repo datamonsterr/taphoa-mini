@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Icon } from '@/components/ui/Icon';
-import { camera, colors, radius, size } from '@/theme';
+import { camera, colors, fontSize, radius, size } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props = {
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 16,
+    fontSize: fontSize[16],
     lineHeight: 28,
     color: colors.accent,
     fontVariant: ['tabular-nums'],

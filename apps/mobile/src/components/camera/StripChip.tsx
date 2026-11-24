@@ -4,7 +4,7 @@ import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatVnd } from '@/lib/format';
-import { camera, colors, radius } from '@/theme';
+import { camera, colors, fontSize, radius } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props = {
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   },
   price: {
     fontFamily: fontFamily.bold,
-    fontSize: 17,
+    fontSize: fontSize[17],
     lineHeight: 22,
     fontVariant: ['tabular-nums'],
   },

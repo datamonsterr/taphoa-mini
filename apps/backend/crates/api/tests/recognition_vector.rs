@@ -968,3 +968,54 @@ async fn in_memory_prototypes_take_max_and_preserve_scope_and_validation() {
             .is_empty()
     );
 }
+
+/// `scan_search_products` (migration 1901) and `SEARCH_SQL` define the same scoring twice;
+/// this pins them, including exact ties and similarities closer than a `real` can tell apart,
+/// where the product_id tie-break decides which rows survive LIMIT.
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn scan_search_function_matches_search_sql() {
+    use taphoa_api::recognition::pgvector::SEARCH_SQL;
+
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let store = new_store(&pool).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let mut query = axis(0);
+    query[1] = 0.5;
+    for i in 0..16 {
+        let product = new_product(&pool, store).await;
+        let mut vector = query.clone();
+        match i % 3 {
+            0 => {}                                  // exact ties
+            1 => vector[2] = 1e-9 * (i as f32 + 1.), // below the resolution of a real
+            _ => vector[2] = 1e-4 * (i as f32 + 1.), // distinct
+        }
+        index
+            .upsert(store, product, new_image(&pool, store).await, MODEL, vector)
+            .await
+            .unwrap();
+    }
+    let prototype = new_product(&pool, store).await;
+    sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
+        .bind(store).bind(prototype).bind(MODEL).bind(pgvector::Vector::from(query.clone())).execute(&pool).await.unwrap();
+    for limit in [1_i64, 2, 3, 5, 8, 17, 40] {
+        for fetch in [32_i64, 64] {
+            let bind = |sql: &'static str| {
+                sqlx::query_as::<_, (Uuid, f32)>(sql)
+                    .bind(pgvector::Vector::from(query.clone()))
+                    .bind(store)
+                    .bind(MODEL)
+                    .bind(fetch)
+                    .bind(limit)
+            };
+            let expected = bind(SEARCH_SQL).fetch_all(&pool).await.unwrap();
+            let actual =
+                bind("SELECT product_id, similarity FROM scan_search_products($1, $2, $3, $4, $5)")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(actual, expected, "limit={limit}, fetch={fetch}");
+        }
+    }
+}

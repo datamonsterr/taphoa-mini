@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/ui/Icon';
 import type { Rect } from '@/lib/bbox';
-import { colors, radius } from '@/theme';
+import { colors, fontSize, radius } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 type Props = {
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontFamily: fontFamily.bold,
-    fontSize: 14,
+    fontSize: fontSize[14],
     lineHeight: 18,
     fontVariant: ['tabular-nums'],
   },

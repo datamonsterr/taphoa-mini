@@ -11,7 +11,15 @@ import { createAppQueryClient } from '@/lib/offline/persist';
 import { resetMockDb, PRODUCT_IDS } from '@/test/mock';
 import { newUuid } from '@/lib/uuid';
 import { resetApiClient } from './client';
-import { useCreateSale, useMe, useProducts, useTodayReport } from './hooks';
+import {
+  useCreateSale,
+  useDayClose,
+  useMe,
+  useProducts,
+  useReportSummary,
+  useStore,
+  useTodayReport,
+} from './hooks';
 import * as products from './products';
 import * as ledger from './ledger';
 import * as store from './store';
@@ -54,18 +62,39 @@ test('cart products do not refetch on a prompt remount', async () => {
 
 test('report remains fresh after the general stale window', async () => {
   const { client, wrapper } = setup();
-  const fetch = jest.spyOn(ledger, 'getTodayReport');
-  const first = await renderHook(() => useTodayReport(), { wrapper });
+  const fetch = jest.spyOn(ledger, 'getReportSummary');
+  const first = await renderHook(() => useReportSummary('week'), { wrapper });
   await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
   await first.unmount();
   await act(async () => {
-    client.setQueryData(keys.reports.today(), first.result.current.data, {
-      updatedAt: Date.now() - 61_000,
-    });
+    client.setQueryData(
+      keys.reports.summary('week'),
+      first.result.current.data,
+      {
+        updatedAt: Date.now() - 61_000,
+      },
+    );
   });
-  await renderHook(() => useTodayReport(), { wrapper });
+  await renderHook(() => useReportSummary('week'), { wrapper });
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+test.each<[string, string, object, () => { isSuccess: boolean }]>([
+  ['today report', 'getTodayReport', ledger, () => useTodayReport()],
+  ['day close', 'getDayClose', ledger, () => useDayClose('2026-11-23')],
+  ['store', 'getStore', store, () => useStore({ live: true })],
+])(
+  'the %s is read from the server again on every mount',
+  async (_name, fn, mod, hook) => {
+    const { wrapper } = setup();
+    const fetch = jest.spyOn(mod as never, fn as never);
+    const first = await renderHook(hook, { wrapper });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    await first.unmount();
+    await renderHook(hook, { wrapper });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  },
+);
 
 test('me refetches on remount', async () => {
   const { wrapper } = setup();
