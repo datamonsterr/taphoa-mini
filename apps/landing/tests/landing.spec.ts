@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+// @ts-expect-error no declaration file for JS module
+import { build } from '../scripts/build.mjs';
+// @ts-expect-error no declaration file for JS module
+import { SECURITY_HEADERS } from '../scripts/security-headers.mjs';
+
+const SITE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const waitlist = (page: Page, index = 0) => page.locator('.wl').nth(index);
 async function openWaitlist(page: Page, index = 0) {
@@ -18,11 +28,140 @@ async function endpoint(page: Page) {
   return `${api}/v1/waitlist`;
 }
 
+let cspViolations: string[] = [];
+
 test.beforeEach(async ({ page }) => {
+  cspViolations = [];
+  page.on('console', (msg) => {
+    const text = msg.text();
+    if (
+      msg.type() === 'error' &&
+      (text.includes('Content Security Policy') ||
+        text.includes(
+          'violates the following Content Security Policy directive',
+        ))
+    ) {
+      cspViolations.push(text);
+    }
+  });
+  page.on('pageerror', (err) => {
+    if (err.message.includes('Content Security Policy')) {
+      cspViolations.push(err.message);
+    }
+  });
+
   // Never send a test signup to the production backend.
   await page.route('**/v1/waitlist', (route) => route.abort());
   await page.clock.install({ time: new Date('2026-11-03T00:00:00Z') });
   await page.goto('/');
+});
+
+test.afterEach(async () => {
+  expect(
+    cspViolations,
+    `CSP violations detected: ${cspViolations.join('; ')}`,
+  ).toEqual([]);
+});
+
+test('landing page is served with strict CSP and companion security headers', async ({
+  page,
+}) => {
+  const response = await page.goto('/');
+  expect(response).not.toBeNull();
+  const headers = response!.headers();
+  expect(headers['x-content-type-options']).toBe('nosniff');
+  expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+  expect(headers['x-frame-options']).toBe('DENY');
+  expect(headers['permissions-policy']).toBe(
+    'camera=(), microphone=(), geolocation=(), browsing-topics=()',
+  );
+
+  const csp = headers['content-security-policy'];
+  expect(csp).toBeTruthy();
+  expect(csp).toContain("default-src 'none'");
+  expect(csp).toContain("script-src 'self'");
+  expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+  expect(csp).toContain(
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  );
+  expect(csp).toContain('font-src https://fonts.gstatic.com');
+  expect(csp).toContain("img-src 'self'");
+  expect(csp).toContain(
+    "connect-src 'self' https://backend-production-5f5c.up.railway.app",
+  );
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).toContain("base-uri 'none'");
+  expect(csp).toContain("form-action 'self'");
+});
+
+test('built site in dist/ loads with security headers and zero CSP errors', async ({
+  browser,
+}) => {
+  const distDir = await mkdtemp(join(tmpdir(), 'landing-dist-e2e-'));
+  await build({ siteDir: SITE_DIR, outDir: distDir });
+
+  const server = createServer(async (req, res) => {
+    try {
+      const pathname = decodeURIComponent(
+        new URL(req.url || '/', 'http://localhost').pathname,
+      );
+      const filePath = join(
+        distDir,
+        pathname.endsWith('/') ? pathname + 'index.html' : pathname,
+      );
+      const content = await readFile(filePath);
+      const ext = extname(filePath);
+      const types: Record<string, string> = {
+        '.html': 'text/html; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8',
+        '.svg': 'image/svg+xml',
+        '.jpg': 'image/jpeg',
+        '.png': 'image/png',
+      };
+      res.writeHead(200, {
+        'content-type': types[ext] || 'application/octet-stream',
+        ...SECURITY_HEADERS,
+      });
+      res.end(content);
+    } catch {
+      res.writeHead(404, SECURITY_HEADERS).end('Not found');
+    }
+  });
+
+  await new Promise<void>((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve()),
+  );
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+
+  try {
+    const page = await browser.newPage();
+    const violations: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (
+        msg.type() === 'error' &&
+        (text.includes('Content Security Policy') ||
+          text.includes(
+            'violates the following Content Security Policy directive',
+          ))
+      ) {
+        violations.push(text);
+      }
+    });
+
+    const resp = await page.goto(`http://127.0.0.1:${port}/`);
+    expect(resp?.status()).toBe(200);
+    const headers = resp?.headers() || {};
+    expect(headers['content-security-policy']).toContain("default-src 'none'");
+    expect(headers['x-frame-options']).toBe('DENY');
+    expect(violations).toEqual([]);
+    await page.close();
+  } finally {
+    server.close();
+    await rm(distDir, { recursive: true, force: true });
+  }
 });
 
 test('waitlist morph opens to the designed width and focuses the labeled email', async ({

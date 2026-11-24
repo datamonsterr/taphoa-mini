@@ -92,9 +92,15 @@ Consequences:
 
 - Marketing deploys build in seconds to minutes, not the backend's Rust build time, and roll
   back on their own.
-- The page sends no Content-Security-Policy yet. **Follow-up:** add a CSP that allows
-  `fonts.googleapis.com`, `fonts.gstatic.com` and the backend origin, and test it in the Playwright
-  suite before it ships.
+- The page is served with a strict Content-Security-Policy and companion security headers
+  (`X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`,
+  `X-Frame-Options: DENY`, `Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()`)
+  set in `apps/landing/Caddyfile` and mirrored in `scripts/serve.mjs`. Directives allow
+  `fonts.googleapis.com` for styles, `fonts.gstatic.com` for fonts, `'self'` for scripts, images,
+  and styles, and `https://backend-production-5f5c.up.railway.app` for waitlist API calls, while
+  restricting `default-src 'none'`, `frame-ancestors 'none'`, `base-uri 'none'`, and forbidding
+  `'unsafe-inline'` for scripts. Verified via unit tests (`scripts/headers.test.mjs`), Playwright E2E
+  assertions (`tests/landing.spec.ts`), and container header checks (`scripts/check-headers.sh`).
 - Image and style changes take effect on the next deploy because the file names change. Old
   hashed names stay cached at the edge until purged or expired.
 - The CI job `landing-e2e` runs the Playwright suite on the source tree, the Node unit test on

@@ -12,7 +12,7 @@ image can cache hashed files for a year. It exits 1 if the page references a mis
 
 ```sh
 pnpm --filter @taphoa/landing build      # writes dist/
-pnpm --filter @taphoa/landing test       # node --test: build output checks
+pnpm --filter @taphoa/landing test       # node --test: build output and security header checks
 docker build -f apps/landing/Dockerfile -t landing .   # from the repository root
 docker run --rm -e PORT=8080 -p 8080:8080 landing
 bash apps/landing/scripts/check-headers.sh http://127.0.0.1:8080
@@ -20,8 +20,10 @@ bash apps/landing/scripts/check-headers.sh http://127.0.0.1:8080
 
 The Dockerfile builds `dist/` on `node:24.22.2-alpine3.24` and copies it into
 `caddy:2.11.7-alpine` with `Caddyfile`. Caddy listens on `$PORT` (Railway sets it) and
-serves `/healthz` for the health check. `check-headers.sh` asserts the cache, compression and
-404 behaviour of the running container. The CI job `landing-e2e` runs the same checks.
+serves `/healthz` for the health check. `check-headers.sh` asserts the cache, compression,
+security headers (Content-Security-Policy, X-Content-Type-Options, Referrer-Policy,
+X-Frame-Options, Permissions-Policy) and 404 behaviour of the running container. The CI job
+`landing-e2e` runs the same checks.
 
 Railway deploys the `landing` service from GitHub `main` (production only, declared in
 `.railway/railway.ts`). The hosting decision is recorded in
