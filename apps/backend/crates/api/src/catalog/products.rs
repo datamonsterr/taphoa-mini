@@ -154,11 +154,22 @@ pub(crate) async fn list(
             .push(")) || '%'");
     }
     if let Some(barcode) = &params.barcode {
+        let barcode = canonical_barcode(barcode);
+        let ambiguous: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM barcode_registry WHERE store_id = $1 AND canonical_code = $2 AND entry_count > 1)",
+        )
+        .bind(actor.store_id)
+        .bind(barcode)
+        .fetch_one(pool(&state)?)
+        .await?;
+        if ambiguous {
+            return Err(ApiError::conflict("conflict", "barcode already used"));
+        }
         query
-            .push(" AND (p.barcode = ")
-            .push_bind(barcode.clone())
-            .push(" OR EXISTS (SELECT 1 FROM product_units uu WHERE uu.product_id = p.id AND uu.barcode = ")
-            .push_bind(barcode.clone())
+            .push(" AND (canonical_barcode(p.barcode) = ")
+            .push_bind(barcode.to_owned())
+            .push(" OR EXISTS (SELECT 1 FROM product_units uu WHERE uu.product_id = p.id AND canonical_barcode(uu.barcode) = ")
+            .push_bind(barcode.to_owned())
             .push("))");
     }
     if let Some(category_id) = params.category_id {
@@ -225,9 +236,9 @@ fn unique_violation(error: sqlx::Error) -> ApiError {
         Some("products_pkey") => {
             ApiError::conflict("id_conflict", "id already used with a different request")
         }
-        Some("products_store_barcode") | Some("product_units_store_barcode") => {
-            ApiError::conflict("conflict", "barcode already used")
-        }
+        Some("products_store_barcode")
+        | Some("product_units_store_barcode")
+        | Some("barcode_registry_pkey") => ApiError::conflict("conflict", "barcode already used"),
         _ => ApiError::from(error),
     }
 }
@@ -835,4 +846,24 @@ pub(crate) async fn archive_product(
         tx.commit().await?;
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+fn canonical_barcode(code: &str) -> &str {
+    if code.len() == 13 && code.starts_with('0') && code.bytes().all(|b| b.is_ascii_digit()) {
+        &code[1..]
+    } else {
+        code
+    }
+}
+
+#[cfg(test)]
+mod barcode_integrity_tests {
+    use super::canonical_barcode;
+
+    #[test]
+    fn canonicalizes_only_numeric_leading_zero_ean13() {
+        assert_eq!(canonical_barcode("0123456789012"), "123456789012");
+        assert_eq!(canonical_barcode("0abcdefgh1234"), "0abcdefgh1234");
+        assert_eq!(canonical_barcode("012345678901"), "012345678901");
+    }
 }

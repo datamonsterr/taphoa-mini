@@ -70,7 +70,7 @@ import { fillSummaryBuckets } from './summary';
 import { applyOptimisticPrice } from './optimisticPrice';
 import { listManualLines, resolveManualLine } from './review';
 import {
-  barcodeAliases,
+  canonicalBarcode,
   addProductImage,
   createProduct,
   getProduct,
@@ -174,34 +174,31 @@ export function useProducts(params: Omit<ListProductsParams, 'cursor'> = {}) {
   });
 }
 
-/** Exact barcode lookup shares product list keys and mutation invalidation. Cached per session. */
+/** Barcode lookup shares product list keys and mutation invalidation. Cached per session. */
 export function useLookupBarcode() {
   const client = useQueryClient();
   const online = useOnline();
   return async (barcode: string) => {
     if (!online) {
-      const products = Object.values(getCatalog(client).products);
-      for (const code of barcodeAliases(barcode)) {
-        const product = products.find(
-          (product) =>
-            !product.archived &&
-            (product.barcode === code ||
-              product.units.some((unit) => unit.barcode === code)),
-        );
-        if (product) return product;
-      }
-      return null;
+      const code = canonicalBarcode(barcode);
+      const entries = Object.values(getCatalog(client).products).flatMap(
+        (product) =>
+          [product.barcode, ...product.units.map((unit) => unit.barcode)]
+            .filter(
+              (value) => value != null && canonicalBarcode(value) === code,
+            )
+            .map(() => product),
+      );
+      if (entries.length > 1) throw new Error('barcode already used');
+      const product = entries[0];
+      return product && !product.archived ? product : null;
     }
-    for (const code of barcodeAliases(barcode)) {
-      const data = await client.fetchInfiniteQuery({
-        ...productsQuery({ barcode: code, limit: 1 }),
-        staleTime: Infinity,
-        gcTime: Infinity,
-      });
-      const product = data.pages[0]?.items[0];
-      if (product) return product;
-    }
-    return null;
+    const data = await client.fetchInfiniteQuery({
+      ...productsQuery({ barcode, limit: 1 }),
+      staleTime: Infinity,
+      gcTime: Infinity,
+    });
+    return data.pages[0]?.items[0] ?? null;
   };
 }
 

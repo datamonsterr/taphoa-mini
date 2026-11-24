@@ -515,6 +515,8 @@ export interface paths {
          *     `catalog.changed` event. Conflict rule: the Lead's edits win; concurrent edits resolve
          *     last-writer-wins by server receive time, and both appear in history.
          *     The low-stock threshold override is Lead only; null restores the store default.
+         *     A barcode already reserved by a product or unit, including an archived product,
+         *     returns 409 `conflict`. UPC-A and leading-zero EAN-13 spellings share a reservation.
          */
         patch: operations["updateProduct"];
         trace?: never;
@@ -4016,7 +4018,7 @@ export interface operations {
             query?: {
                 /** @description Case- and accent-insensitive name search (`unaccent`), e.g. `hao hao` matches `Hảo Hảo`. */
                 q?: string;
-                /** @description Exact barcode lookup (S2). */
+                /** @description Barcode lookup matches UPC-A and its leading-zero EAN-13 alias across products and units. Existing ambiguous codes return 409. */
                 barcode?: string;
                 category_id?: string;
                 include_archived?: boolean;
@@ -4046,6 +4048,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
     createProduct: {
@@ -4088,7 +4091,8 @@ export interface operations {
             /**
              * @description `duplicate_suspected` (with `details.candidates`) when `force_new` is false and a
              *     reference image matches an existing product, `image_limit` when total images would
-             *     exceed 8, or `id_conflict` on an id reused with a different body.
+             *     exceed 8, `conflict` when a product or unit barcode is already reserved in the store,
+             *     or `id_conflict` on an id reused with a different body.
              */
             409: {
                 headers: {
@@ -4189,6 +4193,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     addProductImage: {
