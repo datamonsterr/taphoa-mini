@@ -50,3 +50,36 @@ test('starts only while foregrounded and stops on background or store switch', a
   expect(mockStop).toHaveBeenCalledTimes(3);
   subscription.mockRestore();
 });
+
+test('stays disconnected offline and reconnects once when online', async () => {
+  const { onlineManager } = jest.requireActual<
+    typeof import('@tanstack/react-query')
+  >('@tanstack/react-query');
+  mockStart.mockClear();
+  mockStop.mockClear();
+  onlineManager.setOnline(false);
+  Object.defineProperty(AppState, 'currentState', {
+    configurable: true,
+    value: 'active',
+  });
+  const subscription = jest
+    .spyOn(AppState, 'addEventListener')
+    .mockImplementation(((_type, listener) => {
+      change = listener as (state: AppStateStatus) => void;
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener);
+  const hook = await renderHook(() => useStoreEvents('a'));
+  expect(mockStart).not.toHaveBeenCalled();
+  await act(() => onlineManager.setOnline(true));
+  expect(mockStart).toHaveBeenCalledTimes(1);
+  await act(() => onlineManager.setOnline(false));
+  expect(mockStop).toHaveBeenCalled();
+  await act(() => change('background'));
+  await act(() => onlineManager.setOnline(true));
+  expect(mockStart).toHaveBeenCalledTimes(1);
+  await act(() => change('active'));
+  expect(mockStart).toHaveBeenCalledTimes(2);
+  await hook.unmount();
+  subscription.mockRestore();
+  onlineManager.setOnline(true);
+});

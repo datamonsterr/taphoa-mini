@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { onlineManager, useQueryClient } from '@tanstack/react-query';
 import { fetch } from 'expo/fetch';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
@@ -30,12 +30,26 @@ export function useStoreEvents(storeId: string | null) {
           });
       },
     });
-    if (AppState.currentState === 'active') stream.start();
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') stream.start();
+    let foreground = AppState.currentState === 'active';
+    let running = false;
+    const sync = () => {
+      const shouldRun =
+        foreground &&
+        onlineManager.isOnline() &&
+        (typeof navigator === 'undefined' || navigator.onLine !== false);
+      if (shouldRun === running) return;
+      running = shouldRun;
+      if (running) stream.start();
       else stream.stop();
+    };
+    const unsubscribe = onlineManager.subscribe(sync);
+    const subscription = AppState.addEventListener('change', (state) => {
+      foreground = state === 'active';
+      sync();
     });
+    sync();
     return () => {
+      unsubscribe();
       subscription.remove();
       stream.stop();
     };
