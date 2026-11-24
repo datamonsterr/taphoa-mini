@@ -61,6 +61,11 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: 'Khớp'
 - takeScreenshot: receipts-01-review
 - tapOn: 'Xác nhận nhập kho'
+# The product name is also on the review screen, so wait for that screen to leave (the app
+# replaces it with the Tồn kho segment once the confirm call answered) before looking for it.
+- extendedWaitUntil:
+    notVisible: 'Kiểm tra hóa đơn'
+    timeout: 30000
 - extendedWaitUntil:
     visible: ${output.receipt.product}
     timeout: 30000
