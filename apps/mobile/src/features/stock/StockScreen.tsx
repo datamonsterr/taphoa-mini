@@ -85,6 +85,8 @@ export function StockScreen({
                     checked: status === filter,
                     selected: status === filter,
                   }}
+                  aria-checked={status === filter}
+                  aria-selected={status === filter}
                   onPress={() => {
                     setStatus(filter);
                     setFilterOpen(false);

@@ -28,7 +28,12 @@ export function StockSegment({
           key={item}
           accessibilityRole="radio"
           accessibilityLabel={t(item)}
-          accessibilityState={{ checked: selected === item }}
+          accessibilityState={{
+            checked: selected === item,
+            selected: selected === item,
+          }}
+          aria-checked={selected === item}
+          aria-selected={selected === item}
           onPress={() => {
             if (selected !== item) onSelect(item);
           }}
