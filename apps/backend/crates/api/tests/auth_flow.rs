@@ -383,6 +383,12 @@ async fn member_and_store_lifecycle_and_single_use_invite_concurrency() {
             StatusCode::FORBIDDEN,
         ),
         (
+            format!("/v1/members/{}", w.seller_id),
+            "PATCH",
+            json!({"role":"lead"}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
             format!("/v1/members/{}", w.lead_id),
             "DELETE",
             Value::Null,

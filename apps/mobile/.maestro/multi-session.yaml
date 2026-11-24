@@ -31,6 +31,10 @@ appId: com.datamonsterr.taphoamini
     visible: 'Tiem A Maestro'
     timeout: 20000
 # New PIN 7468, then the same again.
+# The lead's member actions push the PIN row below the fold: scroll to it first.
+- scrollUntilVisible:
+    element: 'Đặt mã PIN'
+    timeout: 30000
 - tapOn: 'Đặt mã PIN'
 - extendedWaitUntil:
     visible: 'Mã PIN mới.*'

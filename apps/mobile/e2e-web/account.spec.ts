@@ -163,6 +163,97 @@ test.describe('account', () => {
   });
 });
 
+test.describe('manage members (F2)', () => {
+  const MEMBER_URL = /\/v1\/members\/[0-9a-f-]{36}$/;
+  const confirm = (page: Page) => button(page, 'Đồng ý');
+
+  test('the Lead promotes, demotes and removes a member; the last Lead stays', async ({
+    page,
+    store,
+  }) => {
+    const seller = await joinStoreViaApi(store.api);
+    const sellerId = seller.session.member.id;
+    const sellerName = seller.session.member.display_name;
+    const leadName = store.session.member.display_name;
+    await openShop(page, '/account');
+    await expect(page.getByLabel('2 thành viên')).toBeVisible();
+
+    // promote, after a confirmation that can be cancelled
+    await button(page, `Đổi vai trò ${sellerName}`).click();
+    await expect(
+      page.getByText(`Đổi vai trò ${sellerName} thành Chủ?`),
+    ).toBeVisible();
+    await button(page, 'Hủy').click();
+    await expect(confirm(page)).toHaveCount(0);
+    await button(page, `Đổi vai trò ${sellerName}`).click();
+    const promoted = await callApi(page, 'PATCH', MEMBER_URL, () =>
+      confirm(page).click(),
+    );
+    expect(promoted.requestBody).toEqual({ role: 'lead' });
+    expect(promoted.body).toMatchObject({ id: sellerId, role: 'lead' });
+    await expect(page.getByLabel(`${sellerName}, Chủ`)).toBeVisible();
+
+    // demote again
+    await button(page, `Đổi vai trò ${sellerName}`).click();
+    const demoted = await callApi(page, 'PATCH', MEMBER_URL, () =>
+      confirm(page).click(),
+    );
+    expect(demoted.body).toMatchObject({ id: sellerId, role: 'seller' });
+    await expect(page.getByLabel(`${sellerName}, Người bán`)).toBeVisible();
+
+    // remove
+    await button(page, `Xóa ${sellerName}`).click();
+    await expect(
+      page.getByText(`Xóa ${sellerName} khỏi cửa hàng?`),
+    ).toBeVisible();
+    const removed = await callApi(page, 'DELETE', MEMBER_URL, () =>
+      confirm(page).click(),
+    );
+    expect(removed.status).toBe(204);
+    await expect(page.getByLabel('1 thành viên')).toBeVisible();
+    await expect(page.getByLabel(`${sellerName}, Người bán`)).toHaveCount(0);
+
+    // the only Lead cannot demote or remove themself
+    await button(page, `Đổi vai trò ${leadName}`).click();
+    const refused = await callApi(
+      page,
+      'PATCH',
+      MEMBER_URL,
+      () => confirm(page).click(),
+      409,
+    );
+    expect(refused.body.code).toBe('last_lead');
+    await expect(
+      page.getByText('Cửa hàng phải còn ít nhất một Chủ.'),
+    ).toBeVisible();
+    await expect(page.getByLabel(`${leadName}, Chủ`)).toBeVisible();
+  });
+
+  test('a seller sees no member actions', async ({
+    browser,
+    baseURL,
+    store,
+  }) => {
+    const seller = await joinStoreViaApi(store.api);
+    const { context, page } = await openSignedInPhone(
+      browser,
+      baseURL,
+      seller.user,
+      seller.api,
+    );
+    try {
+      await openShop(page, '/account');
+      await expect(page.getByText('Người bán', { exact: true })).toBeVisible();
+      await expect(page.getByLabel('2 thành viên')).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: /^(Đổi vai trò|Xóa) / }),
+      ).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
 const tapKeys = async (scope: Page | Locator, digits: string) => {
   for (const digit of digits) await button(scope, digit).click();
 };

@@ -168,6 +168,15 @@ export function DashboardScreen() {
           </PressableScale>
           <PressableScale
             accessibilityRole="button"
+            accessibilityLabel={t('recentExpenses')}
+            pressedScale={0.96}
+            onPress={() => router.push('/expenses')}
+            style={styles.link}
+          >
+            <Text style={styles.linkText}>{t('recentExpenses')}</Text>
+          </PressableScale>
+          <PressableScale
+            accessibilityRole="button"
             accessibilityLabel={exportLabel}
             pressedScale={0.96}
             onPress={() => setExporting(true)}

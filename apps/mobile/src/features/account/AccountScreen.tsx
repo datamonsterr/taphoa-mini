@@ -48,6 +48,7 @@ import { StockThresholdRow } from './StockThresholdRow';
 import { BankSheet } from './BankSheet';
 import { DeviceSessions } from './DeviceSessions';
 import { InviteSheet } from './InviteSheet';
+import { MemberActions } from './MemberActions';
 import { MemberRow } from './MemberRow';
 import { SetPinSheet } from './SetPinSheet';
 import { StorePicker } from './StorePicker';
@@ -438,6 +439,9 @@ export function AccountScreen() {
           inviteLabel={isLead ? t('invite.open') : null}
           onInvite={openInvite}
         />
+        {isLead ? (
+          <MemberActions members={members.data} roleLabel={roleLabel} />
+        ) : null}
 
         <PressableScale
           accessibilityRole="button"
