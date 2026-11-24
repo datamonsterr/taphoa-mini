@@ -21,10 +21,12 @@ appId: com.datamonsterr.taphoamini
 - scrollUntilVisible:
     element: 'Nâng cao'
     timeout: 30000
+    centerElement: true
 - tapOn: 'Nâng cao'
 - scrollUntilVisible:
     element: 'Đặt mã PIN'
     timeout: 30000
+    centerElement: true
 - assertVisible: 'Đặt mã PIN'
 - takeScreenshot: onboarding-02-account
 # Only this person is on the phone. Signing out ends their session and shows the sign-in screen.

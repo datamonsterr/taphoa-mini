@@ -18,6 +18,7 @@ appId: com.datamonsterr.taphoamini
 - runFlow: subflows/open-account.yaml
 - scrollUntilVisible:
     element: 'Nâng cao'
+    centerElement: true
 - tapOn: 'Nâng cao'
 - scrollUntilVisible:
     element:
