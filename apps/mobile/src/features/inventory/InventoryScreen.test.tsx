@@ -7,13 +7,14 @@ import {
 } from '@testing-library/react-native';
 import { onlineManager } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   fireGestureHandler,
   getByGestureTestId,
 } from 'react-native-gesture-handler/jest-utils';
 
 import * as productsApi from '@/lib/api/products';
+import * as stockApi from '@/lib/api/stock';
 import { holdNext } from '@/test/hold';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { renderOffline, restoreOnline } from '@/test/offline';
@@ -28,7 +29,9 @@ jest.mock('expo-router', () => ({
     push: jest.fn(),
     dismissTo: jest.fn(),
     back: jest.fn(),
+    setParams: jest.fn(),
   },
+  useLocalSearchParams: jest.fn(() => ({})),
 }));
 
 const mockTileRenders = jest.fn();
@@ -49,6 +52,7 @@ beforeEach(() => {
   useCartStore.setState({ lines: [] });
   useSettingsStore.setState({ elderMode: false });
   jest.clearAllMocks();
+  jest.mocked(useLocalSearchParams).mockReturnValue({});
 });
 afterEach(() => {
   restoreOnline();
@@ -309,13 +313,39 @@ test('typing a search keeps the previous grid until the new page arrives', async
   );
 });
 
-test('products segment is selected and stock segment opens the stock route', async () => {
+test('products segment is selected; the stock segment switches in place without pushing', async () => {
   await renderWithProviders(<InventoryScreen />);
   await screen.findByRole('button', { name: COCA });
   expect(screen.getByRole('radio', { name: 'Sản phẩm' })).toBeChecked();
   await fireEvent.press(screen.getByRole('radio', { name: 'Tồn kho' }));
-  expect(router.push).toHaveBeenCalledWith('/stock');
-  expect(screen.getByLabelText('Tồn kho 20, Còn hàng')).toBeOnTheScreen();
+  expect(router.setParams).toHaveBeenCalledWith({ segment: 'stock' });
+  expect(router.push).not.toHaveBeenCalled();
+});
+
+test('the stock segment shows the stock list and applies the status param', async () => {
+  jest
+    .mocked(useLocalSearchParams)
+    .mockReturnValue({ segment: 'stock', status: 'low' });
+  const list = jest.spyOn(stockApi, 'listStock');
+  await renderWithProviders(<InventoryScreen />);
+  expect(await screen.findByTestId('stock-list')).toBeOnTheScreen();
+  expect(screen.getByRole('radio', { name: 'Tồn kho' })).toBeChecked();
+  expect(screen.queryByTestId('inventory-list')).toBeNull();
+  expect(list).toHaveBeenCalledWith({ status: 'low', cursor: null });
+  await fireEvent.press(screen.getByRole('radio', { name: 'Sản phẩm' }));
+  expect(router.setParams).toHaveBeenCalledWith({ segment: 'products' });
+  expect(router.push).not.toHaveBeenCalled();
+});
+
+test('segment options are at least 48 dp tall', async () => {
+  await renderWithProviders(<InventoryScreen />);
+  const style = Object.assign(
+    {},
+    ...[screen.getByRole('radio', { name: 'Tồn kho' }).props.style]
+      .flat(5)
+      .filter(Boolean),
+  );
+  expect(style.minHeight).toBeGreaterThanOrEqual(48);
 });
 
 test('board 08: the Sản phẩm / Tồn kho segment is a compact pill on the left', async () => {

@@ -290,7 +290,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
         ).toBeVisible();
         await page.getByRole('radio', { name: 'Tuần', exact: true }).click();
         await page.getByRole('radio', { name: 'Ngày', exact: true }).click();
-        await page.goto('/stock');
+        await page.goto('/inventory?segment=stock&status=all');
         await expect(page.getByTestId('stock-list')).toBeVisible();
         const image = await api.uploadImage(
           path.join(

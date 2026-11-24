@@ -1,4 +1,4 @@
-import { router, type Href } from 'expo-router';
+import { router } from 'expo-router';
 import { Tag, TriangleAlert } from '@/components/icons';
 import { memo, useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -7,6 +7,7 @@ import { AlertPill, PressableScale, Text } from '@/components/ui';
 import { useAlerts, useManualLines, type ManualLine } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { useIsLead } from '@/features/auth/useMembership';
+import { stockHref } from '@/features/stock/stockHref';
 import { useT } from '@/lib/i18n';
 import { colors, fontFamily, radius, size, space, typography } from '@/theme';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
@@ -180,7 +181,7 @@ export const AlertsSection = memo(function AlertsSection() {
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel={t('viewAll')}
-              onPress={() => router.push('/stock' as Href)}
+              onPress={() => router.push(stockHref('low'))}
               style={styles.retry}
             >
               <Text style={styles.retryText}>{t('viewAll')}</Text>
