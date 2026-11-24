@@ -225,6 +225,16 @@ async function runFlow(page: Page, cpuRate: number, shop: Shop): Promise<Run> {
   }
   // Let hydration, the font swap and the video start settle so they do not leak into the samples.
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
+  // X5: the first item of an empty cart opens Pay instead of updating the pill. Put one item in
+  // the cart (unmeasured) and come back, so the measured adds below each change the pill.
+  if ((await pillLabel(page)) === 'Giỏ hàng trống') {
+    await shutter(page).click();
+    await expect(page.locator(box).first()).toBeVisible();
+    await addButton(page).click();
+    await expect(page).toHaveURL(/\/pay/);
+    await page.getByRole('button', { name: 'Quay lại giỏ hàng' }).click();
+    await expect(cartPill(page)).not.toHaveAccessibleName('Giỏ hàng trống');
+  }
   const rec = new Recorder(page);
 
   for (const index of [1, 2]) {
