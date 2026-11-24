@@ -2,7 +2,7 @@ import type { BarcodeScanningResult } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useLookupBarcode, type Product } from '@/lib/api';
+import { isApiError, useLookupBarcode, type Product } from '@/lib/api';
 
 import { useBarcodeScanner } from './useBarcodeScanner';
 
@@ -47,7 +47,12 @@ export function useBarcodeFlow({
           setNotice('Mã vạch chưa có trong kho. Nhờ chủ cửa hàng thêm hàng.');
       }
     },
-    onError: () => setNotice('Chưa tìm được mã vạch. Thử lại.'),
+    onError: (error) =>
+      setNotice(
+        isApiError(error) && error.status === 409 && error.code === 'conflict'
+          ? 'Mã vạch trùng giữa các sản phẩm. Nhờ chủ cửa hàng kiểm tra.'
+          : 'Chưa tìm được mã vạch. Thử lại.',
+      ),
   });
   // The preview gets one stable handler: the latest scanner is read through a ref, so a new
   // scanner closure never re-renders the camera.

@@ -210,6 +210,99 @@ test.describe('dashboard alerts and review', () => {
     await expect(heading(page)).toBeVisible();
   });
 
+  test('accept suggested price updates the product and closes the alert', async ({
+    page,
+    store,
+  }) => {
+    const day = await seedTradingDay(store.api);
+    const alerts = await openShopLoading(
+      page,
+      '/dashboard',
+      'GET',
+      '/v1/alerts',
+    );
+    const alert = alerts.body.items[0];
+    await pill(page, /dưới giá nhập$/).click();
+    await button(page, 'Áp dụng giá đề xuất').click();
+    await button(page, 'Xác nhận đổi giá').click();
+    await expect(pill(page, /^0 món giá bán dưới giá nhập$/)).toBeVisible();
+    expect((await store.api.get(`/v1/products/${day.pepsi.id}`)).price).toBe(
+      alert.suggested_price,
+    );
+    expect((await store.api.get('/v1/alerts?status=open')).items).toHaveLength(
+      0,
+    );
+  });
+
+  test('dismiss alert removes it from the open server list', async ({
+    page,
+    store,
+  }) => {
+    await seedTradingDay(store.api);
+    await openShopLoading(page, '/dashboard', 'GET', '/v1/alerts');
+    await pill(page, /dưới giá nhập$/).click();
+    await button(page, 'Bỏ qua cảnh báo').click();
+    await expect(pill(page, /^0 món giá bán dưới giá nhập$/)).toBeVisible();
+    expect((await store.api.get('/v1/alerts?status=open')).items).toHaveLength(
+      0,
+    );
+  });
+
+  test('link manual line to a catalog product', async ({ page, store }) => {
+    const day = await seedTradingDay(store.api);
+    const manual = await openShopLoading(
+      page,
+      '/dashboard',
+      'GET',
+      '/v1/review/manual-lines',
+    );
+    await pill(page, /không có trong kho$/).click();
+    await button(page, 'Liên kết sản phẩm').click();
+    await button(page.getByRole('dialog'), day.coca.name).click();
+    await expect(pill(page, /^0 món bán không có trong kho$/)).toBeVisible();
+    const resolved = await store.api.get(
+      '/v1/review/manual-lines?status=resolved',
+    );
+    expect(resolved.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          line_id: manual.body.items[0].line_id,
+          resolution: expect.objectContaining({
+            action: 'link',
+            product_id: day.coca.id,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('dismiss manual line removes it from the open server list', async ({
+    page,
+    store,
+  }) => {
+    await seedTradingDay(store.api);
+    const manual = await openShopLoading(
+      page,
+      '/dashboard',
+      'GET',
+      '/v1/review/manual-lines',
+    );
+    await pill(page, /không có trong kho$/).click();
+    await button(page, 'Bỏ qua').click();
+    await expect(pill(page, /^0 món bán không có trong kho$/)).toBeVisible();
+    const resolved = await store.api.get(
+      '/v1/review/manual-lines?status=resolved',
+    );
+    expect(resolved.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          line_id: manual.body.items[0].line_id,
+          resolution: expect.objectContaining({ action: 'dismiss' }),
+        }),
+      ]),
+    );
+  });
+
   test('a loose item sold at a typed price: enroll it from the review list and the line is resolved', async ({
     page,
     store,

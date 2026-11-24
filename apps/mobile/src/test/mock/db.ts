@@ -1,3 +1,4 @@
+import { canonicalBarcode } from '@/lib/api/products';
 import { resetMockAuth } from './auth';
 import { resetAssistantMock } from './assistant';
 import { newUuid } from '@/lib/uuid';
@@ -198,7 +199,15 @@ export function listProducts(filters: {
   return state.products
     .map((p) => p.product)
     .filter((p) => filters.includeArchived || !p.archived)
-    .filter((p) => !filters.barcode || p.barcode === filters.barcode)
+    .filter(
+      (p) =>
+        !filters.barcode ||
+        [p.barcode, ...p.units.map((u) => u.barcode)].some(
+          (code) =>
+            code != null &&
+            canonicalBarcode(code) === canonicalBarcode(filters.barcode!),
+        ),
+    )
     .filter((p) => !filters.categoryId || p.category_id === filters.categoryId)
     .filter((p) => !needle || normalizeText(p.name ?? '').includes(needle))
     .sort((a, b) =>

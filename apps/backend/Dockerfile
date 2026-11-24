@@ -25,13 +25,14 @@ RUN find crates -name "*.rs" -exec touch {} + && cargo build --locked --release 
 
 FROM chef AS assets
 ARG SKIP_MODELS=0
+ARG FETCH_SIGLIP2=0
 ARG TARGETARCH
 ENV ORT_INSTALL_DIR=/opt/onnxruntime MODEL_DIR=/opt/models
 COPY apps/backend/scripts/ /scripts/
 RUN apt-get update && apt-get install -y --no-install-recommends unzip \
     && rm -rf /var/lib/apt/lists/*
 RUN /scripts/fetch-onnxruntime.sh && mkdir -p /opt/models \
-    && if [ "$SKIP_MODELS" != "1" ]; then /scripts/fetch-models.sh; fi
+    && if [ "$SKIP_MODELS" != "1" ]; then FETCH_SIGLIP2="$FETCH_SIGLIP2" /scripts/fetch-models.sh; fi
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libstdc++6 libgomp1 \
@@ -47,6 +48,8 @@ ENV PORT=8080 LOG_FORMAT=json \
     ORT_DYLIB_PATH=/opt/onnxruntime/lib/libonnxruntime.so.1.23.2 \
     SAM_ENCODER_PATH=/app/models/mobile_sam_image_encoder.onnx \
     SAM_DECODER_PATH=/app/models/sam_mask_decoder_multi.onnx \
+    EMBEDDER=dinov2 EMBED_THREADS=4 \
+    SIGLIP2_MODEL_PATH=/app/models/siglip2_base_patch16_224.onnx \
     DINO_MODEL_PATH=/app/models/dinov2_small.onnx \
     OCR_DET_PATH=/app/models/ocr_det.onnx \
     OCR_ENCODER_PATH=/app/models/ocr_vietocr_encoder.onnx \

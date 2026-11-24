@@ -237,7 +237,9 @@ test.describe('sign-in screens', () => {
     expect(me.body.memberships.map((m: any) => m.store.id)).toEqual([
       store.session.store.id,
     ]);
-    await page.getByRole('tab', { name: 'Tài khoản', exact: true }).click();
+    // The shop opens on the camera, which has no tab bar; /v1/me is already read, so a
+    // full navigation to the account tab cannot drop it.
+    await openShop(page, '/account');
 
     // "Đăng xuất" signs this session out: back to sign-in, and the shop stays closed
     await button(page, 'Đăng xuất').click();

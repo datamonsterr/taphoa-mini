@@ -807,3 +807,121 @@ async fn assistant_digest_schema_checks_and_cascades() {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+static SCHEMA_MUTEX: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn additive_768_columns_and_cosine_indexes_preserve_384_schema() {
+    let _guard = SCHEMA_MUTEX.get_or_init(Default::default).lock().await;
+    let Some(pool) = pool().await else { return };
+    for table in ["product_embeddings", "product_prototypes", "detections"] {
+        for (column, dim) in [("embedding", 384), ("embedding_768", 768)] {
+            let (kind, nullable): (String, bool) = sqlx::query_as(
+                "SELECT format_type(a.atttypid,a.atttypmod), NOT a.attnotnull FROM pg_attribute a WHERE a.attrelid=$1::regclass AND a.attname=$2"
+            )
+            .bind(table)
+            .bind(column)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(kind, format!("vector({dim})"));
+            assert!(
+                nullable,
+                "{table}.{column} must accept the other model's rows"
+            );
+        }
+    }
+    for table in ["product_embeddings", "product_prototypes"] {
+        let def: String = sqlx::query_scalar("SELECT indexdef FROM pg_indexes WHERE indexname=$1")
+            .bind(format!("{table}_768_hnsw"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(
+            def.contains("hnsw (embedding_768 vector_cosine_ops)"),
+            "{def}"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn invalid_768_indexes_are_detected_and_recreated_as_valid() {
+    let _guard = SCHEMA_MUTEX.get_or_init(Default::default).lock().await;
+    let Some(pool) = pool().await else { return };
+
+    const CORRUPT_EMBEDDINGS: &str = "UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'product_embeddings_768_hnsw'::regclass";
+    const DO_DROP_EMBEDDINGS: &str = "DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indexrelid
+                WHERE c.relname = 'product_embeddings_768_hnsw'
+                  AND NOT i.indisvalid
+            ) THEN
+                DROP INDEX product_embeddings_768_hnsw;
+            END IF;
+        END $$;";
+    const CREATE_EMBEDDINGS: &str = "CREATE INDEX IF NOT EXISTS product_embeddings_768_hnsw
+        ON product_embeddings USING hnsw (embedding_768 vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64);";
+
+    const CORRUPT_PROTOTYPES: &str = "UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'product_prototypes_768_hnsw'::regclass";
+    const DO_DROP_PROTOTYPES: &str = "DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indexrelid
+                WHERE c.relname = 'product_prototypes_768_hnsw'
+                  AND NOT i.indisvalid
+            ) THEN
+                DROP INDEX product_prototypes_768_hnsw;
+            END IF;
+        END $$;";
+    const CREATE_PROTOTYPES: &str = "CREATE INDEX IF NOT EXISTS product_prototypes_768_hnsw
+        ON product_prototypes USING hnsw (embedding_768 vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64);";
+
+    for (index_name, corrupt_sql, drop_sql, create_sql) in [
+        (
+            "product_embeddings_768_hnsw",
+            CORRUPT_EMBEDDINGS,
+            DO_DROP_EMBEDDINGS,
+            CREATE_EMBEDDINGS,
+        ),
+        (
+            "product_prototypes_768_hnsw",
+            CORRUPT_PROTOTYPES,
+            DO_DROP_PROTOTYPES,
+            CREATE_PROTOTYPES,
+        ),
+    ] {
+        // Corrupt index to simulate a failed index build
+        sqlx::query(corrupt_sql).execute(&pool).await.unwrap();
+
+        let is_valid: bool =
+            sqlx::query_scalar("SELECT indisvalid FROM pg_index WHERE indexrelid = $1::regclass")
+                .bind(index_name)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!is_valid, "{index_name} must initially be marked invalid");
+
+        sqlx::query(drop_sql).execute(&pool).await.unwrap();
+        sqlx::query(create_sql).execute(&pool).await.unwrap();
+
+        let is_valid_after: bool =
+            sqlx::query_scalar("SELECT indisvalid FROM pg_index WHERE indexrelid = $1::regclass")
+                .bind(index_name)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            is_valid_after,
+            "{index_name} must be recreated and valid after running recovery block"
+        );
+    }
+}

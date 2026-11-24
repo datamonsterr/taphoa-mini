@@ -116,6 +116,9 @@ async function setup(page, signedOut, welcome, understanding) {
         json: { clerk_user_id: 'user_test', profile: null, memberships: [] },
       });
     }
+    // The in-memory mock has no live SSE endpoint. A clean empty response avoids a 404 loop.
+    if (new URL(request.url()).pathname === '/v1/events')
+      return route.fulfill({ status: 204 });
     // The test mock does not implement sync; preserve its 404, which the app tolerates.
     const headers = {
       ...request.headers(),

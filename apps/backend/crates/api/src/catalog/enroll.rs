@@ -7,8 +7,6 @@ use std::sync::Arc;
 use taphoa_recognition::{EmbedError, Embedder, crop};
 use uuid::Uuid;
 
-use super::model::DUPLICATE_THRESHOLD;
-
 pub(crate) struct ImageRef {
     pub id: Uuid,
     pub object_key: String,
@@ -139,27 +137,49 @@ pub(crate) fn vector_text(vector: &[f32]) -> String {
     )
 }
 
-// Scoring is defined twice (also `scan_search_products`, migration 1901); the parity test
-// `scan_search_function_matches_search_sql` in tests/recognition_vector.rs pins them.
-const SQL_SEARCH: &str = crate::recognition::pgvector::SEARCH_SQL;
-
 async fn search_sql(
     state: &AppState,
     store_id: Uuid,
     model_name: &str,
     vector: &[f32],
+    duplicate_threshold: f32,
 ) -> ApiResult<Vec<DuplicateHit>> {
-    let rows: Vec<(Uuid, f32)> = sqlx::query_as(SQL_SEARCH)
-        .bind(vector_text(vector))
-        .bind(store_id)
-        .bind(model_name)
-        .bind(40_i64)
-        .bind(5_i64)
-        .fetch_all(pool(state)?)
-        .await?;
+    let rows: Vec<(Uuid, f32)> = if vector.len() == 768 {
+        let (fetch, votes) = crate::vector::search_limits(5, crate::vector::embed_knn());
+        let mut tx = pool(state)?.begin().await?;
+        sqlx::query("SET LOCAL hnsw.ef_search = 100")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL hnsw.iterative_scan = relaxed_order")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL hnsw.max_scan_tuples = 20000")
+            .execute(&mut *tx)
+            .await?;
+        let rows = sqlx::query_as(crate::recognition::pgvector::SEARCH_SQL_768)
+            .bind(vector_text(vector))
+            .bind(store_id)
+            .bind(model_name)
+            .bind(fetch as i64)
+            .bind(5_i64)
+            .bind(votes as i64)
+            .fetch_all(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        rows
+    } else {
+        sqlx::query_as(crate::recognition::pgvector::SEARCH_SQL)
+            .bind(vector_text(vector))
+            .bind(store_id)
+            .bind(model_name)
+            .bind(40_i64)
+            .bind(5_i64)
+            .fetch_all(pool(state)?)
+            .await?
+    };
     Ok(rows
         .into_iter()
-        .filter(|(_, similarity)| f64::from(*similarity) >= DUPLICATE_THRESHOLD)
+        .filter(|(_, similarity)| *similarity >= duplicate_threshold)
         .map(|(product_id, similarity)| DuplicateHit {
             product_id,
             similarity: f64::from(similarity),
@@ -173,6 +193,7 @@ async fn search_index(
     store_id: Uuid,
     model_name: &str,
     vector: &[f32],
+    duplicate_threshold: f32,
 ) -> ApiResult<Vec<DuplicateHit>> {
     let embedding = vector.to_vec();
     let model = model_name.to_string();
@@ -193,9 +214,7 @@ async fn search_index(
     .await?;
     Ok(hits
         .into_iter()
-        .filter(|hit| {
-            f64::from(hit.similarity) >= DUPLICATE_THRESHOLD && rows.contains(&hit.product_id)
-        })
+        .filter(|hit| hit.similarity >= duplicate_threshold && rows.contains(&hit.product_id))
         .map(|hit| DuplicateHit {
             product_id: hit.product_id,
             similarity: f64::from(hit.similarity),
@@ -210,11 +229,22 @@ pub(crate) async fn duplicate_hits(
     model_name: &str,
     vectors: &[(Uuid, Vec<f32>)],
 ) -> ApiResult<Vec<DuplicateHit>> {
+    let duplicate_threshold = state.recognition.duplicate_threshold;
     let mut best: Vec<DuplicateHit> = Vec::new();
     for (_, vector) in vectors {
         let hits = match &state.vector_index {
-            Some(index) => search_index(state, index.clone(), store_id, model_name, vector).await?,
-            None => search_sql(state, store_id, model_name, vector).await?,
+            Some(index) => {
+                search_index(
+                    state,
+                    index.clone(),
+                    store_id,
+                    model_name,
+                    vector,
+                    duplicate_threshold,
+                )
+                .await?
+            }
+            None => search_sql(state, store_id, model_name, vector, duplicate_threshold).await?,
         };
         for hit in hits {
             match best.iter_mut().find(|b| b.product_id == hit.product_id) {

@@ -39,6 +39,7 @@ test('exact barcode query caches per session and refreshes after catalog invalid
 });
 
 test('UPC-A scans also match an exact leading-zero EAN-13 catalog key', async () => {
+  const calls = jest.spyOn(products, 'listProducts');
   await products.patchProduct(PRODUCT_IDS.coca, { barcode: '0123456789012' });
   const client = createTestQueryClient();
   const { result } = await renderHook(() => useLookupBarcode(), {
@@ -49,6 +50,7 @@ test('UPC-A scans also match an exact leading-zero EAN-13 catalog key', async ()
   await act(async () => {
     expect((await result.current('123456789012'))?.id).toBe(PRODUCT_IDS.coca);
   });
+  expect(calls).toHaveBeenCalledTimes(1);
 });
 
 test('offline scans resolve the synced catalog including unit codes and report unknown codes', async () => {
@@ -76,6 +78,7 @@ test('offline scans resolve the synced catalog including unit codes and report u
         ...cached,
         id: 'archived',
         barcode: '87654321',
+        units: [],
         archived: true,
       },
     },
@@ -97,7 +100,7 @@ test('offline scans resolve the synced catalog including unit codes and report u
   expect(calls).not.toHaveBeenCalled();
 });
 
-test('offline lookup prefers the exact code before the UPC alias', async () => {
+test('offline lookup rejects ambiguous legacy codes', async () => {
   const product = await products.getProduct(PRODUCT_IDS.coca);
   const client = createTestQueryClient();
   client.setQueryData(keys.catalog(), {
@@ -114,6 +117,55 @@ test('offline lookup prefers the exact code before the UPC alias', async () => {
     ),
   });
   await act(async () => {
-    expect((await result.current('123456789012'))?.id).toBe('exact');
+    await expect(result.current('123456789012')).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
   });
+});
+
+test('barcode normalization leaves non-digit strings unchanged', () => {
+  expect(products.canonicalBarcode('0abcdefgh1234')).toBe('0abcdefgh1234');
+  expect(products.canonicalBarcode('0123456789012')).toBe('123456789012');
+});
+
+test('aliases share the same online cache key', async () => {
+  const calls = jest.spyOn(products, 'listProducts');
+  await products.patchProduct(PRODUCT_IDS.coca, { barcode: '0123456789012' });
+  const client = createTestQueryClient();
+  const { result } = await renderHook(() => useLookupBarcode(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  await act(async () => {
+    expect((await result.current('0123456789012'))?.id).toBe(PRODUCT_IDS.coca);
+    expect((await result.current('123456789012'))?.id).toBe(PRODUCT_IDS.coca);
+  });
+  expect(calls).toHaveBeenCalledTimes(1);
+  expect(calls).toHaveBeenCalledWith({
+    barcode: '123456789012',
+    limit: 1,
+    cursor: null,
+  });
+});
+
+test('offline lookup tolerates older catalog entries without units', async () => {
+  const product = await products.getProduct(PRODUCT_IDS.coca);
+  const client = createTestQueryClient();
+  client.setQueryData(keys.catalog(), {
+    cursor: 'synced',
+    products: {
+      [product.id]: { ...product, barcode: '12345678', units: undefined },
+    },
+  });
+  jest.spyOn(online, 'useOnline').mockReturnValue(false);
+  const { result } = await renderHook(() => useLookupBarcode(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  await act(async () =>
+    expect((await result.current('12345678'))?.id).toBe(product.id),
+  );
 });

@@ -4,7 +4,15 @@ import { memo, useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AlertPill, PressableScale, Text } from '@/components/ui';
-import { useAlerts, useManualLines, type ManualLine } from '@/lib/api';
+import {
+  useAlerts,
+  useManualLines,
+  useAcceptAlert,
+  useDismissAlert,
+  useResolveManualLine,
+  type ManualLine,
+} from '@/lib/api';
+import { ProductPicker } from '@/features/receipts/ProductPicker';
 import { formatVnd } from '@/lib/format';
 import { useIsLead } from '@/features/auth/useMembership';
 import { stockHref } from '@/features/stock/stockHref';
@@ -28,6 +36,14 @@ type Open = 'price' | 'manual' | null;
 const LeadAlerts = memo(function LeadAlerts() {
   const t = useT(dashboardStrings);
   const [open, setOpen] = useState<Open>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [pickerLine, setPickerLine] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const accept = useAcceptAlert();
+  const dismiss = useDismissAlert();
+  const resolve = useResolveManualLine();
+  const fail = () => setMessage(t('actionError'));
+  const busy = accept.isPending || dismiss.isPending || resolve.isPending;
   // Margin alerts and the review queue are Lead-only: a Seller's request would answer 403.
   const isLead = useIsLead();
   const margin = useAlerts('open', isLead);
@@ -106,50 +122,189 @@ const LeadAlerts = memo(function LeadAlerts() {
           onPress={toggleManual}
         />
       </View>
+      {message ? (
+        <Text accessibilityRole="alert" style={styles.itemMeta}>
+          {message}
+        </Text>
+      ) : null}
       {open === 'price' ? (
         <View style={styles.list}>
           {marginAlerts.map((alert) => (
-            <PressableScale
-              key={alert.id}
-              accessibilityRole="button"
-              accessibilityLabel={alert.product_name ?? alert.product_id}
-              pressedScale={0.98}
-              onPress={() => router.push(`/product/${alert.product_id}`)}
-              style={styles.item}
-            >
-              <Text style={styles.itemName} numberOfLines={1}>
-                {alert.product_name}
-              </Text>
+            <View key={alert.id} style={styles.actionItem}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={alert.product_name ?? alert.product_id}
+                pressedScale={0.98}
+                onPress={() => router.push(`/product/${alert.product_id}`)}
+                style={styles.item}
+              >
+                <Text style={styles.itemName} numberOfLines={1}>
+                  {alert.product_name}
+                </Text>
+                <Text style={styles.itemMeta}>
+                  {t('sellPrice')} {formatVnd(alert.selling_price)} ·{' '}
+                  {t('costPrice')} {formatVnd(alert.cost_price)}
+                </Text>
+              </PressableScale>
               <Text style={styles.itemMeta}>
-                {t('sellPrice')} {formatVnd(alert.selling_price)} ·{' '}
-                {t('costPrice')} {formatVnd(alert.cost_price)}
+                {t('margin')} {alert.margin_pct}% · {t('suggestedPrice')}{' '}
+                {formatVnd(alert.suggested_price)}
               </Text>
-            </PressableScale>
+              {confirmId === alert.id ? (
+                <>
+                  <Text style={styles.itemMeta}>
+                    {t('confirmPrice')} {formatVnd(alert.suggested_price)}?
+                  </Text>
+                  <Action
+                    label={t('confirmChange')}
+                    disabled={busy}
+                    onPress={() =>
+                      accept.mutate(
+                        { id: alert.id },
+                        {
+                          onSuccess: () => {
+                            setConfirmId(null);
+                            setMessage(t('priceUpdated'));
+                          },
+                          onError: fail,
+                        },
+                      )
+                    }
+                  />
+                  <Action
+                    label={t('cancel')}
+                    disabled={busy}
+                    onPress={() => setConfirmId(null)}
+                  />
+                </>
+              ) : (
+                <Action
+                  label={t('acceptPrice')}
+                  disabled={busy}
+                  onPress={() => {
+                    setMessage('');
+                    setConfirmId(alert.id);
+                  }}
+                />
+              )}
+              <Action
+                label={t('dismissAlert')}
+                disabled={busy}
+                onPress={() =>
+                  dismiss.mutate(alert.id, {
+                    onSuccess: () => setMessage(t('dismissed')),
+                    onError: fail,
+                  })
+                }
+              />
+            </View>
           ))}
         </View>
       ) : null}
       {open === 'manual' ? (
         <View style={styles.list}>
           {manualLines.map((line) => (
-            <PressableScale
-              key={line.line_id}
-              accessibilityRole="button"
-              accessibilityLabel={`${line.manual_label ?? t('manualItem')} × ${line.quantity}, ${formatVnd(line.unit_price)}`}
-              pressedScale={0.98}
-              onPress={() => enrollLine(line)}
-              style={styles.item}
-            >
-              <Text style={styles.itemName} numberOfLines={1}>
-                {line.manual_label ?? t('manualItem')} × {line.quantity}
-              </Text>
-              <Text style={styles.itemMeta}>{formatVnd(line.unit_price)}</Text>
-            </PressableScale>
+            <View key={line.line_id} style={styles.actionItem}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={`${line.manual_label ?? t('manualItem')} × ${line.quantity}, ${formatVnd(line.unit_price)}`}
+                pressedScale={0.98}
+                onPress={() => enrollLine(line)}
+                style={styles.item}
+              >
+                <Text style={styles.itemName} numberOfLines={1}>
+                  {line.manual_label ?? t('manualItem')} × {line.quantity}
+                </Text>
+                <Text style={styles.itemMeta}>
+                  {formatVnd(line.unit_price)}
+                </Text>
+              </PressableScale>
+              {line.reason ? (
+                <Text style={styles.itemMeta}>
+                  {t(
+                    line.reason === 'price_mismatch'
+                      ? 'reasonMismatch'
+                      : 'reasonManual',
+                  )}
+                </Text>
+              ) : null}
+              <Action
+                label={t('linkProduct')}
+                disabled={busy}
+                onPress={() => {
+                  setMessage('');
+                  setPickerLine(line.line_id);
+                }}
+              />
+              <Action
+                label={t('enrollNew')}
+                disabled={busy}
+                onPress={() => enrollLine(line)}
+              />
+              <Action
+                label={t('skip')}
+                disabled={busy}
+                onPress={() =>
+                  resolve.mutate(
+                    { lineId: line.line_id, action: 'dismiss' },
+                    {
+                      onSuccess: () => setMessage(t('resolved')),
+                      onError: fail,
+                    },
+                  )
+                }
+              />
+            </View>
           ))}
         </View>
+      ) : null}
+      {pickerLine ? (
+        <ProductPicker
+          line={{ candidates: [] }}
+          onClose={() => setPickerLine(null)}
+          onChoose={(product_id) => {
+            if (busy) return;
+            resolve.mutate(
+              { lineId: pickerLine, action: 'link', product_id },
+              {
+                onSuccess: () => {
+                  setPickerLine(null);
+                  setMessage(t('resolved'));
+                },
+                onError: () => {
+                  setPickerLine(null);
+                  fail();
+                },
+              },
+            );
+          }}
+        />
       ) : null}
     </View>
   );
 });
+
+function Action({
+  label,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      style={styles.action}
+    >
+      <Text style={styles.retryText}>{label}</Text>
+    </PressableScale>
+  );
+}
 
 /** Stock is visible to every member, independently of the Lead-only review queue. */
 export const AlertsSection = memo(function AlertsSection() {
@@ -250,6 +405,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: space[3],
     paddingVertical: space[2],
+  },
+  actionItem: { padding: space[2], gap: space[2] },
+  action: {
+    minHeight: 48,
+    paddingHorizontal: space[3],
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
   },
   itemName: { ...typography.label, color: colors.ink },
   itemMeta: { ...typography.caption, color: colors.inkMuted },

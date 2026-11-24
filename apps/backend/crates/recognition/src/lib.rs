@@ -6,7 +6,10 @@ pub mod provider;
 mod sam;
 pub mod wire;
 pub mod work;
-pub use embed::{DinoEmbedder, EmbedError, Embedder, MockEmbedder};
+pub use embed::{
+    DinoEmbedder, EmbedError, Embedder, MockEmbedder, MockEmbedder768, ModelSpec, OnnxEmbedder,
+    Pooling,
+};
 pub use sam::{
     ImageEncoding, MockPointSegmenter, PointSegment, PointSegmenter, SamOptions, SamSegmenter,
     SegmentTimings,
