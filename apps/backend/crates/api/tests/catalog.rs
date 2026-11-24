@@ -1321,6 +1321,52 @@ async fn duplicate_check_at_088_with_candidates_and_force_new() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn duplicate_check_with_768_uses_configured_threshold() {
+    let (_app, mut state) = setup_with(None, false).await;
+    state.embedder = Some(Arc::new(taphoa_recognition::MockEmbedder768));
+    state.recognition = taphoa_api::RecognitionConfig::for_model("siglip2").unwrap();
+    let w = world_from(router(state.clone()), state).await;
+
+    let img1 = upload(&w, &w.lead, "same-bottle-768").await;
+    let existing_body = json!({
+        "id": Uuid::now_v7(),
+        "name": "Aquafina 500ml",
+        "price": 5000,
+        "image_ids": [img1],
+        "force_new": true,
+    });
+    let existing = ok(
+        &w.app,
+        "POST",
+        "/v1/products",
+        "/v1/products",
+        &w.lead,
+        existing_body,
+        StatusCode::CREATED,
+    )
+    .await;
+    let prod_id: Uuid = existing["id"].as_str().unwrap().parse().unwrap();
+    index_product(&w, prod_id).await;
+
+    // Identical image bytes produce 3 votes of 1.0 -> (1+1+1)/3 = 1.0 >= 0.97275853 -> 409 duplicate_suspected
+    let image = upload(&w, &w.lead, "same-bottle-768").await;
+    let body = json!({"id": Uuid::now_v7(), "price": 6000, "image_ids": [image]});
+    let err = expect_code(
+        &w.app,
+        "POST",
+        "/v1/products",
+        Some(&w.lead),
+        body.clone(),
+        StatusCode::CONFLICT,
+        "duplicate_suspected",
+    )
+    .await;
+    let candidates = err["details"]["candidates"].as_array().unwrap();
+    assert_eq!(candidates[0]["product_id"], existing["id"]);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn duplicate_check_uses_the_vector_index_port_when_configured() {
     let index = Arc::new(InMemoryVectorIndex::default());
     let (app, state) = setup_with(Some(index.clone()), true).await;

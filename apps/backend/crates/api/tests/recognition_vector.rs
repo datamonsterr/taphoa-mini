@@ -999,6 +999,38 @@ async fn scan_search_function_matches_search_sql() {
     let prototype = new_product(&pool, store).await;
     sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
         .bind(store).bind(prototype).bind(MODEL).bind(pgvector::Vector::from(query.clone())).execute(&pool).await.unwrap();
+
+    // Add 768-only products with NULL 384-d embeddings to verify that NULL embeddings
+    // are filtered identically and do not sort to the top due to NULLS FIRST.
+    for _ in 0..4 {
+        let null_prod = new_product(&pool, store).await;
+        let img = new_image(&pool, store).await;
+        sqlx::query(
+            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding, embedding_768)
+             VALUES ($1, $2, $3, $4, 'crop', NULL, $5)",
+        )
+        .bind(store)
+        .bind(null_prod)
+        .bind(img)
+        .bind(MODEL)
+        .bind(pgvector::Vector::from(vec![0.1f32; 768]))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let null_proto = new_product(&pool, store).await;
+    sqlx::query(
+        "INSERT INTO product_prototypes (store_id, product_id, model, embedding, embedding_768, reference_count)
+         VALUES ($1, $2, $3, NULL, $4, 1)",
+    )
+    .bind(store)
+    .bind(null_proto)
+    .bind(MODEL)
+    .bind(pgvector::Vector::from(vec![0.1f32; 768]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
     for limit in [1_i64, 2, 3, 5, 8, 17, 40] {
         for fetch in [32_i64, 64] {
             let bind = |sql: &'static str| {
@@ -1018,4 +1050,244 @@ async fn scan_search_function_matches_search_sql() {
             assert_eq!(actual, expected, "limit={limit}, fetch={fetch}");
         }
     }
+}
+
+/// Frozen verbatim query from origin/main prior to retrieval v2.
+const FROZEN_LEGACY_SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
+    SELECT e.product_id, e.embedding <=> $1::vector AS distance
+    FROM product_embeddings e
+    WHERE e.store_id = $2 AND e.model = $3
+      AND EXISTS (SELECT 1 FROM products p
+                  WHERE p.id = e.product_id AND p.store_id = $2 AND NOT p.archived)
+    ORDER BY e.embedding <=> $1::vector
+    LIMIT $4
+), scores AS (
+    SELECT product_id, 1 - distance AS similarity FROM nearest
+    UNION ALL
+    SELECT proto.product_id, 1 - (proto.embedding <=> $1::vector) AS similarity
+    FROM product_prototypes proto
+    JOIN products p ON p.id = proto.product_id
+    WHERE proto.store_id = $2 AND proto.model = $3
+      AND p.store_id = $2 AND NOT p.archived
+)
+SELECT product_id, max(similarity)::real AS similarity
+FROM scores
+GROUP BY product_id
+ORDER BY similarity DESC, product_id
+LIMIT $5";
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn default_path_384_parity_against_legacy_search_sql() {
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let store = new_store(&pool).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let query = axis(0);
+
+    let p1 = new_product(&pool, store).await;
+    let p2 = new_product(&pool, store).await;
+
+    index
+        .upsert(store, p1, new_image(&pool, store).await, MODEL, axis(0))
+        .await
+        .unwrap();
+    index
+        .upsert(store, p2, new_image(&pool, store).await, MODEL, axis(1))
+        .await
+        .unwrap();
+
+    let search_hits = index.search(store, MODEL, &query, 5).await.unwrap();
+    let legacy_rows: Vec<(Uuid, f32)> = sqlx::query_as(FROZEN_LEGACY_SEARCH_SQL)
+        .bind(pgvector::Vector::from(query.clone()))
+        .bind(store)
+        .bind(MODEL)
+        .bind(32_i64)
+        .bind(5_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(search_hits.len(), legacy_rows.len());
+    for (hit, (prod, sim)) in search_hits.iter().zip(&legacy_rows) {
+        assert_eq!(hit.product_id, *prod);
+        assert_eq!(hit.similarity, *sim);
+    }
+    assert_eq!(search_hits[0].similarity, 1.0);
+
+    // Now insert a 768-only product with NULL 384-d embedding.
+    // The default 384-d search must ignore it and produce the identical result.
+    let p_768 = new_product(&pool, store).await;
+    let img_768 = new_image(&pool, store).await;
+    sqlx::query(
+        "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding, embedding_768)
+         VALUES ($1, $2, $3, $4, 'crop', NULL, $5)",
+    )
+    .bind(store)
+    .bind(p_768)
+    .bind(img_768)
+    .bind(MODEL)
+    .bind(pgvector::Vector::from(vec![0.5f32; 768]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let search_hits_after_null = index.search(store, MODEL, &query, 5).await.unwrap();
+    assert_eq!(search_hits_after_null.len(), legacy_rows.len());
+    for (hit, (prod, sim)) in search_hits_after_null.iter().zip(&legacy_rows) {
+        assert_eq!(hit.product_id, *prod);
+        assert_eq!(hit.similarity, *sim);
+    }
+}
+
+#[tokio::test]
+#[ignore = "real Postgres with pgvector required"]
+async fn wide_vectors_roundtrip_vote_fallback_and_isolate_models() {
+    let pool = pool().await.expect("DATABASE_URL required");
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let fallback = new_product(&pool, store).await;
+    let other_store = new_store(&pool).await;
+    let foreign = new_product(&pool, other_store).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+    let mut v = vec![0.; 768];
+    v[767] = 1.;
+    for _ in 0..3 {
+        index
+            .upsert(
+                store,
+                product,
+                new_image(&pool, store).await,
+                model,
+                v.clone(),
+            )
+            .await
+            .unwrap();
+    }
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            MODEL,
+            axis(0),
+        )
+        .await
+        .unwrap();
+    index
+        .upsert(
+            other_store,
+            foreign,
+            new_image(&pool, other_store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO product_prototypes (store_id,product_id,model,embedding_768,reference_count) VALUES ($1,$2,$3,$4,1)")
+        .bind(store).bind(fallback).bind(model).bind(pgvector::Vector::from(v.clone())).execute(&pool).await.unwrap();
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(
+        hits.iter()
+            .all(|h| h.similarity > 0.999 && [product, fallback].contains(&h.product_id))
+    );
+    assert!(
+        index
+            .search(store, "another-wide-model", &v, 5)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let rollback = index.search(store, MODEL, &axis(0), 5).await.unwrap();
+    assert_eq!(rollback.len(), 1);
+    assert_eq!(rollback[0].product_id, product);
+    let wide: i64 = sqlx::query_scalar("SELECT count(*) FROM product_embeddings WHERE store_id=$1 AND model=$2 AND embedding IS NULL AND vector_dims(embedding_768)=768")
+        .bind(store).bind(model).fetch_one(&pool).await.unwrap();
+    assert_eq!(wide, 3);
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn single_reference_768_scores_above_threshold_without_artificial_penalty() {
+    let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+
+    let mut v = vec![0.; 768];
+    v[0] = 1.;
+    // Enrolling just ONE reference image (not 3)
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].product_id, product);
+    // With 1 stored view, divisor is 1: score is > 0.999, NOT penalized to 0.333
+    assert!(
+        hits[0].similarity > 0.999,
+        "single-image similarity {} should be > 0.999 (above 0.82 match threshold)",
+        hits[0].similarity
+    );
+}
+
+#[tokio::test]
+#[ignore = "real Postgres required"]
+async fn iterative_scan_finds_matches_despite_many_competing_rows_from_other_stores() {
+    let Some(pool) = pool().await else { return };
+    let _tidy = Tidy::start(pool.clone()).await;
+    let index = PgVectorIndex::new(pool.clone());
+    let store = new_store(&pool).await;
+    let product = new_product(&pool, store).await;
+    let other_store = new_store(&pool).await;
+    let model = "siglip2-b16-224-onnx@1/lb224";
+
+    let mut v = vec![0.; 768];
+    v[0] = 1.;
+
+    // Target store has 1 reference
+    index
+        .upsert(
+            store,
+            product,
+            new_image(&pool, store).await,
+            model,
+            v.clone(),
+        )
+        .await
+        .unwrap();
+
+    // Competing store has 150 products with the exact same vector, crowding the HNSW neighborhood
+    for _ in 0..150 {
+        let competing = new_product(&pool, other_store).await;
+        index
+            .upsert(
+                other_store,
+                competing,
+                new_image(&pool, other_store).await,
+                model,
+                v.clone(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // iterative_scan = relaxed_order ensures the HNSW traversal continues past competing store tuples
+    let hits = index.search(store, model, &v, 5).await.unwrap();
+    assert_eq!(hits.len(), 1, "target store product must be found");
+    assert_eq!(hits[0].product_id, product);
+    assert!(hits[0].similarity > 0.999);
 }

@@ -500,6 +500,100 @@ async fn scan_orders_classes_candidates_and_persists() {
     let _ = blue;
 }
 
+#[tokio::test]
+#[ignore = "real services required; DATABASE_URL, REDIS_URL and all AWS_* storage variables"]
+async fn enroll_one_image_and_scan_identical_under_siglip2_matches_above_threshold() {
+    let Some((_, mut state, _)) = build_state(vec![segment([0., 0., 160., 128.], 0.9)]).await
+    else {
+        return;
+    };
+    let embedder = Arc::new(taphoa_recognition::MockEmbedder768);
+    state.embedder = Some(embedder.clone());
+    state.recognition = taphoa_api::RecognitionConfig::for_model("siglip2").unwrap();
+    let pool = state.postgres.clone().unwrap();
+    let pg_index = Arc::new(taphoa_api::recognition::pgvector::PgVectorIndex::new(
+        pool.clone(),
+    ));
+    state.vector_index = Some(pg_index.clone() as Arc<dyn VectorIndex>);
+    let app = router(state.clone());
+
+    let (store_id, member_id, token) = create_store(&app).await;
+    let product_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO products (id, store_id, name, price, created_by, request_hash) \
+         VALUES ($1, $2, 'Single Enroll Product', 50000, $3, '\\x00'::bytea)",
+    )
+    .bind(product_id)
+    .bind(store_id)
+    .bind(member_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let image_bytes = pink_photo();
+    let image_id = Uuid::new_v4();
+    let object_key = format!("stores/{store_id}/products/{product_id}/{image_id}.png");
+    state
+        .storage
+        .as_ref()
+        .unwrap()
+        .put(&object_key, "image/png", image_bytes.clone())
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO images (id, store_id, object_key, content_type, byte_size, purpose) \
+         VALUES ($1, $2, $3, 'image/png', $4, 'enrollment')",
+    )
+    .bind(image_id)
+    .bind(store_id)
+    .bind(&object_key)
+    .bind(image_bytes.len() as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query("INSERT INTO product_images (product_id, image_id, position) VALUES ($1, $2, 0)")
+        .bind(product_id)
+        .bind(image_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let vector = embedder.embed(&image_bytes).unwrap();
+    pg_index
+        .upsert(store_id, product_id, image_id, embedder.model(), vector)
+        .await
+        .unwrap();
+
+    let (status, body, _) = post_scan(&app, &token, Some(&image_bytes), &[]).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    Contract::load().assert_conforms("/v1/recognition/scans", "post", status, &body);
+
+    let detections = body["detections"].as_array().unwrap();
+    assert_eq!(
+        detections.len(),
+        1,
+        "expected 1 detection from pink_segments"
+    );
+    assert_eq!(
+        detections[0]["match"], "matched",
+        "single-enrolled product must match above threshold when scanned: {body}"
+    );
+    let candidates = detections[0]["candidates"].as_array().unwrap();
+    assert!(!candidates.is_empty(), "candidates must not be empty");
+    assert_eq!(candidates[0]["product_id"], product_id.to_string());
+    let similarity = candidates[0]["similarity"].as_f64().unwrap();
+    assert!(
+        similarity >= 0.8201577,
+        "similarity {similarity} must be above siglip2 match threshold 0.8201577"
+    );
+    assert!(
+        similarity > 0.95,
+        "identical image similarity {similarity} should be near 1.0"
+    );
+}
+
 /// Exercise empty/singleton arrays as well as a full 24-detection multi scan.
 /// Distinct boxes and mixed colours catch array alignment, ordering and JSONB
 /// snapshot regressions; embeddings are read directly because the API hides them.

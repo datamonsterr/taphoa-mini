@@ -267,3 +267,68 @@ async fn crop_review_link_is_atomic_and_keeps_sale_amounts() {
     assert_eq!(after.body["total"], 1200);
     assert!(after.body["lines"][0]["product_id"].is_null());
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn crop_review_link_saves_768_reference_embedding() {
+    let mut w = World::new().await;
+    let p = w.product("Linked768", 1000, None).await;
+    let (scan, det) = w.scan_fixture().await;
+    let image: Uuid = sqlx::query_scalar("SELECT image_id FROM scans WHERE id=$1")
+        .bind(scan)
+        .fetch_one(w.pool())
+        .await
+        .unwrap();
+    let embedding = format!("[1,{}]", ["0"; 767].join(","));
+    sqlx::query("UPDATE scans SET embedder='siglip2-b16-224-onnx@1/lb224' WHERE id=$1")
+        .bind(scan)
+        .execute(w.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE detections SET crop_image_id=$2, embedding=NULL, embedding_768=$3::text::vector WHERE id=$1",
+    )
+    .bind(det)
+    .bind(image)
+    .bind(embedding)
+    .execute(w.pool())
+    .await
+    .unwrap();
+    w.state.storage = Some(Arc::new(TestStorage));
+    w.app = taphoa_api::router(w.state.clone());
+    let id = Uuid::now_v7();
+    let a = Uuid::now_v7();
+    let body = json!({"id":id,"sold_at":now_iso(),"payment_method":"transfer","total":700,"lines":[
+        {"id":a,"source":"manual","quantity":1,"unit_price":700,"detection_id":det}
+    ]});
+    w.checked(
+        "POST",
+        "/v1/sales",
+        "/v1/sales",
+        &w.seller,
+        body,
+        StatusCode::CREATED,
+    )
+    .await;
+    w.checked(
+        "POST",
+        &format!("/v1/review/manual-lines/{a}/resolve"),
+        "/v1/review/manual-lines/{lineId}/resolve",
+        &w.lead,
+        json!({"action":"link","product_id":p}),
+        StatusCode::OK,
+    )
+    .await;
+    let labels_768: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_embeddings WHERE product_id=$1 AND detection_id=$2 AND embedding_768 IS NOT NULL AND embedding IS NULL",
+    )
+    .bind(p)
+    .bind(det)
+    .fetch_one(w.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        labels_768, 1,
+        "expected 768-d reference embedding from review resolution"
+    );
+}

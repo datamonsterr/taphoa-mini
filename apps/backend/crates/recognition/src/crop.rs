@@ -102,6 +102,31 @@ pub fn resize_for_embedding(crop: &RgbImage, side: u32) -> std::borrow::Cow<'_, 
     }
 }
 
+/// Rounded ImageNet mean colour used for letterbox padding before normalization.
+pub const LETTERBOX_BACKGROUND: image::Rgb<u8> = image::Rgb([124, 116, 104]);
+
+pub fn fit_dimensions(image: &RgbImage, longest: u32) -> (u32, u32) {
+    let scale = f64::from(longest) / f64::from(image.width().max(image.height()).max(1));
+    (
+        (f64::from(image.width()) * scale).round().max(1.) as u32,
+        (f64::from(image.height()) * scale).round().max(1.) as u32,
+    )
+}
+
+/// Aspect-preserving resize centred on a mean-coloured square.
+pub fn letterbox(image: &RgbImage, side: u32) -> RgbImage {
+    let (width, height) = fit_dimensions(image, side);
+    let resized = image::imageops::resize(image, width, height, FilterType::CatmullRom);
+    let mut out = RgbImage::from_pixel(side, side, LETTERBOX_BACKGROUND);
+    image::imageops::replace(
+        &mut out,
+        &resized,
+        i64::from((side - width) / 2),
+        i64::from((side - height) / 2),
+    );
+    out
+}
+
 /// Resizes to `EMBED_SIDE` square and writes CHW floats normalized with ImageNet statistics
 /// into `out` (length `3 * EMBED_SIDE * EMBED_SIDE`).
 pub fn normalize_into(crop: &RgbImage, out: &mut [f32], side_px: u32) {
@@ -115,6 +140,67 @@ pub fn normalize_into(crop: &RgbImage, out: &mut [f32], side_px: u32) {
                     / IMAGENET_STD[channel];
         }
     }
+}
+
+/// Letterbox with the rounded model mean, then normalize CHW using that model's statistics.
+pub fn normalize_with_stats(
+    crop: &RgbImage,
+    out: &mut [f32],
+    side_px: u32,
+    mean: [f32; 3],
+    std: [f32; 3],
+) {
+    let side = side_px as usize;
+    let background = mean.map(|v| (v * 255.).round().clamp(0., 255.) as u8);
+    assert!(side_px > 0 && crop.width() > 0 && crop.height() > 0);
+    assert_eq!(out.len(), 3 * side * side);
+    for channel in 0..3 {
+        out[channel * side * side..(channel + 1) * side * side]
+            .fill((f32::from(background[channel]) / 255. - mean[channel]) / std[channel]);
+    }
+    let (width, height) = fit_dimensions(crop, side_px);
+    let resized = image::imageops::resize(crop, width, height, FilterType::CatmullRom);
+    let (left, top) = ((side_px - width) / 2, (side_px - height) / 2);
+    for (x, y, pixel) in resized.enumerate_pixels() {
+        for channel in 0..3 {
+            out[channel * side * side + (top + y) as usize * side + (left + x) as usize] =
+                (f32::from(pixel[channel]) / 255.0 - mean[channel]) / std[channel];
+        }
+    }
+}
+
+/// Seven deterministic index views, or just the original when augmentation is disabled.
+/// Occlusion keeps sqrt(0.7) of each edge; the far view loses detail at a 48 px longest edge.
+/// This helper is used only by index jobs; queries still embed once per crop.
+pub fn index_augmentations(image: &RgbImage, enabled: bool) -> Vec<(&'static str, RgbImage)> {
+    let mut views = vec![("original", image.clone())];
+    if !enabled {
+        return views;
+    }
+    let (width, height) = image.dimensions();
+    let ratio = 0.7_f64.sqrt();
+    let cw = (f64::from(width) * ratio).round().max(1.) as u32;
+    let ch = (f64::from(height) * ratio).round().max(1.) as u32;
+    let (fw, fh) = fit_dimensions(image, width.max(height).min(48));
+    let small = image::imageops::resize(image, fw, fh, FilterType::CatmullRom);
+    views.extend([
+        ("rotate90", image::imageops::rotate90(image)),
+        ("rotate180", image::imageops::rotate180(image)),
+        ("rotate270", image::imageops::rotate270(image)),
+        (
+            "occlude_tl",
+            image::imageops::crop_imm(image, 0, 0, cw, ch).to_image(),
+        ),
+        (
+            "occlude_br",
+            image::imageops::crop_imm(image, width - cw, height - ch, cw, ch).to_image(),
+        ),
+        (
+            "far48",
+            image::imageops::resize(&small, width, height, FilterType::CatmullRom),
+        ),
+    ]);
+    views
 }
 
 /// L2-normalizes in place; a zero vector is left unchanged.
@@ -241,5 +327,67 @@ mod tests {
         let mut z = vec![0.0; 3];
         l2_normalize(&mut z);
         assert_eq!(z, vec![0.0; 3]);
+    }
+
+    #[test]
+    fn letterbox_preserves_tall_wide_square_geometry_and_mean_padding() {
+        let colour = image::Rgb([255, 0, 128]);
+        for (width, height, left, top, content_width, content_height) in [
+            (20, 40, 4, 0, 8, 16),
+            (40, 20, 0, 4, 16, 8),
+            (20, 20, 0, 0, 16, 16),
+        ] {
+            let image = RgbImage::from_pixel(width, height, colour);
+            let mut out = vec![0.0; 3 * 16 * 16];
+            normalize_with_stats(&image, &mut out, 16, IMAGENET_MEAN, IMAGENET_STD);
+            for y in 0..16 {
+                for x in 0..16 {
+                    let inside = x >= left
+                        && x < left + content_width
+                        && y >= top
+                        && y < top + content_height;
+                    let expected = if inside { colour.0 } else { [124, 116, 104] };
+                    for c in 0..3 {
+                        let normalized =
+                            (f32::from(expected[c]) / 255.0 - IMAGENET_MEAN[c]) / IMAGENET_STD[c];
+                        assert!(
+                            (out[c * 256 + y * 16 + x] - normalized).abs() < 1e-5,
+                            "{width}x{height}: wrong pixel at {x},{y} channel {c}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn siglip_letterbox_uses_model_mean_and_half_normalization() {
+        let crop = RgbImage::from_pixel(4, 8, image::Rgb([255, 0, 128]));
+        let mut output = vec![0.; 3 * 8 * 8];
+        normalize_with_stats(&crop, &mut output, 8, [0.5; 3], [0.5; 3]);
+        for c in 0..3 {
+            assert!((output[c * 64] - (128.0_f32 / 255.0 - 0.5) / 0.5).abs() < 1e-6);
+            assert!(
+                (output[c * 64 + 3] - (f32::from([255_u8, 0, 128][c]) / 255.0 - 0.5) / 0.5).abs()
+                    < 1e-6
+            );
+        }
+    }
+
+    #[test]
+    fn index_augmentation_is_deterministic_and_preserves_view_identity() {
+        let image = RgbImage::from_fn(100, 200, |x, y| image::Rgb([x as u8, y as u8, 42]));
+        let variants = index_augmentations(&image, true);
+        assert_eq!(variants, index_augmentations(&image, true));
+        assert_eq!(variants.len(), 7);
+        assert_eq!(index_augmentations(&image, false).len(), 1);
+    }
+
+    #[test]
+    fn letterbox_is_square_and_centred() {
+        let out = letterbox(&RgbImage::from_pixel(100, 50, image::Rgb([0, 0, 0])), 224);
+        assert_eq!(out.dimensions(), (224, 224));
+        assert_eq!(*out.get_pixel(0, 0), LETTERBOX_BACKGROUND);
+        assert_eq!(*out.get_pixel(112, 112), image::Rgb([0, 0, 0]));
     }
 }
