@@ -50,8 +50,8 @@ railway config apply   # review the plan first; never add --confirm-destructive 
 >
 > How the file was verified (issue #295): `railway config pull --json --environment <env>`
 > (read-only; inspect resource names, regions and sources only) showed the live shape, the file
-> was edited to match it, and `railway config plan --environment test` and `--environment
-production` both then printed "Your Railway configuration is already up to date" (no
+> was edited to match it, and `railway environment link test && railway config plan` and
+> `railway environment link production && railway config plan` both then printed "Your Railway configuration is already up to date" (no
 > creates, updates or deletes). Repeat that check after every IaC change.
 
 ### Variable drift check in the deploy workflow
@@ -75,7 +75,7 @@ fails when Railway differs:
 
 When the check turns the deploy red, a human fixes it, then re-runs the workflow:
 
-1. Locally, `railway link`, then `railway config plan --environment <env>` and read the
+1. Locally, `railway link`, then `railway environment link <env> && railway config plan` and read the
    `backend` variable lines.
 2. Either edit `.railway/railway.ts` to match Railway (use `preserve()` for per-environment
    values and secrets), or set the variable, for example
@@ -303,8 +303,8 @@ expressions remain in Railway. Never print variable values while inspecting
 configuration.
 
 `.railway/railway.ts` declares the collector only inside
-`ctx.isEnvironment('production')`. Never duplicate it into test. Review `railway config plan --environment production` and
-`railway config plan --environment test` after every IaC change. **Never apply a
+`ctx.isEnvironment('production')`. Never duplicate it into test. Review with `railway environment link production && railway config plan` and
+`railway environment link test && railway config plan` after every IaC change. **Never apply a
 plan that deletes X2 resources or backend telemetry variables.** A mirror-only
 change must produce no X2 creates, updates or deletes in either plan. Any
 new drift (Clerk variables, backend source/restart settings, volume regions or image
@@ -395,8 +395,9 @@ for 20 s; Postgres and Redis stay live per request. When the `test` job ends, ev
 backend first, then Redis, then Postgres. Each removal runs even if an earlier removal failed;
 earlier test failures remain failures.
 
-If an upload has unchanged backend source and Railway marks it `SKIPPED` while nothing is
-running, the workflow redeploys from the last uploaded source. Preview app builds (EAS profile
+If an upload has unchanged backend source and Railway marks it `SKIPPED`, the workflow redeploys
+the service so pending environment variables (such as `SERVICE_VERSION`) take effect, or from
+the last uploaded source if nothing is running. Preview app builds (EAS profile
 `preview`) use **https://backend-test-70c2.up.railway.app** and can reach it only while a
 workflow run holds the backend up. To keep all three services running for measurement,
 dispatch `gh workflow run deploy.yml -f ref=<branch> -f keep_test_backend=true`. This input
@@ -461,7 +462,7 @@ Created once with:
 ```sh
 railway environment create test --duplicate production --json
 railway bucket create images --region sin --environment test      # test-only bucket (declared in railway.ts)
-railway config plan --environment test                              # review, then:
+railway environment link test && railway config plan                 # review, then:
 railway config apply --environment test                             # applies .railway/railway.ts
 railway tcp-proxy create --port 5432 --service Postgres --environment test
 railway tcp-proxy create --port 6379 --service Redis --environment test
@@ -477,10 +478,12 @@ CI can seed and run integration tests (`scripts/ci/railway_env.py` builds the UR
 
 Watch patterns (`apps/backend/**`, `rust-toolchain.toml`) apply to CLI deploys too: a
 `railway up` whose snapshot has no backend change versus the last deployment ends as
-`SKIPPED`, meaning the running deployment already matches. `railway up --ci` never returns after
-a `SKIPPED` upload, so the workflow deploys with `scripts/ci/railway_deploy.py`: it uploads with
-`--detach` and polls `railway deployment list` until the new deployment is `SUCCESS` or `SKIPPED`
-(exit 0) or `FAILED` / `CRASHED` / `REMOVED` (prints the build log, exit 1), with a 30-minute cap.
+`SKIPPED`, meaning the running deployment already matches the uploaded source. `railway up --ci`
+never returns after a `SKIPPED` upload, so the workflow deploys with `scripts/ci/railway_deploy.py`:
+it uploads with `--detach`, and if the upload is `SKIPPED`, triggers a `redeploy` of the service so
+staged environment variables (like `SERVICE_VERSION` set with `--skip-deploys`) take effect on the
+running deployment. It polls `railway deployment list` until the deployment is `SUCCESS` (exit 0) or
+`FAILED` / `CRASHED` / `REMOVED` (prints the build log, exit 1), with a 30-minute cap.
 
 ## Clerk identity
 
