@@ -64,7 +64,12 @@ a{color:inherit;text-decoration:none}
 
     <sc-if value="{{notEditing}}" hint-placeholder-val="{{true}}">
       <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px"><span class="label">Tổng tiền · {{count}} món</span><b class="th-num" style="font: 800 28px/32px var(--font-sans)">{{totalText}}</b></div>
-      <a href="Receipt.dc.html" class="th-btn th-btn-ink th-btn-block th-btn-xl"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Xong, xem lại</a>
+      <div role="radiogroup" aria-label="Nguồn tiền" style="display: flex; gap: 8px">
+        <button type="button" class="th-chip" role="radio" aria-checked="true" aria-pressed="true" aria-label="Tiền mặt" style="min-width: 72px; justify-content: center; align-items: center"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle></svg></button>
+        <button type="button" class="th-chip" role="radio" aria-checked="false" aria-pressed="false" aria-label="Chuyển khoản" style="min-width: 72px; justify-content: center; align-items: center"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"></path></svg></button>
+        <span class="caption" style="align-self: center; color: var(--ink-muted)">→ khoản chi Nhập hàng</span>
+      </div>
+      <a href="Inventory.dc.html" class="th-btn th-btn-block th-btn-xl" style="background: var(--success); color: var(--on-ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Xác nhận nhập kho</a>
     </sc-if>
 
     <sc-if value="{{editing}}" hint-placeholder-val="{{false}}">

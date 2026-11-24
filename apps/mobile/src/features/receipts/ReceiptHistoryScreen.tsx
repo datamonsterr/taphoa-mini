@@ -1,15 +1,23 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { ArrowLeft } from '@/components/icons';
+import { ArrowLeft, Camera } from '@/components/icons';
 import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CircleButton, PressableScale, Text } from '@/components/ui';
+import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import { useReceipts } from '@/lib/api';
 import { businessDate } from '@/lib/date';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 import { Action } from './ReceiptReviewScreen';
 import { strings } from './strings';
 
@@ -25,17 +33,30 @@ export function ReceiptHistoryScreen() {
       ]}
     >
       <View style={styles.header}>
-        <CircleButton
-          icon={ArrowLeft}
-          accessibilityLabel={t('back')}
-          onPress={() => {
-            if (router.canGoBack()) router.back();
-            else router.replace('/');
-          }}
-        />
-        <Text accessibilityRole="header" style={typography.heading}>
-          {t('title')}
-        </Text>
+        <View style={styles.headerLeft}>
+          <CircleButton
+            icon={ArrowLeft}
+            accessibilityLabel={t('back')}
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace('/inventory');
+            }}
+          />
+          <Text accessibilityRole="header" style={typography.heading}>
+            {t('intake')}
+          </Text>
+        </View>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('captureReceipt')}
+          onPress={() =>
+            router.push({ pathname: '/', params: { entry: 'receipt' } })
+          }
+          style={styles.captureButton}
+        >
+          <Icon icon={Camera} size={20} color={colors.onInk} />
+          <Text style={styles.captureText}>{t('captureReceipt')}</Text>
+        </PressableScale>
       </View>
       <FlatList
         testID="receipt-history-list"
@@ -80,7 +101,12 @@ export function ReceiptHistoryScreen() {
             testID="receipt-history-row"
             accessibilityRole="button"
             accessibilityLabel={`${businessDate(item.created_at)}, ${formatVnd(item.total)}, ${item.matched_count}/${item.line_count}, ${t(item.status)}, ${item.id}`}
-            onPress={() => router.push(`/receipt/${item.id}`)}
+            onPress={() =>
+              router.push({
+                pathname: '/receipts',
+                params: { receiptId: item.id },
+              })
+            }
             style={styles.row}
           >
             <Image
@@ -138,8 +164,29 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: space[3],
     padding: space[4],
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  captureButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    minHeight: size.tapMin,
+    paddingHorizontal: space[3],
+    borderRadius: radius.full,
+    backgroundColor: colors.ink,
+  },
+  captureText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize[15],
+    lineHeight: 20,
+    color: colors.onInk,
   },
   content: { padding: space[4], gap: space[3] },
   row: {

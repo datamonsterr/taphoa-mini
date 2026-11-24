@@ -1,33 +1,28 @@
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { Plus, SquareCheck } from '@/components/icons';
-import { useCallback, useState } from 'react';
+import { MessageCircleText } from '@/components/icons';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   CircleButton,
-  Icon,
   PeriodChips,
   PressableScale,
   type Period,
   Text,
 } from '@/components/ui';
 import { useLabels, useT } from '@/lib/i18n';
-import { useCanEnroll, useIsLead } from '@/features/auth/useMembership';
-import {
-  colors,
-  fontFamily,
-  fontSize,
-  radius,
-  size,
-  space,
-  typography,
-} from '@/theme';
+import { useAssistantEnabled } from '@/features/assistant/flags';
+import { assistantHref } from '@/features/assistant/route';
+import { voiceHref } from '@/features/voice/route';
+import { strings as assistantStrings } from '@/components/assistant/strings';
+import { colors, radius, size, space, typography } from '@/theme';
 
 import { AlertsSection } from './AlertsSection';
 import { BarChart } from './BarChart';
+import { DailyActionsRow } from './DailyActionsRow';
 import { DigestCard } from '@/features/digest/DigestCard';
-import { ShortcutChips } from './ShortcutChips';
 import { StatTiles } from './StatTiles';
 import { TopProductsSection } from './TopProductsSection';
 import { dashboardStrings } from './strings';
@@ -47,19 +42,17 @@ const periodLabels = (t: (key: string) => string) => ({
 
 export function DashboardScreen() {
   const t = useT(dashboardStrings);
+  const assistantT = useT(assistantStrings);
   const transactions = useT(transactionStrings);
   const [exporting, setExporting] = useState(false);
   const labels = useLabels(dashboardStrings, periodLabels);
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<Period>('day');
   const data = useDashboardData(period);
-  const isLead = useIsLead();
-  const canEnroll = useCanEnroll();
+  const assistant = useAssistantEnabled();
 
   const recentLabel = transactions('recent');
   const exportLabel = transactions('export');
-  const addExpense = useCallback(() => router.push('/expense'), []);
-  const closeDay = useCallback(() => router.push('/close'), []);
 
   return (
     <View style={{ flex: 1 }}>
@@ -81,12 +74,26 @@ export function DashboardScreen() {
           >
             <Text style={styles.title}>{t(`title.${period}`)}</Text>
           </View>
-          <CircleButton
-            icon={Plus}
-            accessibilityLabel={t('addExpense')}
-            onPress={addExpense}
-          />
+          {assistant ? (
+            <CircleButton
+              icon={MessageCircleText}
+              accessibilityLabel={assistantT('open')}
+              accessibilityHint={assistantT('voiceHint')}
+              testID="chat-button"
+              onPress={() =>
+                router.push(
+                  assistantHref({ entry: 'button', screen: 'dashboard' }),
+                )
+              }
+              onLongPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push(voiceHref({ entry: 'longpress' }));
+              }}
+            />
+          ) : null}
         </View>
+
+        <DailyActionsRow />
 
         <PeriodChips value={period} onChange={setPeriod} labels={labels} />
 
@@ -149,20 +156,6 @@ export function DashboardScreen() {
         <AlertsSection />
 
         <DigestCard />
-        <ShortcutChips showReceipts={canEnroll} />
-
-        {isLead ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t('close')}
-            pressedScale={0.96}
-            onPress={closeDay}
-            style={styles.closeButton}
-          >
-            <Icon icon={SquareCheck} color={colors.onInk} />
-            <Text style={styles.closeText}>{t('close')}</Text>
-          </PressableScale>
-        ) : null}
 
         <View style={styles.links}>
           <PressableScale
@@ -250,20 +243,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
   },
   retryText: { ...typography.label, color: colors.ink },
-  closeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[2],
-    minHeight: size.tapLg,
-    paddingHorizontal: 28,
-    borderRadius: radius.full,
-    backgroundColor: colors.ink,
-  },
-  closeText: {
-    fontFamily: fontFamily.semibold,
-    fontSize: fontSize[18],
-    lineHeight: 24,
-    color: colors.onInk,
-  },
 });

@@ -62,7 +62,7 @@ import { strings } from './strings';
 
 const back = () => {
   if (router.canGoBack()) router.back();
-  else router.dismissTo('/');
+  else router.replace('/receipts');
 };
 
 type EditableLine = {
@@ -124,7 +124,10 @@ export function ReceiptReviewScreen({ id }: { id: string }) {
               {isApiError(receipt.error) && receipt.error.status === 404 ? (
                 <>
                   <Text accessibilityRole="alert">{t('notFound')}</Text>
-                  <Action label={t('toList')} onPress={back} />
+                  <Action
+                    label={t('toReceipts')}
+                    onPress={() => router.replace('/receipts')}
+                  />
                 </>
               ) : (
                 <>
@@ -194,7 +197,6 @@ function Review({ receipt }: { receipt: Receipt }) {
     useState<ReceiptConfirm['paid_with']>('cash_box');
   const [picker, setPicker] = useState<string | null>(null);
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
-  const [summary, setSummary] = useState(receipt.status !== 'draft');
   const [photo, setPhoto] = useState(false);
   const [error, setError] = useState<'save' | 'offline' | null>(null);
   const confirm = useConfirmReceipt(receipt.id);
@@ -247,7 +249,7 @@ function Review({ receipt }: { receipt: Receipt }) {
     try {
       const saved = await confirm.mutateAsync(request.current!);
       useReceiptNotice.setState({ count: saved.lines.length });
-      router.dismissTo('/');
+      router.replace({ pathname: '/inventory', params: { segment: 'stock' } });
     } catch {
       setError(failureKind());
     } finally {
@@ -260,7 +262,7 @@ function Review({ receipt }: { receipt: Receipt }) {
     setError(null);
     try {
       await discard.mutateAsync();
-      router.dismissTo('/');
+      router.replace('/receipts');
     } catch {
       setError(failureKind());
     } finally {
@@ -292,17 +294,16 @@ function Review({ receipt }: { receipt: Receipt }) {
           accessibilityLabel={t('back')}
           disabled={busy}
           onPress={() => {
-            if (summary && !readonly) setSummary(false);
-            else if (editingPrice) setEditingPrice(null);
+            if (editingPrice) setEditingPrice(null);
             else back();
           }}
         />
         <View style={styles.grow}>
           <Text accessibilityRole="header" style={typography.heading}>
-            {t(summary ? 'title' : 'review')}
+            {t(readonly ? 'title' : 'review')}
           </Text>
           <Text accessibilityLiveRegion="polite" style={styles.meta}>
-            {summary
+            {readonly
               ? [
                   receipt.supplier,
                   formatDayMonth(businessDate(receipt.created_at)),
@@ -322,7 +323,7 @@ function Review({ receipt }: { receipt: Receipt }) {
           <CircleButton
             icon={MessageCircleText}
             accessibilityLabel={t(
-              summary ? 'assistantSummary' : 'assistantEdit',
+              readonly ? 'assistantSummary' : 'assistantEdit',
             )}
             disabled={busy}
             onPress={() =>
@@ -345,9 +346,9 @@ function Review({ receipt }: { receipt: Receipt }) {
           accessibilityRole="button"
           accessibilityLabel={t('photo')}
           onPress={() => setPhoto(true)}
-          style={[styles.photoStrip, summary && styles.summaryPhoto]}
+          style={[styles.photoStrip, readonly && styles.summaryPhoto]}
         >
-          {summary ? (
+          {readonly ? (
             <Icon icon={ReceiptText} color={colors.cameraMuted} />
           ) : (
             <Image
@@ -358,16 +359,16 @@ function Review({ receipt }: { receipt: Receipt }) {
           )}
           <Text
             numberOfLines={1}
-            style={[styles.photoLabel, summary && styles.photoLabelCentre]}
+            style={[styles.photoLabel, readonly && styles.photoLabelCentre]}
           >
-            {!summary && receipt.ocr_line_count != null
+            {!readonly && receipt.ocr_line_count != null
               ? fill(t('photoLines'), { count: receipt.ocr_line_count })
               : t('photo')}
           </Text>
-          {summary ? null : <Icon icon={ZoomIn} color={colors.cameraMuted} />}
+          {readonly ? null : <Icon icon={ZoomIn} color={colors.cameraMuted} />}
         </PressableScale>
         {lines.map((line, index) =>
-          summary ? (
+          readonly ? (
             <ReceiptSummaryLine
               key={line.key}
               line={line}
@@ -380,6 +381,7 @@ function Review({ receipt }: { receipt: Receipt }) {
           ) : (
             <View
               key={line.key}
+              testID="receipt-review-line"
               style={[styles.line, !line.productId && styles.unmatched]}
             >
               <View style={styles.fields}>
@@ -447,7 +449,7 @@ function Review({ receipt }: { receipt: Receipt }) {
             </View>
           ),
         )}
-        {!readonly && !summary ? (
+        {!readonly ? (
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={t('addLine')}
@@ -477,12 +479,12 @@ function Review({ receipt }: { receipt: Receipt }) {
             {t('fallbackNotice')}
           </Text>
         ) : null}
-        {summary && !readonly && missing.length === 0 && total <= 0 ? (
+        {!readonly && missing.length === 0 && total <= 0 ? (
           <Text accessibilityRole="alert" style={styles.error}>
             {t('zeroTotal')}
           </Text>
         ) : null}
-        {summary && missing.length > 0 && !readonly ? (
+        {missing.length > 0 && !readonly ? (
           <Text accessibilityRole="alert" style={styles.error}>
             {fill(t('missingProducts'), {
               lines: missing.map((line) => line.name).join(', '),
@@ -499,7 +501,7 @@ function Review({ receipt }: { receipt: Receipt }) {
         ) : null}
       </ScrollView>
       <View style={styles.footer}>
-        {!summary && priceLine ? (
+        {!readonly && priceLine ? (
           <ReceiptPriceKeypad
             key={priceLine.key}
             name={priceLine.name}
@@ -511,7 +513,7 @@ function Review({ receipt }: { receipt: Receipt }) {
           <>
             <View style={styles.fields}>
               <Text style={[typography.label, styles.grow]}>
-                {summary ? t('total') : fill(t('itemTotal'), { count })}
+                {readonly ? t('total') : fill(t('itemTotal'), { count })}
               </Text>
               <Text
                 accessibilityLabel={t('total')}
@@ -526,14 +528,7 @@ function Review({ receipt }: { receipt: Receipt }) {
                 {t(error === 'offline' ? 'offlineError' : 'saveError')}
               </Text>
             ) : null}
-            {!readonly && !summary ? (
-              <Action
-                label={t('reviewDone')}
-                check
-                disabled={busy || lines.length === 0}
-                onPress={() => setSummary(true)}
-              />
-            ) : !readonly ? (
+            {!readonly ? (
               <>
                 <View
                   accessibilityRole="radiogroup"

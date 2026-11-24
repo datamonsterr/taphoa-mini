@@ -15,6 +15,7 @@ jest.mock('expo-router', () => ({
     dismissTo: jest.fn(),
     back: jest.fn(),
     push: jest.fn(),
+    replace: jest.fn(),
     canGoBack: () => true,
   },
   useLocalSearchParams: () => ({ id: 'unused' }),
@@ -40,7 +41,7 @@ const open = async () => {
 };
 const dropUnmatched = () =>
   fireEvent.press(button('Xóa dòng Bánh Chocopie hộp'));
-const reviewSummary = () => fireEvent.press(button('Xong, xem lại'));
+const reviewSummary = () => {};
 const setPrice = async (name: string, digits: string) => {
   const pill = screen.getByRole('button', {
     name: new RegExp(`^Giá nhập: ${name},`),
@@ -58,10 +59,12 @@ test('summary_includes_supplier_in_subtitle', async () => {
   Object.assign(getMockDb().receipts[0], {
     supplier: 'Minh Phát',
     created_at: '2026-10-27T05:00:00Z',
+    status: 'confirmed',
   });
-  await open();
-  await reviewSummary();
-  expect(screen.getByText('Minh Phát · 27/10 · bản nháp')).toBeOnTheScreen();
+  await renderWithProviders(<ReceiptReviewScreen id={receipt.id} />);
+  expect(
+    await screen.findByText('Minh Phát · 27/10 · đã nhập kho'),
+  ).toBeOnTheScreen();
 });
 
 test('review_subtitle_includes_supplier', async () => {
@@ -86,9 +89,7 @@ test('renders OCR source, status, fix count and photo; summary blocks unmatched 
   expect(
     screen.getByText(`Đọc được: “${receipt.lines[0].raw_text}”`),
   ).toBeOnTheScreen();
-  expect(
-    screen.queryByRole('button', { name: 'Xác nhận nhập kho' }),
-  ).toBeNull();
+  expect(button('Xác nhận nhập kho')).toBeDisabled();
   expect(screen.getByLabelText('Tổng tiền')).toHaveTextContent('456.000đ');
   expect(screen.queryByText('inception/mercury-decide:free')).toBeNull();
   await fireEvent.press(button('Ảnh hóa đơn'));
@@ -101,18 +102,15 @@ test('renders OCR source, status, fix count and photo; summary blocks unmatched 
   );
 });
 
-test('the summary matches board 19: short date, every line listed, matched product as a badge, unmatched with its action', async () => {
+test('the review matches board 19b: every line listed, matched product as a badge, unmatched with its action', async () => {
   await open();
-  await reviewSummary();
-  expect(screen.getByRole('header')).toHaveTextContent('Hóa đơn nhập');
-  expect(screen.getByText(/^\d{1,2}\/\d{1,2} · bản nháp$/)).toBeOnTheScreen();
-  expect(screen.getAllByTestId('receipt-summary-line')).toHaveLength(4);
+  expect(screen.getByRole('header')).toHaveTextContent('Kiểm tra hóa đơn');
+  expect(screen.getByText('4 dòng đọc được · 1 cần xem')).toBeOnTheScreen();
+  expect(screen.getAllByTestId('receipt-review-line')).toHaveLength(4);
   expect(screen.getByLabelText('Tổng tiền')).toHaveTextContent('456.000đ');
-  // The matched product is named in the badge; the unmatched line keeps its place with the action.
-  expect(await screen.findAllByText('Coca-Cola lon 330ml')).toHaveLength(2);
-  expect(screen.queryByText('Khớp')).toBeNull();
+  expect(await screen.findAllByText('Coca-Cola lon 330ml')).toHaveLength(1);
   expect(screen.getByText('Bánh Chocopie hộp')).toBeOnTheScreen();
-  await fireEvent.press(button('Chọn sản phẩm: Bánh Chocopie hộp'));
+  await fireEvent.press(button('Bánh Chocopie hộp, chạm để đổi sản phẩm'));
   const candidate = receipt.lines[3].candidates[0];
   await fireEvent.press(
     await screen.findByRole('button', { name: `${candidate.name} 45%` }),
@@ -121,15 +119,13 @@ test('the summary matches board 19: short date, every line listed, matched produ
   expect(button('Xác nhận nhập kho')).toBeEnabled();
 });
 
-test('the header offers the assistant on the review and summary steps, not on a confirmed receipt', async () => {
+test('the header offers the assistant on the review, not on a confirmed receipt', async () => {
   await open();
   await fireEvent.press(button('Sửa trong trợ lý'));
   expect(router.push).toHaveBeenCalledWith({
     pathname: '/assistant',
     params: { entry: 'receipt', screen: 'receipt', receiptId: receipt.id },
   });
-  await reviewSummary();
-  expect(button('Xử lý trong trợ lý')).toBeOnTheScreen();
 });
 
 test('review lines keep stepper, price and line total in one row, with the status next to the name', async () => {
@@ -177,7 +173,12 @@ test('edits quantity and line cost, updates total, drops a line and confirms the
   await reviewSummary();
   await fireEvent.press(screen.getByRole('radio', { name: 'Chuyển khoản' }));
   await fireEvent.press(button('Xác nhận nhập kho'));
-  await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+  await waitFor(() =>
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/inventory',
+      params: { segment: 'stock' },
+    }),
+  );
   expect(confirm.mock.calls[0][1]).toEqual({
     lines: receipt.lines.slice(0, 3).map((l, i) => ({
       line_id: l.id,
@@ -230,7 +231,12 @@ test('adds a blank line, maps it, edits its price and quantity and omits line_id
   expect(screen.getByText('4 dòng đọc được · 0 cần xem')).toBeOnTheScreen();
   await reviewSummary();
   await fireEvent.press(button('Xác nhận nhập kho'));
-  await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+  await waitFor(() =>
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/inventory',
+      params: { segment: 'stock' },
+    }),
+  );
   const newLine = confirm.mock.calls[0][1].lines[3];
   expect(newLine).toEqual({
     product_id: expect.any(String),
@@ -252,22 +258,15 @@ test('deleting the line whose keypad is open closes it; deleting every line bloc
   for (const line of receipt.lines)
     await fireEvent.press(button(`Xóa dòng ${line.product_name}`));
   expect(screen.getByLabelText('Tổng tiền')).toHaveTextContent('0đ');
-  expect(button('Xong, xem lại')).toBeDisabled();
+  expect(button('Xác nhận nhập kho')).toBeDisabled();
 });
 
-test('summary and back preserve edits without confirming', async () => {
+test('back from review preserves unconfirmed state and calls back', async () => {
   const confirm = jest.spyOn(receipts, 'confirmReceipt');
   await open();
   await fireEvent.press(button('Thêm một: Coca-Cola lon 330ml'));
-  await reviewSummary();
-  expect(screen.getByRole('header')).toHaveTextContent('Hóa đơn nhập');
-  expect(screen.queryByRole('button', { name: 'Thêm dòng' })).toBeNull();
-  expect(screen.getByText(/^25( \S+)? × 8\.500đ$/)).toBeOnTheScreen();
   await fireEvent.press(button('Quay lại'));
-  expect(screen.getByRole('header')).toHaveTextContent('Kiểm tra hóa đơn');
-  expect(
-    screen.getByLabelText('Số lượng: Coca-Cola lon 330ml'),
-  ).toHaveTextContent('25');
+  expect(router.back).toHaveBeenCalled();
   expect(confirm).not.toHaveBeenCalled();
 });
 
@@ -292,7 +291,12 @@ test.each([
     ).toHaveTextContent(`${cost}đ`);
     await reviewSummary();
     await fireEvent.press(button('Xác nhận nhập kho'));
-    await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+    await waitFor(() =>
+      expect(router.replace).toHaveBeenCalledWith({
+        pathname: '/inventory',
+        params: { segment: 'stock' },
+      }),
+    );
     expect(confirm.mock.calls[0][1].lines[0]).toMatchObject({ quantity, cost });
   },
 );
@@ -305,7 +309,12 @@ test('zero unit price warns but remains a valid stock import', async () => {
   await reviewSummary();
   expect(button('Xác nhận nhập kho')).toBeEnabled();
   await fireEvent.press(button('Xác nhận nhập kho'));
-  await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+  await waitFor(() =>
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/inventory',
+      params: { segment: 'stock' },
+    }),
+  );
   expect(confirm.mock.calls[0][1].lines[0].cost).toBe(0);
 });
 
@@ -330,9 +339,9 @@ test('a receipt whose total is 0đ cannot be confirmed and says what to do', asy
 test('a receipt read by the rule fallback warns that names may not match', async () => {
   getMockDb().receipts[0].parser = 'fallback';
   await open();
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    /^Chưa dùng được gợi ý thông minh cho hóa đơn này/,
-  );
+  expect(
+    screen.getByText(/^Chưa dùng được gợi ý thông minh cho hóa đơn này/),
+  ).toBeOnTheScreen();
 });
 
 test('adding lines respects the confirmation API limit of 100', async () => {
@@ -423,7 +432,12 @@ test('confirming offline says so at once, keeps the draft and confirms after rec
   expect(screen.queryByText('Chưa lưu được hóa đơn. Thử lại.')).toBeNull();
   await act(async () => onlineManager.setOnline(true));
   await fireEvent.press(button('Xác nhận nhập kho'));
-  await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+  await waitFor(() =>
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/inventory',
+      params: { segment: 'stock' },
+    }),
+  );
   expect(confirm).toHaveBeenCalledTimes(1);
 });
 
@@ -455,7 +469,12 @@ test('lost confirmation response retries once without recording stock twice', as
   await screen.findByRole('alert');
   const movements = [...getMockDb().stockMovements.values()].flat().length;
   await fireEvent.press(button('Xác nhận nhập kho'));
-  await waitFor(() => expect(router.dismissTo).toHaveBeenCalledWith('/'));
+  await waitFor(() =>
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/inventory',
+      params: { segment: 'stock' },
+    }),
+  );
   expect(confirm.mock.calls[0][2]).toBe(confirm.mock.calls[1][2]);
   expect([...getMockDb().stockMovements.values()].flat()).toHaveLength(
     movements,
@@ -494,6 +513,6 @@ test('a missing receipt says so at once, with a way back and no retry', async ()
   await renderWithProviders(<ReceiptReviewScreen id="missing" />);
   await screen.findByText('Không tìm thấy hóa đơn này. Có thể nó đã bị xóa.');
   expect(screen.queryByRole('button', { name: 'Thử lại' })).toBeNull();
-  await fireEvent.press(button('Về danh sách hóa đơn'));
-  expect(router.back).toHaveBeenCalled();
+  await fireEvent.press(button('Về nhập hàng'));
+  expect(router.replace).toHaveBeenCalledWith('/receipts');
 });

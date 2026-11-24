@@ -19,6 +19,7 @@ import { holdNext } from '@/test/hold';
 import { PRODUCT_IDS, resetMockDb } from '@/test/mock';
 import { renderOffline, restoreOnline } from '@/test/offline';
 import { renderWithProviders } from '@/test/render';
+import { testSession, setTestMembership } from '@/test/session';
 import { useCartStore } from '@/stores/cart';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -392,4 +393,21 @@ test('the offline message gives way to the grid once the network returns (#246)'
   await act(async () => onlineManager.setOnline(true));
   expect(await screen.findByRole('button', { name: COCA })).toBeOnTheScreen();
   expect(screen.queryByTestId('inventory-offline')).toBeNull();
+});
+
+test('Nhập hàng button opens /receipts and follows can_enroll', async () => {
+  await renderWithProviders(<InventoryScreen />);
+  await screen.findByRole('button', { name: COCA });
+  const importBtn = screen.getByTestId('inventory-import-receipts');
+  expect(importBtn).toBeOnTheScreen();
+  await fireEvent.press(importBtn);
+  expect(router.push).toHaveBeenCalledWith('/receipts');
+
+  const session = testSession();
+  setTestMembership({
+    ...session!,
+    member: { ...session!.member, role: 'seller', can_enroll: false },
+  });
+  await renderWithProviders(<InventoryScreen />);
+  expect(screen.queryByTestId('inventory-import-receipts')).toBeNull();
 });

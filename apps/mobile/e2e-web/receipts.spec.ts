@@ -107,7 +107,7 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
     });
     await expect(page.getByTestId('document-line-0')).toBeVisible();
     await expect(button(page, 'Đọc hóa đơn nhập')).toBeVisible();
-    await expect(button(page, 'Nhập trong trợ lý')).toBeVisible();
+    await expect(button(page, 'Nhập trong trợ lý')).toHaveCount(0);
     await expect(
       page.getByText('Giữ máy thẳng, đủ sáng · chụp để đọc chữ'),
     ).toBeVisible();
@@ -205,14 +205,6 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
     .first()
     .scrollIntoViewIfNeeded();
   await screenshot('receipts-02-review');
-  await button(page, 'Xong, xem lại').click();
-  await expect(
-    page.getByRole('heading', { name: 'Hóa đơn nhập' }),
-  ).toBeVisible();
-  await expect(button(page, /^Thêm một:/)).toHaveCount(0);
-  await expect(
-    page.getByText(new RegExp(`^${first.quantity + 1}( \\S+)? × 9\\.000đ$`)),
-  ).toBeVisible();
   await screenshot('receipts-03-summary');
   const confirmed = await callApi<Receipt>(
     page,
@@ -245,12 +237,12 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
   }
 });
 
-test('the dashboard opens receipt history and shows the real empty list', async ({
+test('the inventory opens receipt history and shows the real empty list', async ({
   page,
 }) => {
-  await openShop(page, '/dashboard');
+  await openShop(page, '/inventory');
   const history = await callApi(page, 'GET', '/v1/receipts', () =>
-    button(page, 'Hóa đơn nhập').click(),
+    button(page, 'Nhập hàng').click(),
   );
   expect(history.body.items).toEqual([]);
   await expect(page).toHaveURL(/\/receipts$/);
