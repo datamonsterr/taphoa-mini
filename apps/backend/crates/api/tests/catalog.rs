@@ -1806,6 +1806,96 @@ async fn get_patch_archive_price_history_and_isolation() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn price_history_pagination_returns_every_row_once_with_equal_timestamps() {
+    let w = world().await;
+    let product = create_product(
+        &w,
+        &w.lead,
+        "Pagination product",
+        100,
+        "pagination-product",
+        json!({}),
+    )
+    .await;
+    let product_id: Uuid = product["id"].as_str().unwrap().parse().unwrap();
+    let store_id: Uuid = sqlx::query_scalar("SELECT store_id FROM products WHERE id=$1")
+        .bind(product_id)
+        .fetch_one(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    let changed_by: Uuid =
+        sqlx::query_scalar("SELECT id FROM members WHERE store_id=$1 ORDER BY id LIMIT 1")
+            .bind(store_id)
+            .fetch_one(w.state.postgres.as_ref().unwrap())
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM price_history WHERE product_id=$1")
+        .bind(product_id)
+        .execute(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+
+    let changed_at = chrono::DateTime::parse_from_rfc3339("2026-11-25T12:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let ids: Vec<Uuid> = (0..7).map(|_| Uuid::now_v7()).collect();
+    for id in &ids {
+        sqlx::query(
+            "INSERT INTO price_history (id,store_id,product_id,field,new_value,source,changed_by,changed_at) \
+             VALUES ($1,$2,$3,'price',100,'manual',$4,$5)",
+        )
+        .bind(id)
+        .bind(store_id)
+        .bind(product_id)
+        .bind(changed_by)
+        .bind(changed_at)
+        .execute(w.state.postgres.as_ref().unwrap())
+        .await
+        .unwrap();
+    }
+    let expected: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM price_history WHERE product_id=$1 ORDER BY changed_at DESC,id DESC",
+    )
+    .bind(product_id)
+    .fetch_all(w.state.postgres.as_ref().unwrap())
+    .await
+    .unwrap();
+
+    let mut cursor: Option<String> = None;
+    let mut actual = Vec::new();
+    loop {
+        let query = cursor
+            .as_ref()
+            .map(|cursor| format!("?limit=2&cursor={cursor}"))
+            .unwrap_or_else(|| "?limit=2".to_owned());
+        let page = ok(
+            &w.app,
+            "GET",
+            &format!("/v1/products/{product_id}/price-history{query}"),
+            "/v1/products/{productId}/price-history",
+            &w.lead,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+        actual.extend(
+            page["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].as_str().unwrap().parse::<Uuid>().unwrap()),
+        );
+        cursor = page["next_cursor"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            break;
+        }
+    }
+
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn product_images_add_remove_limits() {
     let w = world().await;
     let p = create_product(&w, &w.lead, "Pepsi", 9000, "pepsi0", json!({})).await;

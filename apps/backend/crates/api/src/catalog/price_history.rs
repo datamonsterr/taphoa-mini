@@ -122,14 +122,17 @@ pub(crate) async fn list(
     .into_iter();
     let mut items = Vec::with_capacity(rows.len());
     let mut next_cursor = None;
+    let mut last_key = None;
     for (index, row) in rows.enumerate() {
         if index == page.limit as usize {
+            let (changed_at, id) = last_key.expect("lookahead row follows a returned row");
             next_cursor = Some(
-                crate::pagination::encode_cursor(&(row.changed_at, row.id))
+                crate::pagination::encode_cursor(&(changed_at, id))
                     .map_err(|_| ApiError::internal())?,
             );
             continue;
         }
+        last_key = Some((row.changed_at, row.id));
         items.push(row.json());
     }
     Ok(Json(json!({"items": items, "next_cursor": next_cursor})))
