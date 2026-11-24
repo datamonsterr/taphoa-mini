@@ -36,8 +36,29 @@ index_body=$(curl -s "$base/")
 printf '%s' "$index_body" | grep -q 'taphoa-api-url' || fail "/ body lacks the taphoa-api-url meta tag"
 [ "$(header_value x-content-type-options "$index_headers")" = "nosniff" ] || fail "/ lacks x-content-type-options nosniff"
 [ "$(header_value referrer-policy "$index_headers")" = "strict-origin-when-cross-origin" ] || fail "/ lacks the referrer-policy header"
+[ "$(header_value x-frame-options "$index_headers")" = "DENY" ] || fail "/ lacks x-frame-options DENY"
+[ "$(header_value permissions-policy "$index_headers")" = "camera=(), microphone=(), geolocation=(), browsing-topics=()" ] || fail "/ lacks valid permissions-policy"
+
+csp="$(header_value content-security-policy "$index_headers")"
+[ -n "$csp" ] || fail "/ lacks content-security-policy header"
+printf '%s\n' "$csp" | grep -q "default-src 'none'" || fail "CSP lacks default-src 'none'"
+printf '%s\n' "$csp" | grep -q "script-src 'self'" || fail "CSP lacks script-src 'self'"
+printf '%s\n' "$csp" | grep -q "style-src [^;]*'self'" || fail "CSP lacks style-src 'self'"
+printf '%s\n' "$csp" | grep -q "style-src [^;]*https://fonts.googleapis.com" || fail "CSP lacks fonts.googleapis.com in style-src"
+printf '%s\n' "$csp" | grep -q "font-src [^;]*https://fonts.gstatic.com" || fail "CSP lacks fonts.gstatic.com in font-src"
+printf '%s\n' "$csp" | grep -q "img-src [^;]*'self'" || fail "CSP lacks img-src 'self'"
+printf '%s\n' "$csp" | grep -q "connect-src [^;]*https://backend-production-5f5c.up.railway.app" || fail "CSP lacks backend origin in connect-src"
+printf '%s\n' "$csp" | grep -q "frame-ancestors 'none'" || fail "CSP lacks frame-ancestors 'none'"
+printf '%s\n' "$csp" | grep -q "base-uri 'none'" || fail "CSP lacks base-uri 'none'"
+printf '%s\n' "$csp" | grep -q "form-action 'self'" || fail "CSP lacks form-action 'self'"
+
+script_src=$(printf '%s\n' "$csp" | tr ';' '\n' | grep '^[[:space:]]*script-src' || true)
+if printf '%s\n' "$script_src" | grep -q "'unsafe-inline'"; then
+  fail "script-src must not allow 'unsafe-inline'"
+fi
+
 [ -z "$(header_value server "$index_headers")" ] || fail "/ still sends a server header"
-echo "ok: / 200, no-cache, body, security headers"
+echo "ok: / 200, no-cache, body, security headers (CSP, X-Content-Type-Options, Referrer-Policy, X-Frame-Options, Permissions-Policy)"
 
 css_path=$(printf '%s' "$index_body" | grep -oE 'href="[^"]*\.[0-9a-f]{8}\.css"' | head -n 1 | sed -E 's/^href="//; s/"$//' || true)
 [ -n "$css_path" ] || fail "/ references no content-hashed stylesheet"
