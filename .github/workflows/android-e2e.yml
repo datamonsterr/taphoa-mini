@@ -452,6 +452,7 @@ jobs:
           REACT_NATIVE_PACKAGER_HOSTNAME: 10.0.2.2
           # Public by design; Metro inlines EXPO_PUBLIC_* so the app can start ClerkProvider.
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_NATIVE_CAMERA: '0'
         run: nohup npx expo start --go --port 8081 --host lan > "$RUNNER_TEMP/metro.log" 2>&1 &
 
       - name: Wait for Metro

@@ -33,6 +33,25 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "react-native-vision-camera-mlkit",
+        {
+          "textRecognition": true,
+          "barcodeScanning": true,
+          "textRecognitionChinese": false,
+          "textRecognitionDevanagari": false,
+          "textRecognitionJapanese": false,
+          "textRecognitionKorean": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0c0c0e",

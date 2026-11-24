@@ -21,6 +21,14 @@ export const styles = StyleSheet.create({
   hidden: { display: 'none' },
   screen: { flex: 1, backgroundColor: colors.cameraBg },
   modeRow: { alignItems: 'center' },
+  codeModeButton: {
+    position: 'absolute',
+    right: space[4],
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: space[2],
+  },
+  codeModeText: { color: camera.white },
   finderRow: { alignItems: 'center', marginTop: FINDER_GAP },
   stripSlot: {
     height: STRIP_SLOT,

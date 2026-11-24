@@ -1,4 +1,3 @@
-import type { CameraView } from 'expo-camera';
 import { Alert } from 'react-native';
 import {
   useCallback,
@@ -17,7 +16,7 @@ import {
 import { downsizeForUpload } from '@/lib/api/downsize';
 import { newUuid } from '@/lib/uuid';
 
-import { takePhoto } from './capture';
+import { takePhoto, type PictureTaker } from './capture';
 import { quickPhotoAlert } from './quickEnrollParts';
 import {
   selectCanCapture,
@@ -26,7 +25,7 @@ import {
 } from './quickEnroll';
 
 type Args = {
-  cameraRef: RefObject<CameraView | null>;
+  cameraRef: RefObject<PictureTaker | null>;
   canEnroll: boolean;
   cameraReady: boolean;
   focused: boolean;
