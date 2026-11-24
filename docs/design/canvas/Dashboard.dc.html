@@ -19,13 +19,19 @@ a{color:inherit;text-decoration:none}
 <div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans)"><div style="height: 844px; box-sizing: border-box; padding: 24px 16px 112px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px">
   <div style="display: flex; align-items: center; justify-content: space-between">
     <h1 class="title" style="margin: 0">Hôm nay</h1>
-    <a href="Expense.dc.html" class="th-ib" aria-label="Thêm khoản chi"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></a>
+    <a href="Assistant.dc.html" class="th-ib" aria-label="Mở trợ lý"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 1 1 18 0z"></path><path d="M9 11h6M9 14h3"></path></svg></a>
   </div>
 
   <div role="radiogroup" aria-label="Khoảng thời gian" style="display: flex; gap: 8px">
     <sc-for list="{{periods}}" as="p" hint-placeholder-count="3">
       <button type="button" class="th-chip" role="radio" aria-checked="{{p.on}}" aria-pressed="{{p.on}}" onClick="{{p.pick}}">{{p.label}}</button>
     </sc-for>
+  </div>
+
+  <div style="display: flex; gap: 8px">
+    <a href="Expense.dc.html" class="th-btn th-btn-soft" style="flex: 1; min-height: 48px; justify-content: center; align-items: center" aria-label="Chi">Chi</a>
+    <a href="Close.dc.html" class="th-btn th-btn-soft" style="flex: 1; min-height: 48px; justify-content: center; align-items: center" aria-label="Chốt sổ">Chốt sổ</a>
+    <a href="Debts.dc.html" class="th-btn th-btn-soft" style="flex: 1; min-height: 48px; justify-content: center; align-items: center" aria-label="Công nợ">Công nợ</a>
   </div>
 
   <div class="th-stats">
@@ -89,12 +95,7 @@ a{color:inherit;text-decoration:none}
     <span class="th-badge th-badge-accent">Mới</span>
   </a>
 
-  <div style="display: flex; gap: 12px">
-    <a href="Debts.dc.html" aria-label="Sổ nợ: 2 khách quá hạn" style="flex: 1; display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 0 12px 0 18px; border-radius: 9999px; background: var(--surface-soft); color: var(--ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span class="label" style="flex: 1">Sổ nợ</span><span class="th-badge th-badge-danger th-num">2</span></a>
-    <a href="Receipt.dc.html" aria-label="Hóa đơn nhập: 1 bản nháp" style="flex: 1; display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 0 12px 0 18px; border-radius: 9999px; background: var(--surface-soft); color: var(--ink)"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><span class="label" style="flex: 1">Hóa đơn</span><span class="th-badge th-badge-warning th-num">1</span></a>
-  </div>
 
-  <a href="Close.dc.html" class="th-btn th-btn-ink th-btn-block"><svg class="th-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg>Chốt sổ</a>
 
   <nav style="display:flex;justify-content:center;gap:16px"><a class="label" href="RecentSales.dc.html">Đơn gần đây</a><a class="label" href="Export.dc.html">Xuất giao dịch</a></nav>
   </div>

@@ -39,7 +39,10 @@ test('newest first with date, total, match count, status, photo and navigation',
   expect(screen.getAllByText('Bản nháp')).toHaveLength(2);
   expect(screen.getAllByTestId('receipt-history-photo')).toHaveLength(2);
   await fireEvent.press(screen.getAllByTestId('receipt-history-row')[0]);
-  expect(router.push).toHaveBeenCalledWith(`/receipt/${recent.id}`);
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: '/receipts',
+    params: { receiptId: recent.id },
+  });
 });
 test('infinite scrolling follows the next cursor', async () => {
   const list = jest

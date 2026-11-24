@@ -1,7 +1,12 @@
 import { PostHogMaskView } from '@/components/ui/ReplayMask';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { useIsFocused, useRouter, type Href } from 'expo-router';
+import {
+  useIsFocused,
+  useLocalSearchParams,
+  useRouter,
+  type Href,
+} from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowDown, Plus } from '@/components/icons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -276,11 +281,18 @@ export function CameraScreen() {
   const [readingReceipt, setReadingReceipt] = useState(false);
   const { mutateAsync: uploadImage } = useUploadImage();
   const canEnroll = useCanEnroll();
+  const searchParams = useLocalSearchParams<{
+    entry?: string;
+    mode?: string;
+  }>();
+  const receiptMode =
+    searchParams.entry === 'receipt' || searchParams.mode === 'receipt';
   const joinedAt = useMembership()?.member.created_at;
   // Keep the same variables object for an explicit retry of the same uploaded image.
   const receiptInput = useRef<{ image_id: string } | null>(null);
   const readReceipt = async (
-    open: (receiptId: string) => void = (id) => router.push(`/receipt/${id}`),
+    open: (receiptId: string) => void = (id) =>
+      router.push({ pathname: '/receipts', params: { receiptId: id } }),
   ) => {
     if (
       !canEnroll ||
@@ -663,7 +675,7 @@ export function CameraScreen() {
   const onShutter = () => {
     if (barcodeResult) setBarcodeResult(null);
     else if (quickActive) void captureQuickPhoto();
-    else if (documentDetected && canEnroll) void readReceipt();
+    else if ((documentDetected || receiptMode) && canEnroll) void readReceipt();
     else if (phase === 'idle') void capture();
     else reset();
   };
@@ -880,7 +892,7 @@ export function CameraScreen() {
         ) : (
           <Shutter
             label={
-              documentDetected && canEnroll
+              (documentDetected || receiptMode) && canEnroll
                 ? 'Chụp và đọc hóa đơn'
                 : barcodeResult
                   ? t('reshoot')

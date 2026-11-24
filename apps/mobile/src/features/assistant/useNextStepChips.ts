@@ -48,7 +48,7 @@ export function useNextStepChips({
 
   const chips = useMemo<NextStepChipData[]>(() => {
     if (documentDetected && canEnroll) {
-      const receipts: NextStepChipData[] = [
+      return [
         {
           id: 'receipt_detected',
           kind: 'receipt_detected',
@@ -58,16 +58,6 @@ export function useNextStepChips({
           action: { type: 'receipt', destination: 'review' },
         },
       ];
-      if (enabled)
-        receipts.push({
-          id: 'receipt_assistant',
-          kind: 'receipt_detected',
-          title: t(strings, 'receiptAssistant', language),
-          source: 'device',
-          tone: 'neutral',
-          action: { type: 'receipt', destination: 'assistant' },
-        });
-      return receipts;
     }
     if (!enabled) return [];
     const list: NextStepChipData[] = [];

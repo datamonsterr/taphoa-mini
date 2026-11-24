@@ -11,7 +11,6 @@ import { Icon, PressableScale, Text } from '@/components/ui';
 import { StockBadge } from '@/components/ui/StockBadge';
 import { useStock } from '@/lib/api/hooks';
 import type { StockStatus } from '@/lib/api/stock';
-import { assistantHref } from '@/features/assistant/route';
 import { useLowStockItems } from '@/features/stock-alerts/useLowStockItems';
 import { fill, useT } from '@/lib/i18n';
 import { colors, radius, size, space, typography } from '@/theme';
@@ -208,15 +207,7 @@ export function StockScreen({
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={t('restock')}
-            onPress={() =>
-              router.push(
-                assistantHref({
-                  entry: 'chip',
-                  prompt: t('restockPrompt'),
-                  screen: 'stock',
-                }),
-              )
-            }
+            onPress={() => router.push('/receipts')}
             style={styles.restock}
           >
             <Text style={styles.restockText}>{t('restock')}</Text>

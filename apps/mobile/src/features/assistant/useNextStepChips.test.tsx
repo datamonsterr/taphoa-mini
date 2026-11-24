@@ -146,7 +146,7 @@ test('offline hides server chips and keeps on-device ones; back online they retu
   expect(kinds(result.current.chips)).toEqual(all);
 });
 
-test('a detected receipt owns the strip with two different actions', async () => {
+test('a detected receipt owns the strip with a direct review action', async () => {
   const { result } = await render({
     documentDetected: true,
     unknownProduct: true,
@@ -157,12 +157,6 @@ test('a detected receipt owns the strip with two different actions', async () =>
       source: 'device',
       tone: 'accent',
       action: { type: 'receipt', destination: 'review' },
-    },
-    {
-      title: 'Nhập trong trợ lý',
-      source: 'device',
-      tone: 'neutral',
-      action: { type: 'receipt', destination: 'assistant' },
     },
   ]);
 });
@@ -187,10 +181,7 @@ test('only the signals that are on produce a chip', async () => {
 test('server chips of a kind already shown are skipped', async () => {
   mockSteps([serverReceipt, restock]);
   const { result } = await render({ documentDetected: true });
-  expect(kinds(result.current.chips)).toEqual([
-    'receipt_detected',
-    'receipt_detected',
-  ]);
+  expect(kinds(result.current.chips)).toEqual(['receipt_detected']);
 });
 
 test('English shows a title per kind and drops the Vietnamese subtitle', async () => {
@@ -198,10 +189,8 @@ test('English shows a title per kind and drops the Vietnamese subtitle', async (
   const { result } = await render({ documentDetected: true });
   expect(result.current.chips.map((c) => c.title)).toEqual([
     'Read import receipt',
-    'Import in assistant',
   ]);
   expect(result.current.chips[0]!.subtitle).toBeUndefined();
-  expect(result.current.chips[1]!.subtitle).toBeUndefined();
 });
 
 test('an English chip of an unknown kind falls back to the server title', async () => {
@@ -243,10 +232,9 @@ test('captures next_step_shown once per chip with its position', async () => {
   const { rerender } = await render({ documentDetected: true });
   expect(shown()).toEqual([
     ['next_step_shown', { kind: 'receipt_detected', position: 0 }],
-    ['next_step_shown', { kind: 'receipt_detected', position: 1 }],
   ]);
   await rerender({ documentDetected: true });
-  expect(shown()).toHaveLength(2);
+  expect(shown()).toHaveLength(1);
 });
 
 test('a chip that appears later is captured alone', async () => {
@@ -274,10 +262,10 @@ test('props never carry titles or prompts', async () => {
 
 test('tap captures next_step_tapped with kind and position', async () => {
   const { result } = await render({ documentDetected: true });
-  await act(async () => result.current.tap(result.current.chips[1]!, 1));
+  await act(async () => result.current.tap(result.current.chips[0]!, 0));
   expect(events.at(-1)).toEqual([
     'next_step_tapped',
-    { kind: 'receipt_detected', position: 1 },
+    { kind: 'receipt_detected', position: 0 },
   ]);
 });
 

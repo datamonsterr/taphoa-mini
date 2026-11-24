@@ -625,7 +625,6 @@ test.describe('offline', () => {
     await expect(
       page.getByRole('heading', { name: 'Kiểm tra hóa đơn' }),
     ).toBeVisible();
-    await button(page, 'Xong, xem lại').click();
     await expect(button(page, 'Xác nhận nhập kho')).toBeEnabled();
     // Use the confirmation's readiness, not networkidle (Clerk Protect can keep requests open).
     await page.context().setOffline(true);

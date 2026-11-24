@@ -1,5 +1,5 @@
 import { FlashList } from '@shopify/flash-list';
-import { Search, X } from '@/components/icons';
+import { ReceiptText, Search, X } from '@/components/icons';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';
@@ -20,11 +20,21 @@ import { Icon } from '@/components/ui/Icon';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { shouldDismiss } from '@/components/ui/Sheet';
 import { ProductTile } from '@/components/ui/ProductTile';
+import { useCanEnroll } from '@/features/auth/useMembership';
+import { ReceiptToast } from '@/features/receipts/ReceiptToast';
 import { useProducts } from '@/lib/api/hooks';
 import type { Product } from '@/lib/api/types';
 import { fill, useT } from '@/lib/i18n';
 import { selectCount, selectTotal, useCartStore } from '@/stores/cart';
-import { colors, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { StockScreen } from '@/features/stock/StockScreen';
 import { StockSegment, type KhoSegment } from '@/features/stock/StockSegment';
@@ -223,6 +233,7 @@ const GridCartPill = memo(function GridCartPill() {
 /** Kho tab: Sản phẩm / Tồn kho are switched in place through the URL params, never pushed. */
 export function InventoryScreen() {
   const t = useT(strings);
+  const canEnroll = useCanEnroll();
   const params = useLocalSearchParams<{ segment?: string; status?: string }>();
   const segment: KhoSegment = params.segment === 'stock' ? 'stock' : 'products';
   const selectSegment = useCallback(
@@ -318,13 +329,27 @@ export function InventoryScreen() {
             <Text accessibilityRole="header" style={styles.title}>
               {t('title')}
             </Text>
-            {segment === 'products' ? (
-              <CircleButton
-                icon={Search}
-                accessibilityLabel={t('search')}
-                onPress={openSearch}
-              />
-            ) : null}
+            <View style={styles.headerActions}>
+              {canEnroll ? (
+                <PressableScale
+                  testID="inventory-import-receipts"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('intake')}
+                  onPress={() => router.push('/receipts')}
+                  style={styles.intakeButton}
+                >
+                  <Icon icon={ReceiptText} size={20} color={colors.ink} />
+                  <Text style={styles.intakeText}>{t('intake')}</Text>
+                </PressableScale>
+              ) : null}
+              {segment === 'products' ? (
+                <CircleButton
+                  icon={Search}
+                  accessibilityLabel={t('search')}
+                  onPress={openSearch}
+                />
+              ) : null}
+            </View>
           </>
         )}
       </View>
@@ -339,6 +364,7 @@ export function InventoryScreen() {
           <GridCartPill />
         </>
       )}
+      <ReceiptToast />
     </View>
   );
 }
@@ -361,6 +387,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: space[4],
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+  },
+  intakeButton: {
+    minHeight: size.tapMin,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    paddingHorizontal: space[3],
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceSoft,
+  },
+  intakeText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize[15],
+    lineHeight: 20,
+    color: colors.ink,
   },
   title: { ...typography.title, color: colors.ink },
   searchRow: {

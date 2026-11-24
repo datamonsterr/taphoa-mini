@@ -16,6 +16,7 @@ import { uploadPartsAsBlobs } from './testing';
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
+  useLocalSearchParams: () => ({}),
   useIsFocused: () => true,
 }));
 

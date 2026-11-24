@@ -93,6 +93,7 @@ jest.mock('@/features/assistant/flags', () => ({
   useAssistantEnabled: jest.fn(() => true),
 }));
 
+let mockSearchParams: Record<string, string> = {};
 const mockPush = jest.fn();
 const mockTakePicture = jest.fn();
 const mockRequestPermission = jest.fn();
@@ -118,6 +119,7 @@ jest.mock('expo-router', () => {
   const router = { push: (...args: unknown[]) => mockPush(...args) };
   return {
     useRouter: () => router,
+    useLocalSearchParams: () => mockSearchParams,
     useIsFocused: () => {
       const [focused, setFocused] = React.useState(mockState.focused);
       React.useEffect(() => {
@@ -1249,9 +1251,10 @@ describe('import receipt document', () => {
     });
     await act(async () => release());
     await waitFor(() =>
-      expect(mockPush).toHaveBeenCalledWith(
-        `/receipt/${getMockDb().receipts[0].id}`,
-      ),
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/receipts',
+        params: { receiptId: getMockDb().receipts[0].id },
+      }),
     );
   });
 
@@ -1390,8 +1393,8 @@ describe('assistant entry points', () => {
     setNextScanDocument();
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await waitFor(() => expect(chipNames()).toHaveLength(2));
-    expect(chipNames()).toEqual(['Đọc hóa đơn nhập', 'Nhập trong trợ lý']);
+    await waitFor(() => expect(chipNames()).toHaveLength(1));
+    expect(chipNames()).toEqual(['Đọc hóa đơn nhập']);
     expect(screen.getByTestId('viewfinder')).toHaveStyle({ width: 358 });
   });
 
@@ -1468,14 +1471,14 @@ describe('assistant entry points', () => {
     expect(mockPush).toHaveBeenCalledWith('/receipts');
   });
 
-  it('the receipt chip creates the receipt from the scan image and opens it in the chat', async () => {
+  it('the receipt chip creates the receipt from the scan image and opens it in receipt review', async () => {
     setNextScanDocument();
     const create = jest.spyOn(receiptsApi, 'createReceipt');
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await waitFor(() => expect(chipNames()).toHaveLength(2));
+    await waitFor(() => expect(chipNames()).toHaveLength(1));
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Nhập trong trợ lý' }),
+      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalled());
     const receiptId = getMockDb().receipts[0].id;
@@ -1483,13 +1486,13 @@ describe('assistant entry points', () => {
       image_id: [...getMockDb().scans.values()][0].image.id,
     });
     expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/assistant',
-      params: { entry: 'receipt', screen: 'camera', receiptId },
+      pathname: '/receipts',
+      params: { receiptId },
     });
     expect(mockPush).toHaveBeenCalledTimes(1);
   });
 
-  it('the assistant receipt chip shows a notice when reading fails', async () => {
+  it('the receipt chip shows a notice when reading fails', async () => {
     setNextScanDocument();
     jest
       .spyOn(receiptsApi, 'createReceipt')
@@ -1498,9 +1501,9 @@ describe('assistant entry points', () => {
       );
     await renderWithProviders(<CameraScreen />);
     await capture();
-    await waitFor(() => expect(chipNames()).toHaveLength(2));
+    await waitFor(() => expect(chipNames()).toHaveLength(1));
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Nhập trong trợ lý' }),
+      screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
     );
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Không đọc được chữ trên hóa đơn',
@@ -1596,7 +1599,7 @@ describe('live receipt detection (01b)', () => {
     });
   });
 
-  it('draws line boxes, badge and hint on the live frame, with only the two receipt chips', async () => {
+  it('draws line boxes, badge and hint on the live frame, with only the receipt chip', async () => {
     liveProbe();
     await renderWithProviders(<CameraScreen />);
     expect(screen.getByText('Hóa đơn · 12 dòng chữ')).toBeOnTheScreen();
@@ -1614,12 +1617,12 @@ describe('live receipt detection (01b)', () => {
       screen.getByRole('button', { name: 'Đọc hóa đơn nhập' }),
     ).toBeOnTheScreen();
     expect(
-      screen.getByRole('button', { name: 'Nhập trong trợ lý' }),
-    ).toBeOnTheScreen();
+      screen.queryByRole('button', { name: 'Nhập trong trợ lý' }),
+    ).toBeNull();
     expect(screen.getByRole('button', { name: 'Thêm vào giỏ' })).toBeDisabled();
   });
 
-  it.each(['Chụp và đọc hóa đơn', 'Đọc hóa đơn nhập', 'Nhập trong trợ lý'])(
+  it.each(['Chụp và đọc hóa đơn', 'Đọc hóa đơn nhập'])(
     '%s captures a full photo, uploads and reads it without a product scan',
     async (action) => {
       liveProbe();
@@ -1635,16 +1638,36 @@ describe('live receipt detection (01b)', () => {
         'other',
       );
       const receiptId = getMockDb().receipts[0].id;
-      expect(mockPush).toHaveBeenCalledWith(
-        action === 'Nhập trong trợ lý'
-          ? {
-              pathname: '/assistant',
-              params: { entry: 'receipt', screen: 'camera', receiptId },
-            }
-          : `/receipt/${receiptId}`,
-      );
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/receipts',
+        params: { receiptId },
+      });
     },
   );
+
+  it('explicit receipt entry captures and reads receipt on shutter even without passive document detection', async () => {
+    mockSearchParams = { entry: 'receipt' };
+    try {
+      const scan = jest.spyOn(images, 'createScan');
+      const upload = jest.spyOn(images, 'uploadImage');
+      await renderWithProviders(<CameraScreen />);
+      await fireEvent.press(shutter());
+      await waitFor(() => expect(mockPush).toHaveBeenCalled());
+      expect(mockTakePicture).toHaveBeenCalledWith({ quality: 0.6 });
+      expect(scan).not.toHaveBeenCalled();
+      expect(upload).toHaveBeenCalledWith(
+        { uri: 'file:///shot.jpg', name: 'receipt.jpg', type: 'image/jpeg' },
+        'other',
+      );
+      const receiptId = getMockDb().receipts[0].id;
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/receipts',
+        params: { receiptId },
+      });
+    } finally {
+      mockSearchParams = {};
+    }
+  });
 
   it('pauses live probes while quick enroll or a scan result is open and when unfocused', async () => {
     await renderWithProviders(<CameraScreen />);
