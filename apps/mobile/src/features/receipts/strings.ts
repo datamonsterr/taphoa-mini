@@ -3,6 +3,9 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     title: 'Hóa đơn nhập',
+    intake: 'Nhập hàng',
+    captureReceipt: 'Chụp hóa đơn',
+    toReceipts: 'Về nhập hàng',
     review: 'Kiểm tra hóa đơn',
     fixCount: '{count} dòng đọc được · {fixes} cần xem',
     matched: 'Khớp',
@@ -69,6 +72,9 @@ export const strings: Dict = {
   },
   en: {
     title: 'Import receipts',
+    intake: 'Stock intake',
+    captureReceipt: 'Take receipt photo',
+    toReceipts: 'Back to receipts',
     review: 'Review receipt',
     fixCount: '{count} lines read · {fixes} to review',
     matched: 'Matched',

@@ -41,34 +41,39 @@ afterEach(() => {
 
 const ready = () => screen.findByLabelText(/^Doanh thu \d/);
 
-test('opens import receipt history from the dashboard', async () => {
+test('daily actions row renders Chi, Chốt sổ, and Công nợ, and opens their sheets', async () => {
   await renderWithProviders(<DashboardScreen />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Hóa đơn nhập' }));
-  expect(router.push).toHaveBeenCalledWith('/receipts');
   await ready();
+  expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
+
+  const expenseBtn = screen.getByTestId('dashboard-add-expense');
+  expect(expenseBtn).toBeOnTheScreen();
+  await fireEvent.press(expenseBtn);
+  expect(router.push).toHaveBeenCalledWith('/expense');
+
+  const closeBtn = screen.getByTestId('dashboard-close-day');
+  expect(closeBtn).toBeOnTheScreen();
+  await fireEvent.press(closeBtn);
+  expect(router.push).toHaveBeenCalledWith('/close');
+
+  const debtsBtn = screen.getByTestId('dashboard-debts');
+  expect(debtsBtn).toBeOnTheScreen();
+  await fireEvent.press(debtsBtn);
+  expect(router.push).toHaveBeenCalledWith('/debts');
 });
 
-test.each([
-  [false, false],
-  [true, true],
-] as const)(
-  'receipt entry follows can_enroll=%s for sellers',
-  async (can_enroll, visible) => {
-    const session = testSession();
-    setTestMembership({
-      ...session!,
-      member: { ...session!.member, role: 'seller', can_enroll },
-    });
-    await renderWithProviders(<DashboardScreen />);
-    if (visible) {
-      expect(
-        screen.getByRole('button', { name: 'Hóa đơn nhập' }),
-      ).toBeOnTheScreen();
-    } else {
-      expect(screen.queryByRole('button', { name: 'Hóa đơn nhập' })).toBeNull();
-    }
-  },
-);
+test('Chốt sổ is hidden for sellers, while Chi and Công nợ remain visible', async () => {
+  const session = testSession();
+  setTestMembership({
+    ...session!,
+    member: { ...session!.member, role: 'seller' },
+  });
+  await renderWithProviders(<DashboardScreen />);
+  await ready();
+  expect(screen.queryByTestId('dashboard-close-day')).toBeNull();
+  expect(screen.getByTestId('dashboard-add-expense')).toBeOnTheScreen();
+  expect(screen.getByTestId('dashboard-debts')).toBeOnTheScreen();
+});
 
 test('shows a skeleton while loading', async () => {
   let release: () => void = () => {};
@@ -402,7 +407,7 @@ describe('debt book card', () => {
       .mockRejectedValue(new Error('offline'));
     await renderWithProviders(<DashboardScreen />);
     await ready();
-    expect(screen.queryByRole('button', { name: /^Sổ nợ/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Sổ nợ,/ })).toBeNull();
   });
 
   test('English label', async () => {

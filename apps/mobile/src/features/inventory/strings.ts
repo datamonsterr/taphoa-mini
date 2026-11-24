@@ -3,6 +3,7 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     title: 'Kho',
+    intake: 'Nhập hàng',
     add: 'Thêm {name} vào giỏ',
     search: 'Tìm',
     searchField: 'Tìm sản phẩm',
@@ -22,6 +23,7 @@ export const strings: Dict = {
   },
   en: {
     title: 'Stock',
+    intake: 'Import',
     add: 'Add {name} to cart',
     search: 'Search',
     searchField: 'Search products',

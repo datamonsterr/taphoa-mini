@@ -95,21 +95,14 @@ test('four filters, the last one asks the API for in-stock products', async () =
   expect(screen.queryByRole('button', { name: 'Pepsi lon 330ml' })).toBeNull();
 });
 
-test('summary card counts low and out products and opens the assistant to restock', async () => {
+test('summary card counts low and out products and opens /receipts to restock', async () => {
   await renderWithProviders(<StockScreen />);
   const card = await screen.findByTestId('stock-summary');
   expect(within(card).getByText('2 món sắp hết hoặc hết')).toBeOnTheScreen();
   await fireEvent.press(
     within(card).getByRole('button', { name: 'Nhập hàng' }),
   );
-  expect(router.push).toHaveBeenCalledWith({
-    pathname: '/assistant',
-    params: {
-      entry: 'chip',
-      prompt: 'Tôi nên nhập thêm hàng gì?',
-      screen: 'stock',
-    },
-  });
+  expect(router.push).toHaveBeenCalledWith('/receipts');
 });
 
 test('no summary card when nothing is low or out', async () => {
