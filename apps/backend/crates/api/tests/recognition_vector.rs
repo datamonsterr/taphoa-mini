@@ -999,6 +999,38 @@ async fn scan_search_function_matches_search_sql() {
     let prototype = new_product(&pool, store).await;
     sqlx::query("INSERT INTO product_prototypes (store_id, product_id, model, embedding, reference_count) VALUES ($1, $2, $3, $4, 1)")
         .bind(store).bind(prototype).bind(MODEL).bind(pgvector::Vector::from(query.clone())).execute(&pool).await.unwrap();
+
+    // Add 768-only products with NULL 384-d embeddings to verify that NULL embeddings
+    // are filtered identically and do not sort to the top due to NULLS FIRST.
+    for _ in 0..4 {
+        let null_prod = new_product(&pool, store).await;
+        let img = new_image(&pool, store).await;
+        sqlx::query(
+            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding, embedding_768)
+             VALUES ($1, $2, $3, $4, 'crop', NULL, $5)",
+        )
+        .bind(store)
+        .bind(null_prod)
+        .bind(img)
+        .bind(MODEL)
+        .bind(pgvector::Vector::from(vec![0.1f32; 768]))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let null_proto = new_product(&pool, store).await;
+    sqlx::query(
+        "INSERT INTO product_prototypes (store_id, product_id, model, embedding, embedding_768, reference_count)
+         VALUES ($1, $2, $3, NULL, $4, 1)",
+    )
+    .bind(store)
+    .bind(null_proto)
+    .bind(MODEL)
+    .bind(pgvector::Vector::from(vec![0.1f32; 768]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
     for limit in [1_i64, 2, 3, 5, 8, 17, 40] {
         for fetch in [32_i64, 64] {
             let bind = |sql: &'static str| {
@@ -1020,11 +1052,33 @@ async fn scan_search_function_matches_search_sql() {
     }
 }
 
+/// Frozen verbatim query from origin/main prior to retrieval v2.
+const FROZEN_LEGACY_SEARCH_SQL: &str = "WITH nearest AS MATERIALIZED (
+    SELECT e.product_id, e.embedding <=> $1::vector AS distance
+    FROM product_embeddings e
+    WHERE e.store_id = $2 AND e.model = $3
+      AND EXISTS (SELECT 1 FROM products p
+                  WHERE p.id = e.product_id AND p.store_id = $2 AND NOT p.archived)
+    ORDER BY e.embedding <=> $1::vector
+    LIMIT $4
+), scores AS (
+    SELECT product_id, 1 - distance AS similarity FROM nearest
+    UNION ALL
+    SELECT proto.product_id, 1 - (proto.embedding <=> $1::vector) AS similarity
+    FROM product_prototypes proto
+    JOIN products p ON p.id = proto.product_id
+    WHERE proto.store_id = $2 AND proto.model = $3
+      AND p.store_id = $2 AND NOT p.archived
+)
+SELECT product_id, max(similarity)::real AS similarity
+FROM scores
+GROUP BY product_id
+ORDER BY similarity DESC, product_id
+LIMIT $5";
+
 #[tokio::test]
 #[ignore = "real Postgres with pgvector required"]
 async fn default_path_384_parity_against_legacy_search_sql() {
-    use taphoa_api::recognition::pgvector::SEARCH_SQL;
-
     let pool = pool().await.expect("DATABASE_URL required");
     let _tidy = Tidy::start(pool.clone()).await;
     let store = new_store(&pool).await;
@@ -1044,7 +1098,7 @@ async fn default_path_384_parity_against_legacy_search_sql() {
         .unwrap();
 
     let search_hits = index.search(store, MODEL, &query, 5).await.unwrap();
-    let sql_rows: Vec<(Uuid, f32)> = sqlx::query_as(SEARCH_SQL)
+    let legacy_rows: Vec<(Uuid, f32)> = sqlx::query_as(FROZEN_LEGACY_SEARCH_SQL)
         .bind(pgvector::Vector::from(query.clone()))
         .bind(store)
         .bind(MODEL)
@@ -1054,12 +1108,36 @@ async fn default_path_384_parity_against_legacy_search_sql() {
         .await
         .unwrap();
 
-    assert_eq!(search_hits.len(), sql_rows.len());
-    for (hit, (prod, sim)) in search_hits.iter().zip(sql_rows) {
-        assert_eq!(hit.product_id, prod);
-        assert_eq!(hit.similarity, sim);
+    assert_eq!(search_hits.len(), legacy_rows.len());
+    for (hit, (prod, sim)) in search_hits.iter().zip(&legacy_rows) {
+        assert_eq!(hit.product_id, *prod);
+        assert_eq!(hit.similarity, *sim);
     }
     assert_eq!(search_hits[0].similarity, 1.0);
+
+    // Now insert a 768-only product with NULL 384-d embedding.
+    // The default 384-d search must ignore it and produce the identical result.
+    let p_768 = new_product(&pool, store).await;
+    let img_768 = new_image(&pool, store).await;
+    sqlx::query(
+        "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding, embedding_768)
+         VALUES ($1, $2, $3, $4, 'crop', NULL, $5)",
+    )
+    .bind(store)
+    .bind(p_768)
+    .bind(img_768)
+    .bind(MODEL)
+    .bind(pgvector::Vector::from(vec![0.5f32; 768]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let search_hits_after_null = index.search(store, MODEL, &query, 5).await.unwrap();
+    assert_eq!(search_hits_after_null.len(), legacy_rows.len());
+    for (hit, (prod, sim)) in search_hits_after_null.iter().zip(&legacy_rows) {
+        assert_eq!(hit.product_id, *prod);
+        assert_eq!(hit.similarity, *sim);
+    }
 }
 
 #[tokio::test]

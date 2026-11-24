@@ -320,14 +320,31 @@ async fn run_job(
         references(&mut tx, job).await? == images,
         "references changed during indexing"
     );
+    const INSERT_EMBEDDING_384: &str =
+        "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding)
+         VALUES ($1,$2,$3,$4,$5,$6::vector)
+         ON CONFLICT (store_id, product_id, image_id, model, kind)
+         DO UPDATE SET embedding=EXCLUDED.embedding";
+    const INSERT_EMBEDDING_768: &str =
+        "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding_768)
+         VALUES ($1,$2,$3,$4,$5,$6::vector)
+         ON CONFLICT (store_id, product_id, image_id, model, kind)
+         DO UPDATE SET embedding_768=EXCLUDED.embedding_768";
+    let insert_embedding_sql = match embedder.dim() {
+        384 => INSERT_EMBEDDING_384,
+        768 => INSERT_EMBEDDING_768,
+        dim => anyhow::bail!("unsupported embedding dimension: {dim}"),
+    };
     for embedding in &embeddings {
-        sqlx::query(
-            "INSERT INTO product_embeddings (store_id, product_id, image_id, model, kind, embedding)
-             VALUES ($1,$2,$3,$4,$5,$6::vector)
-             ON CONFLICT (store_id, product_id, image_id, model, kind)
-             DO UPDATE SET embedding=EXCLUDED.embedding",
-        ).bind(job.store_id).bind(job.product_id).bind(embedding.image_id).bind(&model)
-            .bind(embedding.kind).bind(vector_text(&embedding.vector)).execute(&mut *tx).await?;
+        sqlx::query(insert_embedding_sql)
+            .bind(job.store_id)
+            .bind(job.product_id)
+            .bind(embedding.image_id)
+            .bind(&model)
+            .bind(embedding.kind)
+            .bind(vector_text(&embedding.vector))
+            .execute(&mut *tx)
+            .await?;
     }
     sqlx::query(
         "DELETE FROM product_embeddings e WHERE e.product_id=$1 AND e.store_id=$2
@@ -339,12 +356,27 @@ async fn run_job(
     .execute(&mut *tx)
     .await?;
     if let Some(prototype) = prototype {
-        sqlx::query(
+        const INSERT_PROTOTYPE_384: &str =
             "INSERT INTO product_prototypes (store_id,product_id,model,embedding,reference_count)
              VALUES ($1,$2,$3,$4::vector,$5) ON CONFLICT (product_id,model)
-             DO UPDATE SET embedding=EXCLUDED.embedding, reference_count=EXCLUDED.reference_count, updated_at=now()",
-        ).bind(job.store_id).bind(job.product_id).bind(&model).bind(vector_text(&prototype))
-            .bind(reference_count).execute(&mut *tx).await?;
+             DO UPDATE SET embedding=EXCLUDED.embedding, reference_count=EXCLUDED.reference_count, updated_at=now()";
+        const INSERT_PROTOTYPE_768: &str =
+            "INSERT INTO product_prototypes (store_id,product_id,model,embedding_768,reference_count)
+             VALUES ($1,$2,$3,$4::vector,$5) ON CONFLICT (product_id,model)
+             DO UPDATE SET embedding_768=EXCLUDED.embedding_768, reference_count=EXCLUDED.reference_count, updated_at=now()";
+        let insert_prototype_sql = match embedder.dim() {
+            384 => INSERT_PROTOTYPE_384,
+            768 => INSERT_PROTOTYPE_768,
+            dim => anyhow::bail!("unsupported embedding dimension: {dim}"),
+        };
+        sqlx::query(insert_prototype_sql)
+            .bind(job.store_id)
+            .bind(job.product_id)
+            .bind(&model)
+            .bind(vector_text(&prototype))
+            .bind(reference_count)
+            .execute(&mut *tx)
+            .await?;
     } else {
         sqlx::query(
             "DELETE FROM product_prototypes WHERE store_id=$1 AND product_id=$2 AND model=$3",
@@ -460,7 +492,7 @@ async fn embed_image(
         };
         let vector = embedder.embed(input)?;
         ensure!(
-            vector.len() == 384 && vector.len() == embedder.dim(),
+            matches!(vector.len(), 384 | 768) && vector.len() == embedder.dim(),
             "invalid embedding dimension"
         );
         ensure!(vector.iter().all(|v| v.is_finite()), "non-finite embedding");
@@ -470,11 +502,15 @@ async fn embed_image(
 }
 
 fn compute_prototype(embeddings: &[Embedding]) -> Option<Vec<f32>> {
-    if embeddings.is_empty() {
+    let dim = embeddings.first()?.vector.len();
+    if dim == 0 {
         return None;
     }
-    let mut mean = vec![0f64; 384];
+    let mut mean = vec![0f64; dim];
     for embedding in embeddings {
+        if embedding.vector.len() != dim {
+            return None;
+        }
         for (sum, value) in mean.iter_mut().zip(&embedding.vector) {
             *sum += f64::from(*value);
         }

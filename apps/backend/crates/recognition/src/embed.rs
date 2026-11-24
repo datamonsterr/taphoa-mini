@@ -324,6 +324,37 @@ impl Embedder for MockEmbedder {
         Ok(vector)
     }
 }
+
+/// Deterministic 768-d hash adapter for tests; never selected by production config.
+#[derive(Default)]
+pub struct MockEmbedder768;
+impl Embedder for MockEmbedder768 {
+    fn model(&self) -> &str {
+        "mock-sha256-768"
+    }
+    fn dim(&self) -> usize {
+        768
+    }
+    fn embed(&self, image: &[u8]) -> Result<Vec<f32>, EmbedError> {
+        let mut vector = Vec::with_capacity(self.dim());
+        for block in 0_u32..24 {
+            let mut hasher = Sha256::new();
+            hasher.update(image);
+            hasher.update(block.to_be_bytes());
+            vector.extend(
+                hasher
+                    .finalize()
+                    .iter()
+                    .map(|&byte| (f32::from(byte) - 127.5) / 127.5),
+            );
+        }
+        let norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+        for value in &mut vector {
+            *value /= norm;
+        }
+        Ok(vector)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

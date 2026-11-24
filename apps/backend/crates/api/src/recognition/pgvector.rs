@@ -95,15 +95,6 @@ impl PgVectorIndex {
     }
 }
 
-pub fn search_sql(dim: usize) -> anyhow::Result<String> {
-    embedding_column(dim)?;
-    if dim == 768 {
-        Ok(SEARCH_SQL_768.to_string())
-    } else {
-        Ok(SEARCH_SQL.to_string())
-    }
-}
-
 /// Same validity rules as `InMemoryVectorIndex`, plus the supported column dimensions.
 fn validate(embedding: &[f32]) -> anyhow::Result<()> {
     anyhow::ensure!(
