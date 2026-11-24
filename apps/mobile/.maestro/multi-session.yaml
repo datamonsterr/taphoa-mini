@@ -30,11 +30,17 @@ appId: com.datamonsterr.taphoamini
 - extendedWaitUntil:
     visible: 'Tiem A Maestro'
     timeout: 20000
+- scrollUntilVisible:
+    element: 'Nâng cao'
+    timeout: 30000
+    centerElement: true
+- tapOn: 'Nâng cao'
 # New PIN 7468, then the same again.
 # The lead's member actions push the PIN row below the fold: scroll to it first.
 - scrollUntilVisible:
     element: 'Đặt mã PIN'
     timeout: 30000
+    centerElement: true
 - tapOn: 'Đặt mã PIN'
 - extendedWaitUntil:
     visible: 'Mã PIN mới.*'
@@ -57,6 +63,7 @@ appId: com.datamonsterr.taphoamini
 - scrollUntilVisible:
     element: 'Đã đặt mã PIN'
     timeout: 30000
+    centerElement: true
 - assertVisible: 'Đã đặt mã PIN'
 - takeScreenshot: multi-session-01-pin-set
 
@@ -102,6 +109,10 @@ appId: com.datamonsterr.taphoamini
     visible: 'Tiem B Maestro'
     timeout: 20000
 - assertVisible: 'Đang dùng: Chu B'
+- scrollUntilVisible:
+    element: 'Nâng cao'
+    centerElement: true
+- tapOn: 'Nâng cao'
 - runFlow: subflows/scroll-account-end.yaml
 - assertVisible:
     id: 'account-session-0'
@@ -148,6 +159,10 @@ appId: com.datamonsterr.taphoamini
     timeout: 30000
 - assertVisible: 'Đang dùng: Chu A'
 - takeScreenshot: multi-session-06-switched-to-a
+- scrollUntilVisible:
+    element: 'Nâng cao'
+    centerElement: true
+- tapOn: 'Nâng cao'
 
 # 4. Sign out A (the current person). Only A's session ends and nobody else is activated: the
 # sign-in screen shows the person picker above the email form, with B in it.
@@ -190,6 +205,10 @@ appId: com.datamonsterr.taphoamini
     visible: 'Tiem B Maestro'
     timeout: 30000
 - assertVisible: 'Đang dùng: Chu B'
+- scrollUntilVisible:
+    element: 'Nâng cao'
+    centerElement: true
+- tapOn: 'Nâng cao'
 - runFlow: subflows/scroll-account-end.yaml
 - assertVisible:
     id: 'account-session-0'

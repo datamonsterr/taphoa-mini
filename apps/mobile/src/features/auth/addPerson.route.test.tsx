@@ -47,6 +47,7 @@ test('the add-person route opens while signed in and signs nobody out', async ()
 test('the account tab opens it and Cancel returns to the account tab', async () => {
   await renderApp('/account');
   await screen.findByRole('header', { name: 'Tạp hóa Cô Ba' });
+  await fireEvent.press(screen.getByRole('button', { name: 'Nâng cao' }));
   await fireEvent.press(screen.getByTestId('account-add-person'));
   expect(await screen.findByTestId('auth-sign-in-screen')).toBeOnTheScreen();
   expect(screen).toHavePathname('/add-person');
@@ -60,6 +61,7 @@ test('the account tab opens it and Cancel returns to the account tab', async () 
 test('Cancel from the code step also returns to the account tab', async () => {
   await renderApp('/account');
   await screen.findByRole('header', { name: 'Tạp hóa Cô Ba' });
+  await fireEvent.press(screen.getByRole('button', { name: 'Nâng cao' }));
   await fireEvent.press(screen.getByTestId('account-add-person'));
   await fireEvent.changeText(
     await screen.findByTestId('auth-email'),

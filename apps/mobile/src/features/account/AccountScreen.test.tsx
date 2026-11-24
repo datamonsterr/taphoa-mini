@@ -17,6 +17,33 @@ const open = async () => {
   return screen.findByRole('header', { name: 'Tạp hóa Cô Ba' });
 };
 
+test('groups settings and reveals advanced options on demand', async () => {
+  await open();
+  expect(screen.getByText('Cửa hàng')).toBeOnTheScreen();
+  expect(screen.getByText('Dễ sử dụng')).toBeOnTheScreen();
+  const advanced = screen.getByRole('button', { name: 'Nâng cao' });
+  expect(advanced.props.accessibilityState.expanded).toBe(false);
+  expect(screen.queryByRole('button', { name: 'Đổi mã PIN' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Đăng xuất' })).toBeOnTheScreen();
+  await fireEvent.press(advanced);
+  expect(
+    screen.getByRole('button', { name: 'Nâng cao' }).props.accessibilityState
+      .expanded,
+  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'Đổi mã PIN' })).toBeOnTheScreen();
+  expect(
+    screen.getByRole('switch', { name: 'Góp giọng nói để cải thiện' }),
+  ).toBeOnTheScreen();
+  expect(screen.getByTestId('account-sessions')).toBeOnTheScreen();
+  expect(screen.getByTestId('account-add-person')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Nâng cao' }));
+  expect(
+    screen.getByRole('button', { name: 'Nâng cao' }).props.accessibilityState
+      .expanded,
+  ).toBe(false);
+  expect(screen.queryByTestId('account-sessions')).toBeNull();
+});
+
 test('shows a loading indicator under the title', async () => {
   // Hold the store request open: with zero mock latency it would otherwise settle during render.
   jest.spyOn(storeApi, 'getStore').mockReturnValue(new Promise(() => {}));
@@ -296,12 +323,14 @@ describe('setting a PIN', () => {
   };
   const openSheet = async () => {
     await open();
+    await fireEvent.press(screen.getByRole('button', { name: 'Nâng cao' }));
     // The seeded Lead already has a PIN, so the pill says "Đổi".
     await fireEvent.press(screen.getByRole('button', { name: 'Đổi mã PIN' }));
   };
 
   test('the PIN row shows "Đổi" once a PIN exists and "Đặt mã PIN" before', async () => {
     await open();
+    await fireEvent.press(screen.getByRole('button', { name: 'Nâng cao' }));
     expect(screen.getByText('Mã PIN khóa máy')).toBeOnTheScreen();
     expect(screen.getByText('Đổi')).toBeOnTheScreen();
     const session = testSession();
@@ -310,6 +339,9 @@ describe('setting a PIN', () => {
       member: { ...session.member, has_pin: false },
     });
     await renderWithProviders(<AccountScreen />);
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Nâng cao' }),
+    );
     expect(
       await screen.findByRole('button', { name: 'Đặt mã PIN' }),
     ).toBeOnTheScreen();
@@ -475,6 +507,7 @@ test('sign-out proceeds even if unregisterPush fails', async () => {
 
 test('has the opt-in voice switch below the language row, and no system rows without the module', async () => {
   await open();
+  await fireEvent.press(screen.getByRole('button', { name: 'Nâng cao' }));
   expect(
     screen.getByRole('switch', { name: 'Góp giọng nói để cải thiện' }),
   ).not.toBeChecked();

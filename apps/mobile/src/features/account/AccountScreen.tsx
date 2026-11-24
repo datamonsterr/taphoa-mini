@@ -290,6 +290,7 @@ export function AccountScreen() {
   );
   const [sheet, setSheet] = useState<ActiveSheet>(null);
   const [pinSaved, setPinSaved] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
   const router = useRouter();
   const { userId, sessionId } = useAuth();
   const { sessions } = useSessionList();
@@ -424,6 +425,9 @@ export function AccountScreen() {
           {fill(t('acting'), { name: membership.member.display_name })}
         </ScaledText>
 
+        <ScaledText variant="label" accessibilityRole="header">
+          {t('group.store')}
+        </ScaledText>
         {me.data.memberships.length > 1 ? (
           <StorePicker
             memberships={me.data.memberships}
@@ -471,29 +475,48 @@ export function AccountScreen() {
         {isLead ? (
           <StockThresholdRow value={store.data.low_stock_threshold} />
         ) : null}
+        <ScaledText variant="label" accessibilityRole="header">
+          {t('group.accessibility')}
+        </ScaledText>
         <ElderRow />
         <SpeakRow />
         <TextSizeRow />
         <LanguageRow />
-        <PinRow hasPin={membership.member.has_pin} onPress={openSetPin} />
-        {pinSaved ? (
-          <ScaledText
-            accessibilityRole="alert"
-            variant="caption"
-            style={styles.saved}
-          >
-            {t('pin.saved')}
-          </ScaledText>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('group.advanced')}
+          accessibilityState={{ expanded: advanced }}
+          onPress={() => setAdvanced(!advanced)}
+          style={styles.groupToggle}
+        >
+          <ScaledText variant="label">{t('group.advanced')}</ScaledText>
+          <View style={advanced ? styles.chevronExpanded : undefined}>
+            <Icon icon={ChevronRight} color={colors.inkMuted} />
+          </View>
+        </PressableScale>
+        {advanced ? (
+          <>
+            <PinRow hasPin={membership.member.has_pin} onPress={openSetPin} />
+            {pinSaved ? (
+              <ScaledText
+                accessibilityRole="alert"
+                variant="caption"
+                style={styles.saved}
+              >
+                {t('pin.saved')}
+              </ScaledText>
+            ) : null}
+            <DeviceSessions
+              sessions={signedInSessions(sessions)}
+              currentId={sessionId ?? null}
+              busy={switcher.busy}
+              error={switcher.target ? null : switcher.error}
+              onSwitch={switcher.begin}
+              onAdd={addPerson}
+            />
+            <VoiceSetupSection />
+          </>
         ) : null}
-        <DeviceSessions
-          sessions={signedInSessions(sessions)}
-          currentId={sessionId ?? null}
-          busy={switcher.busy}
-          error={switcher.target ? null : switcher.error}
-          onSwitch={switcher.begin}
-          onAdd={addPerson}
-        />
-        <VoiceSetupSection />
         <SignOutRow />
       </ScrollView>
 
@@ -522,6 +545,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: space[4], gap: space[4] },
   grow: { flex: 1, minWidth: 0 },
+  chevronExpanded: { transform: [{ rotate: '90deg' }] },
+  groupToggle: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   identity: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
   storeAvatar: {
     width: 72,
