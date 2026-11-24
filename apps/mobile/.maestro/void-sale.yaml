@@ -59,6 +59,9 @@ appId: com.datamonsterr.taphoamini
 - tapOn:
     id: 'void-reason'
 - inputText: 'Khách trả hàng'
+# The on-screen keyboard covers the void button and swallows the tap. Back only closes the
+# keyboard here (a page, not a sheet).
+- pressKey: Back
 - scrollUntilVisible:
     element:
       id: 'void-sale'

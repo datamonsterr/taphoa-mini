@@ -21,7 +21,8 @@ appId: com.datamonsterr.taphoamini
 - tapOn:
     id: 'dashboard-add-expense'
 - extendedWaitUntil:
-    visible: 'Số tiền chi'
+    visible:
+      id: 'expense-save'
     timeout: 20000
 - tapOn: '5'
 - tapOn: '000'
