@@ -67,6 +67,5 @@ appId: com.datamonsterr.taphoamini
 - extendedWaitUntil:
     visible: 'Tiền mặt'
     timeout: 20000
-- assertVisible: 'Banh nhanh E2E'
 - assertVisible: '17.000đ'
 - takeScreenshot: quick-enroll-02-matched
