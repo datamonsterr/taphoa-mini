@@ -89,6 +89,9 @@ const OrderItem = memo(function OrderItem({ line }: { line: CartLine }) {
           </Text>
         ) : null}
       </View>
+      <Text numberOfLines={2} style={styles.itemName}>
+        {line.name}
+      </Text>
       <Text numberOfLines={1} style={styles.itemPrice}>
         {formatVnd(line.price * line.qty).replace('đ', '')}
       </Text>
@@ -784,6 +787,7 @@ const styles = StyleSheet.create({
   // Give unit choices enough width to keep their labels on one line.
   cell: { width: '50%' },
   item: { width: '100%', alignItems: 'center', gap: space[1] },
+  itemName: { ...typography.label, textAlign: 'center' },
   qtyBadge: {
     position: 'absolute',
     right: -6,

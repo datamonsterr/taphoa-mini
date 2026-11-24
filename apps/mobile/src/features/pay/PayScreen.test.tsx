@@ -126,6 +126,8 @@ describe('PayScreen transfer', () => {
   it('shows line thumbnails with quantity badge and line total', async () => {
     await renderWithProviders(<PayScreen />);
     expect(screen.getByLabelText('Món trong đơn')).toBeOnTheScreen();
+    expect(screen.getByText('Sting đỏ')).toBeOnTheScreen();
+    expect(screen.getByText('Hảo Hảo')).toBeOnTheScreen();
     expect(screen.getByText('20.000')).toBeOnTheScreen();
     expect(screen.getByText('4.500')).toBeOnTheScreen();
     expect(screen.getByText('2')).toBeOnTheScreen();
