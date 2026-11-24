@@ -159,6 +159,7 @@ export function DashboardScreen() {
 
         <View style={styles.links}>
           <PressableScale
+            testID="dashboard-recent-sales"
             accessibilityRole="button"
             accessibilityLabel={recentLabel}
             pressedScale={0.96}

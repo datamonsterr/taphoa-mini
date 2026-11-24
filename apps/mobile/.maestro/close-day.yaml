@@ -1,0 +1,49 @@
+appId: com.datamonsterr.taphoamini
+---
+# Close the day (chốt sổ) as the owner: count 5.000đ of cash, save, then reopen the sheet and see
+# it read-only as closed.
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- runFlow:
+    file: subflows/create-store.yaml
+    env:
+      STORE_NAME: 'Tạp hóa Chốt sổ'
+      OWNER_NAME: 'Cô Ba'
+- tapOn: 'Vuốt lên: cửa hàng'
+- extendedWaitUntil:
+    visible: 'Báo cáo'
+    timeout: 15000
+- tapOn: 'Báo cáo'
+- extendedWaitUntil:
+    notVisible:
+      id: 'dashboard-skeleton'
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: 'dashboard-close-day'
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    centerElement: true
+- tapOn:
+    id: 'dashboard-close-day'
+- extendedWaitUntil:
+    visible:
+      id: 'close-save'
+    timeout: 30000
+- tapOn: '5'
+- tapOn: '000'
+- takeScreenshot: close-01-count
+- tapOn:
+    id: 'close-save'
+# back on the report; reopening shows the day as closed
+- extendedWaitUntil:
+    visible:
+      id: 'dashboard-close-day'
+    timeout: 30000
+- tapOn:
+    id: 'dashboard-close-day'
+- extendedWaitUntil:
+    visible: 'Đã chốt sổ'
+    timeout: 30000
+- takeScreenshot: close-02-closed

@@ -12,7 +12,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from '@/components/icons';
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,7 +25,7 @@ import {
 } from '@/components/ui';
 import { capture } from '@/lib/analytics';
 import { formatVnd } from '@/lib/format';
-import { useOpenDigest, type Product } from '@/lib/api';
+import { useOpenDigest, useProduct, type Product } from '@/lib/api';
 import { keys } from '@/lib/api/keys';
 import { getCatalog } from '@/lib/offline/catalog';
 import { formatDailyRate } from '@/features/stock/strings';
@@ -57,6 +57,65 @@ function quantityLabel(quantity: number, product?: Product): string {
     ? `${quantity / unit.quantity_in_base} ${unit.name}`
     : `${quantity} ${product.base_unit}`;
 }
+
+type AssistantRestockItem = NonNullable<
+  NonNullable<ReturnType<typeof useOpenDigest>['data']>['restock']
+>[number];
+
+const RestockRow = memo(function RestockRow({
+  item,
+  catalogProduct,
+  language,
+  t,
+}: {
+  item: AssistantRestockItem;
+  catalogProduct?: Product;
+  language: 'vi' | 'en';
+  t: (key: string) => string;
+}) {
+  const { data: fetchedProduct } = useProduct(
+    catalogProduct ? undefined : item.product_id,
+  );
+  const product = catalogProduct ?? fetchedProduct;
+  return (
+    <View style={styles.restockItem}>
+      {item.image_url ? (
+        <Image
+          testID="restock-photo"
+          source={{ uri: item.image_url }}
+          style={styles.restockPhoto}
+          contentFit="cover"
+        />
+      ) : (
+        <View style={styles.restockPhoto} />
+      )}
+      <View style={styles.restockInfo}>
+        <Text style={styles.restockName}>{item.name}</Text>
+        <Text style={styles.restockQuantity}>
+          {[
+            ...(item.stock_quantity != null
+              ? [
+                  fill(t('stockRemaining'), {
+                    count: item.stock_quantity,
+                  }),
+                ]
+              : []),
+            ...(item.sales_rate
+              ? [
+                  fill(t('dailyRate'), {
+                    rate: formatDailyRate(item.sales_rate, language),
+                  }),
+                ]
+              : []),
+          ].join(' · ')}
+        </Text>
+      </View>
+      <Text style={styles.restockChip}>
+        {quantityLabel(item.quantity, product)}
+      </Text>
+    </View>
+  );
+});
 
 export function DigestScreen() {
   const t = useT(digestStrings);
@@ -255,45 +314,12 @@ export function DigestScreen() {
         </View>
       }
       renderItem={({ item }) => (
-        <View style={styles.restockItem}>
-          {item.image_url ? (
-            <Image
-              testID="restock-photo"
-              source={{ uri: item.image_url }}
-              style={styles.restockPhoto}
-              contentFit="cover"
-            />
-          ) : (
-            <View style={styles.restockPhoto} />
-          )}
-          <View style={styles.restockInfo}>
-            <Text style={styles.restockName}>{item.name}</Text>
-            <Text style={styles.restockQuantity}>
-              {[
-                ...(item.stock_quantity != null
-                  ? [
-                      fill(t('stockRemaining'), {
-                        count: item.stock_quantity,
-                      }),
-                    ]
-                  : []),
-                ...(item.sales_rate
-                  ? [
-                      fill(t('dailyRate'), {
-                        rate: formatDailyRate(item.sales_rate, language),
-                      }),
-                    ]
-                  : []),
-              ].join(' · ')}
-            </Text>
-          </View>
-          <Text style={styles.restockChip}>
-            {quantityLabel(
-              item.quantity,
-              catalog.data?.products[item.product_id],
-            )}
-          </Text>
-        </View>
+        <RestockRow
+          item={item}
+          catalogProduct={catalog.data?.products[item.product_id]}
+          language={language}
+          t={t}
+        />
       )}
       ListFooterComponent={
         digest ? (

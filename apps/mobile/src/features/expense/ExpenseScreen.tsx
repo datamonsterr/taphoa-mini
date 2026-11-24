@@ -132,6 +132,7 @@ export function ExpenseScreen() {
             <CheckButton
               variant="ink"
               block
+              testID="expense-save"
               accessibilityLabel={t('save')}
               disabled={!canSave}
               onPress={save}

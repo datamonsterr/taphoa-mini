@@ -169,6 +169,22 @@ test('restock quantity falls back when catalog metadata is missing', async () =>
   expect(await screen.findByText('× 48')).toBeOnTheScreen();
 });
 
+test('restock quantity resolves unit via useProduct when not in catalog snapshot', async () => {
+  const product = getMockDb().products[0].product;
+  jest.spyOn(digestApi, 'getDigest').mockResolvedValue({
+    ...fullDigest,
+    restock: [
+      {
+        ...fullDigest.restock[0],
+        product_id: product.id,
+        quantity: 48,
+      },
+    ],
+  });
+  await renderWithProviders(<DigestScreen />);
+  expect(await screen.findByText('2 thùng')).toBeOnTheScreen();
+});
+
 test('renders all sections and captures digest_opened with card entry by default', async () => {
   jest.spyOn(digestApi, 'getDigest').mockResolvedValue(fullDigest);
 

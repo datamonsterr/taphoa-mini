@@ -109,7 +109,7 @@ export function removeMember(id: string): void {
   const member = state.members.find((m) => m.id === id);
   if (!member) throw notFound('member');
   keepLead(member, true);
-  state.members = state.members.filter((m) => m.id !== id);
+  member.active = false;
 }
 
 export function createInvite(input: {

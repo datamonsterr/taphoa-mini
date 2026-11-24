@@ -166,6 +166,12 @@ test.describe('sign-in screens', () => {
       waitForApi(page, 'GET', '/v1/members'),
       openShop(page, '/account'),
     ]);
+    // Elder mode opens every launch on Kho (Home pushes /inventory over the deep link), so
+    // switch to the account tab once that landed.
+    await expect(
+      page.getByRole('heading', { name: 'Kho', level: 1 }),
+    ).toBeVisible();
+    await page.getByRole('tab', { name: 'Tài khoản', exact: true }).click();
     expect(me.body.clerk_user_id).toBe(newcomer.userId);
     expect(me.body.memberships).toHaveLength(1);
     expect(me.body.memberships[0].store.id).toBe(created.body.store.id);

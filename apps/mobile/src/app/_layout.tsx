@@ -1,11 +1,9 @@
 import {
   BeVietnamPro_400Regular,
-  BeVietnamPro_500Medium,
   BeVietnamPro_600SemiBold,
-  BeVietnamPro_700Bold,
-  BeVietnamPro_800ExtraBold,
 } from '@expo-google-fonts/be-vietnam-pro';
-import { loadAsync, useFonts } from 'expo-font';
+import { useFonts } from 'expo-font';
+import { loadDeferredFonts } from '@/lib/deferredFonts';
 import { ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { AnalyticsIdentity, AnalyticsSignedOut } from '@/lib/AnalyticsIdentity';
@@ -147,11 +145,7 @@ export default function RootLayout() {
     void SplashScreen.hideAsync();
     const handle = requestAnimationFrame(() => {
       setAfterFirstPaint(true);
-      void loadAsync({
-        BeVietnamPro_500Medium,
-        BeVietnamPro_700Bold,
-        BeVietnamPro_800ExtraBold,
-      });
+      void loadDeferredFonts();
     });
     return () => cancelAnimationFrame(handle);
   }, [ready]);

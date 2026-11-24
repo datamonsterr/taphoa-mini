@@ -598,9 +598,14 @@ async function describeCall<T>(response: Response): Promise<ApiCall<T>> {
   const url = response.url();
   // The app sends bodies as streams, which the browser does not hand back to Playwright: read
   // them from the observer that `trackApiBodies` installs (it only records, never alters).
-  const requestBody = ['GET', 'HEAD'].includes(request.method())
-    ? null
-    : await request
+  // Start reading the response body first: the browser drops it once the page navigates away
+  // (a spec often navigates right after the call it waits for), and the request-body lookup below
+  // is a round trip that would give the navigation time to win.
+  const textPromise =
+    response.status() === 204 ? Promise.resolve('') : response.text();
+  const requestBodyPromise = ['GET', 'HEAD'].includes(request.method())
+    ? Promise.resolve(null)
+    : request
         .frame()
         .page()
         .evaluate(
@@ -619,7 +624,10 @@ async function describeCall<T>(response: Response): Promise<ApiCall<T>> {
           },
           [request.method(), url],
         );
-  const text = response.status() === 204 ? '' : await response.text();
+  const [requestBody, text] = await Promise.all([
+    requestBodyPromise,
+    textPromise,
+  ]);
   return {
     method: request.method(),
     path: new URL(url).pathname,

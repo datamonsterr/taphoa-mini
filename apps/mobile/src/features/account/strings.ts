@@ -3,6 +3,9 @@ import type { Dict } from '@/lib/i18n';
 export const strings: Dict = {
   vi: {
     title: 'Tài khoản',
+    'group.store': 'Cửa hàng',
+    'group.accessibility': 'Dễ sử dụng',
+    'group.advanced': 'Nâng cao',
     stockThreshold: 'Ngưỡng sắp hết hàng',
     stockDecrease: 'Giảm ngưỡng sắp hết',
     stockIncrease: 'Tăng ngưỡng sắp hết',
@@ -82,6 +85,9 @@ export const strings: Dict = {
   },
   en: {
     title: 'Account',
+    'group.store': 'Store',
+    'group.accessibility': 'Ease of use',
+    'group.advanced': 'Advanced',
     stockThreshold: 'Low stock threshold',
     stockDecrease: 'Decrease low stock threshold',
     stockIncrease: 'Increase low stock threshold',

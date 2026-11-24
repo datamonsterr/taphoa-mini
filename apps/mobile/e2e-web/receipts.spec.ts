@@ -156,11 +156,14 @@ test('receipt camera → edit 19b → summary 19 → confirmed stock', async ({
   const receipt = created.body;
   expect(receipt.status).toBe('draft');
   expect(receipt.lines).toHaveLength(fixture.lines.length);
-  await expect(page).toHaveURL(new RegExp(`/receipt/${receipt.id}$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/receipts\\?receiptId=${receipt.id}$`),
+  );
   await expect(
     page.getByRole('heading', { name: 'Kiểm tra hóa đơn' }),
   ).toBeVisible();
-  await expect(button(page, 'Xác nhận nhập kho')).toHaveCount(0);
+  // X3: the confirm button stays on screen but disabled while a line is unmapped.
+  await expect(button(page, 'Xác nhận nhập kho')).toBeDisabled();
   expect(receipt.lines.at(-1)?.product_id).toBeNull();
   // Fallback mapping is deliberately strict, so more than one line may still need a pick.
   await expect(

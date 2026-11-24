@@ -68,6 +68,7 @@ export function RecentSalesScreen() {
       }
       renderItem={({ item: sale }) => (
         <PressableScale
+          testID="sale-row"
           accessibilityRole="button"
           accessibilityLabel={`${sale.code}, ${t(sale.status)}`}
           onPress={() =>

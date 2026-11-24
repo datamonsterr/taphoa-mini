@@ -102,6 +102,7 @@ export function SaleDetailScreen() {
             <>
               <Text style={styles.body}>{t('explanation')}</Text>
               <Field
+                testID="void-reason"
                 label={t('reason')}
                 placeholder={t('reasonPlaceholder')}
                 value={reason}
@@ -120,6 +121,7 @@ export function SaleDetailScreen() {
               ) : null}
               {!confirming ? (
                 <Action
+                  testID="void-sale"
                   label={t('void')}
                   disabled={!valid}
                   danger
@@ -152,6 +154,7 @@ export function SaleDetailScreen() {
                     onPress={() => setConfirming(false)}
                   />
                   <Action
+                    testID="void-confirm"
                     label={mutation.isPending ? t('loading') : t('confirm')}
                     danger
                     disabled={!valid || mutation.isPending}

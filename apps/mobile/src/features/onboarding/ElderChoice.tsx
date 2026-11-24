@@ -49,7 +49,6 @@ export function ElderChoice({ on, onChange }: Props) {
         value={on}
         onValueChange={onChange}
         accessibilityLabel={label}
-        accessibilityRole="switch"
         style={styles.switch}
       />
     </Pressable>
