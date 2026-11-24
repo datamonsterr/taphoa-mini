@@ -1,10 +1,12 @@
 import * as storeApi from '@/lib/api/store';
 import { ApiError } from '@/lib/api/errors';
+import { StyleSheet } from 'react-native';
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { JoinStoreScreen } from './JoinStoreScreen';
 import { renderWithProviders } from '@/test/render';
 import { setApiTransport } from '@/lib/api/client';
 import { testSession } from '@/test/session';
+import { initialSettings, useSettingsStore } from '@/stores/settings';
 import { useCurrentStore } from '@/stores/currentStore';
 
 jest.mock('expo-router', () => ({
@@ -126,4 +128,72 @@ test('already a member says so and reloads the account so the store opens', asyn
     await screen.findByText('Bạn đã là thành viên của cửa hàng này.'),
   ).toBeOnTheScreen();
   await waitFor(() => expect(meCalls).toBeGreaterThan(beforeJoin));
+});
+
+describe('elder mode choice (X6)', () => {
+  beforeEach(() => useSettingsStore.setState(initialSettings));
+  const elderSwitch = () =>
+    screen.getByRole('switch', { name: 'Chế độ người lớn tuổi' });
+
+  test('is asked before submitting, preselected ON, with a 48 dp target', async () => {
+    await renderWithProviders(<JoinStoreScreen />);
+    expect(await screen.findByTestId('join-invite-token')).toBeOnTheScreen();
+    expect(elderSwitch()).toBeChecked();
+    expect(screen.getByText('Chữ to, dễ dùng')).toBeOnTheScreen();
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId('onboarding-elder-choice').props.style,
+      ).minHeight,
+    ).toBeGreaterThanOrEqual(48);
+  });
+
+  test('submitting stores the preselected ON answer and marks it asked', async () => {
+    jest.spyOn(storeApi, 'joinStore').mockResolvedValue(testSession());
+    await renderWithProviders(<JoinStoreScreen />);
+    await fireEvent.press(screen.getByTestId('join-store-submit'));
+    await waitFor(() =>
+      expect(useSettingsStore.getState()).toMatchObject({
+        elderMode: true,
+        elderAsked: true,
+      }),
+    );
+  });
+
+  test('switching it OFF is what gets stored', async () => {
+    jest.spyOn(storeApi, 'joinStore').mockResolvedValue(testSession());
+    await renderWithProviders(<JoinStoreScreen />);
+    await fireEvent(elderSwitch(), 'valueChange', false);
+    expect(elderSwitch()).not.toBeChecked();
+    await fireEvent.press(screen.getByTestId('join-store-submit'));
+    await waitFor(() =>
+      expect(useSettingsStore.getState()).toMatchObject({
+        elderMode: false,
+        elderAsked: true,
+      }),
+    );
+  });
+
+  test('nothing is stored while the form is invalid or the request fails', async () => {
+    jest.spyOn(storeApi, 'joinStore').mockRejectedValue(new Error('x'));
+    await renderWithProviders(<JoinStoreScreen />);
+    await fireEvent.press(screen.getByTestId('join-store-submit'));
+    expect(useSettingsStore.getState().elderAsked).toBe(false);
+  });
+
+  test('is not asked again once answered, and a stored answer is untouched', async () => {
+    useSettingsStore.getState().setElderMode(false);
+    jest.spyOn(storeApi, 'joinStore').mockResolvedValue(testSession());
+    await renderWithProviders(<JoinStoreScreen />);
+    expect(
+      screen.queryByRole('switch', { name: 'Chế độ người lớn tuổi' }),
+    ).toBeNull();
+    await fireEvent.press(screen.getByTestId('join-store-submit'));
+    await waitFor(() =>
+      expect(useCurrentStore.getState().storeIds.user_test).toBeDefined(),
+    );
+    expect(useSettingsStore.getState()).toMatchObject({
+      elderMode: false,
+      elderAsked: true,
+    });
+  });
 });
