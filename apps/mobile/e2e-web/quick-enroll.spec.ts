@@ -3,7 +3,6 @@ import {
   addButton,
   button,
   callInference,
-  cartPill,
   enrollTag,
   expect,
   formatVnd,
@@ -17,7 +16,7 @@ import {
 } from './fixtures';
 
 test.describe('quick enroll (real SAM and DINO models)', () => {
-  test('three accepted photos enroll asynchronously, then checkout matches the product and adds it to the cart', async ({
+  test('three accepted photos enroll asynchronously, then a matched scan opens cash payment', async ({
     page,
     store,
   }) => {
@@ -87,12 +86,12 @@ test.describe('quick enroll (real SAM and DINO models)', () => {
       formatVnd(product.price).replace('đ', ''),
     );
     await addButton(page).click();
-    await expect(cartPill(page)).toHaveAccessibleName(
-      `Giỏ hàng: 1 món, ${formatVnd(product.price)}`,
-    );
-    await cartPill(page).click();
-    await expect(page).toHaveURL(/\/cart/);
+    await expect(page).toHaveURL(/\/pay/);
+    await expect(page.getByRole('radio', { name: 'Tiền mặt' })).toBeChecked();
     await expect(page.getByText(product.name, { exact: true })).toBeVisible();
+    await expect(page.getByTestId('pay-total')).toHaveText(
+      formatVnd(product.price),
+    );
   });
 
   test('switching off with an accepted photo asks first; cancel preserves it and confirm discards it', async ({
