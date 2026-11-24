@@ -2669,3 +2669,95 @@ async fn barcode_migration_preserves_legacy_conflicts_and_rolls_back() {
         tx.rollback().await.unwrap();
     }
 }
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn barcode_registry_ignores_insert_on_conflict_do_nothing() {
+    let (_, state) = setup().await;
+    let mut tx = state.postgres.as_ref().unwrap().begin().await.unwrap();
+    sqlx::raw_sql(
+        "CREATE SCHEMA barcode_upsert_test; SET LOCAL search_path = barcode_upsert_test; \
+        CREATE TABLE products (id int PRIMARY KEY, store_id uuid NOT NULL, barcode text); \
+        CREATE TABLE product_units (id int PRIMARY KEY, store_id uuid NOT NULL, barcode text);",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/2001_barcode_integrity.sql"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::raw_sql("INSERT INTO products VALUES (1,'00000000-0000-0000-0000-000000000001','123456789012'); \
+        INSERT INTO products VALUES (1,'00000000-0000-0000-0000-000000000001','123456789012') ON CONFLICT DO NOTHING; \
+        INSERT INTO products VALUES (1,'00000000-0000-0000-0000-000000000001','different') ON CONFLICT DO NOTHING;")
+        .execute(&mut *tx).await.unwrap();
+    let rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT canonical_code, entry_count FROM barcode_registry")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(rows, vec![("123456789012".to_string(), 1)]);
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn barcode_lookup_reports_ambiguous_legacy_group() {
+    let w = world().await;
+    let a = create_product(
+        &w,
+        &w.lead,
+        "Legacy A",
+        10000,
+        "legacy-a",
+        json!({"barcode":"0123456789012"}),
+    )
+    .await;
+    let b = create_product(&w, &w.lead, "Legacy B", 10000, "legacy-b", json!({})).await;
+    let pool = w.state.postgres.as_ref().unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE products SET barcode = '123456789012' WHERE id = $1")
+        .bind(b["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SET LOCAL session_replication_role = origin")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE barcode_registry SET entry_count = 2 WHERE store_id = $1 AND canonical_code = '123456789012'")
+        .bind(w.store_id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    for code in ["0123456789012", "123456789012"] {
+        let (status, body) = call(
+            &w.app,
+            "GET",
+            &format!("/v1/products?barcode={code}&limit=1"),
+            Some(&w.lead),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["code"], "conflict");
+    }
+    let path = format!("/v1/products/{}", b["id"].as_str().unwrap());
+    assert_eq!(
+        call(
+            &w.app,
+            "PATCH",
+            &path,
+            Some(&w.lead),
+            json!({"barcode":null})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_ne!(a["id"], b["id"]);
+}

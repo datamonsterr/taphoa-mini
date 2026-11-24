@@ -7,6 +7,10 @@ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
     SELECT CASE WHEN code ~ '^0[0-9]{12}$' THEN substring(code FROM 2) ELSE code END
 $$;
 
+-- Non-unique: legacy collisions must remain readable until operators resolve them.
+CREATE INDEX products_store_canonical_barcode ON products (store_id, canonical_barcode(barcode)) WHERE barcode IS NOT NULL;
+CREATE INDEX product_units_store_canonical_barcode ON product_units (store_id, canonical_barcode(barcode)) WHERE barcode IS NOT NULL;
+
 CREATE TABLE barcode_registry (
     store_id uuid NOT NULL,
     canonical_code text NOT NULL,
@@ -41,7 +45,7 @@ BEGIN
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END $$;
-CREATE TRIGGER products_barcode_registry BEFORE INSERT OR UPDATE OF barcode, store_id OR DELETE ON products
+CREATE TRIGGER products_barcode_registry AFTER INSERT OR UPDATE OF barcode, store_id OR DELETE ON products
 FOR EACH ROW EXECUTE FUNCTION maintain_barcode_registry();
-CREATE TRIGGER product_units_barcode_registry BEFORE INSERT OR UPDATE OF barcode, store_id OR DELETE ON product_units
+CREATE TRIGGER product_units_barcode_registry AFTER INSERT OR UPDATE OF barcode, store_id OR DELETE ON product_units
 FOR EACH ROW EXECUTE FUNCTION maintain_barcode_registry();

@@ -44,7 +44,7 @@ import {
   listExpenses,
   listSales,
 } from './ledger';
-import { isApiError } from './errors';
+import { ApiError, isApiError } from './errors';
 import {
   createScan,
   segmentPoints,
@@ -179,22 +179,29 @@ export function useLookupBarcode() {
   const client = useQueryClient();
   const online = useOnline();
   return async (barcode: string) => {
+    const code = canonicalBarcode(barcode);
     if (!online) {
-      const code = canonicalBarcode(barcode);
       const entries = Object.values(getCatalog(client).products).flatMap(
         (product) =>
-          [product.barcode, ...product.units.map((unit) => unit.barcode)]
+          [
+            product.barcode,
+            ...(product.units ?? []).map((unit) => unit.barcode),
+          ]
             .filter(
               (value) => value != null && canonicalBarcode(value) === code,
             )
             .map(() => product),
       );
-      if (entries.length > 1) throw new Error('barcode already used');
+      if (entries.length > 1)
+        throw new ApiError(409, {
+          error: 'barcode already used',
+          code: 'conflict',
+        });
       const product = entries[0];
       return product && !product.archived ? product : null;
     }
     const data = await client.fetchInfiniteQuery({
-      ...productsQuery({ barcode, limit: 1 }),
+      ...productsQuery({ barcode: code, limit: 1 }),
       staleTime: Infinity,
       gcTime: Infinity,
     });

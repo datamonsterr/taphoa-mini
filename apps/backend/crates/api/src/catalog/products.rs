@@ -166,11 +166,15 @@ pub(crate) async fn list(
             return Err(ApiError::conflict("conflict", "barcode already used"));
         }
         query
-            .push(" AND (canonical_barcode(p.barcode) = ")
+            .push(" AND p.id IN (SELECT bp.id FROM products bp WHERE bp.store_id = ")
+            .push_bind(actor.store_id)
+            .push(" AND bp.barcode IS NOT NULL AND canonical_barcode(bp.barcode) = ")
             .push_bind(barcode.to_owned())
-            .push(" OR EXISTS (SELECT 1 FROM product_units uu WHERE uu.product_id = p.id AND canonical_barcode(uu.barcode) = ")
+            .push(" UNION SELECT bu.product_id FROM product_units bu WHERE bu.store_id = ")
+            .push_bind(actor.store_id)
+            .push(" AND bu.barcode IS NOT NULL AND canonical_barcode(bu.barcode) = ")
             .push_bind(barcode.to_owned())
-            .push("))");
+            .push(")");
     }
     if let Some(category_id) = params.category_id {
         query.push(" AND p.category_id = ").push_bind(category_id);

@@ -1702,6 +1702,22 @@ describe('barcode camera results', () => {
     await productsApi.patchProduct(product.id, { barcode: code });
     return product;
   }
+  it('shows a clear message for an ambiguous barcode response', async () => {
+    jest
+      .spyOn(productsApi, 'listProducts')
+      .mockRejectedValue(
+        new ApiError(409, { error: 'barcode already used', code: 'conflict' }),
+      );
+    await renderWithProviders(<CameraScreen />);
+    await scanBarcode();
+    expect(
+      await screen.findByText(
+        'Mã vạch trùng giữa các sản phẩm. Nhờ chủ cửa hàng kiểm tra.',
+      ),
+    ).toBeTruthy();
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(useCartStore.getState().lines).toHaveLength(0);
+  });
   it('shows known name/price, confirms with +, keeps barcode sale source and feedback', async () => {
     const product = await seedCode();
     await renderWithProviders(<CameraScreen />);
