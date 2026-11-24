@@ -32,10 +32,13 @@ appId: com.datamonsterr.taphoamini
     timeout: 20000
 - scrollUntilVisible:
     element: 'Nâng cao'
+    timeout: 30000
 - tapOn: 'Nâng cao'
+# New PIN 7468, then the same again.
+# The lead's member actions push the PIN row below the fold: scroll to it first.
 - scrollUntilVisible:
     element: 'Đặt mã PIN'
-# New PIN 7468, then the same again.
+    timeout: 30000
 - tapOn: 'Đặt mã PIN'
 - extendedWaitUntil:
     visible: 'Mã PIN mới.*'
@@ -96,6 +99,7 @@ appId: com.datamonsterr.taphoamini
     file: subflows/create-store.yaml
     env:
       STORE_NAME: 'Tiem B Maestro'
+      ELDER_ASKED: 'true'
       OWNER_NAME: 'Chu B'
 - runFlow: subflows/open-account.yaml
 - extendedWaitUntil:

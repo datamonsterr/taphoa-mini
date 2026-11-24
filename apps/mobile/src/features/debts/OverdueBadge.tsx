@@ -3,7 +3,14 @@ import { StyleSheet, View } from 'react-native';
 
 import { Icon, Text } from '@/components/ui';
 import { fill, useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 
 import { debtStrings } from './strings';
 
@@ -50,5 +57,5 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.semibold,
     color: colors.danger,
   },
-  compactText: { fontSize: 13, lineHeight: 16 },
+  compactText: { fontSize: fontSize[13], lineHeight: 16 },
 });

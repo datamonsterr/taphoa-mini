@@ -8,6 +8,7 @@ import { useCompleteOnboarding } from './useCompleteOnboarding';
 import { useT } from '@/lib/i18n';
 
 import { onboardingErrorKey } from './errors';
+import { ElderChoice, useElderChoice } from './ElderChoice';
 import { ActionButton, Field, FormError, Frame } from './kit';
 import { strings } from './strings';
 
@@ -16,6 +17,7 @@ export function CreateStoreScreen() {
   const t = useT(strings);
   const me = useMe();
   const complete = useCompleteOnboarding();
+  const elder = useElderChoice();
   const [storeName, setStoreName] = useState('');
   const [nameDraft, setDisplayName] = useState<string>();
   const displayName = nameDraft ?? me.data?.profile?.display_name ?? '';
@@ -66,6 +68,7 @@ export function CreateStoreScreen() {
             }
           : {}),
       });
+      elder.commit();
       complete(membership);
     } catch (error) {
       setFailure(t(onboardingErrorKey(error)));
@@ -118,6 +121,7 @@ export function CreateStoreScreen() {
         maxLength={80}
         autoCapitalize="characters"
       />
+      {elder.show ? <ElderChoice on={elder.on} onChange={elder.setOn} /> : null}
       <FormError message={errors.bank ?? failure} />
       <ActionButton
         testID="create-store-submit"

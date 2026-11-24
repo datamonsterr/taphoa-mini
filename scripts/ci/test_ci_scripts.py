@@ -534,17 +534,23 @@ class RailwayDeploy(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("new SUCCESS", out.stdout)
 
-    def test_skipped_with_running_success_does_not_redeploy(self):
-        out = self.deploy("SKIPPED", FAKE_REDEPLOY_EXIT="9")
+    def test_skipped_with_running_deployment_redeploys_to_success(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY="DEPLOYING,SUCCESS")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("SKIPPED", out.stdout)
-        self.assertNotIn("redeploy", out.stdout + out.stderr)
+        self.assertIn("redeployed SUCCESS", out.stdout)
 
-    def test_skipped_with_old_success_beyond_ten_does_not_redeploy(self):
-        out = self.deploy("SKIPPED", FAKE_LONG_HISTORY="1", FAKE_REDEPLOY_EXIT="9")
+    def test_skipped_with_old_success_beyond_ten_redeploys_to_success(self):
+        out = self.deploy("SKIPPED", FAKE_LONG_HISTORY="1", FAKE_REDEPLOY="DEPLOYING,SUCCESS")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("SKIPPED", out.stdout)
-        self.assertNotIn("redeploy", out.stdout + out.stderr)
+        self.assertIn("redeployed SUCCESS", out.stdout)
+
+    def test_skipped_with_running_deployment_redeploy_failure_exits_nonzero(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY="DEPLOYING,FAILED")
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+
+    def test_skipped_with_running_deployment_redeploy_command_failure_exits_nonzero(self):
+        out = self.deploy("SKIPPED", FAKE_REDEPLOY_EXIT="7")
+        self.assertEqual(out.returncode, 7, out.stdout + out.stderr)
 
     def test_skipped_without_running_redeploys_to_success(self):
         out = self.deploy("SKIPPED", FAKE_NO_RUNNING="1", FAKE_REDEPLOY="DEPLOYING,SUCCESS")

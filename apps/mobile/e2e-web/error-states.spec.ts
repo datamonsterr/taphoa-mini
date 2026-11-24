@@ -458,8 +458,7 @@ test.describe('offline', () => {
     await shot(page, testInfo, 'issue-246-stock-offline');
 
     await page.getByRole('radio', { name: 'Sản phẩm' }).click();
-    // the Kho tab stays mounted below the stock screen, so two copies exist: take the top one
-    const kho = byId(page, 'inventory-offline').last();
+    const kho = byId(page, 'inventory-offline');
     await expect(kho).toBeVisible();
     await expect(
       kho.getByText(

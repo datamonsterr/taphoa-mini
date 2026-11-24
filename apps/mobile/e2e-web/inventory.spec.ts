@@ -244,3 +244,37 @@ test('stock filter placement', async ({ page }) => {
     await expect(page.getByRole('radio', { name, exact: true })).toBeVisible();
   }
 });
+
+test.describe('Kho segments and the /stock alias', () => {
+  test('segments switch in place on the Kho tab', async ({ page }) => {
+    await openShop(page, '/inventory');
+    await page.getByRole('radio', { name: 'Tồn kho' }).click();
+    await expect(page.getByTestId('stock-list')).toBeVisible();
+    await expect(page).toHaveURL(/\/inventory\?.*segment=stock/);
+    await page.getByRole('radio', { name: 'Sản phẩm' }).click();
+    await expect(page.getByTestId('inventory-list')).toBeVisible();
+    await expect(page).toHaveURL(/\/inventory\?.*segment=products/);
+  });
+
+  test('cold /stock lands on Kho with the stock segment', async ({ page }) => {
+    await openShop(page, '/stock');
+    await expect(page.getByTestId('stock-list')).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Tồn kho' })).toBeChecked();
+    await expect(page).toHaveURL(/\/inventory\?.*segment=stock/);
+  });
+
+  test('the filtered alert URL and the old /stock?status=low open the low filter', async ({
+    page,
+  }) => {
+    for (const path of [
+      '/inventory?segment=stock&status=low',
+      '/stock?status=low',
+    ] as const) {
+      await openShop(page, path);
+      await expect(page.getByTestId('stock-list')).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Lọc tồn kho' }),
+      ).toContainText('Sắp hết');
+    }
+  });
+});

@@ -7,10 +7,11 @@ import type { Product } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
 import {
   colors,
+  fontSize,
   radius,
+  scaleText,
   space,
   typography,
-  scaleText,
   useFontScale,
 } from '@/theme';
 
@@ -51,7 +52,7 @@ export function ProductThreshold({
         keyboardType="number-pad"
         style={[
           styles.input,
-          scaleText({ fontSize: 18, lineHeight: 24 }, scale),
+          scaleText({ fontSize: fontSize[18], lineHeight: 24 }, scale),
         ]}
       />
       <CheckButton

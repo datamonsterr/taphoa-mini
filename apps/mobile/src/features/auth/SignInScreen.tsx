@@ -20,7 +20,7 @@ import {
   FormError,
   Spacer,
 } from '@/features/onboarding/kit';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 import { flowPaths, useCancelAddPerson, type AuthFlow } from './addPerson';
 import { signedInSessions } from './deviceSessions';
 import { useEmailFlow } from './emailFlow';
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   },
   badgeLetter: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 16,
+    fontSize: fontSize[16],
     lineHeight: 20,
     color: '#4285f4',
   },

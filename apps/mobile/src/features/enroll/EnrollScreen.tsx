@@ -20,7 +20,14 @@ import { formatVnd } from '@/lib/format';
 import { newUuid } from '@/lib/uuid';
 import { useCartStore } from '@/stores/cart';
 import { useWarmRecognition } from '@/features/recognition/useWarmRecognition';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 
 import { ProductForm, type ProductValues } from './ProductForm';
 
@@ -400,7 +407,7 @@ const styles = StyleSheet.create({
   captureDenied: { alignItems: 'center', gap: space[4] },
   deniedText: {
     fontFamily: fontFamily.medium,
-    fontSize: 18,
+    fontSize: fontSize[18],
     color: colors.cameraInk,
     textAlign: 'center',
   },

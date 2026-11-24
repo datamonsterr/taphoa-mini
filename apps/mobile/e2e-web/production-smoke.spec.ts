@@ -134,6 +134,10 @@ test('production smoke: reusable isolated store, product flow and four assistant
           await page
             .getByRole('textbox', { name: 'Tên của bạn', exact: true })
             .fill('Smoke X9');
+          // the elder-mode question is preselected ON; this smoke checks the camera path
+          await page
+            .getByRole('switch', { name: 'Chế độ người lớn tuổi' })
+            .click();
           const created = await callApi(page, 'POST', '/v1/stores', () =>
             page.getByTestId('create-store-submit').click(),
           );
@@ -290,7 +294,7 @@ test('production smoke: reusable isolated store, product flow and four assistant
         ).toBeVisible();
         await page.getByRole('radio', { name: 'Tuần', exact: true }).click();
         await page.getByRole('radio', { name: 'Ngày', exact: true }).click();
-        await page.goto('/stock');
+        await page.goto('/inventory?segment=stock&status=all');
         await expect(page.getByTestId('stock-list')).toBeVisible();
         const image = await api.uploadImage(
           path.join(

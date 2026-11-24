@@ -7,6 +7,7 @@ import { joinStore, useMe } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 
 import { onboardingErrorKey, parseInviteToken } from './errors';
+import { ElderChoice, useElderChoice } from './ElderChoice';
 import { ActionButton, Field, FormError, Frame } from './kit';
 import { strings } from './strings';
 
@@ -16,6 +17,7 @@ export function JoinStoreScreen() {
   const params = useLocalSearchParams<{ token?: string | string[] }>();
   const complete = useCompleteOnboarding();
   const me = useMe();
+  const elder = useElderChoice();
   const [token, setToken] = useState(
     typeof params.token === 'string'
       ? params.token
@@ -45,6 +47,7 @@ export function JoinStoreScreen() {
         invite_token: invite,
         display_name: name,
       });
+      elder.commit();
       complete(membership);
     } catch (error) {
       const key = onboardingErrorKey(error);
@@ -80,6 +83,7 @@ export function JoinStoreScreen() {
         autoCapitalize="words"
         onSubmitEditing={() => void submit()}
       />
+      {elder.show ? <ElderChoice on={elder.on} onChange={elder.setOn} /> : null}
       <FormError message={failure} />
       <ActionButton
         testID="join-store-submit"

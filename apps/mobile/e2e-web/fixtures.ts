@@ -728,7 +728,13 @@ export async function goShop(page: Page, tab: 'Kho' | 'Báo cáo' | 'Tài khoả
 /** Opens a shop route directly and waits for its landmark and the fonts. */
 export async function openShop(
   page: Page,
-  path: '/inventory' | '/dashboard' | '/account',
+  path:
+    | '/inventory'
+    | '/dashboard'
+    | '/account'
+    | '/stock'
+    | `/inventory?${string}`
+    | `/stock?${string}`,
 ) {
   await page.goto(path);
   await hydrate(page, page.getByRole('tablist', { name: 'Chính' }));

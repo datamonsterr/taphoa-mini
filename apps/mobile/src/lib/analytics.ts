@@ -82,8 +82,28 @@ export interface AnalyticsSink {
 const noopSink: AnalyticsSink = { capture: () => {} };
 let currentSink: AnalyticsSink = noopSink;
 
+type QueuedEvent = {
+  event: AppEventName;
+  props: AppEventProps[AppEventName];
+};
+
+const MAX_QUEUED_EVENTS = 200;
+const queuedEvents: QueuedEvent[] = [];
+
 export function setAnalyticsSink(sink: AnalyticsSink | null): void {
   currentSink = sink ?? noopSink;
+  if (sink) {
+    const drained = queuedEvents.splice(0, queuedEvents.length);
+    for (const item of drained) {
+      try {
+        sink.capture(item.event, item.props);
+      } catch {
+        // Analytics must never interrupt the app's user-facing flow.
+      }
+    }
+  } else {
+    queuedEvents.length = 0;
+  }
 }
 
 export function capture<E extends AppEventName>(
@@ -91,6 +111,12 @@ export function capture<E extends AppEventName>(
   props: AppEventProps[E],
 ): void {
   try {
+    if (currentSink === noopSink) {
+      if (queuedEvents.length < MAX_QUEUED_EVENTS) {
+        queuedEvents.push({ event, props });
+      }
+      return;
+    }
     currentSink.capture(event, props);
   } catch {
     // Analytics must never interrupt the app's user-facing flow.

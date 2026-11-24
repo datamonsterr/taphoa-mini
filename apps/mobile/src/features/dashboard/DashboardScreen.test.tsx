@@ -167,6 +167,14 @@ test('the add-expense circle opens the expense sheet', async () => {
   expect(router.push).toHaveBeenCalledWith('/expense');
 });
 
+test('the recent-expenses link opens the expense list', async () => {
+  await renderWithProviders(<DashboardScreen />);
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Khoản chi gần đây' }),
+  );
+  expect(router.push).toHaveBeenCalledWith('/expenses');
+});
+
 test('Chốt sổ opens the close sheet', async () => {
   await renderWithProviders(<DashboardScreen />);
   await fireEvent.press(screen.getByRole('button', { name: 'Chốt sổ' }));

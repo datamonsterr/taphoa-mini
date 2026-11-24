@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: colors.surface,
   },
-  buttonCompact: { width: 44, height: 44 },
+  buttonCompact: { width: 48, height: 48 },
   valueCompact: { minWidth: 28 },
   value: {
     ...typography.heading,

@@ -50,3 +50,17 @@ test('the start screen is chosen once per launch', async () => {
   expect(router.push).not.toHaveBeenCalled();
   expect(await screen.findByText('camera')).toBeOnTheScreen();
 });
+
+test('an onboarding choice of OFF keeps the camera first', async () => {
+  useSettingsStore.getState().setElderMode(false);
+  await render(<Home />);
+  expect(await screen.findByText('camera')).toBeOnTheScreen();
+  expect(router.push).not.toHaveBeenCalled();
+});
+
+test('an onboarding choice of ON starts at Kho', async () => {
+  useSettingsStore.getState().setElderMode(true);
+  await render(<Home />);
+  expect(router.push).toHaveBeenCalledWith('/inventory');
+  expect(screen.queryByText('camera')).toBeNull();
+});

@@ -2,7 +2,7 @@ import { Check } from '@/components/icons';
 import { StyleSheet, View } from 'react-native';
 import { Icon, Text } from '@/components/ui';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 import { strings } from './strings';
 
 export function receiptLineStatus(productId: string | null, price?: number) {
@@ -53,5 +53,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   // Board 19b: a 26px badge with 13px text, on the same row as the product name.
-  text: { fontFamily: fontFamily.semibold, fontSize: 13, lineHeight: 18 },
+  text: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize[13],
+    lineHeight: 18,
+  },
 });

@@ -39,7 +39,6 @@ export const Switch = memo(function Switch({
       accessibilityState={{ checked: value, disabled }}
       aria-checked={value}
       disabled={disabled}
-      hitSlop={6}
       onPress={() => onValueChange(!value)}
       style={[
         styles.track,
@@ -53,12 +52,17 @@ export const Switch = memo(function Switch({
 });
 
 const styles = StyleSheet.create({
-  track: { width: 72, height: 44, borderRadius: radius.full },
+  track: {
+    width: 72,
+    height: 48,
+    justifyContent: 'center',
+    borderRadius: radius.full,
+  },
   on: { backgroundColor: colors.accent },
   off: { backgroundColor: colors.lineStrong },
   knob: {
     position: 'absolute',
-    top: 4,
+    top: 6,
     width: 36,
     height: 36,
     borderRadius: radius.full,

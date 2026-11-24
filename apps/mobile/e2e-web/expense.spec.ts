@@ -152,3 +152,59 @@ test.describe('add expense', () => {
     await expect(page.getByLabel(`Chi ${formatVnd(2_000)}`)).toBeVisible();
   });
 });
+
+test.describe('edit and delete an expense (F2)', () => {
+  const EXPENSE_URL = /\/v1\/expenses\/[0-9a-f-]{36}$/;
+  const editHeading = (page: Page) =>
+    page.getByRole('heading', { name: 'Sửa khoản chi' });
+
+  test('the Lead corrects an expense, then deletes it after confirming', async ({
+    page,
+    store,
+  }) => {
+    const seeded = await store.api.createExpense({
+      amount: 8_000,
+      category: 'dien',
+    });
+    await openShop(page, '/dashboard');
+    await button(page, 'Khoản chi gần đây').click();
+    await expect(
+      page.getByRole('heading', { name: 'Khoản chi gần đây' }),
+    ).toBeVisible();
+
+    // edit: amount and category
+    await button(page, `Điện, ${formatVnd(8_000)}`).click();
+    await expect(editHeading(page)).toBeVisible();
+    await page.getByLabel('Số tiền chi').fill('9500');
+    await category(page, 'Nước').click();
+    const patched = await callApi(page, 'PATCH', EXPENSE_URL, () =>
+      button(page, 'Lưu thay đổi').click(),
+    );
+    expect(patched.requestBody).toMatchObject({
+      amount: 9_500,
+      category: 'nuoc',
+    });
+    expect(patched.body).toMatchObject({ id: seeded.id, amount: 9_500 });
+    await expect(editHeading(page)).toHaveCount(0);
+    await expect(button(page, `Nước, ${formatVnd(9_500)}`)).toBeVisible();
+    expect((await store.api.get(`/v1/expenses/${seeded.id}`)).category).toBe(
+      'nuoc',
+    );
+
+    // delete: asked first, "Giữ lại" keeps it
+    await button(page, `Nước, ${formatVnd(9_500)}`).click();
+    await button(page, 'Xóa khoản chi').click();
+    await expect(page.getByText('Xóa khoản chi này?')).toBeVisible();
+    await button(page, 'Giữ lại').click();
+    await expect(button(page, 'Lưu thay đổi')).toBeVisible();
+    await button(page, 'Xóa khoản chi').click();
+    const deleted = await callApi(page, 'DELETE', EXPENSE_URL, () =>
+      button(page, 'Xóa').click(),
+    );
+    expect(deleted.status).toBe(204);
+    await expect(editHeading(page)).toHaveCount(0);
+    await expect(button(page, `Nước, ${formatVnd(9_500)}`)).toHaveCount(0);
+    const listed = await store.api.get('/v1/expenses');
+    expect(listed.items.map((e: any) => e.id)).not.toContain(seeded.id);
+  });
+});

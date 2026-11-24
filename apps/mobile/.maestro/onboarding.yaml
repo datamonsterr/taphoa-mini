@@ -17,11 +17,14 @@ appId: com.datamonsterr.taphoamini
 - assertVisible: 'Chủ'
 - assertVisible: '1 thành viên'
 - assertVisible: 'Đang dùng: Cô Ba'
+# The lead's member actions (role/remove per person) push Nâng cao below the fold: expand it, then scroll to the PIN row.
 - scrollUntilVisible:
     element: 'Nâng cao'
+    timeout: 30000
 - tapOn: 'Nâng cao'
 - scrollUntilVisible:
     element: 'Đặt mã PIN'
+    timeout: 30000
 - assertVisible: 'Đặt mã PIN'
 - takeScreenshot: onboarding-02-account
 # Only this person is on the phone. Signing out ends their session and shows the sign-in screen.

@@ -1,7 +1,15 @@
 import { Banknote, BookText, QrCode } from '@/components/icons';
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
@@ -95,7 +103,7 @@ const styles = StyleSheet.create({
   label: {
     ...typography.caption,
     fontFamily: fontFamily.semibold,
-    fontSize: 14,
+    fontSize: fontSize[14],
     lineHeight: 18,
     color: colors.ink,
   },

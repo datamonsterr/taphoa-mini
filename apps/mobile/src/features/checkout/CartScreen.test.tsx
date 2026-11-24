@@ -182,6 +182,6 @@ describe('CartScreen on a narrow window', () => {
   it('uses a compact fixed-width stepper', async () => {
     await renderWithProviders(<CartScreen />);
     const button = screen.getByRole('button', { name: 'Xóa' });
-    expect(flat(button as never)).toMatchObject({ width: 44, height: 44 });
+    expect(flat(button as never)).toMatchObject({ width: 48, height: 48 });
   });
 });

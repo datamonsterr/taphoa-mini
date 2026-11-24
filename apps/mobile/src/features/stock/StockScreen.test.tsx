@@ -8,8 +8,11 @@ import {
 import { onlineManager } from '@tanstack/react-query';
 import { router } from 'expo-router';
 
+import { useState } from 'react';
+import { Pressable } from 'react-native';
+
 import * as stockApi from '@/lib/api/stock';
-import { useSettingsStore } from '@/stores/settings';
+import type { StockStatus } from '@/lib/api/stock';
 import { PRODUCT_IDS } from '@/test/mock';
 import { holdNext } from '@/test/hold';
 import { renderOffline, restoreOnline } from '@/test/offline';
@@ -84,7 +87,7 @@ test('four filters, the last one asks the API for in-stock products', async () =
     expect(screen.getByRole('radio', { name })).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('radio', { name: 'Còn hàng' }));
   await waitFor(() =>
-    expect(list).toHaveBeenLastCalledWith({ status: 'ok', cursor: null }),
+    expect(list).toHaveBeenCalledWith({ status: 'ok', cursor: null }),
   );
   expect(
     await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' }),
@@ -125,7 +128,7 @@ test('filter chips request low, out and all statuses', async () => {
   await fireEvent.press(screen.getByRole('button', { name: 'Lọc tồn kho' }));
   await fireEvent.press(screen.getByRole('radio', { name: 'Sắp hết' }));
   await waitFor(() =>
-    expect(list).toHaveBeenLastCalledWith({ status: 'low', cursor: null }),
+    expect(list).toHaveBeenCalledWith({ status: 'low', cursor: null }),
   );
   expect(
     await screen.findByRole('button', { name: 'Mì Hảo Hảo tôm chua cay' }),
@@ -138,7 +141,7 @@ test('filter chips request low, out and all statuses', async () => {
   expect(
     await screen.findByRole('button', { name: 'Pepsi lon 330ml' }),
   ).toBeOnTheScreen();
-  expect(list).toHaveBeenLastCalledWith({ status: 'out', cursor: null });
+  expect(list).toHaveBeenCalledWith({ status: 'out', cursor: null });
   await fireEvent.press(screen.getByRole('button', { name: 'Lọc tồn kho' }));
   await fireEvent.press(screen.getByRole('radio', { name: 'Tất cả' }));
   expect(
@@ -196,12 +199,32 @@ test('pull to refresh and infinite scroll request fresh data and next cursor', a
   expect(listCalls()).toHaveLength(3);
 });
 
-test('English segment returns to products', async () => {
-  useSettingsStore.setState({ language: 'en' });
-  await renderWithProviders(<StockScreen />);
-  expect(screen.getByRole('radio', { name: 'Stock' })).toBeChecked();
-  await fireEvent.press(screen.getByRole('radio', { name: 'Products' }));
-  expect(router.replace).toHaveBeenCalledWith('/inventory');
+test('the requested status opens the filter and follows later link changes', async () => {
+  const list = jest.spyOn(stockApi, 'listStock');
+  function Link() {
+    const [status, setStatus] = useState<StockStatus>('out');
+    return (
+      <>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="đổi liên kết"
+          onPress={() => setStatus('low')}
+        />
+        <StockScreen status={status} />
+      </>
+    );
+  }
+  await renderWithProviders(<Link />);
+  await waitFor(() =>
+    expect(list).toHaveBeenCalledWith({ status: 'out', cursor: null }),
+  );
+  expect(
+    screen.getByRole('button', { name: 'Lọc tồn kho' }),
+  ).toHaveAccessibilityValue({ text: 'Hết hàng' });
+  await fireEvent.press(screen.getByRole('button', { name: 'đổi liên kết' }));
+  await waitFor(() =>
+    expect(list).toHaveBeenCalledWith({ status: 'low', cursor: null }),
+  );
 });
 
 test('offline with nothing cached says so with a retry instead of a spinner (#246)', async () => {

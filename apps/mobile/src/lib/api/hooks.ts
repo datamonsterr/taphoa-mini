@@ -32,6 +32,8 @@ import {
   acceptAlert,
   createDayClose,
   createExpense,
+  deleteExpense,
+  updateExpense,
   createSale,
   dismissAlert,
   getDayClose,
@@ -85,6 +87,8 @@ import {
   getStore,
   listMembers,
   patchStore,
+  removeMember,
+  updateMember,
 } from './store';
 import type {
   CreateCustomerRequest,
@@ -624,6 +628,28 @@ export function useCreateExpense() {
   });
 }
 
+/** Editing or deleting an expense moves the reports; the list and its detail refetch. */
+export function useUpdateExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      input: { id: string } & Parameters<typeof updateExpense>[1],
+    ) => {
+      const { id, ...patch } = input;
+      return updateExpense(id, patch);
+    },
+    onSuccess: () => invalidate(qc, keys.expenses.all(), keys.reports.all()),
+  });
+}
+
+export function useDeleteExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteExpense(id),
+    onSuccess: () => invalidate(qc, keys.expenses.all(), keys.reports.all()),
+  });
+}
+
 /** Link, enrol or dismiss a hand-priced sale line. */
 export function useResolveManualLine() {
   const qc = useQueryClient();
@@ -700,6 +726,24 @@ export function useSetPin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (pin: string | null) => setPin(pin),
+    onSuccess: () => invalidate(qc, keys.members(), keys.me()),
+  });
+}
+
+/** A role change also changes what that member may do; `me` carries the caller's own role. */
+export function useUpdateMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; role: 'lead' | 'seller' }) =>
+      updateMember(input.id, { role: input.role }),
+    onSuccess: () => invalidate(qc, keys.members(), keys.me()),
+  });
+}
+
+export function useRemoveMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => removeMember(id),
     onSuccess: () => invalidate(qc, keys.members(), keys.me()),
   });
 }

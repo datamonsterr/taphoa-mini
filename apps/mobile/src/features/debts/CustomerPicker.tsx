@@ -12,6 +12,7 @@ import { newUuid } from '@/lib/uuid';
 import {
   colors,
   fontFamily,
+  fontSize,
   radius,
   scaleText,
   size,
@@ -420,13 +421,13 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 24,
   },
   rowEnd: { alignItems: 'flex-end', gap: space[1], flexShrink: 0 },
   amount: {
     fontFamily: fontFamily.bold,
-    fontSize: 18,
+    fontSize: fontSize[18],
     lineHeight: 24,
     fontVariant: ['tabular-nums'],
   },
@@ -439,7 +440,7 @@ const styles = StyleSheet.create({
   },
   settledText: {
     fontFamily: fontFamily.semibold,
-    fontSize: 13,
+    fontSize: fontSize[13],
     lineHeight: 16,
     color: colors.success,
   },

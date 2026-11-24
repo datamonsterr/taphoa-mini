@@ -3,13 +3,32 @@ appId: com.datamonsterr.taphoamini
 # From the welcome screen (signed in with sign-in.yaml, no store yet): create a store through the
 # real backend (POST /v1/stores, name + display name only) and land on the camera. Every run
 # makes a store of its own, so flows never see each other's data.
-# Input: STORE_NAME, OWNER_NAME.
+# The one-time elder-mode question is preselected ON (which would open Kho), so this subflow
+# switches it OFF explicitly (tap its row) to keep opening on the camera.
+# The question is asked once per device: for a second store on the same phone (multi-session) pass
+# ELDER_ASKED: 'true' and the subflow asserts the row is absent instead.
+# Input: STORE_NAME, OWNER_NAME, optional ELDER_ASKED.
 - extendedWaitUntil:
     visible:
       id: 'onboarding-create'
     timeout: 30000
 - tapOn:
     id: 'onboarding-create'
+# Before any typing, so the keyboard is not in the way.
+- runFlow:
+    when:
+      true: ${typeof ELDER_ASKED === 'undefined' || ELDER_ASKED !== 'true'}
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: 'onboarding-elder-choice'
+      - tapOn: 'Chữ to, dễ dùng'
+- runFlow:
+    when:
+      true: ${typeof ELDER_ASKED !== 'undefined' && ELDER_ASKED === 'true'}
+    commands:
+      - assertNotVisible:
+          id: 'onboarding-elder-choice'
 - tapOn:
     id: 'create-store-name'
 - inputText: ${STORE_NAME}
