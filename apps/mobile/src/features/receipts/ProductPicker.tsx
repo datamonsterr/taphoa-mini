@@ -11,7 +11,14 @@ import {
 import { CircleButton, PressableScale, Sheet, Text } from '@/components/ui';
 import { useProducts, type ReceiptLine } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 import { strings } from './strings';
 
 export function ProductPicker({
@@ -131,6 +138,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSoft,
     color: colors.ink,
     fontFamily: fontFamily.regular,
-    fontSize: 18,
+    fontSize: fontSize[18],
   },
 });

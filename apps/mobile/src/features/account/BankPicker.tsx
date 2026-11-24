@@ -6,6 +6,7 @@ import { searchBanks, type Bank } from '@/lib/banks';
 import {
   colors,
   fontFamily,
+  fontSize,
   radius,
   scaleText,
   space,
@@ -62,7 +63,7 @@ export function BankPicker({
         }}
         style={[
           styles.input,
-          scaleText({ fontSize: 18 }, scale),
+          scaleText({ fontSize: fontSize[18] }, scale),
           error ? styles.invalid : null,
         ]}
       />

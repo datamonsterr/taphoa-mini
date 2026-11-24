@@ -43,7 +43,15 @@ import {
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
 import { businessDate } from '@/lib/date';
-import { camera, colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  camera,
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 import { ProductPicker } from './ProductPicker';
 import { ReceiptLineStatus, receiptLineStatus } from './ReceiptLineStatus';
 import { ReceiptPriceKeypad, ReceiptPricePill } from './ReceiptPrice';
@@ -661,7 +669,11 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   grow: { flex: 1, minWidth: 0 },
-  name: { fontFamily: fontFamily.semibold, fontSize: 17, lineHeight: 22 },
+  name: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize[17],
+    lineHeight: 22,
+  },
   meta: { ...typography.caption, color: colors.inkMuted },
   thumbnail: {
     width: 32,
@@ -681,7 +693,7 @@ const styles = StyleSheet.create({
   summaryPhoto: { minHeight: 96, justifyContent: 'center' },
   photoLabel: {
     fontFamily: fontFamily.medium,
-    fontSize: 15,
+    fontSize: fontSize[15],
     lineHeight: 20,
     color: colors.cameraMuted,
     flex: 1,
@@ -705,7 +717,7 @@ const styles = StyleSheet.create({
   amounts: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   lineTotal: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 16,
+    fontSize: fontSize[16],
     lineHeight: 22,
     textAlign: 'right',
     flex: 1,
@@ -733,7 +745,7 @@ const styles = StyleSheet.create({
   footer: { padding: space[4], gap: space[3] },
   total: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 28,
+    fontSize: fontSize[28],
     lineHeight: 32,
     fontVariant: ['tabular-nums'],
   },

@@ -9,7 +9,7 @@ import Animated, {
 
 import { PressableScale, Text } from '@/components/ui';
 import { useT } from '@/lib/i18n';
-import { colors, radius, space, typography } from '@/theme';
+import { colors, fontSize, radius, space, typography } from '@/theme';
 
 import { voiceStrings } from './strings';
 
@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   status: { ...typography.label, textAlign: 'center', color: colors.inkMuted },
   transcript: {
     ...typography.title,
-    fontSize: 28,
+    fontSize: fontSize[28],
     lineHeight: 36,
     color: colors.lineStrong,
   },

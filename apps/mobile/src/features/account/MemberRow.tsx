@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { CircleButton, Icon, ScaledText, Text } from '@/components/ui';
 import type { Member } from '@/lib/api';
-import { colors, fontFamily, radius, space } from '@/theme';
+import { colors, fontFamily, fontSize, radius, space } from '@/theme';
 
 import { initialOf } from './utils';
 
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
   overlap: { marginLeft: -10 },
   initial: {
     fontFamily: fontFamily.bold,
-    fontSize: 17,
+    fontSize: fontSize[17],
     lineHeight: 17,
     color: colors.onInk,
   },

@@ -8,7 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import type { Rect } from '@/lib/bbox';
-import { camera, colors, radius } from '@/theme';
+import { camera, colors, fontSize, radius } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 /** `guess`: an ambiguous top-1 nobody picked yet. Amber like `low`, but still tappable. */
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontFamily: fontFamily.bold,
-    fontSize: 15,
+    fontSize: fontSize[15],
     lineHeight: 28,
     color: colors.onAccent,
     fontVariant: ['tabular-nums'],

@@ -13,6 +13,7 @@ import { useT } from '@/lib/i18n';
 import {
   colors,
   fontFamily,
+  fontSize,
   radius,
   scaleText,
   space,
@@ -74,7 +75,10 @@ export const BankSheet = memo(function BankSheet({
     );
   };
 
-  const inputStyle = [styles.input, scaleText({ fontSize: 18 }, scale)];
+  const inputStyle = [
+    styles.input,
+    scaleText({ fontSize: fontSize[18] }, scale),
+  ];
   const field = (
     label: string,
     value: string,

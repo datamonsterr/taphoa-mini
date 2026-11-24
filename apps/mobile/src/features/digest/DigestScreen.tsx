@@ -31,7 +31,15 @@ import { getCatalog } from '@/lib/offline/catalog';
 import { formatDailyRate } from '@/features/stock/strings';
 import { useSettingsStore } from '@/stores/settings';
 import { fill, useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { digestStrings } from './strings';
 import { formatDigestStamp, summarySegments } from './utils';
@@ -447,7 +455,7 @@ const styles = StyleSheet.create({
   tileValue: {
     marginTop: 4,
     fontFamily: fontFamily.extrabold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 28,
     color: colors.ink,
     fontVariant: ['tabular-nums'],

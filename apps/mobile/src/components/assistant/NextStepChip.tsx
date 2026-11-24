@@ -5,7 +5,7 @@ import { MessageCircleText, ReceiptText } from '@/components/icons';
 import { Icon } from '@/components/ui';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { Text } from '@/components/ui/ScaledText';
-import { camera, colors, radius, size, space } from '@/theme';
+import { camera, colors, fontSize, radius, size, space } from '@/theme';
 import { fontFamily } from '@/theme/typography';
 
 import type { NextStepChipData } from './chip';
@@ -80,13 +80,13 @@ const styles = StyleSheet.create({
   text: { gap: 0, flex: 1 },
   title: {
     fontFamily: fontFamily.bold,
-    fontSize: 17,
+    fontSize: fontSize[17],
     lineHeight: 22,
     color: camera.white,
   },
   subtitle: {
     fontFamily: fontFamily.medium,
-    fontSize: 13,
+    fontSize: fontSize[13],
     lineHeight: 18,
     color: colors.cameraMuted,
   },

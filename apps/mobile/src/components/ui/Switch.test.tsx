@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react-native';
+import { StyleSheet, type ViewStyle } from 'react-native';
 
 import { renderWithProviders } from '@/test/render';
 
@@ -49,4 +50,23 @@ test('disabled ignores presses', async () => {
   );
   await fireEvent.press(screen.getByRole('switch'));
   expect(onValueChange).not.toHaveBeenCalled();
+});
+
+test('hit area is at least 48 dp in both directions', async () => {
+  await renderWithProviders(
+    <Switch
+      value={false}
+      onValueChange={jest.fn()}
+      accessibilityLabel={LABEL}
+    />,
+  );
+  const s = StyleSheet.flatten(
+    screen.getByRole('switch', { name: LABEL }).props.style,
+  ) as ViewStyle;
+  expect(
+    Math.max(Number(s.height ?? 0), Number(s.minHeight ?? 0)),
+  ).toBeGreaterThanOrEqual(48);
+  expect(
+    Math.max(Number(s.width ?? 0), Number(s.minWidth ?? 0)),
+  ).toBeGreaterThanOrEqual(48);
 });

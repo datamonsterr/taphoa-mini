@@ -5,7 +5,7 @@ import { StyleSheet } from 'react-native';
 
 import { Text } from './ScaledText';
 
-import { colors, fontFamily, radius, size } from '@/theme';
+import { colors, fontFamily, fontSize, radius, size } from '@/theme';
 
 import { Icon } from './Icon';
 import { PressableScale } from './PressableScale';
@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   neutral: { backgroundColor: colors.surfaceSoft },
   count: {
     fontFamily: fontFamily.bold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 28,
     fontVariant: ['tabular-nums'],
   },

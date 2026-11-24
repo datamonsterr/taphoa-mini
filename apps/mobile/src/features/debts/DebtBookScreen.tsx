@@ -9,7 +9,15 @@ import { CircleButton, Icon, PressableScale, Text } from '@/components/ui';
 import { useCustomers, useDebtSummary, type Customer } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
 import { fill, useT } from '@/lib/i18n';
-import { colors, fontFamily, radius, size, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  size,
+  space,
+  typography,
+} from '@/theme';
 
 import { CustomerPicker } from './CustomerPicker';
 import { avatarTone, balanceColor, initialOf } from './customerRow';
@@ -330,7 +338,7 @@ const styles = StyleSheet.create({
   statCaptionOnInk: { ...typography.caption, color: colors.onInk },
   statTotal: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 32,
+    fontSize: fontSize[32],
     lineHeight: 38,
     color: colors.onInk,
     fontVariant: ['tabular-nums'],
@@ -338,7 +346,7 @@ const styles = StyleSheet.create({
   statCaptionDanger: { ...typography.caption, color: colors.danger },
   statDangerValue: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 28,
     color: colors.danger,
     fontVariant: ['tabular-nums'],
@@ -404,7 +412,7 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 26,
   },
   rowText: { flex: 1, minWidth: 0, gap: 2 },
@@ -412,10 +420,10 @@ const styles = StyleSheet.create({
   rowEnd: { alignItems: 'flex-end', gap: space[1], flexShrink: 0 },
   amount: {
     fontFamily: fontFamily.bold,
-    fontSize: 20,
+    fontSize: fontSize[20],
     lineHeight: 26,
     fontVariant: ['tabular-nums'],
   },
-  amountCredit: { fontSize: 17, lineHeight: 22 },
+  amountCredit: { fontSize: fontSize[17], lineHeight: 22 },
   message: { ...typography.body, gap: space[3], padding: space[4] },
 });

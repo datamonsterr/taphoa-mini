@@ -33,9 +33,10 @@ import { useChromeStore } from '@/stores/chrome';
 import { useCurrentStore } from '@/stores/currentStore';
 import { useSettingsStore, type Language } from '@/stores/settings';
 import {
-  colors,
   FONT_SCALE_MAX,
+  colors,
   fontFamily,
+  fontSize,
   formatScale,
   radius,
   space,
@@ -528,7 +529,7 @@ const styles = StyleSheet.create({
   },
   storeInitial: {
     fontFamily: fontFamily.extrabold,
-    fontSize: 28,
+    fontSize: fontSize[28],
     lineHeight: 28,
     color: colors.accent,
   },
@@ -595,7 +596,7 @@ const styles = StyleSheet.create({
     minWidth: 40,
     textAlign: 'center',
     fontFamily: fontFamily.bold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 28,
     color: colors.ink,
     fontVariant: ['tabular-nums'],
@@ -611,7 +612,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipOn: { backgroundColor: colors.ink },
-  chipText: { fontSize: 17, lineHeight: 22, color: colors.ink },
+  chipText: { fontSize: fontSize[17], lineHeight: 22, color: colors.ink },
   chipTextOn: { color: colors.onInk },
   error: { color: colors.danger },
   acting: { color: colors.inkMuted },

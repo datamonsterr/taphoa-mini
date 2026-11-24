@@ -22,7 +22,14 @@ import type { Category, Product } from '@/lib/api/types';
 import { formatVnd } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { useIsLead } from '@/features/auth/useMembership';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 
 import { barcodeConflict } from '@/features/enroll/barcodeConflict';
 
@@ -316,7 +323,7 @@ const styles = StyleSheet.create({
   statValue: {
     flexShrink: 1,
     fontFamily: fontFamily.extrabold,
-    fontSize: 28,
+    fontSize: fontSize[28],
     lineHeight: 34,
     color: colors.ink,
     fontVariant: ['tabular-nums'],

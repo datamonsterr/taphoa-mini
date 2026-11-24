@@ -11,7 +11,14 @@ import { StyleSheet, View } from 'react-native';
 
 import { Icon, MoneyText, Text } from '@/components/ui';
 import { formatVnd } from '@/lib/format';
-import { colors, fontFamily, radius, space, typography } from '@/theme';
+import {
+  colors,
+  fontFamily,
+  fontSize,
+  radius,
+  space,
+  typography,
+} from '@/theme';
 
 import type { DashboardTotals } from './useDashboardData';
 
@@ -143,16 +150,21 @@ const styles = StyleSheet.create({
   count: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   countText: {
     fontFamily: fontFamily.semibold,
-    fontSize: 17,
+    fontSize: fontSize[17],
     lineHeight: 22,
     color: colors.onInk,
     fontVariant: ['tabular-nums'],
   },
-  revenue: { ...typography.total, fontSize: 40, lineHeight: 46, marginTop: 4 },
+  revenue: {
+    ...typography.total,
+    fontSize: fontSize[40],
+    lineHeight: 46,
+    marginTop: 4,
+  },
   amount: {
     marginTop: 4,
     fontFamily: fontFamily.extrabold,
-    fontSize: 22,
+    fontSize: fontSize[22],
     lineHeight: 28,
     fontVariant: ['tabular-nums'],
   },
