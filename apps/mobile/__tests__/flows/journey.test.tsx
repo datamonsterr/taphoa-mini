@@ -67,6 +67,10 @@ describe('journey', () => {
     await openCamera();
     const top = await addTopMatch();
 
+    // Direct single-item pay flow; merchant returns to camera to adjust cart
+    await press('Quay lại giỏ hàng');
+    expect(screen).toHavePathname('/');
+
     const pill = await screen.findByRole('button', {
       name: `Giỏ hàng: 1 món, ${formatVnd(top.price)}`,
     });
@@ -102,12 +106,7 @@ describe('journey', () => {
     setMockScenario('match');
     await openCamera();
     const top = await addTopMatch();
-    await fireEvent.press(
-      await screen.findByRole('button', { name: /^Giỏ hàng: 1 món/ }),
-    );
-    await press('Hiện mã QR thanh toán');
-    await press('Tiền mặt', 'radio');
-
+    // With X5: single confirmed item opens Pay directly with cash preselected!
     await fireEvent.press(screen.getByText('100.000'));
     expect(screen.getByLabelText('Tiền thối')).toHaveTextContent(
       formatVnd(100000 - top.price),

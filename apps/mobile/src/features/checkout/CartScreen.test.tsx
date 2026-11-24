@@ -109,19 +109,32 @@ describe('CartScreen with items', () => {
     expect(mockRouter.back).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the payment screen from the QR pill', async () => {
+  it('opens payment with cash preselected from the cash action', async () => {
+    await renderWithProviders(<CartScreen />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Tiền mặt' }));
+    expect(mockRouter.push).toHaveBeenCalledWith({
+      pathname: '/pay',
+      params: { method: 'cash' },
+    });
+  });
+
+  it('opens payment with transfer preselected from the QR pill', async () => {
     await renderWithProviders(<CartScreen />);
     await fireEvent.press(screen.getByLabelText('Hiện mã QR thanh toán'));
-    expect(mockRouter.push).toHaveBeenCalledWith('/pay');
+    expect(mockRouter.push).toHaveBeenCalledWith({
+      pathname: '/pay',
+      params: { method: 'transfer' },
+    });
   });
 });
 
 describe('CartScreen empty', () => {
-  it('shows the empty message and no total or QR pill', async () => {
+  it('shows the empty message and no total or payment actions', async () => {
     await renderWithProviders(<CartScreen />);
     expect(screen.getByText('Giỏ hàng trống')).toBeOnTheScreen();
     expect(screen.getByLabelText('0 món')).toBeOnTheScreen();
     expect(screen.queryByLabelText('Hiện mã QR thanh toán')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Tiền mặt' })).toBeNull();
   });
 
   it('returns to the camera from the empty state', async () => {
@@ -139,6 +152,7 @@ describe('CartScreen in English', () => {
     await renderWithProviders(<CartScreen />);
     expect(screen.getByLabelText('3 items')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Close' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Cash' })).toBeOnTheScreen();
     expect(screen.getAllByLabelText('One more')).toHaveLength(2);
     expect(screen.getByLabelText('Quantity 2')).toBeOnTheScreen();
     expect(screen.getByLabelText('Remove')).toBeOnTheScreen();

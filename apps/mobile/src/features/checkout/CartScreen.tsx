@@ -1,4 +1,9 @@
-import { Camera, ChevronDown, ShoppingCart } from '@/components/icons';
+import {
+  Banknote,
+  Camera,
+  ChevronDown,
+  ShoppingCart,
+} from '@/components/icons';
 import { memo, useCallback } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -14,6 +19,7 @@ import {
   CircleButton,
   Icon,
   MoneyText,
+  PressableScale,
   QrPill,
   Sheet,
   Stepper,
@@ -28,12 +34,14 @@ import {
   useCartStore,
 } from '@/stores/cart';
 import type { CartLine } from '@/stores/cart';
+import { useSettingsStore } from '@/stores/settings';
 import {
   colors,
   fontFamily,
   fontSize,
   radius,
   shadows,
+  size,
   space,
   typography,
 } from '@/theme';
@@ -120,8 +128,17 @@ export function CartScreen() {
   const total = useCartStore(selectTotal);
   const { increment, decrement, remove } = useCartStore.getState();
 
+  const elder = useSettingsStore((s) => s.elderMode);
+
   const close = useCallback(() => router.back(), [router]);
-  const pay = useCallback(() => router.push('/pay'), [router]);
+  const payCash = useCallback(
+    () => router.push({ pathname: '/pay', params: { method: 'cash' } }),
+    [router],
+  );
+  const payQr = useCallback(
+    () => router.push({ pathname: '/pay', params: { method: 'transfer' } }),
+    [router],
+  );
 
   return (
     <Sheet
@@ -185,7 +202,19 @@ export function CartScreen() {
                 style={styles.totalText}
               />
             </View>
-            <QrPill onPress={pay} />
+            <View style={styles.actions}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={t('cash')}
+                onPress={payCash}
+                pressedScale={0.96}
+                style={[styles.cashPill, elder && styles.elderPill]}
+              >
+                <Icon icon={Banknote} color={colors.onInk} />
+                <Text style={styles.pillLabel}>{t('cash')}</Text>
+              </PressableScale>
+              <QrPill onPress={payQr} />
+            </View>
           </View>
         </>
       )}
@@ -233,12 +262,34 @@ const styles = StyleSheet.create({
     gap: space[4],
   },
   emptyText: { ...typography.heading, color: colors.inkMuted },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+  },
+  cashPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
+    minHeight: size.tapLg,
+    paddingHorizontal: space[4],
+    borderRadius: radius.full,
+    backgroundColor: colors.ink,
+  },
+  elderPill: {
+    minHeight: size.tapXl,
+  },
+  pillLabel: {
+    ...typography.label,
+    color: colors.onInk,
+  },
   totalBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
     paddingVertical: space[2],
-    paddingLeft: space[6],
+    paddingLeft: space[4],
     paddingRight: space[2],
     borderRadius: radius.full,
     backgroundColor: colors.surface,
