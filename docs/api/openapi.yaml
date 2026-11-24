@@ -742,7 +742,7 @@ paths:
           schema: { type: string }
         - name: barcode
           in: query
-          description: Exact barcode lookup (S2).
+          description: Barcode lookup matches UPC-A and its leading-zero EAN-13 alias across products and units. Existing ambiguous codes return 409.
           schema: { type: string }
         - name: category_id
           in: query
@@ -768,6 +768,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
     post:
       tags: [Catalog]
       operationId: createProduct
@@ -811,7 +812,8 @@ paths:
           description: |
             `duplicate_suspected` (with `details.candidates`) when `force_new` is false and a
             reference image matches an existing product, `image_limit` when total images would
-            exceed 8, or `id_conflict` on an id reused with a different body.
+            exceed 8, `conflict` when a product or unit barcode is already reserved in the store,
+            or `id_conflict` on an id reused with a different body.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -845,6 +847,8 @@ paths:
         `catalog.changed` event. Conflict rule: the Lead's edits win; concurrent edits resolve
         last-writer-wins by server receive time, and both appear in history.
         The low-stock threshold override is Lead only; null restores the store default.
+        A barcode already reserved by a product or unit, including an archived product,
+        returns 409 `conflict`. UPC-A and leading-zero EAN-13 spellings share a reservation.
       requestBody:
         required: true
         content:
@@ -862,6 +866,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
     delete:
       tags: [Catalog]
       operationId: archiveProduct

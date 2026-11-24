@@ -1020,6 +1020,110 @@ async fn categories_list_create_authz_duplicates() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn barcode_alias_and_cross_table_collisions_are_rejected() {
+    let w = world().await;
+    let a = create_product(
+        &w,
+        &w.lead,
+        "A",
+        10000,
+        "a",
+        json!({"barcode": "0123456789012"}),
+    )
+    .await;
+    let b = create_product(&w, &w.lead, "B", 10000, "b", json!({})).await;
+    let path = format!("/v1/products/{}", b["id"].as_str().unwrap());
+    let (status, body) = call(&w.app, "PATCH", &path, Some(&w.lead), json!({"units": [{"id": Uuid::now_v7(), "name": "pack", "quantity_in_base": 6, "price": 10000, "barcode": "123456789012"}]})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "conflict");
+    assert_ne!(a["id"], b["id"]);
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn concurrent_barcode_writes_are_serialized_and_released() {
+    let w = world().await;
+    let a = create_product(&w, &w.lead, "Race A", 10000, "race-a", json!({})).await;
+    let b = create_product(&w, &w.lead, "Race B", 10000, "race-b", json!({})).await;
+    let a_path = format!("/v1/products/{}", a["id"].as_str().unwrap());
+    let b_path = format!("/v1/products/{}", b["id"].as_str().unwrap());
+    let (first, second) = tokio::join!(
+        call(
+            &w.app,
+            "PATCH",
+            &a_path,
+            Some(&w.lead),
+            json!({"barcode":"0123456789012"})
+        ),
+        call(
+            &w.app,
+            "PATCH",
+            &b_path,
+            Some(&w.lead),
+            json!({"barcode":"123456789012"})
+        ),
+    );
+    assert!(matches!(
+        (first.0, second.0),
+        (StatusCode::OK, StatusCode::CONFLICT) | (StatusCode::CONFLICT, StatusCode::OK)
+    ));
+    let (winner, loser) = if first.0 == StatusCode::OK {
+        (&a_path, &b_path)
+    } else {
+        (&b_path, &a_path)
+    };
+    assert_eq!(
+        call(
+            &w.app,
+            "PATCH",
+            winner,
+            Some(&w.lead),
+            json!({"archived":true})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &w.app,
+            "PATCH",
+            loser,
+            Some(&w.lead),
+            json!({"barcode":"123456789012"})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &w.app,
+            "PATCH",
+            winner,
+            Some(&w.lead),
+            json!({"barcode":null})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &w.app,
+            "PATCH",
+            loser,
+            Some(&w.lead),
+            json!({"barcode":"123456789012"})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
 async fn enrolled_barcode_resolves_via_product_list() {
     let w = world().await;
     let product = create_product(
@@ -1043,6 +1147,17 @@ async fn enrolled_barcode_resolves_via_product_list() {
     .await;
     assert_eq!(found["items"].as_array().unwrap().len(), 1);
     assert_eq!(found["items"][0]["id"], product["id"]);
+    let alias = ok(
+        &w.app,
+        "GET",
+        "/v1/products?barcode=123456789012&limit=1",
+        "/v1/products",
+        &w.lead,
+        Value::Null,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(alias["items"][0]["id"], product["id"]);
     let missing = ok(
         &w.app,
         "GET",
@@ -2649,4 +2764,136 @@ async fn clearing_cost_price_writes_a_price_history_row() {
         after["items"].as_array().unwrap().len(),
         before["items"].as_array().unwrap().len()
     );
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn barcode_migration_preserves_legacy_conflicts_and_rolls_back() {
+    let (_, state) = setup().await;
+    let pool = state.postgres.as_ref().unwrap();
+    for _ in 0..2 {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE SCHEMA barcode_migration_test; SET LOCAL search_path = barcode_migration_test; \
+             CREATE TABLE products (store_id uuid NOT NULL, barcode text); \
+             CREATE TABLE product_units (store_id uuid NOT NULL, barcode text); \
+             INSERT INTO products VALUES ('00000000-0000-0000-0000-000000000001', '0123456789012'); \
+             INSERT INTO product_units VALUES ('00000000-0000-0000-0000-000000000001', '123456789012');",
+        ).execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../migrations/2001_barcode_integrity.sql"
+        ))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT entry_count FROM barcode_registry WHERE canonical_code = '123456789012'",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(count, 2);
+        let original: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM products UNION ALL SELECT count(*) FROM product_units",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap()
+        .into_iter()
+        .sum();
+        assert_eq!(original, 2);
+        tx.rollback().await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn barcode_registry_ignores_insert_on_conflict_do_nothing() {
+    let (_, state) = setup().await;
+    let mut tx = state.postgres.as_ref().unwrap().begin().await.unwrap();
+    sqlx::raw_sql(
+        "CREATE SCHEMA barcode_upsert_test; SET LOCAL search_path = barcode_upsert_test; \
+        CREATE TABLE products (id int PRIMARY KEY, store_id uuid NOT NULL, barcode text); \
+        CREATE TABLE product_units (id int PRIMARY KEY, store_id uuid NOT NULL, barcode text);",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/2001_barcode_integrity.sql"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::raw_sql("INSERT INTO products VALUES (1,'00000000-0000-0000-0000-000000000001','123456789012'); \
+        INSERT INTO products VALUES (1,'00000000-0000-0000-0000-000000000001','123456789012') ON CONFLICT DO NOTHING; \
+        INSERT INTO products VALUES (1,'00000000-0000-0000-0000-000000000001','different') ON CONFLICT DO NOTHING;")
+        .execute(&mut *tx).await.unwrap();
+    let rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT canonical_code, entry_count FROM barcode_registry")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(rows, vec![("123456789012".to_string(), 1)]);
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL and REDIS_URL"]
+async fn barcode_lookup_reports_ambiguous_legacy_group() {
+    let w = world().await;
+    let a = create_product(
+        &w,
+        &w.lead,
+        "Legacy A",
+        10000,
+        "legacy-a",
+        json!({"barcode":"0123456789012"}),
+    )
+    .await;
+    let b = create_product(&w, &w.lead, "Legacy B", 10000, "legacy-b", json!({})).await;
+    let pool = w.state.postgres.as_ref().unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE products SET barcode = '123456789012' WHERE id = $1")
+        .bind(b["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SET LOCAL session_replication_role = origin")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE barcode_registry SET entry_count = 2 WHERE store_id = $1 AND canonical_code = '123456789012'")
+        .bind(w.store_id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    for code in ["0123456789012", "123456789012"] {
+        let (status, body) = call(
+            &w.app,
+            "GET",
+            &format!("/v1/products?barcode={code}&limit=1"),
+            Some(&w.lead),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["code"], "conflict");
+    }
+    let path = format!("/v1/products/{}", b["id"].as_str().unwrap());
+    assert_eq!(
+        call(
+            &w.app,
+            "PATCH",
+            &path,
+            Some(&w.lead),
+            json!({"barcode":null})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_ne!(a["id"], b["id"]);
 }
