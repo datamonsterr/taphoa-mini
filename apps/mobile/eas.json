@@ -37,6 +37,14 @@
         "EXPO_PUBLIC_API_URL": "https://backend-test-70c2.up.railway.app",
         "EXPO_PUBLIC_ENVIRONMENT": "test"
       }
+    },
+    "measure": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-test-70c2.up.railway.app",
+        "EXPO_PUBLIC_ENVIRONMENT": "test",
+        "EXPO_PUBLIC_ONE_TRIP_ENROLL": "1"
+      }
     }
   }
 }

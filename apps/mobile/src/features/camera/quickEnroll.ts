@@ -47,7 +47,8 @@ export type QuickEnrollAction =
   | { type: 'failed'; id: string; error: string } // -> 'error'
   | { type: 'accept' } // current shot with mask -> 'accepted', currentId cleared; no-op without mask
   | { type: 'retake' } // removes current shot, currentId cleared
-  | { type: 'remove'; id: string }; // remove an accepted shot (sheet photo row)
+  | { type: 'remove'; id: string } // remove an accepted shot (sheet photo row)
+  | { type: 'auto'; shot: Omit<Shot, 'status'> }; // one-trip: append an already segmented shot as accepted; currentId untouched; ignored when !active or full
 
 export const initialQuickEnroll: QuickEnrollState = {
   active: false,
@@ -68,6 +69,15 @@ export function quickEnrollReducer(
 
     case 'discard':
       return { ...state, shots: [], currentId: undefined };
+
+    case 'auto':
+      if (!state.active || selectAccepted(state).length >= MAX_SHOTS) {
+        return state;
+      }
+      return {
+        ...state,
+        shots: [...state.shots, { ...action.shot, status: 'accepted' }],
+      };
 
     case 'captured': {
       if (!state.active || selectAccepted(state).length >= MAX_SHOTS) {

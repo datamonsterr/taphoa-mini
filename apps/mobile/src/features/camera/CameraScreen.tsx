@@ -44,6 +44,9 @@ import { useBarcodeFlow } from './useBarcodeFlow';
 import { useDocumentProbe } from './useDocumentProbe';
 import { useFlyVector } from './useFlyVector';
 import { useQuickCapture } from './useQuickCapture';
+import { useOneTripCapture } from './useOneTripCapture';
+import { oneTripEnabled } from './oneTrip';
+import { fixtureName } from '../voice/fixture';
 import { useReceiptReader } from './useReceiptReader';
 import { useAddToCart } from './useAddToCart';
 import { useCameraActions } from './useCameraActions';
@@ -87,7 +90,10 @@ export function CameraScreen() {
   const searchParams = useLocalSearchParams<{
     entry?: string;
     mode?: string;
+    one_trip?: string;
+    fixture?: string;
   }>();
+  const oneTrip = oneTripEnabled(searchParams.one_trip);
   const receiptMode =
     searchParams.entry === 'receipt' || searchParams.mode === 'receipt';
   const joinedAt = useMembership()?.member.created_at;
@@ -102,6 +108,14 @@ export function CameraScreen() {
       reset,
       uploadImage,
     });
+  const { oneTripCapturing, startOneTrip, stopOneTrip } = useOneTripCapture({
+    cameraRef,
+    canEnroll,
+    cameraReady,
+    focused,
+    uploadImage,
+    onCaptured: () => setSheetOpen(true),
+  });
 
   const fallbackName = t('unnamed');
   const {
@@ -119,7 +133,12 @@ export function CameraScreen() {
     granted: !!permission?.granted,
     cameraReady,
     idle: phase === 'idle',
-    blocked: sheetOpen || readingReceipt || quickCapturing || !!currentShot,
+    blocked:
+      sheetOpen ||
+      readingReceipt ||
+      quickCapturing ||
+      oneTripCapturing ||
+      !!currentShot,
     canEnroll,
     setNotice,
   });
@@ -168,6 +187,7 @@ export function CameraScreen() {
     if (!canEnroll) return;
     const toggleMode = () => {
       cancelCapture();
+      stopOneTrip();
       setSheetOpen(false);
       setBarcodeResult(null);
       setAddingAngle(false);
@@ -183,6 +203,7 @@ export function CameraScreen() {
     dispatch,
     reset,
     cancelCapture,
+    stopOneTrip,
     setBarcodeResult,
   ]);
 
@@ -195,6 +216,8 @@ export function CameraScreen() {
   const openSettings = useCallback(() => void Linking.openSettings(), []);
   const onShutter = () => {
     if (barcodeResult) setBarcodeResult(null);
+    else if (quickActive && oneTrip && shots.length === 0 && !addingAngle)
+      void startOneTrip();
     else if (quickActive) void captureQuickPhoto();
     else if ((documentDetected || receiptMode) && canEnroll) void readReceipt();
     else if (phase === 'idle') void capture();
@@ -321,7 +344,11 @@ export function CameraScreen() {
         }
         shutterBusy={
           quickActive
-            ? !canQuickCapture || quickCapturing || !cameraReady || !canEnroll
+            ? !canQuickCapture ||
+              quickCapturing ||
+              oneTripCapturing ||
+              !cameraReady ||
+              !canEnroll
             : readingReceipt ||
               barcode.busy ||
               busy ||
@@ -404,6 +431,9 @@ export function CameraScreen() {
           }}
           onCloseSheet={() => setSheetOpen(false)}
           onAddPhoto={() => setAddingAngle(true)}
+          oneTrip={
+            oneTrip ? { fixture: fixtureName(searchParams.fixture) } : undefined
+          }
           onCreated={(product) => {
             setCreated((products) => [...products, product]);
             setNotice(`Đã thêm ${product.name || 'Hàng mới'}`);

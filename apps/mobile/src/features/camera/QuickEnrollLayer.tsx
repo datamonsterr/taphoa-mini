@@ -19,6 +19,7 @@ type Props = {
   onCloseSheet: () => void;
   onAddPhoto: () => void;
   onCreated: (product: Product) => void;
+  oneTrip?: { fixture?: string };
 };
 
 /** Quick-enroll overlays on top of the board: the point prompt and the "new product" sheet. */
@@ -34,6 +35,7 @@ export function QuickEnrollLayer({
   onCloseSheet,
   onAddPhoto,
   onCreated,
+  oneTrip,
 }: Props) {
   return (
     <>
@@ -64,6 +66,7 @@ export function QuickEnrollLayer({
               onClose={onCloseSheet}
               onAddPhoto={onAddPhoto}
               onCreated={onCreated}
+              oneTrip={oneTrip}
             />
           </View>
         </View>
