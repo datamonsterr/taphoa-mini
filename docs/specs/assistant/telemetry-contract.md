@@ -184,6 +184,8 @@ deduplication across relay retries, and `occurred_at` as the event timestamp. Pe
 | `voice_sale_drafted`                              | backend | `lines`, `matched`, `ambiguous`, `unknown`, `latency_ms`, `stt_fallback`             |
 | `voice_sale_confirmed`                            | app     | `edited`, `line_count`, `payment_method`, `total`                                    |
 | `voice_sale_abandoned`                            | app     | `stage` (listening, draft, pay)                                                      |
+| `one_trip_enrollment_completed`                   | app     | `duration_ms` (shutter to saved product), `shot_count`, `voice_used`; gate C1        |
+| `scan_tap_to_result`                              | app     | `duration_ms` (shutter to result or error), `ok`, `detection_count`; gate C3         |
 | `$exception`                                      | app     | automatic error tracking                                                             |
 
 Backend events are emitted from the outbox relay (one capture per committed business event),
