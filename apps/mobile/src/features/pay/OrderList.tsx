@@ -23,6 +23,9 @@ const OrderItem = memo(function OrderItem({ line }: { line: CartLine }) {
           </Text>
         ) : null}
       </View>
+      <Text numberOfLines={2} style={styles.itemName}>
+        {line.name}
+      </Text>
       <Text numberOfLines={1} style={styles.itemPrice}>
         {formatVnd(line.price * line.qty).replace('đ', '')}
       </Text>

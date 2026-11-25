@@ -8,7 +8,7 @@ type Options = {
   enabled: boolean;
   lookup: (code: string) => Promise<Product | null>;
   onResult: (code: string, product: Product | null) => void;
-  onError: () => void;
+  onError: (error: unknown) => void;
 };
 
 /** Serializes reads, debounces each code, and discards lookups after a result/sheet/focus change. */
@@ -46,8 +46,8 @@ export function useBarcodeScanner({
       try {
         const product = await lookup(code);
         if (token === generation.current) onResult(code, product);
-      } catch {
-        if (token === generation.current) onError();
+      } catch (error) {
+        if (token === generation.current) onError(error);
       } finally {
         pending.current = false;
         setBusy(false);

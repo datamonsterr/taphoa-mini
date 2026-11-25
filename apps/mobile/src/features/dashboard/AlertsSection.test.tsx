@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 
 import * as stockApi from '@/lib/api/stock';
 import * as ledger from '@/lib/api/ledger';
+import * as review from '@/lib/api/review';
 import { testSession, setTestMembership } from '@/test/session';
 import { renderWithProviders } from '@/test/render';
 import { colors } from '@/theme';
@@ -93,4 +94,73 @@ test('hides the stock list when there are no low or out products', async () => {
   await screen.findByRole('button', { name: /món giá bán dưới giá nhập/ });
   expect(screen.queryByText('Sắp hết hàng')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Xem tất cả' })).toBeNull();
+});
+
+test('accepts the suggested price only after confirmation', async () => {
+  const alert = (await ledger.listAlerts('open'))[0]!;
+  const accept = jest.spyOn(ledger, 'acceptAlert');
+  await renderWithProviders(<AlertsSection />);
+  await fireEvent.press(
+    await screen.findByRole('button', { name: /món giá bán dưới giá nhập/ }),
+  );
+  expect(
+    screen.getByText(
+      `Lợi nhuận ${alert.margin_pct}% · Giá đề xuất ${new Intl.NumberFormat('vi-VN').format(alert.suggested_price)}đ`,
+    ),
+  ).toBeOnTheScreen();
+  await fireEvent.press(
+    screen.getAllByRole('button', { name: 'Áp dụng giá đề xuất' })[0]!,
+  );
+  expect(accept).not.toHaveBeenCalled();
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Xác nhận đổi giá' }),
+  );
+  await screen.findByText('Đã cập nhật giá');
+  expect(accept).toHaveBeenCalledWith(alert.id, undefined);
+});
+
+test('dismisses a margin alert', async () => {
+  const alert = (await ledger.listAlerts('open'))[0]!;
+  const dismiss = jest.spyOn(ledger, 'dismissAlert');
+  await renderWithProviders(<AlertsSection />);
+  await fireEvent.press(
+    await screen.findByRole('button', { name: /món giá bán dưới giá nhập/ }),
+  );
+  await fireEvent.press(
+    screen.getAllByRole('button', { name: 'Bỏ qua cảnh báo' })[0]!,
+  );
+  await screen.findByText('Đã bỏ qua');
+  expect(dismiss).toHaveBeenCalledWith(alert.id, expect.anything());
+});
+
+test('links a manual line to a selected product', async () => {
+  const line = (await review.listManualLines({ status: 'open' })).items[0]!;
+  const resolve = jest.spyOn(review, 'resolveManualLine');
+  await renderWithProviders(<AlertsSection />);
+  await fireEvent.press(
+    await screen.findByRole('button', { name: /món bán không có trong kho/ }),
+  );
+  await fireEvent.press(
+    screen.getAllByRole('button', { name: 'Liên kết sản phẩm' })[0]!,
+  );
+  await fireEvent.press(
+    await screen.findByRole('button', { name: 'Coca-Cola lon 330ml' }),
+  );
+  await screen.findByText('Đã xử lý');
+  expect(resolve).toHaveBeenCalledWith(
+    line.line_id,
+    expect.objectContaining({ action: 'link', product_id: expect.any(String) }),
+  );
+});
+
+test('dismisses a manual line', async () => {
+  const line = (await review.listManualLines({ status: 'open' })).items[0]!;
+  const resolve = jest.spyOn(review, 'resolveManualLine');
+  await renderWithProviders(<AlertsSection />);
+  await fireEvent.press(
+    await screen.findByRole('button', { name: /món bán không có trong kho/ }),
+  );
+  await fireEvent.press(screen.getAllByRole('button', { name: 'Bỏ qua' })[0]!);
+  await screen.findByText('Đã xử lý');
+  expect(resolve).toHaveBeenCalledWith(line.line_id, { action: 'dismiss' });
 });

@@ -127,9 +127,13 @@ impl<T: ?Sized + Send + Sync + 'static> ModelHolder<T> {
         Self { inner }
     }
 
+    pub fn family(&self) -> &'static str {
+        self.inner.name
+    }
+
     pub async fn get(&self) -> anyhow::Result<ModelLease<T>> {
         let (lease, _) = self.get_with_timing().await?;
-        if matches!(self.inner.name, "sam" | "dinov2" | "ocr") {
+        if matches!(self.inner.name, "sam" | "dinov2" | "siglip2" | "ocr") {
             tracing::info!(
                 backend = "local",
                 family = self.inner.name,

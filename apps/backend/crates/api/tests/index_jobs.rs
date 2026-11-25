@@ -21,7 +21,7 @@ use taphoa_api::{
     catalog::index_jobs::{WorkerConfig, enqueue, process_next, spawn},
     storage::{ObjectStore, SignedUrl},
 };
-use taphoa_recognition::{EmbedError, Embedder, MockEmbedder};
+use taphoa_recognition::{EmbedError, Embedder, MockEmbedder, MockEmbedder768};
 use uuid::Uuid;
 
 // ─── Serial execution guard ───────────────────────────────────────────────────
@@ -358,6 +358,77 @@ async fn happy_path_job_done_embeddings_and_prototype() {
     assert_eq!(payload["data"]["reference_count"], 3);
     assert_eq!(payload["version"], 1);
     assert!(payload["actor"].is_null());
+
+    cleanup(&pool, store_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn happy_path_768_job_populates_embedding_768_and_prototype() {
+    let _guard = serial_guard().await;
+    let pool = pool().await;
+
+    let storage = Arc::new(MemStore::default());
+    let embedder: Arc<dyn Embedder> = Arc::new(MockEmbedder768);
+    let slots = Arc::new(tokio::sync::Semaphore::new(2));
+    let cfg = test_config();
+
+    let store_id = new_store(&pool).await;
+    let product_id = new_product(&pool, store_id).await;
+
+    let mut reference_ids = Vec::new();
+    for position in 0..3 {
+        let img_key = format!("img/{}.png", Uuid::new_v4());
+        let image_id = new_image(&pool, store_id, &storage, &img_key).await;
+        attach_image_with_cutout(&pool, store_id, product_id, image_id, position, &storage).await;
+        reference_ids.push(image_id);
+    }
+
+    let mut tx = pool.begin().await.unwrap();
+    let job_id = enqueue(&mut tx, store_id, product_id).await.unwrap();
+    tx.commit().await.unwrap();
+
+    let processed = process_next(&pool, embedder, storage, slots, &cfg)
+        .await
+        .unwrap();
+    assert!(processed, "expected a job to be processed");
+
+    let job_status: String = sqlx::query_scalar("SELECT status FROM index_jobs WHERE id = $1")
+        .bind(job_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(job_status, "done");
+
+    let prod_status: String = sqlx::query_scalar("SELECT index_status FROM products WHERE id = $1")
+        .bind(product_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(prod_status, "ready");
+
+    // All 6 embeddings should populate embedding_768 with embedding remaining NULL.
+    let emb_768_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_embeddings WHERE product_id = $1 AND embedding_768 IS NOT NULL AND embedding IS NULL",
+    )
+    .bind(product_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(emb_768_count, 6);
+
+    // Prototype must have embedding_768 populated and embedding NULL.
+    let (ref_count, proto_768_not_null, proto_384_null): (i32, bool, bool) = sqlx::query_as(
+        "SELECT reference_count, embedding_768 IS NOT NULL, embedding IS NULL \
+         FROM product_prototypes WHERE product_id = $1",
+    )
+    .bind(product_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ref_count, 3);
+    assert!(proto_768_not_null);
+    assert!(proto_384_null);
 
     cleanup(&pool, store_id).await;
 }

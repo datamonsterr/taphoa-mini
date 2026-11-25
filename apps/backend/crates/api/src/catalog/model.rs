@@ -12,7 +12,6 @@ pub const CATEGORY_MAX: usize = 40;
 pub const MAX_IMAGES: usize = 8;
 pub const MAX_LEGACY_IMAGE_IDS: usize = 5;
 pub const MIN_REFERENCES: usize = 3;
-pub const DUPLICATE_THRESHOLD: f64 = 0.88;
 
 pub fn path_id(id: &str) -> ApiResult<Uuid> {
     Uuid::parse_str(id).map_err(|_| ApiError::not_found())

@@ -42,10 +42,31 @@ impl Default for RecognitionConfig {
     }
 }
 impl RecognitionConfig {
+    pub fn for_model(model: &str) -> anyhow::Result<Self> {
+        Ok(match model {
+            "" | "dinov2" => Self::default(),
+            "siglip2" => Self {
+                match_threshold: 0.8201577,
+                match_margin: 0.07806492,
+                match_floor: 0.7970497,
+                duplicate_threshold: 0.97275853,
+                max_detections: DEFAULT_MAX_DETECTIONS,
+            },
+            "mock" => Self {
+                match_threshold: 0.80,
+                match_margin: 0.05,
+                match_floor: 0.60,
+                duplicate_threshold: 0.88,
+                max_detections: DEFAULT_MAX_DETECTIONS,
+            },
+            _ => anyhow::bail!("EMBEDDER must be dinov2 or siglip2 (mock is for local/e2e only)"),
+        })
+    }
     pub fn from_env() -> anyhow::Result<Self> {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        let defaults = Self::for_model(get("EMBEDDER").as_deref().unwrap_or("dinov2"))?;
         let ratio = |name: &str, default: f32| -> anyhow::Result<f32> {
             match get(name) {
                 None => Ok(default),
@@ -61,16 +82,16 @@ impl RecognitionConfig {
                 }
             }
         };
-        let match_threshold = ratio(MATCH_THRESHOLD, DEFAULT_MATCH_THRESHOLD)?;
-        let match_margin = ratio(MATCH_MARGIN, DEFAULT_MATCH_MARGIN)?;
-        let match_floor = ratio(MATCH_FLOOR, DEFAULT_MATCH_FLOOR)?;
-        let duplicate_threshold = ratio(DUPLICATE_THRESHOLD, DEFAULT_DUPLICATE_THRESHOLD)?;
+        let match_threshold = ratio(MATCH_THRESHOLD, defaults.match_threshold)?;
+        let match_margin = ratio(MATCH_MARGIN, defaults.match_margin)?;
+        let match_floor = ratio(MATCH_FLOOR, defaults.match_floor)?;
+        let duplicate_threshold = ratio(DUPLICATE_THRESHOLD, defaults.duplicate_threshold)?;
         anyhow::ensure!(
             match_floor <= match_threshold,
             "{MATCH_FLOOR} must not exceed {MATCH_THRESHOLD}"
         );
         let max_detections = match get(SCAN_MAX_DETECTIONS) {
-            None => DEFAULT_MAX_DETECTIONS,
+            None => defaults.max_detections,
             Some(value) => {
                 let parsed: usize = value
                     .parse()
@@ -335,6 +356,59 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn recognition_defaults_follow_selected_model_and_keep_env_overrides() {
+        let default_cfg = RecognitionConfig::from_lookup(|_| None).unwrap();
+        let dino =
+            RecognitionConfig::from_lookup(|name| (name == "EMBEDDER").then(|| "dinov2".into()))
+                .unwrap();
+        assert_eq!(default_cfg, dino);
+        assert_eq!(default_cfg.match_threshold, 0.80);
+        assert_eq!(default_cfg.duplicate_threshold, 0.88);
+
+        let siglip =
+            RecognitionConfig::from_lookup(|name| (name == "EMBEDDER").then(|| "siglip2".into()))
+                .unwrap();
+        assert_ne!(
+            siglip, dino,
+            "different score distributions require different model defaults"
+        );
+        assert_eq!(siglip.match_threshold, 0.8201577);
+        assert_eq!(siglip.duplicate_threshold, 0.97275853);
+
+        let mock = RecognitionConfig::for_model("mock").unwrap();
+        assert_eq!(
+            (
+                mock.match_threshold,
+                mock.match_margin,
+                mock.match_floor,
+                mock.duplicate_threshold
+            ),
+            (0.8, 0.05, 0.6, 0.88)
+        );
+        assert!(
+            RecognitionConfig::from_lookup(|key| (key == "EMBEDDER").then(|| "typo".into()))
+                .is_err()
+        );
+
+        // Env var overrides work for both models
+        for model in ["dinov2", "siglip2"] {
+            let configured = RecognitionConfig::from_lookup(|name| match name {
+                "EMBEDDER" => Some(model.into()),
+                MATCH_THRESHOLD => Some("0.93".into()),
+                MATCH_MARGIN => Some("0.02".into()),
+                MATCH_FLOOR => Some("0.8".into()),
+                DUPLICATE_THRESHOLD => Some("0.96".into()),
+                _ => None,
+            })
+            .unwrap();
+            assert_eq!(configured.match_threshold, 0.93);
+            assert_eq!(configured.match_margin, 0.02);
+            assert_eq!(configured.match_floor, 0.8);
+            assert_eq!(configured.duplicate_threshold, 0.96);
+        }
     }
 
     fn segment(bbox: [f32; 4], score: f32, area: u32) -> Segment {

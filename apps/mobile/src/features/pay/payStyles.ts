@@ -170,6 +170,7 @@ export const styles = StyleSheet.create({
   // Give unit choices enough width to keep their labels on one line.
   cell: { width: '50%' },
   item: { width: '100%', alignItems: 'center', gap: space[1] },
+  itemName: { ...typography.label, textAlign: 'center' },
   qtyBadge: {
     position: 'absolute',
     right: -6,

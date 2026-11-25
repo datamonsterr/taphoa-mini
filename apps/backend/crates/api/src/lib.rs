@@ -52,7 +52,7 @@ use tower_http::{
     limit::RequestBodyLimitLayer,
 };
 
-use crate::recognition::classify::RecognitionConfig;
+pub use crate::recognition::classify::RecognitionConfig;
 pub use crate::vector::{InMemoryVectorIndex, VectorIndex};
 
 pub use error::{ApiError, ApiResult};
