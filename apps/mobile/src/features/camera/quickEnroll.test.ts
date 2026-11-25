@@ -731,3 +731,43 @@ describe('quickEnroll state machine', () => {
     });
   });
 });
+
+describe('auto (one-trip shots)', () => {
+  const auto = (id: string): QuickEnrollAction => ({
+    type: 'auto',
+    shot: {
+      id,
+      uri: `file:///${id}.jpg`,
+      width: 1024,
+      height: 768,
+      imageId: `img-${id}`,
+      points: [{ x: 512, y: 384, label: 1 }],
+      mask: { width: 1024, height: 768, pngBase64: 'AA==' },
+      bbox: [10, 20, 300, 400],
+      cutoutImageId: `cut-${id}`,
+    },
+  });
+
+  it('appends an accepted shot without touching the current one', () => {
+    const state = run([{ type: 'toggle' }, auto('a'), auto('b'), auto('c')]);
+    expect(state.currentId).toBeUndefined();
+    expect(selectAccepted(state).map((s) => s.id)).toEqual(['a', 'b', 'c']);
+    expect(selectCanAdd(state)).toBe(true);
+    expect(selectReferences(state)).toEqual(
+      ['a', 'b', 'c'].map((id) => ({
+        image_id: `img-${id}`,
+        cutout_image_id: `cut-${id}`,
+        bbox: [10, 20, 300, 400],
+      })),
+    );
+  });
+
+  it('is ignored when inactive or full', () => {
+    expect(run([auto('a')])).toBe(initialQuickEnroll);
+    const full = run([
+      { type: 'toggle' },
+      ...Array.from({ length: MAX_SHOTS }, (_, i) => auto(`s${i}`)),
+    ]);
+    expect(run([auto('extra')], full)).toBe(full);
+  });
+});

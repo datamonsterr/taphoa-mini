@@ -95,6 +95,12 @@ const samples = {
     total: 24500,
   },
   voice_sale_abandoned: { stage: 'draft' },
+  one_trip_enrollment_completed: {
+    duration_ms: 12400,
+    shot_count: 3,
+    voice_used: true,
+  },
+  scan_tap_to_result: { duration_ms: 2100, ok: true, detection_count: 2 },
 } satisfies AppEventProps;
 const requiredKeys: Record<keyof AppEventProps, string[]> = {
   $screen: ['$screen_name'],
@@ -113,6 +119,8 @@ const requiredKeys: Record<keyof AppEventProps, string[]> = {
   voice_sale_started: ['entry'],
   voice_sale_confirmed: ['edited', 'line_count', 'payment_method', 'total'],
   voice_sale_abandoned: ['stage'],
+  one_trip_enrollment_completed: ['duration_ms', 'shot_count', 'voice_used'],
+  scan_tap_to_result: ['duration_ms', 'ok', 'detection_count'],
 };
 // $screen_name is the contract's reserved screen property, not a person's name.
 function assertSafe(value: unknown) {

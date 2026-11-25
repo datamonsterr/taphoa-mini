@@ -71,6 +71,18 @@ export type AppEventProps = {
     total: number;
   };
   voice_sale_abandoned: { stage: 'listening' | 'draft' | 'pay' };
+  /** Gate C1: shutter press to saved product, one-trip enrollment only. */
+  one_trip_enrollment_completed: {
+    duration_ms: number;
+    shot_count: number;
+    voice_used: boolean;
+  };
+  /** Gate C3: shutter press to scan result (or error) on the camera screen. */
+  scan_tap_to_result: {
+    duration_ms: number;
+    ok: boolean;
+    detection_count: number;
+  };
 };
 
 export type AppEventName = keyof AppEventProps;

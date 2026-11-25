@@ -164,6 +164,10 @@ const CANNED: Record<string, Canned> = {
     transcript: 'hôm nay bán được bao nhiêu',
     intent: 'chat',
   },
+  'product-name-price.m4a': {
+    transcript: 'mì hảo hảo năm nghìn',
+    intent: 'chat',
+  },
 };
 
 function context(value: unknown) {

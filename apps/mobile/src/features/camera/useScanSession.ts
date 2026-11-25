@@ -2,6 +2,7 @@ import { onlineManager } from '@tanstack/react-query';
 import { useCallback, useReducer, useRef, type RefObject } from 'react';
 
 import type { CaptureMode } from '@/components/camera';
+import { capture as track } from '@/lib/analytics';
 import { RATE_LIMIT_MESSAGE, isRateLimited, useCreateScan } from '@/lib/api';
 
 import {
@@ -31,6 +32,21 @@ const message = (error: unknown) =>
       ? SCAN_OFFLINE_MESSAGE
       : SCAN_FAILED_MESSAGE;
 
+/**
+ * Gate C3 (identify p95 ≤ 8 s): shutter press to result or error, logged as `scan.tap_to_result`
+ * (logcat / browser console) and the `scan_tap_to_result` product event. A timed-out scan counts
+ * as not ok.
+ */
+function logScanTiming(started: number, ok: boolean, detectionCount: number) {
+  const props = {
+    duration_ms: Math.round(performance.now() - started),
+    ok,
+    detection_count: detectionCount,
+  };
+  console.info('scan.tap_to_result', props);
+  track('scan_tap_to_result', props);
+}
+
 /** Drives one capture: take the photo, freeze it, upload it, keep the reducer in step. */
 export function useScanSession(
   cameraRef: RefObject<PictureTaker | null>,
@@ -42,25 +58,30 @@ export function useScanSession(
   const { phase, photo } = state;
 
   const submit = useCallback(
-    async (token: number, shot: Photo) => {
+    async (token: number, shot: Photo, started: number) => {
       // React Query parks a mutation while offline, so say so now instead of after the timeout.
       if (offline()) {
         dispatch({ type: 'failed', token, message: SCAN_OFFLINE_MESSAGE });
+        logScanTiming(started, false, 0);
         return;
       }
+      let timedOut = false;
       // A late answer after the timeout is dropped: the reducer only takes `scanning` + same token.
-      const timer = setTimeout(
-        () => dispatch({ type: 'failed', token, message: SCAN_SLOW_MESSAGE }),
-        SCAN_TIMEOUT_MS,
-      );
+      const timer = setTimeout(() => {
+        timedOut = true;
+        dispatch({ type: 'failed', token, message: SCAN_SLOW_MESSAGE });
+        logScanTiming(started, false, 0);
+      }, SCAN_TIMEOUT_MS);
       try {
         const scan = await mutateAsync({
           image: toUploadFile(shot),
           mode: toScanMode(mode),
         });
         dispatch({ type: 'scanned', token, scan, open: mode === 'one' });
+        if (!timedOut) logScanTiming(started, true, scan.detections.length);
       } catch (error) {
         dispatch({ type: 'failed', token, message: message(error) });
+        if (!timedOut) logScanTiming(started, false, 0);
       } finally {
         clearTimeout(timer);
       }
@@ -71,6 +92,7 @@ export function useScanSession(
   const capture = useCallback(
     async (onPhoto?: (shot: Photo) => Promise<void>) => {
       if (phase !== 'idle') return;
+      const started = performance.now();
       const token = ++tokenRef.current;
       dispatch({ type: 'shutter', token });
       let shot: Photo;
@@ -87,7 +109,7 @@ export function useScanSession(
         } finally {
           dispatch({ type: 'reset' });
         }
-      } else await submit(token, shot);
+      } else await submit(token, shot, started);
     },
     [phase, cameraRef, submit],
   );
@@ -100,7 +122,7 @@ export function useScanSession(
     }
     const token = ++tokenRef.current;
     dispatch({ type: 'retry', token });
-    await submit(token, photo);
+    await submit(token, photo, performance.now());
   }, [photo, submit]);
 
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);

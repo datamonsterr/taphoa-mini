@@ -111,6 +111,12 @@ const ANSWERS: Record<string, Answer> = {
     intent: 'chat',
     lines: [],
   },
+  // One-trip enrollment: a product name and price, transcribed (`mode=transcribe`) only.
+  'product-name-price.m4a': {
+    transcript: 'mì hảo hảo năm nghìn',
+    intent: 'chat',
+    lines: [],
+  },
 };
 
 const encoder = new TextEncoder();

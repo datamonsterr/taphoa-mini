@@ -11,6 +11,9 @@ import {
 import { barcodeConflict } from '@/features/enroll/barcodeConflict';
 import { newUuid } from '@/lib/uuid';
 
+import { finishOneTrip } from './oneTrip';
+import { OneTripVoice } from './OneTripVoice';
+
 import {
   MAX_SHOTS,
   MIN_SHOTS,
@@ -22,9 +25,16 @@ type Props = {
   onClose: () => void;
   onAddPhoto: () => void;
   onCreated: (product: Product) => void;
+  /** One-trip enrollment: spoken name and price, and the C1 timing on save. */
+  oneTrip?: { fixture?: string };
 };
 
-export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
+export function QuickEnrollSheet({
+  onClose,
+  onAddPhoto,
+  onCreated,
+  oneTrip,
+}: Props) {
   const shots = useQuickEnrollStore((s) => s.shots);
   const dispatch = useQuickEnrollStore((s) => s.dispatch);
   const create = useCreateProduct();
@@ -32,6 +42,12 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
   const [saving, setSaving] = useState(false);
   const productId = useRef<string | null>(null);
   const pending = useRef(false);
+  /** Spoken values remount the form with them; `version` is its key. */
+  const [spoken, setSpoken] = useState<{
+    version: number;
+    name: string;
+    price?: number;
+  }>({ version: 0, name: '' });
   const accepted = shots.filter((s) => s.status === 'accepted');
 
   async function save(values: ProductValues, forceNew = false) {
@@ -48,6 +64,11 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
         references,
         force_new: forceNew,
       });
+      if (oneTrip)
+        finishOneTrip({
+          shot_count: references.length,
+          voice_used: spoken.version > 0,
+        });
       onCreated(product);
       if (useQuickEnrollStore.getState().active) dispatch({ type: 'toggle' });
     } catch (error) {
@@ -80,6 +101,19 @@ export function QuickEnrollSheet({ onClose, onAddPhoto, onCreated }: Props) {
 
   return (
     <ProductForm
+      key={spoken.version}
+      initialName={spoken.name}
+      initialPrice={spoken.price ? String(spoken.price) : ''}
+      footer={
+        oneTrip ? (
+          <OneTripVoice
+            fixture={oneTrip.fixture}
+            onResult={(result) =>
+              setSpoken((prev) => ({ version: prev.version + 1, ...result }))
+            }
+          />
+        ) : undefined
+      }
       testID="quick-enroll-sheet"
       title={`Thêm hàng nhanh · ${accepted.length}/${MIN_SHOTS}`}
       photos={accepted.map((shot) => ({ id: shot.id, uri: shot.uri }))}
