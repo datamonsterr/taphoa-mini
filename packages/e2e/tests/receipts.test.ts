@@ -65,6 +65,18 @@ describe('receipt OCR against the deployed backend', () => {
     expect(photo.response.status, JSON.stringify(photo.error)).toBe(201);
     expect(photo.data!.document.detected).toBe(false);
 
+    // The OCR models load lazily, so the first draft after a deploy pays the model load (~5 s on
+    // test). Take it untimed, as latency.test.ts does, and keep the 6 s p95 for warm drafts.
+    const warmStarted = performance.now();
+    const warm = await client.raw.POST('/v1/receipts', {
+      params: { header: { 'Idempotency-Key': randomUUID() } },
+      body: { image_id: document.data!.image.id },
+    });
+    expect(warm.response.status, JSON.stringify(warm.error)).toBe(201);
+    console.info(
+      `receipt warm-up draft: ${(performance.now() - warmStarted).toFixed(0)}ms`,
+    );
+
     const samples = [];
     const receipts: components['schemas']['Receipt'][] = [];
     for (let run = 0; run < 5; run++) {
