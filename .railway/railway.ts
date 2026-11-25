@@ -161,6 +161,8 @@ export default defineRailway((ctx) => {
       RATE_LIMIT_STORE_CREATE_PER_HOUR: preserve(),
       RATE_LIMIT_JOIN_PER_HOUR: preserve(),
       RATE_LIMIT_RECOVER_PER_10MIN: preserve(),
+      // receipts.test.ts measures 20 drafts plus a warm-up from one member (default 10/min).
+      RATE_LIMIT_RECEIPT_PER_MINUTE: preserve(),
       S3_CREATE_BUCKET: 'false',
       IMAGE_URL_TTL_SECONDS: '900',
     },
