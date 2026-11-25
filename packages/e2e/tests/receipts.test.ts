@@ -36,8 +36,11 @@ async function scan(client: ApiClient, photo: Buffer) {
   }
 }
 
+const DRAFTS = 20;
 describe('receipt OCR against the deployed backend', () => {
-  it('detects documents, parses five fresh drafts within 6s p95, and confirms its stock and expense', async (ctx) => {
+  // 20 drafts: with nearest-rank p95, 5 samples made the gate the single slowest request, so one
+  // stalled round trip (server total ~1 s, wall 7.3 s in deploy 45550977441) failed it.
+  it('detects documents, parses twenty fresh drafts within 6s p95, and confirms its stock and expense', async (ctx) => {
     const { client } = await createStore();
     // Probe OCR first so a deliberately model-free backend has an explicit skip reason.
     const probe = await client.raw.POST('/v1/receipts', {
@@ -79,7 +82,7 @@ describe('receipt OCR against the deployed backend', () => {
 
     const samples = [];
     const receipts: components['schemas']['Receipt'][] = [];
-    for (let run = 0; run < 5; run++) {
+    for (let run = 0; run < DRAFTS; run++) {
       const started = performance.now();
       const draft = await client.raw.POST('/v1/receipts', {
         params: { header: { 'Idempotency-Key': randomUUID() } },
@@ -112,7 +115,7 @@ describe('receipt OCR against the deployed backend', () => {
         0.95,
       )}ms`,
     );
-    expect(new Set(receipts.map((r) => r.id)).size).toBe(5);
+    expect(new Set(receipts.map((r) => r.id)).size).toBe(DRAFTS);
     expect(
       percentile(
         samples.map((s) => s.wall_ms),
