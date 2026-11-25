@@ -419,7 +419,8 @@ const CLIENT_ERROR_LOG =
   /^Failed to load resource: the server responded with a status of 4\d\d/;
 
 // Track script loads from before sign-in so goOffline can wait for Clerk's lazy chunks
-// without waiting for long-lived fetches (including /v1/events).
+// without waiting for long-lived fetches (including /v1/events). WebAssembly counts as a script:
+// the app warms the web barcode scanner's ZXing module (a fetch) while online.
 const scriptLoads = new WeakMap<
   Page,
   { pending: Set<Request>; changedAt: number }
@@ -428,7 +429,11 @@ function trackScriptLoads(page: Page) {
   const state = { pending: new Set<Request>(), changedAt: Date.now() };
   scriptLoads.set(page, state);
   page.on('request', (request) => {
-    if (request.resourceType() !== 'script') return;
+    if (
+      request.resourceType() !== 'script' &&
+      !new URL(request.url()).pathname.endsWith('.wasm')
+    )
+      return;
     state.pending.add(request);
     state.changedAt = Date.now();
   });
@@ -634,37 +639,54 @@ function isCall(
   return matches(pattern, new URL(response.url()).pathname);
 }
 
+/** The JSON body the browser reports for this exact request, or undefined. */
+const jsonPostData = (request: Request): unknown => {
+  const text = request.postDataBuffer()?.toString('utf8');
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
 async function describeCall<T>(response: Response): Promise<ApiCall<T>> {
   const request: Request = response.request();
   const url = response.url();
-  // The app sends bodies as streams, which the browser does not hand back to Playwright: read
-  // them from the observer that `trackApiBodies` installs (it only records, never alters).
   // Start reading the response body first: the browser drops it once the page navigates away
   // (a spec often navigates right after the call it waits for), and the request-body lookup below
   // is a round trip that would give the navigation time to win.
   const textPromise =
     response.status() === 204 ? Promise.resolve('') : response.text();
+  // Prefer the JSON body the browser reports for this exact request. Multipart bodies (the
+  // browser does not hand back a Blob part) are read from the observer that `trackApiBodies`
+  // installs (it only records, never alters). The observer matches by method and URL only, so it
+  // cannot tell repeated calls to one URL apart: a spec that records several JSON calls to one URL
+  // needs the browser's copy.
+  const json = jsonPostData(request);
   const requestBodyPromise = ['GET', 'HEAD'].includes(request.method())
     ? Promise.resolve(null)
-    : request
-        .frame()
-        .page()
-        .evaluate(
-          ([method, href]) => {
-            const log = ((window as any).__apiBodies ?? []) as {
-              method: string;
-              url: string;
-              body: unknown;
-            }[];
-            return (
-              [...log]
-                .reverse()
-                .find((e) => e.method === method && e.url === href)?.body ??
-              null
-            );
-          },
-          [request.method(), url],
-        );
+    : json !== undefined
+      ? Promise.resolve(json)
+      : request
+          .frame()
+          .page()
+          .evaluate(
+            ([method, href]) => {
+              const log = ((window as any).__apiBodies ?? []) as {
+                method: string;
+                url: string;
+                body: unknown;
+              }[];
+              return (
+                [...log]
+                  .reverse()
+                  .find((e) => e.method === method && e.url === href)?.body ??
+                null
+              );
+            },
+            [request.method(), url],
+          );
   const [requestBody, text] = await Promise.all([
     requestBodyPromise,
     textPromise,
