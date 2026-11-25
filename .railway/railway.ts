@@ -20,9 +20,10 @@ export default defineRailway((ctx) => {
   const redisVolume = volume('redis-volume', {
     alerts: { usage: { '100': {}, '80': {}, '95': {} } },
     allowOnlineResize: true,
-    // Live volumes are in San Francisco (sfo) in both environments. Declaring another region
-    // would plan a volume move; keep this equal to `railway config pull`.
-    region: 'sfo',
+    // Declaring a region other than the live one plans a volume move; keep this equal to
+    // `railway config pull`. Production is in San Francisco (sfo); the test volume now lives in
+    // Singapore (`asia-southeast1-eqsg3a`, the id `railway config pull` reports).
+    region: ctx.isEnvironment('test') ? 'asia-southeast1-eqsg3a' : 'sfo',
     sizeMB: 5000,
   });
 
@@ -65,7 +66,9 @@ export default defineRailway((ctx) => {
     build: {
       builder: 'DOCKERFILE',
       dockerfilePath: 'apps/backend/Dockerfile',
-      watchPatterns: ['apps/backend/**', 'rust-toolchain.toml'],
+      // No watchPatterns: the gated deploy workflow is the only release path (D1), and Railway
+      // marks a `railway up` whose commit touched no watched file SKIPPED. In test, where each
+      // run's deployment is removed afterwards, the follow-up redeploy then revived an old image.
     },
     replicas: { sin: 1 },
     healthcheck: '/healthz',
