@@ -141,9 +141,7 @@ jobs:
           BACKEND_URL_TEST: ${{ vars.BACKEND_URL_TEST }}
         run: |
           scripts/ci/wait-healthy.sh "$BACKEND_URL_TEST"
-          actual=$(curl --fail --silent --show-error "$BACKEND_URL_TEST/healthz" | jq -r '.service_version')
-          expected=$(git rev-parse HEAD)
-          test "$actual" = "$expected" || { echo "::error::Test serves $actual, expected $expected"; exit 1; }
+          scripts/ci/wait-version.sh "$BACKEND_URL_TEST" "$(git rev-parse HEAD)"
       - uses: ./.github/actions/setup-rust
         if: steps.railway.outputs.configured == 'true'
         with:
@@ -278,9 +276,7 @@ jobs:
         run: |
           test -n "$BACKEND_URL" || { echo '::error::BACKEND_URL is required'; exit 1; }
           scripts/ci/wait-healthy.sh "$BACKEND_URL"
-          actual=$(curl --fail --silent --show-error "$BACKEND_URL/healthz" | jq -r '.service_version')
-          expected=$(git rev-parse HEAD)
-          test "$actual" = "$expected" || { echo "::error::Served version $actual does not match $expected"; exit 1; }
+          scripts/ci/wait-version.sh "$BACKEND_URL" "$(git rev-parse HEAD)"
       - name: Summary
         if: always()
         env:
