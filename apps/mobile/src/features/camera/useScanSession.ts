@@ -1,11 +1,15 @@
 import { onlineManager } from '@tanstack/react-query';
-import type { CameraView } from 'expo-camera';
 import { useCallback, useReducer, useRef, type RefObject } from 'react';
 
 import type { CaptureMode } from '@/components/camera';
 import { RATE_LIMIT_MESSAGE, isRateLimited, useCreateScan } from '@/lib/api';
 
-import { takePhoto, toScanMode, toUploadFile } from './capture';
+import {
+  takePhoto,
+  toScanMode,
+  toUploadFile,
+  type PictureTaker,
+} from './capture';
 import { initialScanState, scanReducer, type Photo } from './scanReducer';
 
 /** A scan with no answer after this long gives up, so the seller is never stuck on the spinner. */
@@ -29,7 +33,7 @@ const message = (error: unknown) =>
 
 /** Drives one capture: take the photo, freeze it, upload it, keep the reducer in step. */
 export function useScanSession(
-  cameraRef: RefObject<CameraView | null>,
+  cameraRef: RefObject<PictureTaker | null>,
   mode: CaptureMode,
 ) {
   const [state, dispatch] = useReducer(scanReducer, initialScanState);

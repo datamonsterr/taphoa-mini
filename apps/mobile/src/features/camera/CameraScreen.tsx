@@ -1,4 +1,4 @@
-import { useCameraPermissions, type CameraView } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
 import { useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useRef, useState } from 'react';
@@ -7,6 +7,7 @@ import {
   Linking,
   Modal,
   Platform,
+  Pressable,
   Text,
   View,
   useWindowDimensions,
@@ -27,7 +28,8 @@ import { CameraControls } from './CameraControls';
 import { styles } from './cameraStyles';
 import { confirmDiscardShots } from './quickEnrollParts';
 import { CartShortcut } from './CartShortcut';
-import { LivePreview } from './LivePreview';
+import { LivePreview, useNativeCameraEnabled } from './LivePreview';
+import type { PictureTaker } from './capture';
 import { selectMode, useCaptureModeStore } from './modeStore';
 import {
   selectCanAdd,
@@ -62,11 +64,13 @@ export function CameraScreen() {
   const mode = useCaptureModeStore(selectMode);
   const setMode = useCaptureModeStore((s) => s.setMode);
 
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<PictureTaker>(null);
   const { state, capture, retry, reset, added, toggle, toggleOpen, choose } =
     useScanSession(cameraRef, mode);
   const { phase, photo, scan, selected, chosen, openId } = state;
   const [cameraReady, setCameraReady] = useState(false);
+  const [codeMode, setCodeMode] = useState(false);
+  const nativeCameraEnabled = useNativeCameraEnabled();
   const quickActive = useQuickEnrollStore((s) => s.active);
   const shots = useQuickEnrollStore((s) => s.shots);
   const currentShot = useQuickEnrollStore(selectCurrent);
@@ -221,6 +225,19 @@ export function CameraScreen() {
       {focused ? <StatusBar style="light" /> : null}
       <View style={styles.modeRow}>
         <ModeToggle mode={mode} onChange={setMode} />
+        {nativeCameraEnabled ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Quét mã"
+            accessibilityState={{ selected: codeMode }}
+            onPress={() => setCodeMode((value) => !value)}
+            style={styles.codeModeButton}
+          >
+            <Text style={styles.codeModeText}>
+              {codeMode ? 'Đang quét mã' : 'Quét mã'}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View testID="camera-finder-row" style={styles.finderRow}>
@@ -231,6 +248,7 @@ export function CameraScreen() {
             focused && permission?.granted ? (
               <LivePreview
                 cameraRef={cameraRef}
+                codeMode={codeMode}
                 onReadyChange={setCameraReady}
                 onBarcodeScanned={barcode.onScan}
                 scanningRef={barcode.scanningRef}
