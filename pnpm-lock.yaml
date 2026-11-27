@@ -57,8 +57,8 @@ importers:
   apps/mobile:
     dependencies:
       '@clerk/expo':
-        specifier: ^4.17.4
-        version: 4.17.4(@types/react@19.3.0)(expo-application@58.1.2(expo@58.0.19))(expo-auth-session@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3))(expo-constants@58.0.13)(expo-crypto@58.0.7(expo@58.0.19))(expo-secure-store@58.0.2(expo@58.0.19))(expo-web-browser@58.0.6(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)))(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)(zod@4.6.7)
+        specifier: ^4.17.5
+        version: 4.17.5(@types/react@19.3.0)(expo-application@58.1.2(expo@58.0.19))(expo-auth-session@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3))(expo-constants@58.0.13)(expo-crypto@58.0.7(expo@58.0.19))(expo-secure-store@58.0.2(expo@58.0.19))(expo-web-browser@58.0.6(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)))(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)(zod@4.6.7)
       '@expo-google-fonts/be-vietnam-pro':
         specifier: ^0.4.1
         version: 0.4.1
@@ -75,14 +75,14 @@ importers:
         specifier: 2.3.3
         version: 2.3.3(@babel/runtime@7.29.10)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@tanstack/query-async-storage-persister':
-        specifier: ^5.108.2
-        version: 5.108.2
+        specifier: ^5.108.4
+        version: 5.108.4
       '@tanstack/react-query':
-        specifier: ^5.108.2
-        version: 5.108.2(@types/react@19.3.0)(react@19.3.0)
+        specifier: ^5.108.4
+        version: 5.108.4(@types/react@19.3.0)(react@19.3.0)
       '@tanstack/react-query-persist-client':
-        specifier: ^5.108.2
-        version: 5.108.2(@tanstack/react-query@5.108.2(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0)
+        specifier: ^5.108.4
+        version: 5.108.4(@tanstack/react-query@5.108.4(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0)
       '@taphoa/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
@@ -174,14 +174,14 @@ importers:
         specifier: ~58.0.6
         version: 58.0.6(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))
       lucide-react-native:
-        specifier: ^1.77.0
-        version: 1.77.0(@types/react@19.3.0)(react-native-svg@15.16.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+        specifier: ^1.79.0
+        version: 1.79.0(@types/react@19.3.0)(react-native-svg@15.16.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       posthog-js:
-        specifier: ^1.453.2
-        version: 1.453.2(@types/react@19.3.0)(react@19.3.0)
+        specifier: ^1.454.2
+        version: 1.454.2(@types/react@19.3.0)(react@19.3.0)
       posthog-react-native:
-        specifier: ^4.87.1
-        version: 4.87.1(3f6c676dda3ef9b830072960c30c2980)
+        specifier: ^4.87.2
+        version: 4.87.2(3f6c676dda3ef9b830072960c30c2980)
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -235,8 +235,8 @@ importers:
         version: 5.1.0(@types/react@19.3.0)(react@19.3.0)
     devDependencies:
       '@clerk/testing':
-        specifier: 2.3.6
-        version: 2.3.6(@playwright/test@1.65.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 2.3.7
+        version: 2.3.7(@playwright/test@1.65.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@eslint/compat':
         specifier: ^2.1.1
         version: 2.1.1(eslint@10.15.0(jiti@2.7.0))
@@ -928,16 +928,16 @@ packages:
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
 
-  '@clerk/backend@3.31.4':
-    resolution: {integrity: sha512-lirZtugApjg9P5fQEWiR4iHZvOFc8Z4zQlTadu169C8GF/M5DMvTOEnlllFDZA823nipbHkJJf3I6/Wnromtbw==}
+  '@clerk/backend@3.32.0':
+    resolution: {integrity: sha512-2Inv2m6kMmLFEEdLOWsbbKmco5Is5ReTENume2aDV4/AqsrSurVox7njTUgH/SN1xNikq0LS3Jnm/QcpYSha3A==}
     engines: {node: '>=20.9.0'}
 
   '@clerk/clerk-js@6.46.3':
     resolution: {integrity: sha512-N/yh3VbItZvwRftOqqXZ/aO1ypjIVqOdFnm42K/RlgeIv8y55VPQzBA4KB6qezdfbQlr3M9PD0Zh1/jll6BNlg==}
     engines: {node: '>=20.9.0'}
 
-  '@clerk/expo@4.17.4':
-    resolution: {integrity: sha512-1n1I+4UCxBPXtDpzZlodBFJAUHPDNGL9Jhpgjl/QwrC5uuBXSYZ+46eLopGJt8VDlMRUHYhW/qOfdz6RyQM/vA==}
+  '@clerk/expo@4.17.5':
+    resolution: {integrity: sha512-RT8hjp1nIh+HFKOzBenM5hk8Jl3H0dNZXcU3nsdjdQsynoYHUy/Mq0GwHlTTu6rOtp+Xi4e9zR34QIS/cn9V+g==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       '@clerk/expo-biometrics': '>=0.1.0'
@@ -990,8 +990,8 @@ packages:
       react-native-webview:
         optional: true
 
-  '@clerk/react@6.19.4':
-    resolution: {integrity: sha512-UEnupKc+bama7L49tu7J1SlP0XmAClDs9sfYwCohYabNeJS1aIur/AZ7TMw1ukwAZVug2spt87/22F0JYQ2n0w==}
+  '@clerk/react@6.19.5':
+    resolution: {integrity: sha512-5Z4U6aapKfRKrQa0AJScq7GpTNrT/Gir/Vxbvpat9elVHJs/cqWfXOxsdxODmNToopjsKmlcvW6piIFO3JUIVw==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
@@ -1009,8 +1009,8 @@ packages:
       react-dom:
         optional: true
 
-  '@clerk/testing@2.3.6':
-    resolution: {integrity: sha512-JpucTYYyHx1gZqx5mcOGChhJV5kqXTeyJWS2Gw4xfFR1t6uobtVxulTKqQ/I6R4uBREROSPXzz9Y84SXh4AwRQ==}
+  '@clerk/testing@2.3.7':
+    resolution: {integrity: sha512-a/y+b8JB1hzidtZ61kyUnHuE9Y3J9UC0lSxhT+3VdtUJO+s252KbzPo85Q3JDVXqlnbsuMBXUyaj2DXBgC1JqQ==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       '@playwright/test': ^1
@@ -1835,8 +1835,8 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@posthog/browser-common@0.12.2':
-    resolution: {integrity: sha512-ZfqE1ntvsFPaD5I1IRh/wRL6JPW6Zlo8NDTOc0s5OtK7JeER9jE/byLjSHQ1/cKZk3MD8JG7F1hANUhnos6dOg==}
+  '@posthog/browser-common@0.13.1':
+    resolution: {integrity: sha512-2e7AVKc8F1mDGnqvEE6Mu/5wcojDXeK4ddeq0B2o1X5iwDVJ7XSH+7Rf3qNHkqwUZLCT9aoUe2mkgfM9vIo5kA==}
 
   '@posthog/core@1.69.2':
     resolution: {integrity: sha512-toMfPKklwLW+a4ZY3/EzM3GNMVXmk2ylGb8NPJXRH4igXMoI8wgNL2jqXOiglWAXqFBLZGYFN1oQx6LVmUTxTg==}
@@ -1847,8 +1847,8 @@ packages:
       react: '*'
       react-native: '*'
 
-  '@posthog/types@1.427.0':
-    resolution: {integrity: sha512-2RPVfuGIx0iys78mTOcfdzN7/w7AM1Ak3yu9++4/FonPf08mwGqDkJjThz2dA/34666ToNw5Q4fZoFdgvfNUHw==}
+  '@posthog/types@1.427.1':
+    resolution: {integrity: sha512-Kx9hWf6Au64CrBLafscANAeswkRFUMs4zlU9/gwB2Hf/9ggU9YNjbw/MQA5tt7cbzTCkh+4fNIPjQeJz7/j63w==}
 
   '@radix-ui/primitive@1.2.0':
     resolution: {integrity: sha512-KABY+VMIRPJL+Vyzv/335FEhXXD/xDv8BMb1kl48/aXJZMH0LtHCTx5ga5RnxaEP3nZHtmTLf1P9vanmFX46bw==}
@@ -2349,27 +2349,27 @@ packages:
   '@swc/helpers@0.5.21':
     resolution: {integrity: sha512-jI/VAmtdjB/RnI8GTnokyX7Ug8c+g+ffD6QRLa6XQewtnGyukKkKSk3wLTM3b5cjt1jNh9x0jfVlagdN2gDKQg==}
 
-  '@tanstack/query-async-storage-persister@5.108.2':
-    resolution: {integrity: sha512-Abtxibhp9H5g2OXvEdAVJM4oVjIKP0ntKnyDmD2gp2z0cWDZtXqLJ8BsmCy+KnN4ikC0e3xDfJpu/hy2ScHv8A==}
+  '@tanstack/query-async-storage-persister@5.108.4':
+    resolution: {integrity: sha512-3OxWCRj+ix1dYmu+8LOfJvBNSWQuas7XfkkEPmWvIQJaYcg6+uXoybMWgokAd87h67B0uiZf2mPnXqP1tVdj+g==}
 
-  '@tanstack/query-core@5.108.2':
-    resolution: {integrity: sha512-0l+0xDKqn71hfJBKaAvFP/X7WYM0TbscEk6nK1pHaWQUWUEA+WJD0VlT8wF+HIJANMV9B/DouPWwDnX3w/l9BA==}
+  '@tanstack/query-core@5.108.4':
+    resolution: {integrity: sha512-2Ks5dlLWz4eXJrthOyG0qW3SLt3xx0RrQmAmN0rnmogiaaOYuWiAe6HAm9KE2b2v8nig+vraNz8fsfZ6fF6zFg==}
 
-  '@tanstack/query-persist-client-core@5.108.2':
-    resolution: {integrity: sha512-IMl2Cmu6aau4mTuHXROVYuDmSAXEdwAjVG3Hsb6KkcW/praiTCSRdBOzoVvBridhrIHkFX3VUSYSVu5xEKap8A==}
+  '@tanstack/query-persist-client-core@5.108.4':
+    resolution: {integrity: sha512-ZsATTbw5zRsbjobn2s24TA8v4WhPVz2X5X8d4F3ws+H3DmygPQx3JUOg4W8ym6RbLPd7JXgCzYTOaMlAbfcKXA==}
 
-  '@tanstack/react-query-persist-client@5.108.2':
-    resolution: {integrity: sha512-bqqlo7Gr3OBbVtbRfTY+yvdCByl7MWaE8wLRkB5dL+AGrSlYwgABSzo7J4x100Stiv09+aN2SyBrnw/HU98olg==}
+  '@tanstack/react-query-persist-client@5.108.4':
+    resolution: {integrity: sha512-q4C5sYcIH7JImZfL9fbhumwKFkHS51cEZWyGcuPTDPfwF74s3OQmoOzidkuu1ywmPr1EYqvrQiXPqyc0sh36cg==}
     peerDependencies:
-      '@tanstack/react-query': ^5.108.2
+      '@tanstack/react-query': ^5.108.4
       '@types/react': ^18 || ^19
       react: ^18 || ^19
     peerDependenciesMeta:
       '@types/react':
         optional: true
 
-  '@tanstack/react-query@5.108.2':
-    resolution: {integrity: sha512-wV6hEjVGTfh9rvu3uREYW0hgBfS9klDejGelhPY575jD5jg6qbAb1nzT7hR1Q+wemR66ZjtE5p9pAGUwqK8zbg==}
+  '@tanstack/react-query@5.108.4':
+    resolution: {integrity: sha512-GlTa94kfEKTVsbzXe58rFA3GZ0ZE7N1aFtbZAfOS3XxMv8YNn4C+8rsz40LorHLazdm5PsqCroWaYAR+ZkMXMQ==}
     peerDependencies:
       '@types/react': ^18 || ^19
       react: ^18 || ^19
@@ -3637,8 +3637,8 @@ packages:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
 
-  dompurify@3.4.18:
-    resolution: {integrity: sha512-ofe3wI/uNm68HInABYFJYqQxRw1EaKAjNdrFVKqjUY+UZurvNd2L/HuQe097s/4RivWiZyP6tT7aoT8atjfhwg==}
+  dompurify@3.5.0:
+    resolution: {integrity: sha512-LYC0ZkE8P1V42JsRYTwMdme/2ET8SpOc5AA2eOFjP/IadvRd2fwiT4TVz5vkfy0XUx12aS2UaRkTnfVPNOv9vw==}
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
@@ -5433,8 +5433,8 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
-  lucide-react-native@1.77.0:
-    resolution: {integrity: sha512-cJfeXbYfrvyuGxLm+lXTnR2VsqKKgTbkXuhvt7tFTwS4+1kdm1EORzQmeqbRb9oT6ZClrJq6ZT3Wxieqz4dy+w==}
+  lucide-react-native@1.79.0:
+    resolution: {integrity: sha512-GubcjwqKQAPchrNylqRb/U9t0cuVqREO113gFePlAz2K6/aYCMMhpSbovLRqZiW4O7+MRWnW4brUt6zVOMXajA==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -6113,8 +6113,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js@1.453.2:
-    resolution: {integrity: sha512-dwWSNoTwGPm/dUCcjT69Bnoq7hCx+qPbnX9kax9HR8yjTd7EbIiza1VPW7LZxu7l1JnaZGXFygw4IWQIiqXGeQ==}
+  posthog-js@1.454.2:
+    resolution: {integrity: sha512-zInBAdAqt0R9h2gydLHxrgBeyfvHbAz6tEOK4WCggJZeGk9YVccA9PMXAiO8c9j4RXNFr5914xNLN1xhBwCEqQ==}
     peerDependencies:
       '@types/react': '>=16.8.0'
       react: '>=16.8.0'
@@ -6124,8 +6124,8 @@ packages:
       react:
         optional: true
 
-  posthog-react-native@4.87.1:
-    resolution: {integrity: sha512-oRh+m+DMvmIyUEIQeIRiOf+pm8X442J+WzAvefuO8vRsMn+MkmeWtLYShx6f3ozBJxfXvuFtuACgwMH2au/rlQ==}
+  posthog-react-native@4.87.2:
+    resolution: {integrity: sha512-a/UujnaZOqsRnUReJ1rbR9N7hsAP+AJJ8K5oFBVRpLsXLKl+RE8xWid+x7HZepiAzUxrDoRY5MQho0aE1/Y01g==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.12.7'
@@ -7183,8 +7183,8 @@ packages:
     resolution: {integrity: sha512-u4J1hr6Y+C/hit34GwL3eIcUf3wngT8TlYUjK7tk0jxydKLAq3sYvifjdTDA6U3KCKRcQCQDGf/srjxfZF3l7g==}
     engines: {node: '>=18.12.0'}
 
-  viem@2.58.4:
-    resolution: {integrity: sha512-zeYi2PliKbmJVbIvudHZrYJLh1XMXci6GBJznQLjhhGPGl9L7Hp/LmelpXhOM9VvlXwnvfW7/2PCgpjnc2j8MQ==}
+  viem@2.58.6:
+    resolution: {integrity: sha512-dBxl7nsHrENzD3HR/wOeeH2NcfXSwoEibTSZKJR7kcQOyqIDa50O27H2JU2ZMAQqS1QrEojaYCy6dLWIsdb9cA==}
     peerDependencies:
       mppx: '>=0.17.0'
       typescript: '>=5.0.4'
@@ -8300,7 +8300,7 @@ snapshots:
       idb-keyval: 6.2.1
       ox: 0.6.9(typescript@6.0.3)(zod@4.6.7)
       preact: 10.24.2
-      viem: 2.58.4(typescript@6.0.3)(zod@4.6.7)
+      viem: 2.58.6(typescript@6.0.3)(zod@4.6.7)
       zustand: 5.0.3(@types/react@19.3.0)(react@19.3.0)
     transitivePeerDependencies:
       - '@types/react'
@@ -8327,7 +8327,7 @@ snapshots:
       hashery: 1.5.1
       keyv: 5.6.0
 
-  '@clerk/backend@3.31.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@clerk/backend@3.32.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@clerk/shared': 4.48.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       standardwebhooks: 1.3.0
@@ -8342,7 +8342,7 @@ snapshots:
       '@coinbase/wallet-sdk': 4.3.7(typescript@6.0.3)(zod@4.6.7)
       '@stripe/stripe-js': 5.6.0
       '@swc/helpers': 0.5.21
-      '@tanstack/query-core': 5.108.2
+      '@tanstack/query-core': 5.108.4
       '@wallet-standard/core': 1.1.1
       '@zxcvbn-ts/core': 3.0.4
       '@zxcvbn-ts/language-common': 3.0.4
@@ -8364,10 +8364,10 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@clerk/expo@4.17.4(@types/react@19.3.0)(expo-application@58.1.2(expo@58.0.19))(expo-auth-session@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3))(expo-constants@58.0.13)(expo-crypto@58.0.7(expo@58.0.19))(expo-secure-store@58.0.2(expo@58.0.19))(expo-web-browser@58.0.6(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)))(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)(zod@4.6.7)':
+  '@clerk/expo@4.17.5(@types/react@19.3.0)(expo-application@58.1.2(expo@58.0.19))(expo-auth-session@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3))(expo-constants@58.0.13)(expo-crypto@58.0.7(expo@58.0.19))(expo-secure-store@58.0.2(expo@58.0.19))(expo-web-browser@58.0.6(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)))(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)(zod@4.6.7)':
     dependencies:
       '@clerk/clerk-js': 6.46.3(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)(zod@4.6.7)
-      '@clerk/react': 6.19.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@clerk/react': 6.19.5(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@clerk/shared': 4.48.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       base-64: 1.0.0
       expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
@@ -8393,7 +8393,7 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@clerk/react@6.19.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@clerk/react@6.19.5(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@clerk/shared': 4.48.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react: 19.3.0
@@ -8401,7 +8401,7 @@ snapshots:
 
   '@clerk/shared@4.48.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@tanstack/query-core': 5.108.2
+      '@tanstack/query-core': 5.108.4
       dequal: 2.0.3
       glob-to-regexp: 0.4.1
       js-cookie: 3.0.8
@@ -8409,9 +8409,9 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  '@clerk/testing@2.3.6(@playwright/test@1.65.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@clerk/testing@2.3.7(@playwright/test@1.65.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@clerk/backend': 3.31.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@clerk/backend': 3.32.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@clerk/shared': 4.48.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       dotenv: 17.2.2
     optionalDependencies:
@@ -8426,7 +8426,7 @@ snapshots:
       clsx: 1.2.1
       eventemitter3: 5.0.4
       preact: 10.29.8
-      viem: 2.58.4(typescript@6.0.3)(zod@4.6.7)
+      viem: 2.58.6(typescript@6.0.3)(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - mppx
@@ -9536,25 +9536,25 @@ snapshots:
     dependencies:
       playwright: 1.65.1
 
-  '@posthog/browser-common@0.12.2':
+  '@posthog/browser-common@0.13.1':
     dependencies:
       '@posthog/core': 1.69.2
-      '@posthog/types': 1.427.0
-      dompurify: 3.4.18
+      '@posthog/types': 1.427.1
+      dompurify: 3.5.0
       preact: 10.29.8
     transitivePeerDependencies:
       - preact-render-to-string
 
   '@posthog/core@1.69.2':
     dependencies:
-      '@posthog/types': 1.427.0
+      '@posthog/types': 1.427.1
 
   '@posthog/react-native-plugin@2.13.3(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)
 
-  '@posthog/types@1.427.0': {}
+  '@posthog/types@1.427.1': {}
 
   '@radix-ui/primitive@1.2.0': {}
 
@@ -10160,28 +10160,28 @@ snapshots:
     dependencies:
       tslib: 2.9.1
 
-  '@tanstack/query-async-storage-persister@5.108.2':
+  '@tanstack/query-async-storage-persister@5.108.4':
     dependencies:
-      '@tanstack/query-core': 5.108.2
-      '@tanstack/query-persist-client-core': 5.108.2
+      '@tanstack/query-core': 5.108.4
+      '@tanstack/query-persist-client-core': 5.108.4
 
-  '@tanstack/query-core@5.108.2': {}
+  '@tanstack/query-core@5.108.4': {}
 
-  '@tanstack/query-persist-client-core@5.108.2':
+  '@tanstack/query-persist-client-core@5.108.4':
     dependencies:
-      '@tanstack/query-core': 5.108.2
+      '@tanstack/query-core': 5.108.4
 
-  '@tanstack/react-query-persist-client@5.108.2(@tanstack/react-query@5.108.2(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0)':
+  '@tanstack/react-query-persist-client@5.108.4(@tanstack/react-query@5.108.4(@types/react@19.3.0)(react@19.3.0))(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      '@tanstack/query-persist-client-core': 5.108.2
-      '@tanstack/react-query': 5.108.2(@types/react@19.3.0)(react@19.3.0)
+      '@tanstack/query-persist-client-core': 5.108.4
+      '@tanstack/react-query': 5.108.4(@types/react@19.3.0)(react@19.3.0)
       react: 19.3.0
     optionalDependencies:
       '@types/react': 19.3.0
 
-  '@tanstack/react-query@5.108.2(@types/react@19.3.0)(react@19.3.0)':
+  '@tanstack/react-query@5.108.4(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
-      '@tanstack/query-core': 5.108.2
+      '@tanstack/query-core': 5.108.4
       react: 19.3.0
     optionalDependencies:
       '@types/react': 19.3.0
@@ -11440,7 +11440,7 @@ snapshots:
     dependencies:
       domelementtype: 2.3.0
 
-  dompurify@3.4.18:
+  dompurify@3.5.0:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -13671,7 +13671,7 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react-native@1.77.0(@types/react@19.3.0)(react-native-svg@15.16.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0):
+  lucide-react-native@1.79.0(@types/react@19.3.0)(react-native-svg@15.16.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0):
     dependencies:
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)
@@ -14549,13 +14549,13 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js@1.453.2(@types/react@19.3.0)(react@19.3.0):
+  posthog-js@1.454.2(@types/react@19.3.0)(react@19.3.0):
     dependencies:
-      '@posthog/browser-common': 0.12.2
+      '@posthog/browser-common': 0.13.1
       '@posthog/core': 1.69.2
-      '@posthog/types': 1.427.0
+      '@posthog/types': 1.427.1
       core-js: 3.51.0
-      dompurify: 3.4.18
+      dompurify: 3.5.0
       fflate: 0.4.9
       preact: 10.29.8
       query-selector-shadow-dom: 1.0.1
@@ -14567,10 +14567,10 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-react-native@4.87.1(3f6c676dda3ef9b830072960c30c2980):
+  posthog-react-native@4.87.2(3f6c676dda3ef9b830072960c30c2980):
     dependencies:
       '@posthog/core': 1.69.2
-      '@posthog/types': 1.427.0
+      '@posthog/types': 1.427.1
     optionalDependencies:
       '@posthog/react-native-plugin': 2.13.3(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))
@@ -15732,7 +15732,7 @@ snapshots:
 
   verkit@0.5.0: {}
 
-  viem@2.58.4(typescript@6.0.3)(zod@4.6.7):
+  viem@2.58.6(typescript@6.0.3)(zod@4.6.7):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
